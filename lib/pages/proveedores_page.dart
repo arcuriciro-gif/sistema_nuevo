@@ -146,36 +146,53 @@ class _ProveedoresPageState extends State<ProveedoresPage> {
                                     ),
                                   ],
                                 ),
-                                trailing: PopupMenuButton(
-                                  itemBuilder: (context) => [
-                                    const PopupMenuItem(
-                                      value: 1,
-                                      child: Text("Editar"),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      tooltip: 'Comentarios internos',
+                                      icon: const Icon(
+                                        Icons.chat_bubble_outline_rounded,
+                                      ),
+                                      onPressed: () => showComentariosInternos(
+                                        context,
+                                        entidadTipo: 'proveedor',
+                                        entidadId: '${p.id}',
+                                        titulo: p.nombre,
+                                      ),
                                     ),
-                                    const PopupMenuItem(
-                                      value: 2,
-                                      child: Text("Eliminar"),
+                                    PopupMenuButton(
+                                      itemBuilder: (context) => [
+                                        const PopupMenuItem(
+                                          value: 1,
+                                          child: Text("Editar"),
+                                        ),
+                                        const PopupMenuItem(
+                                          value: 2,
+                                          child: Text("Eliminar"),
+                                        ),
+                                      ],
+                                      onSelected: (value) async {
+                                        if (value == 1) {
+                                          await Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  ProveedorFormPage(
+                                                proveedor: p,
+                                              ),
+                                            ),
+                                          );
+
+                                          cargarProveedores();
+                                        }
+
+                                        if (value == 2) {
+                                          eliminar(p);
+                                        }
+                                      },
                                     ),
                                   ],
-                                  onSelected: (value) async {
-                                    if (value == 1) {
-                                      await Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              ProveedorFormPage(
-                                            proveedor: p,
-                                          ),
-                                        ),
-                                      );
-
-                                      cargarProveedores();
-                                    }
-
-                                    if (value == 2) {
-                                      eliminar(p);
-                                    }
-                                  },
                                 ),
                               ),
                             );
