@@ -149,8 +149,20 @@ class _ListasPrecioPageState extends State<ListasPrecioPage> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final puedeVolver = Navigator.of(context).canPop();
 
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('Listas de precios'),
+        leading: puedeVolver
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'Volver',
+                onPressed: () => Navigator.of(context).pop(),
+              )
+            : null,
+        automaticallyImplyLeading: puedeVolver,
+      ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab_listas_precio',
         onPressed: () => _editarLista(),
@@ -164,13 +176,6 @@ class _ListasPrecioPageState extends State<ListasPrecioPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Listas de precios',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  const SizedBox(height: 4),
                   Text(
                     'El precio se calcula como: costo × (1 + porcentaje / 100)',
                     style: TextStyle(color: colorScheme.onSurfaceVariant),
