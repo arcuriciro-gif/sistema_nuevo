@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
 import 'cambiar_password_obligatorio_page.dart';
@@ -47,7 +48,13 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    if (user.debeCambiarPassword) {
+    final faltaFirebaseAuth =
+        FirebaseAuthUsuarioService.instance.disponible &&
+        FirebaseAuthUsuarioService.instance.uidActual == null;
+
+    // Sin sesión Firebase no se puede escribir en Firestore (reglas request.auth).
+    // Si la clave actual es corta (<6), hay que definir una nueva.
+    if (user.debeCambiarPassword || faltaFirebaseAuth) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const CambiarPasswordObligatorioPage()),
       );
