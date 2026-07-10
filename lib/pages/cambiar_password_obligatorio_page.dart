@@ -28,12 +28,27 @@ class _CambiarPasswordObligatorioPageState
     super.dispose();
   }
 
+  Future<void> _irAlSistema({String? aviso}) async {
+    if (!mounted) return;
+    if (aviso != null && aviso.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(aviso), duration: const Duration(seconds: 5)),
+      );
+    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const MainShell()),
+    );
+  }
+
   Future<void> _guardar() async {
     final nueva = _nuevaCtrl.text;
     final confirmar = _confirmarCtrl.text;
 
     if (nueva.length < 6) {
-      setState(() => _error = 'La nueva contraseña debe tener al menos 6 caracteres (requisito de Firebase).');
+      setState(() {
+        _error =
+            'La nueva contraseña debe tener al menos 6 caracteres (requisito de Firebase).';
+      });
       return;
     }
     if (nueva != confirmar) {
@@ -49,8 +64,14 @@ class _CambiarPasswordObligatorioPageState
     try {
       await AuthService.instance.completarCambioPasswordObligatorio(nueva);
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainShell()),
+
+      final conNube = FirebaseAuthUsuarioService.instance.uidActual != null;
+      await _irAlSistema(
+        aviso: conNube
+            ? null
+            : 'Contraseña guardada. La sincronización en la nube quedó pendiente: '
+                'revisá Authentication → Correo/contraseña en Firebase, '
+                'o usá en el celular la misma clave.',
       );
     } catch (e) {
       if (!mounted) return;
@@ -66,6 +87,7 @@ class _CambiarPasswordObligatorioPageState
     final cs = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final usuario = AuthService.instance.currentUser?.usuario ?? '';
+    final sinNube = FirebaseAuthUsuarioService.instance.uidActual == null;
 
     return Scaffold(
       body: Center(
@@ -80,15 +102,16 @@ class _CambiarPasswordObligatorioPageState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Cambio de contraseña obligatorio',
+                      'Definí tu contraseña',
                       style: textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      FirebaseAuthUsuarioService.instance.uidActual == null
-                          ? 'Hola $usuario: para sincronizar con Firebase necesitás una contraseña de al menos 6 caracteres.'
+                      sinNube
+                          ? 'Hola $usuario: elegí una contraseña de al menos 6 caracteres. '
+                              'Usá la misma en la PC y en el celular para sincronizar.'
                           : 'Hola $usuario, debés definir una nueva contraseña antes de continuar.',
                       style: textTheme.bodyMedium?.copyWith(
                         color: cs.onSurfaceVariant,
@@ -107,7 +130,8 @@ class _CambiarPasswordObligatorioPageState
                                 ? Icons.visibility_off_outlined
                                 : Icons.visibility_outlined,
                           ),
-                          onPressed: () => setState(() => _obscure1 = !_obscure1),
+                          onPressed: () =>
+                              setState(() => _obscure1 = !_obscure1),
                         ),
                       ),
                     ),
@@ -124,7 +148,8 @@ class _CambiarPasswordObligatorioPageState
                                 ? Icons.visibility_off_outlined
                                 : Icons.visibility_outlined,
                           ),
-                          onPressed: () => setState(() => _obscure2 = !_obscure2),
+                          onPressed: () =>
+                              setState(() => _obscure2 = !_obscure2),
                         ),
                       ),
                       textInputAction: TextInputAction.done,
@@ -139,7 +164,8 @@ class _CambiarPasswordObligatorioPageState
                           Expanded(
                             child: Text(
                               _error!,
-                              style: textTheme.bodySmall?.copyWith(color: cs.error),
+                              style: textTheme.bodySmall
+                                  ?.copyWith(color: cs.error),
                             ),
                           ),
                         ],

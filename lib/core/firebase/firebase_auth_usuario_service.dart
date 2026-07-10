@@ -37,6 +37,18 @@ class FirebaseAuthUsuarioService {
     String? email,
   }) async {
     final authEmail = UsuarioAuthEmail.paraUsuario(usuario, emailReal: email);
+
+    // Si no hay sesión en la app principal, crear directo (más fiable en Windows).
+    if (_auth.currentUser == null) {
+      final cred = await _auth.createUserWithEmailAndPassword(
+        email: authEmail,
+        password: password,
+      );
+      return cred.user!.uid;
+    }
+
+    // Hay un usuario logueado (ej. admin creando otro): usar app secundaria
+    // para no cerrar la sesión actual.
     final appName = 'UsuarioCreator_${DateTime.now().millisecondsSinceEpoch}';
     final secondary = await Firebase.initializeApp(
       name: appName,
@@ -49,11 +61,7 @@ class FirebaseAuthUsuarioService {
         password: password,
       );
       final uid = cred.user!.uid;
-      // Dejar la sesión activa en la app principal para que Firestore acepte writes.
-      await _auth.signInWithEmailAndPassword(
-        email: authEmail,
-        password: password,
-      );
+      await secondaryAuth.signOut();
       return uid;
     } finally {
       await secondary.delete();

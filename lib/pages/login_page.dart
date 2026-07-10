@@ -52,10 +52,11 @@ class _LoginPageState extends State<LoginPage> {
     final faltaFirebaseAuth =
         FirebaseAuthUsuarioService.instance.disponible &&
         FirebaseAuthUsuarioService.instance.uidActual == null;
+    final passwordCorta = _passwordCtrl.text.length < 6;
 
-    // Sin sesión Firebase no se puede escribir en Firestore (reglas request.auth).
-    // Si la clave actual es corta (<6), hay que definir una nueva.
-    if (user.debeCambiarPassword || faltaFirebaseAuth) {
+    // Solo forzar pantalla de clave si el sistema lo exige o la clave es corta
+    // para Firebase. Si solo falta Auth pero la clave ya es válida, entrar igual.
+    if (user.debeCambiarPassword || (faltaFirebaseAuth && passwordCorta)) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const CambiarPasswordObligatorioPage()),
       );
