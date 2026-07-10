@@ -25,10 +25,20 @@ Varios usuarios pueden trabajar a la vez (admin, encargado, empleado). Si están
 2. Si el teléfono bloquea la instalación, permití “orígenes desconocidos” para ese archivo.
 
 ### Windows
-1. Copiá **toda** la carpeta `Release` (no solo el `.exe`).
-2. Ejecutá `sistema_nuevo.exe` desde esa carpeta.
-3. No borres los `.dll` ni las carpetas que van junto al ejecutable.
-4. En esa misma carpeta vas a encontrar **`MANUAL_DE_USO.pdf`** (manual en PDF).
+1. En la PC de desarrollo, después de compilar, usá la carpeta de la **raíz del proyecto**:
+   - `Instalador_Windows\`
+2. Ahí está el `.exe`, el PDF del manual y `ABRIR_TATA_MANAGER.bat`.
+3. Copiá **toda** esa carpeta a la otra PC (pendrive, red, zip).
+4. En la otra PC: doble clic en `ABRIR_TATA_MANAGER.bat` o en `sistema_nuevo.exe`.
+
+**No muevas solo el `.exe`** a otra carpeta: se rompe. Tiene que ir con los `.dll` y la carpeta `data`.
+
+Cómo regenerar `Instalador_Windows` en la PC de desarrollo:
+```bat
+flutter build windows --release
+scripts\preparar_instalador_windows.bat
+```
+(El build también puede dejarla armada sola al compilar.)
 
 ### Manual dentro de la app
 Menú **Manual de usuario**: se lee en pantalla, y también podés abrir/compartir el PDF.

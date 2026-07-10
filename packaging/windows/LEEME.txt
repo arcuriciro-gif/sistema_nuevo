@@ -1,0 +1,28 @@
+Tata.Manager — carpeta para instalar en otra PC
+================================================
+
+QUE COPIAR
+----------
+Copiá ESTA carpeta completa (Instalador_Windows) a la otra PC.
+No copies la carpeta "build" entera del proyecto (pesa varios GB).
+
+COMO ABRIR
+----------
+- Doble clic en:  ABRIR_TATA_MANAGER.bat
+- O en:           sistema_nuevo.exe
+
+IMPORTANTE
+----------
+NO muevas solo el archivo .exe a otra carpeta.
+El programa necesita los .dll, la carpeta "data" y el resto
+de archivos que estan aca. Si separas el .exe, se rompe.
+
+MANUAL
+------
+MANUAL_DE_USO.pdf  = manual en PDF
+Tambien esta dentro de la app: menu "Manual de usuario".
+
+ACTUALIZAR ESTA CARPETA (PC de desarrollo)
+------------------------------------------
+1) flutter build windows --release
+2) scripts\preparar_instalador_windows.bat
