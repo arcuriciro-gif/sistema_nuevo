@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../core/firebase/firebase_safe_mode.dart';
+import '../services/app_log.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
 import 'cambiar_password_obligatorio_page.dart';
@@ -46,8 +47,10 @@ class _LoginPageState extends State<LoginPage> {
     final user = AuthService.instance.currentUser;
     if (user == null || !mounted) return;
 
-    // Solo forzar cambio de clave si es obligatorio localmente.
-    // Firebase se conecta en background; no bloqueamos el ingreso.
+    await appendAppLog(
+      'NAV post-login debeCambiar=${user.debeCambiarPassword}',
+    );
+
     if (user.debeCambiarPassword) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
@@ -60,7 +63,7 @@ class _LoginPageState extends State<LoginPage> {
       );
     }
 
-    // Después de navegar, conectar Firebase sin tumbar el login.
+    // En Windows no se conecta Firebase (queda local).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       AuthService.instance.conectarFirebaseDespuesDelLogin();
     });
@@ -220,8 +223,8 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Primera vez en esta PC: admin / admin123 '
-                          '(te va a pedir cambiar la clave).',
+                          'Esta versión Windows entra en modo LOCAL (sin nube). '
+                          'Primera vez: admin / admin123',
                           style: textTheme.bodySmall?.copyWith(
                             color: cs.onSurfaceVariant,
                           ),

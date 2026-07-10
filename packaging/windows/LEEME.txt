@@ -1,28 +1,28 @@
 Tata.Manager — carpeta para instalar en otra PC
 ================================================
 
-QUE COPIAR
-----------
-Copiá ESTA carpeta completa (Instalador_Windows) a la otra PC.
-No copies la carpeta "build" entera del proyecto (pesa varios GB).
-
 COMO ABRIR
 ----------
-- Doble clic en:  ABRIR_TATA_MANAGER.bat
-- O en:           sistema_nuevo.exe
+1) Descomprimí TODO el ZIP en una carpeta (ej. C:\TataManager)
+2) Doble clic en:  ABRIR_TATA_MANAGER.bat
+   (o sistema_nuevo.exe)
 
 IMPORTANTE
 ----------
-NO muevas solo el archivo .exe a otra carpeta.
-El programa necesita los .dll, la carpeta "data" y el resto
-de archivos que estan aca. Si separas el .exe, se rompe.
+NO muevas solo el archivo .exe.
+Tiene que estar con los .dll, sqlite3.dll y la carpeta "data".
 
-MANUAL
-------
-MANUAL_DE_USO.pdf  = manual en PDF
-Tambien esta dentro de la app: menu "Manual de usuario".
+PRIMERA VEZ / SI SE CERRABA AL ENTRAR
+------------------------------------
+Usuario: admin
+Contraseña: admin123
+Te va a pedir cambiar la clave (mínimo 6 caracteres).
 
-ACTUALIZAR ESTA CARPETA (PC de desarrollo)
-------------------------------------------
-1) flutter build windows --release
-2) scripts\preparar_instalador_windows.bat
+Esta build de Windows entra en MODO LOCAL (sin Firebase)
+para evitar el cierre al iniciar sesión. El celular puede
+seguir usando la nube; la PC trabaja con su base local.
+
+SI FALLA
+--------
+Mirá el archivo tata_manager_error.log
+(en esta misma carpeta o en Documentos).

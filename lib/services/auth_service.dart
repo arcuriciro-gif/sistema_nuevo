@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../core/auth/rol_util.dart';
 import '../core/auth/usuario_auth_email.dart';
 import '../core/config/backend_config_service.dart';
+import '../core/config/platform_capabilities.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/firebase/firebase_bootstrap.dart';
 import '../core/firebase/firebase_safe_mode.dart';
@@ -14,6 +15,7 @@ import '../database/database_helper.dart';
 import '../models/usuario.dart';
 import '../repositories/firestore_usuario_repository.dart';
 import '../repositories/sqlite_usuario_repository.dart';
+import 'app_log.dart';
 
 class AuthService {
   static final AuthService instance = AuthService._();
@@ -52,7 +54,11 @@ class AuthService {
     }
 
     final firebase = FirebaseAuthUsuarioService.instance;
-    final puedeFirebase = firebase.disponible && !FirebaseSafeMode.enabled;
+    final puedeFirebase = PlatformCapabilities.firebasePermitido &&
+        firebase.disponible &&
+        !FirebaseSafeMode.enabled;
+
+    await appendAppLog('LOGIN start entrada=$entrada');
 
     // Sin usuario local: solo posible vía Firebase (otra PC / pendrive).
     if (localUser == null || !localUser.activo) {
@@ -145,6 +151,7 @@ class AuthService {
       return null;
     }
 
+    await appendAppLog('LOGIN local OK user=${localUser.usuario}');
     return _finalizarLoginLocal(localUser, password, sqlite);
   }
 
@@ -153,6 +160,7 @@ class AuthService {
     String password,
     SqliteUsuarioRepository sqlite,
   ) async {
+    await appendAppLog('LOGIN finalizar local ${usuario.usuario}');
     final ahora = DateTime.now();
     final usuarioSesion = usuario.copyWith(ultimoAcceso: ahora);
     await sqlite.actualizar(usuarioSesion);
@@ -169,11 +177,16 @@ class AuthService {
         'rol': currentUser?.rol,
       }),
     );
+    await appendAppLog('LOGIN listo (sin Firebase en este paso)');
     return currentUser!;
   }
 
   /// Conecta Firebase Auth + sync DESPUÉS de mostrar la UI.
   Future<void> conectarFirebaseDespuesDelLogin() async {
+    if (!PlatformCapabilities.firebasePermitido) {
+      await appendAppLog('POST-LOGIN firebase omitido (Windows local-only)');
+      return;
+    }
     final usuario = currentUser;
     final password = _ultimaPasswordIngresada;
     if (usuario == null || password == null || password.isEmpty) return;

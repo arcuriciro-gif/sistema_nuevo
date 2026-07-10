@@ -44,6 +44,27 @@ jobs:
           if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
           New-Item -ItemType Directory -Path $dst | Out-Null
           Copy-Item -Path "$src\*" -Destination $dst -Recurse -Force
+
+          # Asegurar sqlite3.dll junto al exe (sqflite_common_ffi en release)
+          $sqliteCandidates = @(
+            "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\sqflite_common_ffi-*\lib\src\windows\sqlite3.dll",
+            "$env:PUB_CACHE\hosted\pub.dev\sqflite_common_ffi-*\lib\src\windows\sqlite3.dll",
+            "$src\sqlite3.dll"
+          )
+          $copiedSqlite = $false
+          foreach ($pattern in $sqliteCandidates) {
+            $hit = Get-Item $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($hit) {
+              Copy-Item $hit.FullName "$dst\sqlite3.dll" -Force
+              Write-Host "sqlite3.dll desde $($hit.FullName)"
+              $copiedSqlite = $true
+              break
+            }
+          }
+          if (-not $copiedSqlite) {
+            Write-Host "AVISO: no se encontró sqlite3.dll en pub-cache; se usa el del build si existe"
+          }
+
           if (Test-Path "assets\docs\MANUAL_DE_USO.pdf") {
             Copy-Item "assets\docs\MANUAL_DE_USO.pdf" "$dst\MANUAL_DE_USO.pdf" -Force
           }
@@ -54,7 +75,11 @@ jobs:
             Copy-Item "packaging\windows\LEEME.txt" "$dst\LEEME.txt" -Force
           }
           Get-ChildItem $dst | Select-Object Name, Length
-
+          if (-not (Test-Path "$dst\sqlite3.dll")) {
+            Write-Host "WARNING: sqlite3.dll no está en el instalador"
+          } else {
+            Write-Host "OK: sqlite3.dll incluido"
+          }
       - name: Subir Instalador_Windows (ZIP)
         uses: actions/upload-artifact@v4
         with:

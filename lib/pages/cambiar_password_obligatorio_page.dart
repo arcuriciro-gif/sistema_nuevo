@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../services/auth_service.dart';
 import 'main_shell.dart';
 
@@ -90,9 +89,7 @@ class _CambiarPasswordObligatorioPageState
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      FirebaseAuthUsuarioService.instance.uidActual == null
-                          ? 'Hola $usuario: para sincronizar con Firebase necesitás una contraseña de al menos 6 caracteres.'
-                          : 'Hola $usuario, debés definir una nueva contraseña antes de continuar.',
+                      'Hola $usuario: definí una contraseña de al menos 6 caracteres para continuar.',
                       style: textTheme.bodyMedium?.copyWith(
                         color: cs.onSurfaceVariant,
                       ),
