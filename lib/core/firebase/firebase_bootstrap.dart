@@ -28,10 +28,17 @@ class FirebaseBootstrap {
     }
 
     if (_initialized) return;
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    _initialized = true;
-    debugPrint('Firebase inicializado correctamente.');
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      _initialized = true;
+      debugPrint('Firebase inicializado correctamente.');
+    } catch (e, st) {
+      // En Windows un fallo de Firebase no debe impedir abrir la app.
+      debugPrint('Firebase no se pudo inicializar: $e');
+      debugPrint('$st');
+      _initialized = false;
+    }
   }
 }

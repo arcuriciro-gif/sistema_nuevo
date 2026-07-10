@@ -13,12 +13,42 @@ import 'theme/theme_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  initializeThemeProvider();
-  await BrandingService.instance.cargar();
-  await DocumentNumberingService.instance.cargar();
-  await AfipConfigService.instance.cargar();
-  await BackendConfigService.instance.cargar();
-  await FirebaseBootstrap.initializeIfNeeded();
+
+  try {
+    initializeThemeProvider();
+  } catch (e) {
+    debugPrint('Theme init: $e');
+  }
+
+  try {
+    await BrandingService.instance.cargar();
+  } catch (e) {
+    debugPrint('Branding init: $e');
+  }
+
+  try {
+    await DocumentNumberingService.instance.cargar();
+  } catch (e) {
+    debugPrint('DocumentNumbering init: $e');
+  }
+
+  try {
+    await AfipConfigService.instance.cargar();
+  } catch (e) {
+    debugPrint('Afip init: $e');
+  }
+
+  try {
+    await BackendConfigService.instance.cargar();
+  } catch (e) {
+    debugPrint('BackendConfig init: $e');
+  }
+
+  try {
+    await FirebaseBootstrap.initializeIfNeeded();
+  } catch (e) {
+    debugPrint('Firebase bootstrap: $e');
+  }
 
   const desktopPlatforms = {
     TargetPlatform.windows,
@@ -27,11 +57,20 @@ void main() async {
   };
 
   if (!kIsWeb && desktopPlatforms.contains(defaultTargetPlatform)) {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+    try {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    } catch (e) {
+      debugPrint('SQLite FFI init: $e');
+    }
   }
 
-  await PermisosService.instance.cargar();
+  try {
+    await PermisosService.instance.cargar();
+  } catch (e) {
+    debugPrint('Permisos init: $e');
+  }
+
   // Firestore sync starts after Firebase Auth login (rules require request.auth).
   runApp(const ElTataApp());
 }

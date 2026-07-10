@@ -33,8 +33,13 @@ echo Iniciando sistema_nuevo.exe ...
 echo Si se cierra solo, anota el mensaje de error.
 echo.
 
+REM Activa consola de diagnostico
+echo. > "mostrar_consola.txt"
+
 sistema_nuevo.exe
 set ERR=%ERRORLEVEL%
+
+del "mostrar_consola.txt" >nul 2>&1
 
 echo.
 if %ERR% neq 0 (
