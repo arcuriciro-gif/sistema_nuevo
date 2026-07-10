@@ -30,6 +30,12 @@ No hay auto-registro público. El **administrador** da de alta a cada persona en
 - Usuario por defecto suele ser `admin` (la contraseña la define quien instaló).  
 - Después creá el resto de usuarios con email real.
 
+### Rangos de talle (PAPI FEBO, etc.)
+Si el proveedor manda `PAPI FEBO BLANCA 39 AL 42` y vos tenés cada talle aparte (`... 41`):
+1. Entrá al sistema.  
+2. **Centro de importaciones** → **Comparar Costos** (o plantilla *Lista proveedor rangos*).  
+3. Cargá la lista: el sistema aplica el precio a cada talle del rango.
+
 ---
 
 ## 1. Qué es Tata.Manager

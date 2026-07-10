@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -26,6 +27,7 @@ class _ManualUsuarioPageState extends State<ManualUsuarioPage> {
   String _contenido = '';
   bool _cargando = true;
   String? _error;
+  bool _abriendoPdf = false;
 
   @override
   void initState() {
@@ -55,36 +57,61 @@ class _ManualUsuarioPageState extends State<ManualUsuarioPage> {
     return data.buffer.asUint8List();
   }
 
-  Future<void> _verPdf() async {
-    final bytes = await _bytesPdf();
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: buildModuleAppBar(context, title: 'Manual (PDF)'),
-          body: PdfPreview(
-            build: (_) async => bytes,
-            canChangeOrientation: false,
-            canChangePageFormat: false,
-            allowPrinting: true,
-            allowSharing: true,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _compartirPdf() async {
+  Future<File> _archivoPdfTemporal() async {
     final bytes = await _bytesPdf();
     final dir = await getTemporaryDirectory();
     final file = File('${dir.path}/MANUAL_DE_USO_TataManager.pdf');
     await file.writeAsBytes(bytes, flush: true);
-    await SharePlus.instance.share(
-      ShareParams(
-        files: [XFile(file.path)],
-        text: 'Manual de uso — Tata.Manager',
-      ),
-    );
+    return file;
+  }
+
+  Future<void> _verPdf() async {
+    if (_abriendoPdf) return;
+    setState(() => _abriendoPdf = true);
+    try {
+      final bytes = await _bytesPdf();
+      if (!mounted) return;
+
+      // En Android el visor interno a veces falla; ofrecemos vista + compartir.
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => _PdfManualPage(
+            bytes: bytes,
+            onCompartir: _compartirPdf,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo abrir el PDF: $e'),
+          action: SnackBarAction(
+            label: 'Compartir',
+            onPressed: _compartirPdf,
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _abriendoPdf = false);
+    }
+  }
+
+  Future<void> _compartirPdf() async {
+    try {
+      final file = await _archivoPdfTemporal();
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'application/pdf')],
+          text: 'Manual de uso — Tata.Manager',
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo compartir el PDF: $e')),
+      );
+    }
   }
 
   List<Widget> _construirContenido(BuildContext context) {
@@ -182,11 +209,17 @@ class _ManualUsuarioPageState extends State<ManualUsuarioPage> {
         actions: [
           IconButton(
             tooltip: 'Ver PDF',
-            icon: const Icon(Icons.picture_as_pdf_rounded),
-            onPressed: _cargando ? null : _verPdf,
+            icon: _abriendoPdf
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.picture_as_pdf_rounded),
+            onPressed: _cargando || _abriendoPdf ? null : _verPdf,
           ),
           IconButton(
-            tooltip: 'Compartir PDF',
+            tooltip: 'Compartir / abrir PDF',
             icon: const Icon(Icons.share_rounded),
             onPressed: _cargando ? null : _compartirPdf,
           ),
@@ -208,8 +241,8 @@ class _ManualUsuarioPageState extends State<ManualUsuarioPage> {
                           leading: Icon(Icons.info_outline_rounded),
                           title: Text('Antes de iniciar sesión'),
                           subtitle: Text(
-                            'Leé la sección «Primeros pasos: registro y correo» '
-                            'y abrí el PDF si preferís imprimirlo o enviarlo.',
+                            'Leé «Primeros pasos: registro y correo». '
+                            'Tocá PDF para verlo o compartirlo al celular.',
                           ),
                         ),
                       ),
@@ -218,19 +251,53 @@ class _ManualUsuarioPageState extends State<ManualUsuarioPage> {
                           .colorScheme
                           .primaryContainer
                           .withValues(alpha: 0.5),
-                      child: ListTile(
-                        leading: const Icon(Icons.menu_book_rounded),
-                        title: const Text('Manual incluido en la app'),
-                        subtitle: Text(
-                          widget.desdeLogin
-                              ? 'Podés leerlo acá o abrir el PDF sin necesidad de entrar.'
-                              : 'En Windows también está el PDF junto al .exe '
-                                  '(MANUAL_DE_USO.pdf).',
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
                         ),
-                        trailing: FilledButton.tonalIcon(
-                          onPressed: _verPdf,
-                          icon: const Icon(Icons.picture_as_pdf),
-                          label: const Text('PDF'),
+                        child: Column(
+                          children: [
+                            ListTile(
+                              leading: const Icon(Icons.menu_book_rounded),
+                              title: const Text('Manual incluido en la app'),
+                              subtitle: Text(
+                                widget.desdeLogin
+                                    ? 'Leelo acá abajo, o abrí/compartí el PDF.'
+                                    : 'También está el PDF junto al .exe en Windows.',
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: FilledButton.icon(
+                                      onPressed:
+                                          _abriendoPdf ? null : _verPdf,
+                                      icon: const Icon(
+                                        Icons.picture_as_pdf_rounded,
+                                      ),
+                                      label: const Text('Ver PDF'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: _compartirPdf,
+                                      icon: const Icon(Icons.share_rounded),
+                                      label: Text(
+                                        defaultTargetPlatform ==
+                                                TargetPlatform.android
+                                            ? 'Abrir PDF'
+                                            : 'Compartir',
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -242,6 +309,41 @@ class _ManualUsuarioPageState extends State<ManualUsuarioPage> {
                     ),
                   ],
                 ),
+    );
+  }
+}
+
+class _PdfManualPage extends StatelessWidget {
+  final Uint8List bytes;
+  final VoidCallback onCompartir;
+
+  const _PdfManualPage({
+    required this.bytes,
+    required this.onCompartir,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Manual (PDF)',
+        actions: [
+          IconButton(
+            tooltip: 'Compartir / abrir con otra app',
+            icon: const Icon(Icons.share_rounded),
+            onPressed: onCompartir,
+          ),
+        ],
+      ),
+      body: PdfPreview(
+        build: (_) async => bytes,
+        canChangeOrientation: false,
+        canChangePageFormat: false,
+        allowPrinting: true,
+        allowSharing: true,
+        pdfFileName: 'MANUAL_DE_USO_TataManager.pdf',
+      ),
     );
   }
 }

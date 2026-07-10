@@ -242,7 +242,7 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Registro, correo de confirmación y primeros pasos.',
+                  'Registro, correo, PDF del manual y comparación por talles (ej. 39 AL 42).',
                   style: textTheme.bodySmall?.copyWith(
                     color: cs.onSurfaceVariant,
                   ),
