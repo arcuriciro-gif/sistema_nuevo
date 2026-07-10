@@ -72,7 +72,7 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Future<void> _olvidéPassword() async {
+  Future<void> _olvidePassword() async {
     final entrada = _usuarioCtrl.text.trim();
     if (entrada.isEmpty) {
       setState(() {
@@ -293,7 +293,7 @@ class _LoginPageState extends State<LoginPage> {
                           child: TextButton(
                             onPressed: (_loading || _recuperando)
                                 ? null
-                                : _olvidéPassword,
+                                : _olvidePassword,
                             child: _recuperando
                                 ? const SizedBox(
                                     width: 16,
