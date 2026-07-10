@@ -220,23 +220,29 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
-                TextButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const ManualUsuarioPage(
-                          desdeLogin: true,
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const ManualUsuarioPage(
+                            desdeLogin: true,
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.menu_book_rounded),
-                  label: const Text('Ver instrucciones (PDF / manual)'),
+                      );
+                    },
+                    icon: const Icon(Icons.picture_as_pdf_rounded),
+                    label: const Text('Instrucciones / PDF (sin iniciar sesión)'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 8),
                 Text(
-                  'Pasos para registrarse, correo de confirmación y uso del sistema.',
+                  'Registro, correo de confirmación y primeros pasos.',
                   style: textTheme.bodySmall?.copyWith(
                     color: cs.onSurfaceVariant,
                   ),
