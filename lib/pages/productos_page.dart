@@ -15,7 +15,17 @@ import 'scanner_page.dart';
 import '../theme/module_app_bar.dart';
 
 class ProductosPage extends StatefulWidget {
-  const ProductosPage({super.key});
+  /// Si es true, abre la lista ya filtrada a productos sin stock.
+  final bool soloSinStockInicial;
+
+  /// Si es true, abre filtrado a stock bajo / crítico (incluye sin stock).
+  final bool soloStockBajoInicial;
+
+  const ProductosPage({
+    super.key,
+    this.soloSinStockInicial = false,
+    this.soloStockBajoInicial = false,
+  });
 
   @override
   State<ProductosPage> createState() => _ProductosPageState();
@@ -37,6 +47,8 @@ class _ProductosPageState extends State<ProductosPage> {
   String? _filtroMarca;
   String? _filtroProveedor;
   bool _soloFavoritos = false;
+  bool _soloSinStock = false;
+  bool _soloStockBajo = false;
 
   List<String> _marcas = [];
   List<String> _proveedores = [];
@@ -49,6 +61,8 @@ class _ProductosPageState extends State<ProductosPage> {
   @override
   void initState() {
     super.initState();
+    _soloSinStock = widget.soloSinStockInicial;
+    _soloStockBajo = widget.soloStockBajoInicial;
     DataRefreshHub.instance.addListener(_onDatosActualizados);
     cargarProductos();
   }
@@ -96,10 +110,20 @@ class _ProductosPageState extends State<ProductosPage> {
           p.proveedor.toLowerCase().contains(query);
 
       final matchMarca = _filtroMarca == null || p.marca == _filtroMarca;
-      final matchProveedor = _filtroProveedor == null || p.proveedor == _filtroProveedor;
+      final matchProveedor =
+          _filtroProveedor == null || p.proveedor == _filtroProveedor;
       final matchFavorito = !_soloFavoritos || p.favorito;
+      final matchSinStock = !_soloSinStock || p.stock == 0;
+      final matchStockBajo = !_soloStockBajo ||
+          p.stock == 0 ||
+          (p.stockMinimo > 0 ? p.stock <= p.stockMinimo : p.stock <= 5);
 
-      return matchBusqueda && matchMarca && matchProveedor && matchFavorito;
+      return matchBusqueda &&
+          matchMarca &&
+          matchProveedor &&
+          matchFavorito &&
+          matchSinStock &&
+          matchStockBajo;
     }).toList();
 
     // Favoritos primero
@@ -111,6 +135,28 @@ class _ProductosPageState extends State<ProductosPage> {
     });
 
     if (mounted) setState(() {});
+  }
+
+  void _mostrarSoloSinStock() {
+    setState(() {
+      _soloSinStock = true;
+      _soloStockBajo = false;
+      _soloFavoritos = false;
+    });
+    _aplicarFiltros();
+  }
+
+  void _limpiarFiltros() {
+    setState(() {
+      _filtroBusqueda = '';
+      _filtroMarca = null;
+      _filtroProveedor = null;
+      _soloFavoritos = false;
+      _soloSinStock = false;
+      _soloStockBajo = false;
+      buscarController.clear();
+    });
+    _aplicarFiltros();
   }
 
   Future<void> _escanearCodigo() async {
@@ -181,17 +227,6 @@ class _ProductosPageState extends State<ProductosPage> {
       MaterialPageRoute(builder: (_) => const ProductoFormPage()),
     );
     await cargarProductos();
-  }
-
-  void _limpiarFiltros() {
-    buscarController.clear();
-    setState(() {
-      _filtroBusqueda = '';
-      _filtroMarca = null;
-      _filtroProveedor = null;
-      _soloFavoritos = false;
-    });
-    _aplicarFiltros();
   }
 
   @override
@@ -272,6 +307,15 @@ class _ProductosPageState extends State<ProductosPage> {
                           value: '$_sinStock',
                           icon: Icons.warning_amber_rounded,
                           color: dangerColor,
+                          selected: _soloSinStock,
+                          onTap: () {
+                            if (_soloSinStock) {
+                              setState(() => _soloSinStock = false);
+                              _aplicarFiltros();
+                            } else {
+                              _mostrarSoloSinStock();
+                            }
+                          },
                         ),
                       ];
                       return narrow
@@ -299,6 +343,34 @@ class _ProductosPageState extends State<ProductosPage> {
                     },
                   ),
                 ),
+                if (_soloSinStock || _soloStockBajo)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                    child: Material(
+                      color: dangerColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(
+                          Icons.warning_amber_rounded,
+                          color: dangerColor,
+                        ),
+                        title: Text(
+                          _soloSinStock
+                              ? 'Mostrando $_sinStock producto(s) sin stock'
+                              : 'Mostrando productos con stock bajo',
+                          style: TextStyle(
+                            color: dangerColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        trailing: TextButton(
+                          onPressed: _limpiarFiltros,
+                          child: const Text('Ver todos'),
+                        ),
+                      ),
+                    ),
+                  ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   child: Row(
@@ -319,7 +391,9 @@ class _ProductosPageState extends State<ProductosPage> {
                             isDense: true,
                             suffixIcon: (_filtroBusqueda.isNotEmpty ||
                                     _filtroMarca != null ||
-                                    _filtroProveedor != null)
+                                    _filtroProveedor != null ||
+                                    _soloSinStock ||
+                                    _soloStockBajo)
                                 ? IconButton(
                                     icon: const Icon(Icons.close_rounded),
                                     tooltip: 'Limpiar filtros',
@@ -509,54 +583,68 @@ class _KpiCard extends StatelessWidget {
   final String value;
   final IconData icon;
   final Color color;
+  final VoidCallback? onTap;
+  final bool selected;
 
   const _KpiCard({
     required this.title,
     required this.value,
     required this.icon,
     required this.color,
+    this.onTap,
+    this.selected = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
       margin: EdgeInsets.zero,
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: color.withValues(alpha: 0.15),
-              child: Icon(icon, color: color, size: 16),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(fontSize: 11, color: Colors.grey),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                      color: color,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+      elevation: selected ? 4 : 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: selected
+            ? BorderSide(color: color, width: 1.5)
+            : BorderSide.none,
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: color.withValues(alpha: 0.15),
+                child: Icon(icon, color: color, size: 16),
               ),
-            ),
-          ],
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      value,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
