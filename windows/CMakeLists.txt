@@ -110,3 +110,33 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# Manual de uso PDF junto al .exe (carpeta Release)
+set(MANUAL_PDF "${CMAKE_CURRENT_SOURCE_DIR}/../assets/docs/MANUAL_DE_USO.pdf")
+if(EXISTS "${MANUAL_PDF}")
+  install(FILES "${MANUAL_PDF}"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime)
+endif()
+
+# Copia el paquete completo a la raiz del proyecto (Instalador_Windows)
+# para encontrarlo facil sin entrar a build/.../Release
+set(PROJECT_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Instalador_Windows")
+set(DIST_LEEME "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/windows/LEEME.txt")
+set(DIST_ABRIR "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/windows/ABRIR_TATA_MANAGER.bat")
+install(CODE "
+  message(STATUS \"Preparando Instalador_Windows en: ${PROJECT_DIST_DIR}\")
+  file(REMOVE_RECURSE \"${PROJECT_DIST_DIR}\")
+  file(MAKE_DIRECTORY \"${PROJECT_DIST_DIR}\")
+  file(COPY \"\${CMAKE_INSTALL_PREFIX}/\" DESTINATION \"${PROJECT_DIST_DIR}\")
+  if(EXISTS \"${DIST_LEEME}\")
+    file(COPY \"${DIST_LEEME}\" DESTINATION \"${PROJECT_DIST_DIR}\")
+  endif()
+  if(EXISTS \"${DIST_ABRIR}\")
+    file(COPY \"${DIST_ABRIR}\" DESTINATION \"${PROJECT_DIST_DIR}\")
+  endif()
+  if(EXISTS \"${MANUAL_PDF}\")
+    file(COPY \"${MANUAL_PDF}\" DESTINATION \"${PROJECT_DIST_DIR}\")
+  endif()
+  message(STATUS \"Listo: abrí la carpeta Instalador_Windows en la raiz del proyecto\")
+" COMPONENT Runtime)

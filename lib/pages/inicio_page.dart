@@ -12,6 +12,7 @@ import '../services/producto_service.dart';
 import '../services/remito_service.dart';
 import '../theme/module_app_bar.dart';
 import 'clientes_deudores_page.dart';
+import 'productos_page.dart';
 
 class InicioPage extends StatefulWidget {
   const InicioPage({super.key});
@@ -218,6 +219,18 @@ class _InicioPageState extends State<InicioPage> {
                               value: _fmt(_sinStock),
                               icon: Icons.warning_amber_rounded,
                               color: const Color(0xFFEF4444),
+                              onTap: _sinStock == 0
+                                  ? null
+                                  : () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => const ProductosPage(
+                                            soloSinStockInicial: true,
+                                          ),
+                                        ),
+                                      ).then((_) => _cargar());
+                                    },
                             ),
                             _KpiCard(
                               title: 'Clientes',
@@ -370,12 +383,14 @@ class _KpiCard extends StatelessWidget {
   final String value;
   final IconData icon;
   final Color color;
+  final VoidCallback? onTap;
 
   const _KpiCard({
     required this.title,
     required this.value,
     required this.icon,
     required this.color,
+    this.onTap,
   });
 
   @override
@@ -383,39 +398,44 @@ class _KpiCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     return Card(
       margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    value,
-                    style: const TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.bold),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      style:
+                          TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      value,
+                      style: const TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.bold),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            CircleAvatar(
-              radius: 17,
-              backgroundColor: color.withValues(alpha: 0.15),
-              child: Icon(icon, color: color, size: 18),
-            ),
-          ],
+              const SizedBox(width: 8),
+              CircleAvatar(
+                radius: 17,
+                backgroundColor: color.withValues(alpha: 0.15),
+                child: Icon(icon, color: color, size: 18),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -13,6 +13,7 @@ import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
 import 'clientes_deudores_page.dart';
+import 'productos_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -231,42 +232,49 @@ class _DashboardPageState extends State<DashboardPage> {
     required String valor,
     required IconData icono,
     required Color color,
+    VoidCallback? onTap,
   }) {
     final labelColor = Theme.of(context).colorScheme.onSurfaceVariant;
 
     return Card(
       elevation: 3,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: color.withValues(alpha: .15),
-                  radius: 20,
-                  child: Icon(icono, color: color, size: 20),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    titulo,
-                    style: TextStyle(fontSize: 13, color: labelColor),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: color.withValues(alpha: .15),
+                    radius: 20,
+                    child: Icon(icono, color: color, size: 20),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              valor,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: color,
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      titulo,
+                      style: TextStyle(fontSize: 13, color: labelColor),
+                    ),
+                  ),
+                  if (onTap != null)
+                    Icon(Icons.chevron_right_rounded, color: labelColor),
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              Text(
+                valor,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -546,12 +554,36 @@ class _DashboardPageState extends State<DashboardPage> {
                           valor: '$productosCriticos',
                           icono: Icons.warning_amber_rounded,
                           color: sinStockColor,
+                          onTap: productosCriticos == 0
+                              ? null
+                              : () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const ProductosPage(
+                                        soloStockBajoInicial: true,
+                                      ),
+                                    ),
+                                  ).then((_) => cargar());
+                                },
                         ),
                         _statCard(
                           titulo: 'Productos sin stock',
                           valor: '$productosSinStock',
                           icono: Icons.remove_shopping_cart_rounded,
                           color: sinStockColor,
+                          onTap: productosSinStock == 0
+                              ? null
+                              : () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const ProductosPage(
+                                        soloSinStockInicial: true,
+                                      ),
+                                    ),
+                                  ).then((_) => cargar());
+                                },
                         ),
                         _statCard(
                           titulo: 'Ganancia del mes',
