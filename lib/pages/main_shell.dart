@@ -29,6 +29,7 @@ import 'importacion_page.dart';
 import 'inteligencia_comercial_page.dart';
 import 'listas_precio_page.dart';
 import 'login_page.dart';
+import 'manual_usuario_page.dart';
 import 'notificaciones_page.dart';
 import 'papelera_productos_page.dart';
 import 'perfil_usuario_page.dart';
@@ -310,6 +311,12 @@ class _MainShellState extends State<MainShell> {
           title: 'Respaldo',
           modulo: 'backup',
           builder: () => const BackupPage(),
+        ),
+        _ShellItem(
+          icon: Icons.menu_book_rounded,
+          title: 'Manual de usuario',
+          modulo: 'dashboard',
+          builder: () => const ManualUsuarioPage(),
         ),
         _ShellItem(
           icon: Icons.settings_rounded,

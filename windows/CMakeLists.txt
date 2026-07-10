@@ -110,3 +110,11 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# Manual de uso PDF junto al .exe (carpeta Release)
+set(MANUAL_PDF "${CMAKE_CURRENT_SOURCE_DIR}/../assets/docs/MANUAL_DE_USO.pdf")
+if(EXISTS "${MANUAL_PDF}")
+  install(FILES "${MANUAL_PDF}"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime)
+endif()
