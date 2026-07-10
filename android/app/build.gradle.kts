@@ -26,7 +26,10 @@ android {
 
     buildTypes {
         release {
+            // Debug signing + no R8 for local APK testing (avoids minifyReleaseWithR8 failures).
             signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
