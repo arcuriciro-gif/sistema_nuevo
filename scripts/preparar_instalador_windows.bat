@@ -21,6 +21,10 @@ if not exist "%SRC%\sistema_nuevo.exe" (
   exit /b 1
 )
 
+echo Cerrando Tata.Manager si esta abierto...
+taskkill /F /IM sistema_nuevo.exe >nul 2>&1
+timeout /t 2 /nobreak >nul
+
 echo Copiando desde:
 echo   %SRC%
 echo Hacia:
@@ -29,7 +33,16 @@ echo.
 
 if exist "%DST%" (
   echo Limpiando carpeta anterior...
-  rmdir /s /q "%DST%"
+  rmdir /s /q "%DST%" 2>nul
+  if exist "%DST%" (
+    echo.
+    echo [ERROR] No pude borrar Instalador_Windows.
+    echo Cerra la app, el Explorador de esa carpeta, y antivirus.
+    echo Luego volve a correr este script.
+    echo.
+    pause
+    exit /b 1
+  )
 )
 mkdir "%DST%"
 
