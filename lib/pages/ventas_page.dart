@@ -113,6 +113,7 @@ class _VentasPageState extends State<VentasPage> {
 
     return Scaffold(
       floatingActionButton: FloatingActionButton(
+        heroTag: 'fab_ventas',
         onPressed: () => _mostrarMenuNueva(),
         child: const Icon(Icons.add),
       ),

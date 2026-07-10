@@ -254,6 +254,7 @@ class _ComparacionPageState extends State<ComparacionPage> {
           : null,
       floatingActionButton: lista.isNotEmpty
           ? FloatingActionButton.extended(
+        heroTag: 'fab_comparacion',
               onPressed: actualizarCostos,
               icon: const Icon(Icons.save_rounded),
               label: const Text("ACTUALIZAR COSTOS"),

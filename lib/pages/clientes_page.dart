@@ -92,6 +92,7 @@ class _ClientesPageState extends State<ClientesPage> {
 
     return Scaffold(
       floatingActionButton: FloatingActionButton(
+        heroTag: 'fab_clientes',
         child: const Icon(Icons.add),
         onPressed: () async {
           await Navigator.push(

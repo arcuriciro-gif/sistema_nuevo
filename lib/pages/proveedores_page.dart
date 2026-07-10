@@ -66,6 +66,7 @@ class _ProveedoresPageState extends State<ProveedoresPage> {
 
     return Scaffold(
       floatingActionButton: FloatingActionButton(
+        heroTag: 'fab_proveedores',
         child: const Icon(Icons.add),
         onPressed: () async {
           await Navigator.push(

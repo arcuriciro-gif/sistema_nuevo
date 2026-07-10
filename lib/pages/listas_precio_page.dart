@@ -152,6 +152,7 @@ class _ListasPrecioPageState extends State<ListasPrecioPage> {
 
     return Scaffold(
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'fab_listas_precio',
         onPressed: () => _editarLista(),
         icon: const Icon(Icons.add_rounded),
         label: const Text('Nueva lista'),

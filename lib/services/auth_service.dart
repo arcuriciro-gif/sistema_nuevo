@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 
 import '../core/auth/rol_util.dart';
 import '../core/config/backend_config_service.dart';
@@ -50,7 +51,8 @@ class AuthService {
           await sqlite.actualizar(usuarioActualizado);
         }
         autenticado = true;
-      } catch (_) {
+      } catch (error) {
+        debugPrint('Firebase login falló: $error');
         autenticado = usuarioLocal.password == _hash(password);
       }
     } else if (firebase.disponible && usuarioLocal.password == _hash(password)) {
@@ -62,12 +64,15 @@ class AuthService {
           usuarioActualizado = usuarioLocal.copyWith(firebaseUid: uid);
           await sqlite.actualizar(usuarioActualizado);
         }
-      } catch (_) {
+      } catch (signInError) {
+        debugPrint('Firebase signIn falló, creando cuenta: $signInError');
         try {
           final uid = await firebase.crearCuenta(nombreUsuario, password);
           usuarioActualizado = usuarioLocal.copyWith(firebaseUid: uid);
           await sqlite.actualizar(usuarioActualizado);
-        } catch (_) {}
+        } catch (createError) {
+          debugPrint('Firebase crearCuenta falló: $createError');
+        }
       }
     } else {
       autenticado = usuarioLocal.password == _hash(password);
@@ -79,18 +84,26 @@ class AuthService {
     final usuarioSesion = usuarioActualizado.copyWith(ultimoAcceso: ahora);
     await sqlite.actualizar(usuarioSesion);
 
-    if (BackendConfigService.instance.firebaseEnabled) {
-      try {
-        await FirestoreUsuarioRepository().actualizar(usuarioSesion);
-      } catch (_) {}
-    }
-
     currentUser = usuarioSesion;
     _ultimaPasswordIngresada = password;
 
-    // Solo sincronizar cuando haya sesión Firebase Auth (reglas de Firestore).
-    if (FirebaseAuthUsuarioService.instance.uidActual != null) {
+    // Solo sincronizar / escribir remoto cuando haya sesión Firebase Auth.
+    final uidActual = FirebaseAuthUsuarioService.instance.uidActual;
+    if (uidActual != null) {
+      if (BackendConfigService.instance.firebaseEnabled) {
+        try {
+          await FirestoreUsuarioRepository().actualizar(usuarioSesion);
+        } catch (error) {
+          debugPrint('Firestore usuario en login: $error');
+        }
+      }
       await FirestoreSyncService.instance.start();
+      debugPrint('Firebase Auth OK uid=$uidActual');
+    } else {
+      debugPrint(
+        'Login local OK, pero sin Firebase Auth. '
+        'Revisá Authentication > Correo/contraseña en Firebase.',
+      );
     }
 
     await _registrarAudit(

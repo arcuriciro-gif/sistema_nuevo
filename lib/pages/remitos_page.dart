@@ -320,6 +320,7 @@ class _RemitosPageState extends State<RemitosPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       floatingActionButton: FloatingActionButton(
+        heroTag: 'fab_remitos',
         child: const Icon(Icons.add),
         onPressed: () async {
           await Navigator.push(

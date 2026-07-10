@@ -279,6 +279,7 @@ class _StockPageState extends State<StockPage> {
           ),
         ),
         floatingActionButton: FloatingActionButton(
+        heroTag: 'fab_stock',
           onPressed: () => registrarMovimiento(),
           child: const Icon(Icons.add),
         ),

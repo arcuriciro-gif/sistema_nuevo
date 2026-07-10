@@ -87,6 +87,7 @@ class _CategoriasPageState extends State<CategoriasPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       floatingActionButton: FloatingActionButton(
+        heroTag: 'fab_categorias',
         onPressed: () => _abrirFormulario(),
         child: const Icon(Icons.add),
       ),

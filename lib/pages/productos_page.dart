@@ -175,6 +175,7 @@ class _ProductosPageState extends State<ProductosPage> {
 
     return Scaffold(
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'fab_productos',
         onPressed: _nuevoProducto,
         icon: const Icon(Icons.add_rounded),
         label: const Text('Nuevo'),

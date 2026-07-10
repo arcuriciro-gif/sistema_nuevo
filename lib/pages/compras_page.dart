@@ -217,6 +217,7 @@ class _ComprasPageState extends State<ComprasPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'fab_compras',
         icon: const Icon(Icons.add_rounded),
         label: const Text('Nueva compra'),
         onPressed: () async {

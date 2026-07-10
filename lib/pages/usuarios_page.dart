@@ -155,6 +155,7 @@ class _UsuariosPageState extends State<UsuariosPage> {
     }
     return Scaffold(
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'fab_usuarios',
         onPressed: () => _abrirFormulario(),
         icon: const Icon(Icons.person_add_alt_1_rounded),
         label: const Text('Nuevo usuario'),

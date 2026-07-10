@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../config/backend_config_service.dart';
 import '../events/data_refresh_hub.dart';
+import '../firebase/firebase_auth_usuario_service.dart';
 import '../firebase/firebase_bootstrap.dart';
 import '../../database/database_helper.dart';
 import '../../models/producto.dart';
@@ -41,7 +42,10 @@ class FirestoreSyncService {
   }
 
   ProductoRepository get writeRepository {
-    if (BackendConfigService.instance.firebaseEnabled && FirebaseBootstrap.isReady) {
+    final authOk = FirebaseAuthUsuarioService.instance.uidActual != null;
+    if (BackendConfigService.instance.firebaseEnabled &&
+        FirebaseBootstrap.isReady &&
+        authOk) {
       return _DualProductoRepository(local: _cache, remote: _remote);
     }
     return _cache;
