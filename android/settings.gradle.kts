@@ -19,7 +19,7 @@ pluginManagement {
 
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    // AGP 8.11 keeps plugin Kotlin sources compiling (file_picker/share_plus/mobile_scanner).
+    // Pin AGP 8.11 so plugin Kotlin sources (file_picker) compile reliably.
     id("com.android.application") version "8.11.1" apply false
     id("org.jetbrains.kotlin.android") version "2.1.0" apply false
     id("com.google.gms.google-services") version "4.4.2" apply false
