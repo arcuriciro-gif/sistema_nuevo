@@ -29,12 +29,49 @@ class FirebaseAuthUsuarioService {
     );
   }
 
+  /// Intenta login con email real o sintético (útil en otra PC / pendrive).
+  Future<UserCredential> iniciarSesionFlexible(
+    String usuarioOEmail,
+    String password, {
+    String? emailHint,
+  }) async {
+    final candidatos = <String>{};
+    final entrada = usuarioOEmail.trim();
+    if (UsuarioAuthEmail.esEmailReal(entrada)) {
+      candidatos.add(entrada.toLowerCase());
+    }
+    if (emailHint != null && UsuarioAuthEmail.esEmailReal(emailHint)) {
+      candidatos.add(emailHint.trim().toLowerCase());
+    }
+    candidatos.add(
+      UsuarioAuthEmail.paraUsuario(entrada, emailReal: emailHint),
+    );
+
+    Object? ultimoError;
+    for (final authEmail in candidatos) {
+      try {
+        return await _auth.signInWithEmailAndPassword(
+          email: authEmail,
+          password: password,
+        );
+      } catch (e) {
+        ultimoError = e;
+        debugPrint('Firebase login candidato $authEmail: $e');
+      }
+    }
+    throw ultimoError ?? StateError('No se pudo iniciar sesión en Firebase.');
+  }
+
   Future<void> cerrarSesion() => _auth.signOut();
 
+  /// Crea la cuenta en Auth.
+  /// [iniciarSesionDespues]: true en el primer login propio; false al dar de alta
+  /// otro usuario (no debe pisar la sesión Firebase del administrador).
   Future<String> crearCuenta(
     String usuario,
     String password, {
     String? email,
+    bool iniciarSesionDespues = true,
   }) async {
     final authEmail = UsuarioAuthEmail.paraUsuario(usuario, emailReal: email);
     final appName = 'UsuarioCreator_${DateTime.now().millisecondsSinceEpoch}';
@@ -49,11 +86,12 @@ class FirebaseAuthUsuarioService {
         password: password,
       );
       final uid = cred.user!.uid;
-      // Dejar la sesión activa en la app principal para que Firestore acepte writes.
-      await _auth.signInWithEmailAndPassword(
-        email: authEmail,
-        password: password,
-      );
+      if (iniciarSesionDespues) {
+        await _auth.signInWithEmailAndPassword(
+          email: authEmail,
+          password: password,
+        );
+      }
       return uid;
     } finally {
       await secondary.delete();

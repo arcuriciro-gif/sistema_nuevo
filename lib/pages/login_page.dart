@@ -19,8 +19,10 @@ class _LoginPageState extends State<LoginPage> {
   final _usuarioCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _loading = false;
+  bool _recuperando = false;
   bool _obscure = true;
   String? _error;
+  String? _info;
 
   @override
   void dispose() {
@@ -33,6 +35,7 @@ class _LoginPageState extends State<LoginPage> {
     setState(() {
       _loading = true;
       _error = null;
+      _info = null;
     });
 
     final user = await AuthService.instance.login(
@@ -44,7 +47,10 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _loading = false);
 
     if (user == null) {
-      setState(() => _error = 'Usuario o contraseña incorrectos.');
+      setState(() {
+        _error = AuthService.instance.lastLoginError ??
+            'Usuario o contraseña incorrectos.';
+      });
       return;
     }
 
@@ -64,6 +70,41 @@ class _LoginPageState extends State<LoginPage> {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const MainShell()),
     );
+  }
+
+  Future<void> _olvidéPassword() async {
+    final entrada = _usuarioCtrl.text.trim();
+    if (entrada.isEmpty) {
+      setState(() {
+        _error = 'Ingresá tu usuario o email arriba y después tocá recuperar.';
+        _info = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _recuperando = true;
+      _error = null;
+      _info = null;
+    });
+
+    try {
+      await AuthService.instance.enviarRecuperacionPassword(entrada);
+      if (!mounted) return;
+      setState(() {
+        _info =
+            'Te enviamos un email para definir/recuperar la contraseña. '
+            'El enlace abre el navegador; cuando termines, volvé acá e ingresá '
+            'con tu usuario y la nueva clave.';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString().replaceFirst('StateError: ', '');
+      });
+    } finally {
+      if (mounted) setState(() => _recuperando = false);
+    }
   }
 
   @override
@@ -138,12 +179,20 @@ class _LoginPageState extends State<LoginPage> {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Podés usar tu usuario o el email. '
+                          'Si te llegó el mail de confirmación, definí la clave en el navegador y después entrá acá.',
+                          style: textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
                         const SizedBox(height: 20),
                         TextField(
                           controller: _usuarioCtrl,
-                          decoration: InputDecoration(
-                            labelText: 'Usuario',
-                            prefixIcon: const Icon(Icons.person_outline_rounded),
+                          decoration: const InputDecoration(
+                            labelText: 'Usuario o email',
+                            prefixIcon: Icon(Icons.person_outline_rounded),
                           ),
                           textInputAction: TextInputAction.next,
                           onSubmitted: (_) =>
@@ -172,6 +221,7 @@ class _LoginPageState extends State<LoginPage> {
                         if (_error != null) ...[
                           const SizedBox(height: 12),
                           Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Icon(
                                 Icons.error_outline,
@@ -184,6 +234,28 @@ class _LoginPageState extends State<LoginPage> {
                                   _error!,
                                   style: textTheme.bodySmall?.copyWith(
                                     color: cs.error,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        if (_info != null) ...[
+                          const SizedBox(height: 12),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                Icons.mark_email_read_outlined,
+                                color: cs.primary,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  _info!,
+                                  style: textTheme.bodySmall?.copyWith(
+                                    color: cs.primary,
                                   ),
                                 ),
                               ),
@@ -215,6 +287,24 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                           ),
                         ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: (_loading || _recuperando)
+                                ? null
+                                : _olvidéPassword,
+                            child: _recuperando
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text('Olvidé mi contraseña'),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -226,5 +316,4 @@ class _LoginPageState extends State<LoginPage> {
       ),
     );
   }
-
 }

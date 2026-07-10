@@ -27,6 +27,18 @@ class Usuario {
     this.ultimoAcceso,
   }) : fechaCreacion = fechaCreacion;
 
+  static bool _asBool(dynamic value, {bool defaultValue = false}) {
+    if (value == null) return defaultValue;
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final text = value.toString().trim().toLowerCase();
+    if (text == '1' || text == 'true' || text == 'si' || text == 'yes') {
+      return true;
+    }
+    if (text == '0' || text == 'false' || text == 'no') return false;
+    return defaultValue;
+  }
+
   factory Usuario.fromMap(Map<String, dynamic> map) {
     return Usuario(
       id: map['id'],
@@ -35,10 +47,11 @@ class Usuario {
       usuario: map['usuario'] ?? '',
       password: map['password'] ?? '',
       rol: map['rol'] ?? 'empleado',
-      activo: (map['activo'] ?? 1) == 1,
-      debeCambiarPassword:
-          (map['debe_cambiar_password'] ?? map['debeCambiarPassword'] ?? 0) ==
-              1,
+      // SQLite usa 0/1; Firestore puede mandar bool.
+      activo: _asBool(map['activo'], defaultValue: true),
+      debeCambiarPassword: _asBool(
+        map['debe_cambiar_password'] ?? map['debeCambiarPassword'],
+      ),
       email: map['email'] ?? '',
       foto: map['foto']?.toString() ?? '',
       fechaCreacion: map['fechaCreacion'] != null

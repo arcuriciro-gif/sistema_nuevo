@@ -57,6 +57,8 @@ class UsuarioService {
         usuario.usuario,
         passwordPlano,
         email: emailReal,
+        // No pisar la sesión Firebase del administrador.
+        iniciarSesionDespues: false,
       );
       nuevo = nuevo.copyWith(firebaseUid: uid);
       await FirestoreUsuarioRepository().insertar(nuevo);
@@ -69,8 +71,11 @@ class UsuarioService {
           );
           emailEnviado = true;
           aviso =
-              'Se envió un email de confirmación a $emailReal '
-              '(verificación y enlace para definir/recuperar contraseña).';
+              'Se envió un email a $emailReal con el enlace para definir la contraseña.\n\n'
+              'Importante: el enlace abre el navegador (no la app). '
+              'Después de elegir la clave, volvé a EL TATA Manager e ingresá con el '
+              'USUARIO (${usuario.usuario}) y esa contraseña. '
+              'Funciona en esta PC y en otra (pendrive/instalación).';
         } catch (e) {
           debugPrint('Email confirmación alta: $e');
           aviso =

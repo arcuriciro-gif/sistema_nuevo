@@ -27,6 +27,57 @@ class SqliteUsuarioRepository implements UsuarioRepository {
     return Usuario.fromMap(rows.first);
   }
 
+  Future<Usuario?> buscarPorEmail(String email) async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      'usuarios',
+      where: 'LOWER(email) = ?',
+      whereArgs: [email.trim().toLowerCase()],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Usuario.fromMap(rows.first);
+  }
+
+  /// Inserta o actualiza por firebase_uid / usuario (para login en otra PC).
+  Future<Usuario> upsertDesdeRemoto(Usuario usuario) async {
+    final db = await _dbHelper.database;
+    Usuario? existente;
+    final uid = usuario.firebaseUid;
+    if (uid != null && uid.isNotEmpty) {
+      existente = await buscarPorFirebaseUid(uid);
+    }
+    existente ??= await buscarPorUsuario(usuario.usuario);
+    if (existente == null && usuario.email.trim().isNotEmpty) {
+      existente = await buscarPorEmail(usuario.email);
+    }
+
+    if (existente == null) {
+      final id = await db.insert(
+        'usuarios',
+        usuario.toMap()..remove('id'),
+        conflictAlgorithm: ConflictAlgorithm.abort,
+      );
+      return usuario.copyWith(id: id);
+    }
+
+    final merged = existente.copyWith(
+      firebaseUid: usuario.firebaseUid ?? existente.firebaseUid,
+      nombre: usuario.nombre.isNotEmpty ? usuario.nombre : existente.nombre,
+      usuario: usuario.usuario.isNotEmpty ? usuario.usuario : existente.usuario,
+      password: usuario.password.isNotEmpty ? usuario.password : existente.password,
+      rol: usuario.rol,
+      activo: usuario.activo,
+      debeCambiarPassword: usuario.debeCambiarPassword,
+      email: usuario.email.isNotEmpty ? usuario.email : existente.email,
+      foto: usuario.foto.isNotEmpty ? usuario.foto : existente.foto,
+      fechaCreacion: existente.fechaCreacion ?? usuario.fechaCreacion,
+      ultimoAcceso: usuario.ultimoAcceso ?? existente.ultimoAcceso,
+    );
+    await actualizar(merged);
+    return merged;
+  }
+
   @override
   Future<Usuario?> buscarPorFirebaseUid(String uid) async {
     final db = await _dbHelper.database;
