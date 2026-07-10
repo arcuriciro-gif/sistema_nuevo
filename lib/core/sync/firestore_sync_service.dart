@@ -90,14 +90,22 @@ class _DualProductoRepository implements ProductoRepository {
   Future<int> insertar(Producto producto) async {
     final id = await local.insertar(producto);
     final conId = producto.copyWith(id: id);
-    await remote.insertar(conId);
+    try {
+      await remote.insertar(conId);
+    } catch (error) {
+      debugPrint('Firestore insertar producto: $error');
+    }
     return id;
   }
 
   @override
   Future<void> insertarLista(List<Producto> productos) async {
     await local.insertarLista(productos);
-    await remote.insertarLista(productos);
+    try {
+      await remote.insertarLista(productos);
+    } catch (error) {
+      debugPrint('Firestore insertarLista productos: $error');
+    }
   }
 
   @override
@@ -117,7 +125,11 @@ class _DualProductoRepository implements ProductoRepository {
   @override
   Future<int> actualizar(Producto producto) async {
     final result = await local.actualizar(producto);
-    await remote.actualizar(producto);
+    try {
+      await remote.actualizar(producto);
+    } catch (error) {
+      debugPrint('Firestore actualizar producto: $error');
+    }
     return result;
   }
 
@@ -129,7 +141,11 @@ class _DualProductoRepository implements ProductoRepository {
     if (rows.isNotEmpty) {
       final producto = Producto.fromMap(rows.first);
       if (producto.codigo.isNotEmpty) {
-        await remote.eliminarPorCodigo(producto.codigo);
+        try {
+          await remote.eliminarPorCodigo(producto.codigo);
+        } catch (error) {
+          debugPrint('Firestore eliminar producto: $error');
+        }
       }
     }
     return result;

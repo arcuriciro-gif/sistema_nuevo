@@ -33,7 +33,10 @@ class FirebaseAuthUsuarioService {
     try {
       final cred = await FirebaseAuth.instanceFor(app: secondary)
           .createUserWithEmailAndPassword(email: email, password: password);
-      return cred.user!.uid;
+      final uid = cred.user!.uid;
+      // Dejar la sesión activa en la app principal para que Firestore acepte writes.
+      await _auth.signInWithEmailAndPassword(email: email, password: password);
+      return uid;
     } finally {
       await secondary.delete();
     }

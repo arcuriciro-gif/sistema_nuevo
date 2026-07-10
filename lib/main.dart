@@ -7,7 +7,6 @@ import 'services/branding_service.dart';
 import 'services/permisos_service.dart';
 import 'core/config/backend_config_service.dart';
 import 'core/firebase/firebase_bootstrap.dart';
-import 'core/sync/firestore_sync_service.dart';
 import 'theme/theme_provider.dart';
 
 void main() async {
@@ -29,7 +28,7 @@ void main() async {
   }
 
   await PermisosService.instance.cargar();
-  await FirestoreSyncService.instance.start();
+  // Firestore sync starts after Firebase Auth login (rules require request.auth).
   runApp(const ElTataApp());
 }
 

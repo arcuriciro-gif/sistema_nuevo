@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import '../core/auth/rol_util.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/usuario.dart';
 import '../repositories/firestore_usuario_repository.dart';
@@ -87,6 +88,11 @@ class AuthService {
     currentUser = usuarioSesion;
     _ultimaPasswordIngresada = password;
 
+    // Solo sincronizar cuando haya sesión Firebase Auth (reglas de Firestore).
+    if (FirebaseAuthUsuarioService.instance.uidActual != null) {
+      await FirestoreSyncService.instance.start();
+    }
+
     await _registrarAudit(
       'LOGIN',
       'Inicio de sesión',
@@ -108,6 +114,7 @@ class AuthService {
     );
     currentUser = null;
     _ultimaPasswordIngresada = null;
+    await FirestoreSyncService.instance.stop();
     if (FirebaseAuthUsuarioService.instance.disponible) {
       try {
         await FirebaseAuthUsuarioService.instance.cerrarSesion();
