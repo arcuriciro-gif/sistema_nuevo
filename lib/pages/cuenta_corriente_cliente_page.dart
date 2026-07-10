@@ -170,27 +170,10 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
       itemCount: _ventas.length,
       itemBuilder: (_, i) {
         final v = _ventas[i];
+        final puedeCobrar =
+            v.saldoPendiente > 0.009 && v.estado != 'anulada';
         return Card(
-          child: ListTile(
-            title: Text('${v.tipoLabel} ${v.numero}'),
-            subtitle: Text(
-              '${_fmtFecha(v.fecha)}\n'
-              'Total \$${v.total.toStringAsFixed(2)} · '
-              'Pagado \$${v.totalPagado.toStringAsFixed(2)} · '
-              'Saldo \$${v.saldoPendiente.toStringAsFixed(2)}',
-            ),
-            isThreeLine: true,
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                chipEstadoPago(v.estadoPago, cs),
-                if (v.saldoPendiente > 0.009 && v.estado != 'anulada')
-                  TextButton(
-                    onPressed: () => _cobrarVenta(v),
-                    child: const Text('Cobrar'),
-                  ),
-              ],
-            ),
+          child: InkWell(
             onTap: v.id == null
                 ? null
                 : () async {
@@ -205,6 +188,59 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
                     );
                     await _cargar();
                   },
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${v.tipoLabel} ${v.numero}',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _fmtFecha(v.fecha),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Total \$${v.total.toStringAsFixed(2)} · '
+                          'Pagado \$${v.totalPagado.toStringAsFixed(2)} · '
+                          'Saldo \$${v.saldoPendiente.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      chipEstadoPago(v.estadoPago, cs),
+                      if (puedeCobrar)
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                          onPressed: () => _cobrarVenta(v),
+                          child: const Text('Cobrar'),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
         );
       },
