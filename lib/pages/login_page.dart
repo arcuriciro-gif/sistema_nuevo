@@ -7,6 +7,7 @@ import '../services/auth_service.dart';
 import '../services/branding_service.dart';
 import 'cambiar_password_obligatorio_page.dart';
 import 'main_shell.dart';
+import 'manual_usuario_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -218,6 +219,28 @@ class _LoginPageState extends State<LoginPage> {
                       ],
                     ),
                   ),
+                ),
+                const SizedBox(height: 16),
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const ManualUsuarioPage(
+                          desdeLogin: true,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.menu_book_rounded),
+                  label: const Text('Ver instrucciones (PDF / manual)'),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Pasos para registrarse, correo de confirmación y uso del sistema.',
+                  style: textTheme.bodySmall?.copyWith(
+                    color: cs.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
               ],
             ),

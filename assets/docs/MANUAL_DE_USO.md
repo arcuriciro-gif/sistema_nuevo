@@ -2,6 +2,34 @@
 
 Guía práctica para usar el sistema en **PC (Windows)** y **celular (Android)**.
 
+Este manual se puede abrir **antes de iniciar sesión** (botón en la pantalla de login) o desde el menú **Manual de usuario** una vez dentro.
+
+---
+
+## Primeros pasos: registro y correo
+
+Leé esto si es la primera vez que usás el sistema o si te crearon un usuario nuevo.
+
+### Quién crea las cuentas
+No hay auto-registro público. El **administrador** da de alta a cada persona en **Usuarios → Nuevo**.
+
+### Pasos para el usuario nuevo
+1. El admin te crea con: nombre, **usuario**, **email real**, rol y una contraseña temporal.  
+2. Te llega un **correo de confirmación / bienvenida** (revisá también spam).  
+3. Abrí la app e iniciá sesión con el **usuario** y la **contraseña temporal**.  
+4. Si la app pide cambiar la clave, elegí una de **al menos 6 caracteres**.  
+5. Entrá a **Mi perfil**: completá foto, nombre y, si hace falta, el email.  
+6. Para sincronizar con otros dispositivos (PC + celular), tenés que estar logueado con Firebase en **cada** equipo.
+
+### Sobre el correo
+- Tiene que ser un **email real** (Gmail, Outlook, etc.), no inventado.  
+- Si no llega: spam, email mal escrito, o Firebase Auth/Templates sin configurar (ver sección 17).  
+- El correo sirve para recuperación de clave y para vincular la cuenta en la nube.
+
+### Primera vez en una PC nueva (admin)
+- Usuario por defecto suele ser `admin` (la contraseña la define quien instaló).  
+- Después creá el resto de usuarios con email real.
+
 ---
 
 ## 1. Qué es Tata.Manager
@@ -41,19 +69,21 @@ scripts\preparar_instalador_windows.bat
 (El build también puede dejarla armada sola al compilar.)
 
 ### Manual dentro de la app
-Menú **Manual de usuario**: se lee en pantalla, y también podés abrir/compartir el PDF.
+- **Antes de iniciar sesión:** en la pantalla de login tocá **Ver instrucciones (PDF / manual)**.  
+- **Ya logueado:** menú **Manual de usuario**.  
+Se lee en pantalla y también podés abrir/compartir el PDF. En Windows el PDF también está junto al `.exe`.
 
 ### Primera vez
-- Usuario por defecto suele ser `admin` (la contraseña la define quien instaló el sistema).
-- Si pide cambiar contraseña, usá al menos **6 caracteres**.
+Ver la sección **Primeros pasos: registro y correo** al inicio de este manual.
 
 ---
 
 ## 3. Inicio de sesión
 
 1. Abrí la app.  
-2. Ingresá **usuario** y **contraseña**.  
-3. Si Firebase está activo, el login también conecta la sincronización en la nube.
+2. Si necesitás ayuda, abrí el **manual/PDF** desde el botón debajo del login (no hace falta entrar).  
+3. Ingresá **usuario** y **contraseña**.  
+4. Si Firebase está activo, el login también conecta la sincronización en la nube.
 
 **Importante:** sin login Firebase en un dispositivo, ese equipo trabaja solo con su base local y **no** se entera de lo que pasa en los otros.
 
@@ -363,4 +393,4 @@ Para temas técnicos de Firebase / instalación: quien mantenga el proyecto en G
 
 ---
 
-*Manual correspondiente a Tata.Manager (sistema_nuevo). Actualizado con sync multi-dispositivo, Archivo PDF, Mi perfil, alerta sin stock, plantilla de impresión y plantillas Excel de importación.*
+*Manual correspondiente a Tata.Manager (sistema_nuevo). Actualizado con sync multi-dispositivo, Archivo PDF, Mi perfil, alerta sin stock, plantilla de impresión, plantillas Excel de importación, rangos de talle y manual accesible antes del login.*

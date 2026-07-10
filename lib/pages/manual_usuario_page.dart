@@ -10,7 +10,10 @@ import '../theme/module_app_bar.dart';
 
 /// Manual de uso incluido en la app (Markdown + PDF).
 class ManualUsuarioPage extends StatefulWidget {
-  const ManualUsuarioPage({super.key});
+  /// Si es true (p. ej. desde la pantalla de login), destaca registro y correo.
+  final bool desdeLogin;
+
+  const ManualUsuarioPage({super.key, this.desdeLogin = false});
 
   @override
   State<ManualUsuarioPage> createState() => _ManualUsuarioPageState();
@@ -195,6 +198,21 @@ class _ManualUsuarioPageState extends State<ManualUsuarioPage> {
               ? Center(child: Text(_error!))
               : Column(
                   children: [
+                    if (widget.desdeLogin)
+                      Material(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .tertiaryContainer
+                            .withValues(alpha: 0.7),
+                        child: const ListTile(
+                          leading: Icon(Icons.info_outline_rounded),
+                          title: Text('Antes de iniciar sesión'),
+                          subtitle: Text(
+                            'Leé la sección «Primeros pasos: registro y correo» '
+                            'y abrí el PDF si preferís imprimirlo o enviarlo.',
+                          ),
+                        ),
+                      ),
                     Material(
                       color: Theme.of(context)
                           .colorScheme
@@ -203,9 +221,11 @@ class _ManualUsuarioPageState extends State<ManualUsuarioPage> {
                       child: ListTile(
                         leading: const Icon(Icons.menu_book_rounded),
                         title: const Text('Manual incluido en la app'),
-                        subtitle: const Text(
-                          'En Windows también está el PDF junto al .exe '
-                          '(MANUAL_DE_USO.pdf).',
+                        subtitle: Text(
+                          widget.desdeLogin
+                              ? 'Podés leerlo acá o abrir el PDF sin necesidad de entrar.'
+                              : 'En Windows también está el PDF junto al .exe '
+                                  '(MANUAL_DE_USO.pdf).',
                         ),
                         trailing: FilledButton.tonalIcon(
                           onPressed: _verPdf,
