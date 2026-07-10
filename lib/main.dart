@@ -50,8 +50,8 @@ void main() async {
       databaseFactory = databaseFactoryFfi;
     }
 
-    // Windows: NO inicializar Firebase (evita cierre nativo al login).
-    if (PlatformCapabilities.firebasePermitido &&
+    // Firebase solo si el usuario lo activó (en Windows es opt-in).
+    if (BackendConfigService.instance.firebaseEnabled &&
         !FirebaseSafeMode.enabled) {
       try {
         await appendAppLog('BOOT firebase init');
@@ -61,11 +61,11 @@ void main() async {
         await FirebaseSafeMode.activar();
       }
     } else {
-      await BackendConfigService.instance.setFirebaseEnabled(false);
       await appendAppLog(
         'BOOT firebase OFF '
-        '(windows=${PlatformCapabilities.isWindowsDesktop} '
-        'safe=${FirebaseSafeMode.enabled})',
+        '(enabled=${BackendConfigService.instance.firebaseEnabled} '
+        'safe=${FirebaseSafeMode.enabled} '
+        'windows=${PlatformCapabilities.isWindowsDesktop})',
       );
     }
 

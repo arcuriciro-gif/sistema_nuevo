@@ -5,24 +5,23 @@ COMO ABRIR
 ----------
 1) Descomprimí TODO el ZIP en una carpeta (ej. C:\TataManager)
 2) Doble clic en:  ABRIR_TATA_MANAGER.bat
-   (o sistema_nuevo.exe)
+
+PRIMERA VEZ
+-----------
+Usuario: admin
+Contraseña: admin123
+(Te pide cambiar la clave, mínimo 6 caracteres.)
+
+USAR ONLINE (con el celular)
+----------------------------
+1) Entrá a la app
+2) Menú → Configuración
+3) Tocá "Activar sincronización online"
+4) En el celular, mismo usuario/clave e internet
+
+Si la app se cerrara al activar la nube, avisá y revisá
+tata_manager_error.log (en esta carpeta o Documentos).
 
 IMPORTANTE
 ----------
-NO muevas solo el archivo .exe.
-Tiene que estar con los .dll, sqlite3.dll y la carpeta "data".
-
-PRIMERA VEZ / SI SE CERRABA AL ENTRAR
-------------------------------------
-Usuario: admin
-Contraseña: admin123
-Te va a pedir cambiar la clave (mínimo 6 caracteres).
-
-Esta build de Windows entra en MODO LOCAL (sin Firebase)
-para evitar el cierre al iniciar sesión. El celular puede
-seguir usando la nube; la PC trabaja con su base local.
-
-SI FALLA
---------
-Mirá el archivo tata_manager_error.log
-(en esta misma carpeta o en Documentos).
+NO muevas solo el .exe: tiene que ir con los .dll y la carpeta data.

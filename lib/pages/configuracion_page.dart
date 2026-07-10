@@ -4,6 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/config/backend_config_service.dart';
+import '../core/firebase/firebase_auth_usuario_service.dart';
+import '../core/firebase/firebase_safe_mode.dart';
+import '../services/app_log.dart';
+import '../services/auth_service.dart';
 import '../services/branding_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_provider.dart';
@@ -22,6 +27,9 @@ class ConfiguracionPage extends StatefulWidget {
 
 class _ConfiguracionPageState extends State<ConfiguracionPage> {
   bool _mostrarImagenes = true;
+  bool _nubeActiva = false;
+  bool _conectandoNube = false;
+  bool _modoSeguro = false;
 
   // Branding
   final _nombreCtrl = TextEditingController();
@@ -56,6 +64,52 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     BrandingService.instance.addListener(_onThemeChanged);
     _cargarPreferencias();
     _cargarBranding();
+    _cargarEstadoNube();
+  }
+
+  void _cargarEstadoNube() {
+    setState(() {
+      _nubeActiva = BackendConfigService.instance.firebaseEnabled &&
+          FirebaseAuthUsuarioService.instance.uidActual != null;
+      _modoSeguro = FirebaseSafeMode.enabled;
+    });
+  }
+
+  Future<void> _activarNube() async {
+    setState(() => _conectandoNube = true);
+    await appendAppLog('UI activar nube');
+    final r = await AuthService.instance.activarNube();
+    if (!mounted) return;
+    setState(() {
+      _conectandoNube = false;
+      _nubeActiva = r.ok;
+      _modoSeguro = FirebaseSafeMode.enabled;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(r.mensaje)),
+    );
+  }
+
+  Future<void> _desactivarNube() async {
+    await AuthService.instance.desactivarNube();
+    if (!mounted) return;
+    setState(() {
+      _nubeActiva = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Sincronización desactivada (modo local).')),
+    );
+  }
+
+  Future<void> _salirModoSeguro() async {
+    await FirebaseSafeMode.desactivar();
+    if (!mounted) return;
+    setState(() => _modoSeguro = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Modo seguro desactivado. Ahora podés activar la nube.'),
+      ),
+    );
   }
 
   @override
@@ -181,6 +235,82 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            // ── Sincronización / nube ─────────────────
+            Card(
+              elevation: 3,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.cloud_sync_rounded, color: colorScheme.primary),
+                        const SizedBox(width: 10),
+                        Text(
+                          'SINCRONIZACIÓN EN LA NUBE',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _nubeActiva
+                          ? 'Estado: CONECTADO. Lo que cargues acá se refleja en el celular (y al revés).'
+                          : 'Estado: SOLO LOCAL. Para usarlo online con el celular, activá la sincronización.',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    if (_modoSeguro) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Modo seguro activo (hubo un cierre con Firebase). '
+                        'Desactivalo antes de conectar la nube.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.error,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _salirModoSeguro,
+                        child: const Text('Desactivar modo seguro'),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    if (_nubeActiva)
+                      OutlinedButton.icon(
+                        onPressed: _conectandoNube ? null : _desactivarNube,
+                        icon: const Icon(Icons.cloud_off_outlined),
+                        label: const Text('Desactivar nube'),
+                      )
+                    else
+                      FilledButton.icon(
+                        onPressed: _conectandoNube ? null : _activarNube,
+                        icon: _conectandoNube
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.cloud_done_outlined),
+                        label: Text(
+                          _conectandoNube
+                              ? 'Conectando...'
+                              : 'Activar sincronización online',
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Requisito: internet. Usá el mismo usuario/clave en el celular.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
             // ── Branding ──────────────────────────────
             Card(
               elevation: 3,

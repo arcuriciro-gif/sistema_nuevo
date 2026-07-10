@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import '../core/auth/rol_util.dart';
 import '../core/auth/usuario_auth_email.dart';
 import '../core/config/backend_config_service.dart';
-import '../core/config/platform_capabilities.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/firebase/firebase_bootstrap.dart';
 import '../core/firebase/firebase_safe_mode.dart';
@@ -54,7 +53,7 @@ class AuthService {
     }
 
     final firebase = FirebaseAuthUsuarioService.instance;
-    final puedeFirebase = PlatformCapabilities.firebasePermitido &&
+    final puedeFirebase = BackendConfigService.instance.firebaseEnabled &&
         firebase.disponible &&
         !FirebaseSafeMode.enabled;
 
@@ -181,33 +180,57 @@ class AuthService {
     return currentUser!;
   }
 
-  /// Conecta Firebase Auth + sync DESPUÉS de mostrar la UI.
-  Future<void> conectarFirebaseDespuesDelLogin() async {
-    if (!PlatformCapabilities.firebasePermitido) {
-      await appendAppLog('POST-LOGIN firebase omitido (Windows local-only)');
-      return;
+  /// Conecta Firebase Auth + sync si la nube ya está habilitada.
+  Future<({bool ok, String mensaje})> conectarFirebaseDespuesDelLogin() async {
+    if (!BackendConfigService.instance.firebaseEnabled) {
+      await appendAppLog('POST-LOGIN nube desactivada (opt-in pendiente)');
+      return (ok: false, mensaje: 'Nube desactivada.');
     }
+    return _conectarFirebaseInterno();
+  }
+
+  /// Opt-in del usuario desde Configuración.
+  Future<({bool ok, String mensaje})> activarNube() async {
+    await FirebaseSafeMode.desactivar();
+    await BackendConfigService.instance.setFirebaseEnabled(true);
+    return _conectarFirebaseInterno();
+  }
+
+  Future<({bool ok, String mensaje})> _conectarFirebaseInterno() async {
     final usuario = currentUser;
     final password = _ultimaPasswordIngresada;
-    if (usuario == null || password == null || password.isEmpty) return;
-    if (FirebaseSafeMode.enabled) {
-      debugPrint('Safe mode: se omite conexión Firebase post-login.');
-      return;
+    if (usuario == null || password == null || password.isEmpty) {
+      return (
+        ok: false,
+        mensaje: 'Volvé a iniciar sesión para conectar la nube.',
+      );
     }
-    if (!BackendConfigService.instance.firebaseEnabled) return;
+    if (FirebaseSafeMode.enabled) {
+      return (
+        ok: false,
+        mensaje:
+            'Modo seguro activo. Desactivalo en Configuración e intentá de nuevo.',
+      );
+    }
 
     try {
       if (!FirebaseBootstrap.isReady) {
         await FirebaseBootstrap.initializeIfNeeded();
       }
     } catch (e) {
-      debugPrint('Firebase init post-login: $e');
+      await appendAppLog('Firebase init post-login: $e');
       await FirebaseSafeMode.activar();
-      return;
+      await BackendConfigService.instance.setFirebaseEnabled(false);
+      return (
+        ok: false,
+        mensaje: 'No se pudo iniciar Firebase: $e',
+      );
     }
 
     final firebase = FirebaseAuthUsuarioService.instance;
-    if (!firebase.disponible) return;
+    if (!firebase.disponible) {
+      return (ok: false, mensaje: 'Firebase no está disponible.');
+    }
 
     try {
       await FirebaseSafeMode.marcarInicioLoginFirebase();
@@ -240,6 +263,13 @@ class AuthService {
             currentUser = actualizado;
           } catch (createError) {
             debugPrint('Firebase crearCuenta post-login: $createError');
+            await FirebaseSafeMode.marcarFinLoginFirebase();
+            return (
+              ok: false,
+              mensaje:
+                  'No se pudo autenticar en la nube. '
+                  'Revisá usuario/clave o el mail de confirmación. ($createError)',
+            );
           }
         }
       }
@@ -253,14 +283,39 @@ class AuthService {
         }
         try {
           await FirestoreSyncService.instance.start();
-          debugPrint('Firebase Auth OK uid=$uidActual');
+          await appendAppLog('Firebase Auth OK uid=$uidActual');
         } catch (e) {
           debugPrint('Sync start post-login: $e');
         }
+        await FirebaseSafeMode.marcarFinLoginFirebase();
+        return (
+          ok: true,
+          mensaje:
+              'Sincronización activada. Las ventas/productos se comparten con el celular.',
+        );
       }
-    } finally {
+
       await FirebaseSafeMode.marcarFinLoginFirebase();
+      return (
+        ok: false,
+        mensaje: 'No quedó sesión Firebase. Probá cerrar sesión y volver a entrar.',
+      );
+    } catch (e) {
+      await FirebaseSafeMode.marcarFinLoginFirebase();
+      await appendAppLog('conectarFirebase error: $e');
+      return (ok: false, mensaje: 'Error al conectar: $e');
     }
+  }
+
+  Future<void> desactivarNube() async {
+    try {
+      await FirestoreSyncService.instance.stop();
+    } catch (_) {}
+    try {
+      await FirebaseAuthUsuarioService.instance.cerrarSesion();
+    } catch (_) {}
+    await BackendConfigService.instance.setFirebaseEnabled(false);
+    await appendAppLog('Nube desactivada por el usuario');
   }
 
   /// Envía el mail de restablecimiento (mismo flujo que la confirmación de alta).

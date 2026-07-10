@@ -223,8 +223,8 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Esta versión Windows entra en modo LOCAL (sin nube). '
-                          'Primera vez: admin / admin123',
+                          'Primera vez: admin / admin123. '
+                          'Para usarlo online con el celular: Configuración → Activar sincronización.',
                           style: textTheme.bodySmall?.copyWith(
                             color: cs.onSurfaceVariant,
                           ),

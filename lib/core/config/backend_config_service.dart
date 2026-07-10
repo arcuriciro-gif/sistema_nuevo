@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../firebase_options.dart';
+import 'platform_capabilities.dart';
 
 /// Configuración del backend (SQLite local o Firebase en tiempo real).
 class BackendConfigService {
@@ -21,8 +23,19 @@ class BackendConfigService {
   Future<void> cargar() async {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getBool(_firebaseEnabledKey);
-    _firebaseEnabled = stored ?? DefaultFirebaseOptions.isConfigured;
+    // En Windows la nube es opt-in (evita crash al primer login).
+    // En Android/otras, si hay Firebase configurado, queda activo por defecto.
+    if (stored != null) {
+      _firebaseEnabled = stored;
+    } else if (PlatformCapabilities.isWindowsDesktop) {
+      _firebaseEnabled = false;
+    } else {
+      _firebaseEnabled = DefaultFirebaseOptions.isConfigured;
+    }
     _tenantId = prefs.getString(_tenantIdKey) ?? _defaultTenant;
+    debugPrint(
+      'BackendConfig firebaseEnabled=$_firebaseEnabled tenant=$_tenantId',
+    );
   }
 
   Future<void> setFirebaseEnabled(bool value) async {
