@@ -241,8 +241,8 @@ class _ManualUsuarioPageState extends State<ManualUsuarioPage> {
                           leading: Icon(Icons.info_outline_rounded),
                           title: Text('Antes de iniciar sesión'),
                           subtitle: Text(
-                            'Leé «Primeros pasos: registro y correo». '
-                            'Tocá PDF para verlo o compartirlo al celular.',
+                            'Leé «Iniciar sesión» y «Pasos recomendados de uso». '
+                            'También podés abrir o compartir el PDF.',
                           ),
                         ),
                       ),
