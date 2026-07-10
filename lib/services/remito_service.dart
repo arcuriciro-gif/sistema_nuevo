@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_queue_service.dart';
 import '../database/database_helper.dart';
 import '../models/movimiento_stock.dart';
 import '../models/remito.dart';
@@ -97,7 +98,11 @@ class RemitoService {
     });
 
     // Sync a Firebase para que PC/celular se actualicen
-    await FirestoreSyncService.instance.subirRemito(remitoId);
+    await SyncQueueService.instance.pushOrEnqueueUpsert(
+      entityType: 'remito',
+      id: remitoId,
+      upload: () => FirestoreSyncService.instance.subirRemito(remitoId),
+    );
     DataRefreshHub.instance.notifyTodo();
     return remitoId;
   }
@@ -163,7 +168,11 @@ class RemitoService {
       where: 'id = ?',
       whereArgs: [id],
     );
-    await FirestoreSyncService.instance.subirRemito(id);
+    await SyncQueueService.instance.pushOrEnqueueUpsert(
+      entityType: 'remito',
+      id: id,
+      upload: () => FirestoreSyncService.instance.subirRemito(id),
+    );
     DataRefreshHub.instance.notifyTodo();
   }
 
@@ -237,7 +246,11 @@ class RemitoService {
       );
     });
 
-    await FirestoreSyncService.instance.subirRemito(id);
+    await SyncQueueService.instance.pushOrEnqueueUpsert(
+      entityType: 'remito',
+      id: id,
+      upload: () => FirestoreSyncService.instance.subirRemito(id),
+    );
     DataRefreshHub.instance.notifyTodo();
   }
 

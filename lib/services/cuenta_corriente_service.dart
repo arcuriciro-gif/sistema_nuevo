@@ -1,5 +1,6 @@
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_queue_service.dart';
 import '../database/database_helper.dart';
 import '../models/pago.dart';
 import '../models/venta.dart';
@@ -171,7 +172,11 @@ class CuentaCorrienteService {
     if (venta.clienteId != null) {
       await recalcularSaldoCliente(venta.clienteId!);
     }
-    await FirestoreSyncService.instance.subirVenta(ventaId);
+    await SyncQueueService.instance.pushOrEnqueueUpsert(
+      entityType: 'venta',
+      id: ventaId,
+      upload: () => FirestoreSyncService.instance.subirVenta(ventaId),
+    );
     DataRefreshHub.instance.notifyVentas();
     return pago;
   }

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -6,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
+import '../core/sync/sync_queue_service.dart';
 import '../database/database_helper.dart';
 import '../models/documento_cliente.dart';
 import 'auth_service.dart';
@@ -63,7 +65,12 @@ class DocumentoClienteService {
 
       final db = await _db.database;
       await db.insert('documentos_cliente', doc.toMap());
-      await FirestoreSyncService.instance.subirDocumento(doc);
+      await SyncQueueService.instance.pushOrEnqueue(
+        entityType: 'documento',
+        entityId: doc.id,
+        payloadJson: jsonEncode(doc.toMap()),
+        upload: () => FirestoreSyncService.instance.subirDocumento(doc),
+      );
       DataRefreshHub.instance.notifyTodo();
       return doc;
     } catch (e) {

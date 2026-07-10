@@ -30,7 +30,14 @@ Podés abrir este manual **antes de iniciar sesión** (botón en el login) o des
 ### Al empezar el día
 1. Iniciá sesión.  
 2. Revisá la **pantalla de inicio** (stock, alertas, cuentas).  
-3. Si aparece **Sin stock**, tocá la tarjeta para ver esos productos.
+3. Mirá el indicador de **sincronización** arriba (Sincronizado / Pendiente / Sin conexión).  
+4. Si aparece **Sin stock**, tocá la tarjeta para ver esos productos.
+
+### Sincronización entre PC y celular
+- Con internet: los cambios se comparten solos entre dispositivos.  
+- Sin internet: seguí trabajando; las ventas y cambios se guardan en el equipo.  
+- Al volver la red: se envían solos (el indicador pasa a **Pendiente** y luego **Sincronizado**).  
+- Tocá el indicador para ver el historial técnico; mantené pulsado para reintentar si hay error.
 
 ### Cargar o actualizar productos
 1. **Productos** → alta o edición.  

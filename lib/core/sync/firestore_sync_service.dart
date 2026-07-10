@@ -18,6 +18,7 @@ import '../../models/venta.dart';
 import '../../repositories/firestore_producto_repository.dart';
 import '../../repositories/producto_repository.dart';
 import '../../repositories/sqlite_producto_repository.dart';
+import 'sync_queue_service.dart';
 
 /// Mantiene SQLite sincronizado con Firestore en tiempo real.
 class FirestoreSyncService {
@@ -43,6 +44,27 @@ class FirestoreSyncService {
   bool _sincronizandoProveedores = false;
   bool _sincronizandoCompras = false;
   bool _sincronizandoDocumentos = false;
+
+  /// Cuando es true, los `subir*`/`eliminar*` remotos relanzan errores
+  /// (usado por [SyncQueueService] para reintentos). Callers normales no cambian.
+  bool _rethrowOutbound = false;
+
+  Future<T> runOutboundStrict<T>(Future<T> Function() action) async {
+    _rethrowOutbound = true;
+    try {
+      return await action();
+    } finally {
+      _rethrowOutbound = false;
+    }
+  }
+
+  void _onOutboundError(Object e, String label) {
+    debugPrint('$label: $e');
+    if (_rethrowOutbound) {
+      if (e is Exception) throw e;
+      throw Exception('$label: $e');
+    }
+  }
 
   CollectionReference<Map<String, dynamic>> _col(String name) {
     final tenant = BackendConfigService.instance.tenantId;
@@ -116,10 +138,10 @@ class FirestoreSyncService {
   }
 
   ProductoRepository get writeRepository {
-    final authOk = FirebaseAuthUsuarioService.instance.uidActual != null;
+    // Con Firebase habilitado siempre usamos dual-write + cola, aunque
+    // Auth aún no esté listo: lo local nunca se pierde.
     if (BackendConfigService.instance.firebaseEnabled &&
-        FirebaseBootstrap.isReady &&
-        authOk) {
+        FirebaseBootstrap.isReady) {
       return _DualProductoRepository(local: _cache, remote: _remote);
     }
     return _cache;
@@ -129,6 +151,14 @@ class FirestoreSyncService {
     return BackendConfigService.instance.firebaseEnabled &&
         FirebaseBootstrap.isReady &&
         FirebaseAuthUsuarioService.instance.uidActual != null;
+  }
+
+  bool get puedeEscribirRemoto => _puedeEscribirRemoto;
+
+  void _requireEscrituraRemota() {
+    if (!_puedeEscribirRemoto && _rethrowOutbound) {
+      throw StateError('Sin sesión Firebase o sync deshabilitado');
+    }
   }
 
   Future<String> asegurarSyncIdCliente(int clienteId) async {
@@ -174,6 +204,7 @@ class FirestoreSyncService {
   }
 
   Future<void> subirCliente(int clienteId) async {
+    _requireEscrituraRemota();
     if (!_puedeEscribirRemoto) return;
     try {
       final syncId = await asegurarSyncIdCliente(clienteId);
@@ -192,20 +223,22 @@ class FirestoreSyncService {
         'localId': clienteId,
       }, SetOptions(merge: true));
     } catch (e) {
-      debugPrint('Firestore subir cliente: $e');
+      _onOutboundError(e, 'Firestore subir cliente');
     }
   }
 
   Future<void> eliminarClienteRemoto(String syncId) async {
+    _requireEscrituraRemota();
     if (!_puedeEscribirRemoto || syncId.isEmpty) return;
     try {
       await _clientesCol.doc(syncId).delete();
     } catch (e) {
-      debugPrint('Firestore eliminar cliente: $e');
+      _onOutboundError(e, 'Firestore eliminar cliente');
     }
   }
 
   Future<void> subirProveedor(int proveedorId) async {
+    _requireEscrituraRemota();
     if (!_puedeEscribirRemoto) return;
     try {
       final syncId = await asegurarSyncIdProveedor(proveedorId);
@@ -224,20 +257,22 @@ class FirestoreSyncService {
         'localId': proveedorId,
       }, SetOptions(merge: true));
     } catch (e) {
-      debugPrint('Firestore subir proveedor: $e');
+      _onOutboundError(e, 'Firestore subir proveedor');
     }
   }
 
   Future<void> eliminarProveedorRemoto(String syncId) async {
+    _requireEscrituraRemota();
     if (!_puedeEscribirRemoto || syncId.isEmpty) return;
     try {
       await _proveedoresCol.doc(syncId).delete();
     } catch (e) {
-      debugPrint('Firestore eliminar proveedor: $e');
+      _onOutboundError(e, 'Firestore eliminar proveedor');
     }
   }
 
   Future<void> subirCompra(int compraId) async {
+    _requireEscrituraRemota();
     if (!_puedeEscribirRemoto) return;
     try {
       final db = await DatabaseHelper.instance.database;
@@ -277,11 +312,12 @@ class FirestoreSyncService {
         if (pid is int) await subirProductoPorId(pid);
       }
     } catch (e) {
-      debugPrint('Firestore subir compra: $e');
+      _onOutboundError(e, 'Firestore subir compra');
     }
   }
 
   Future<void> subirDocumento(DocumentoCliente doc) async {
+    _requireEscrituraRemota();
     if (!_puedeEscribirRemoto || doc.id.isEmpty) return;
     try {
       await _documentosCol.doc(doc.id).set(
@@ -289,11 +325,12 @@ class FirestoreSyncService {
             SetOptions(merge: true),
           );
     } catch (e) {
-      debugPrint('Firestore subir documento: $e');
+      _onOutboundError(e, 'Firestore subir documento');
     }
   }
 
   Future<void> subirVenta(int ventaId) async {
+    _requireEscrituraRemota();
     if (!_puedeEscribirRemoto) return;
     try {
       final db = await DatabaseHelper.instance.database;
@@ -349,22 +386,24 @@ class FirestoreSyncService {
         'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
       }, SetOptions(merge: true));
     } catch (e) {
-      debugPrint('Firestore subir venta: $e');
+      _onOutboundError(e, 'Firestore subir venta');
     }
   }
 
   Future<void> eliminarVentaRemota(Venta venta) async {
+    _requireEscrituraRemota();
     if (!_puedeEscribirRemoto) return;
     try {
       final docId = venta.numero.isNotEmpty ? venta.numero : 'v_${venta.id}';
       await _ventasCol.doc(docId).delete();
     } catch (e) {
-      debugPrint('Firestore eliminar venta: $e');
+      _onOutboundError(e, 'Firestore eliminar venta');
     }
   }
 
   /// Sube remito + ítems y empuja el stock actualizado de cada producto.
   Future<void> subirRemito(int remitoId) async {
+    _requireEscrituraRemota();
     if (!_puedeEscribirRemoto) return;
     try {
       final db = await DatabaseHelper.instance.database;
@@ -413,11 +452,12 @@ class FirestoreSyncService {
         await subirProductoPorId(pid);
       }
     } catch (e) {
-      debugPrint('Firestore subir remito: $e');
+      _onOutboundError(e, 'Firestore subir remito');
     }
   }
 
   Future<void> subirProductoPorId(int productoId) async {
+    _requireEscrituraRemota();
     if (!_puedeEscribirRemoto) return;
     try {
       final db = await DatabaseHelper.instance.database;
@@ -431,7 +471,7 @@ class FirestoreSyncService {
       final producto = Producto.fromMap(rows.first);
       await _remote.actualizar(producto);
     } catch (e) {
-      debugPrint('Firestore subir producto $productoId: $e');
+      _onOutboundError(e, 'Firestore subir producto');
     }
   }
 
@@ -963,25 +1003,45 @@ class _DualProductoRepository implements ProductoRepository {
   final SqliteProductoRepository local;
   final FirestoreProductoRepository remote;
 
+  bool get _remotoOk => FirestoreSyncService.instance.puedeEscribirRemoto;
+
+  Future<void> _encolarProducto(int id) {
+    return SyncQueueService.instance.enqueueUpsert('producto', id);
+  }
+
   @override
   Future<int> insertar(Producto producto) async {
     final id = await local.insertar(producto);
     final conId = producto.copyWith(id: id);
-    try {
-      await remote.insertar(conId);
-    } catch (error) {
-      debugPrint('Firestore insertar producto: $error');
+    if (_remotoOk) {
+      try {
+        await remote.insertar(conId);
+        return id;
+      } catch (error) {
+        debugPrint('Firestore insertar producto: $error');
+      }
     }
+    await _encolarProducto(id);
     return id;
   }
 
   @override
   Future<void> insertarLista(List<Producto> productos) async {
     await local.insertarLista(productos);
-    try {
-      await remote.insertarLista(productos);
-    } catch (error) {
-      debugPrint('Firestore insertarLista productos: $error');
+    if (_remotoOk) {
+      try {
+        await remote.insertarLista(productos);
+        return;
+      } catch (error) {
+        debugPrint('Firestore insertarLista productos: $error');
+      }
+    }
+    // Sin remoto o fallo: encolar cada ítem por código local.
+    for (final p in productos) {
+      final localP = await local.buscarPorCodigo(p.codigo);
+      if (localP?.id != null) {
+        await _encolarProducto(localP!.id!);
+      }
     }
   }
 
@@ -1003,11 +1063,17 @@ class _DualProductoRepository implements ProductoRepository {
   @override
   Future<int> actualizar(Producto producto) async {
     final result = await local.actualizar(producto);
-    try {
-      await remote.actualizar(producto);
-    } catch (error) {
-      debugPrint('Firestore actualizar producto: $error');
+    final id = producto.id;
+    if (id == null) return result;
+    if (_remotoOk) {
+      try {
+        await remote.actualizar(producto);
+        return result;
+      } catch (error) {
+        debugPrint('Firestore actualizar producto: $error');
+      }
     }
+    await _encolarProducto(id);
     return result;
   }
 
@@ -1017,17 +1083,20 @@ class _DualProductoRepository implements ProductoRepository {
     final rows =
         await db.query('productos', where: 'id = ?', whereArgs: [id], limit: 1);
     final result = await local.eliminar(id);
-    if (rows.isNotEmpty) {
-      final producto = Producto.fromMap(rows.first).copyWith(
-        deletedAt: DateTime.now().toIso8601String(),
-        favorito: false,
-      );
+    if (rows.isEmpty) return result;
+    final producto = Producto.fromMap(rows.first).copyWith(
+      deletedAt: DateTime.now().toIso8601String(),
+      favorito: false,
+    );
+    if (_remotoOk) {
       try {
         await remote.actualizar(producto);
+        return result;
       } catch (error) {
         debugPrint('Firestore soft-delete producto: $error');
       }
     }
+    await _encolarProducto(id);
     return result;
   }
 

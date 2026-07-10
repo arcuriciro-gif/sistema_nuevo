@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_queue_service.dart';
 import '../database/database_helper.dart';
 import '../models/cliente.dart';
 import 'auth_service.dart';
@@ -40,7 +41,11 @@ class ClienteService {
       'Nuevo cliente: ${listo.nombreCompleto}',
       valorNuevo: _snapshot(listo.copyWith(id: id)),
     );
-    await FirestoreSyncService.instance.subirCliente(id);
+    await SyncQueueService.instance.pushOrEnqueueUpsert(
+      entityType: 'cliente',
+      id: id,
+      upload: () => FirestoreSyncService.instance.subirCliente(id),
+    );
     DataRefreshHub.instance.notifyTodo();
     return id;
   }
@@ -79,7 +84,11 @@ class ClienteService {
     );
 
     if (listo.id != null) {
-      await FirestoreSyncService.instance.subirCliente(listo.id!);
+      await SyncQueueService.instance.pushOrEnqueueUpsert(
+        entityType: 'cliente',
+        id: listo.id!,
+        upload: () => FirestoreSyncService.instance.subirCliente(listo.id!),
+      );
     }
     DataRefreshHub.instance.notifyTodo();
     return result;
@@ -108,7 +117,14 @@ class ClienteService {
         'Cliente eliminado: ${cliente.nombreCompleto}',
         valorAnterior: _snapshot(cliente),
       );
-      await FirestoreSyncService.instance.eliminarClienteRemoto(cliente.syncId);
+      await SyncQueueService.instance.pushOrEnqueue(
+        entityType: 'cliente',
+        entityId: '${cliente.id ?? id}',
+        operation: 'delete',
+        payloadJson: jsonEncode({'syncId': cliente.syncId}),
+        upload: () => FirestoreSyncService.instance
+            .eliminarClienteRemoto(cliente.syncId),
+      );
     }
     DataRefreshHub.instance.notifyTodo();
 

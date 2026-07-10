@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_queue_service.dart';
 import '../database/database_helper.dart';
 import '../models/compra.dart';
 import '../models/compra_detalle.dart';
@@ -113,7 +114,11 @@ class CompraService {
       return compraId;
     });
 
-    await FirestoreSyncService.instance.subirCompra(compraId);
+    await SyncQueueService.instance.pushOrEnqueueUpsert(
+      entityType: 'compra',
+      id: compraId,
+      upload: () => FirestoreSyncService.instance.subirCompra(compraId),
+    );
     DataRefreshHub.instance.notifyTodo();
     return compraId;
   }
@@ -206,7 +211,11 @@ class CompraService {
       );
     });
 
-    await FirestoreSyncService.instance.subirCompra(id);
+    await SyncQueueService.instance.pushOrEnqueueUpsert(
+      entityType: 'compra',
+      id: id,
+      upload: () => FirestoreSyncService.instance.subirCompra(id),
+    );
     DataRefreshHub.instance.notifyTodo();
   }
 

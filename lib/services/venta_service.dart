@@ -1,5 +1,6 @@
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_queue_service.dart';
 import '../database/database_helper.dart';
 import '../models/venta.dart';
 import '../models/venta_item.dart';
@@ -41,7 +42,11 @@ class VentaService {
       medioPago: medioPago,
       observacionesPago: observacionesPago,
     );
-    await FirestoreSyncService.instance.subirVenta(id);
+    await SyncQueueService.instance.pushOrEnqueueUpsert(
+      entityType: 'venta',
+      id: id,
+      upload: () => FirestoreSyncService.instance.subirVenta(id),
+    );
     return id;
   }
 
@@ -94,7 +99,11 @@ class VentaService {
     if (venta?.clienteId != null) {
       await _cc.recalcularSaldoCliente(venta!.clienteId!);
     }
-    await FirestoreSyncService.instance.subirVenta(id);
+    await SyncQueueService.instance.pushOrEnqueueUpsert(
+      entityType: 'venta',
+      id: id,
+      upload: () => FirestoreSyncService.instance.subirVenta(id),
+    );
     DataRefreshHub.instance.notifyVentas();
   }
 
@@ -129,7 +138,11 @@ class VentaService {
     if (venta.clienteId != null) {
       await _cc.recalcularSaldoCliente(venta.clienteId!);
     }
-    await FirestoreSyncService.instance.subirVenta(id);
+    await SyncQueueService.instance.pushOrEnqueueUpsert(
+      entityType: 'venta',
+      id: id,
+      upload: () => FirestoreSyncService.instance.subirVenta(id),
+    );
     DataRefreshHub.instance.notifyVentas();
   }
 
@@ -152,7 +165,11 @@ class VentaService {
       where: 'id = ?',
       whereArgs: [id],
     );
-    await FirestoreSyncService.instance.subirVenta(id);
+    await SyncQueueService.instance.pushOrEnqueueUpsert(
+      entityType: 'venta',
+      id: id,
+      upload: () => FirestoreSyncService.instance.subirVenta(id),
+    );
   }
 
   Future<void> eliminar(int id) async {
@@ -168,7 +185,14 @@ class VentaService {
       await _cc.recalcularSaldoCliente(venta!.clienteId!);
     }
     if (venta != null) {
-      await FirestoreSyncService.instance.eliminarVentaRemota(venta);
+      await SyncQueueService.instance.pushOrEnqueue(
+        entityType: 'venta',
+        entityId: '${venta.id ?? id}',
+        operation: 'delete',
+        payloadJson:
+            '{"numero":"${venta.numero}","id":${venta.id ?? id}}',
+        upload: () => FirestoreSyncService.instance.eliminarVentaRemota(venta),
+      );
     }
     DataRefreshHub.instance.notifyVentas();
   }

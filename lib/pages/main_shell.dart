@@ -10,6 +10,8 @@ import '../services/comunicaciones_service.dart';
 import '../services/cuenta_corriente_service.dart';
 import '../services/permisos_service.dart';
 import '../theme/layout_constants.dart';
+import '../core/sync/sync_queue_service.dart';
+import '../widgets/sync_status_chip.dart';
 import 'archivo_pdfs_page.dart';
 import 'auditoria_page.dart';
 import 'backup_page.dart';
@@ -95,6 +97,7 @@ class _MainShellState extends State<MainShell> {
     AutoBackupService.instance.iniciar();
     BrandingService.instance.addListener(_onBrandingChanged);
     ComunicacionesService.instance.addListener(_onCommsChanged);
+    SyncQueueService.instance.addListener(_onSyncChanged);
     ComunicacionesService.instance.iniciar();
     WidgetsBinding.instance.addPostFrameCallback((_) => _mostrarRecordatorioCc());
   }
@@ -103,10 +106,15 @@ class _MainShellState extends State<MainShell> {
     if (mounted) setState(() {});
   }
 
+  void _onSyncChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     BrandingService.instance.removeListener(_onBrandingChanged);
     ComunicacionesService.instance.removeListener(_onCommsChanged);
+    SyncQueueService.instance.removeListener(_onSyncChanged);
     super.dispose();
   }
 
@@ -546,6 +554,10 @@ class _MainShellState extends State<MainShell> {
         ),
         centerTitle: true,
         actions: [
+          const Padding(
+            padding: EdgeInsets.only(right: 4),
+            child: SyncStatusChip(dense: true),
+          ),
           IconButton(
             onPressed: () {
               Navigator.push(
@@ -927,6 +939,8 @@ class _TopBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
+          const SyncStatusChip(dense: true, dark: true),
+          const SizedBox(width: 8),
           // Notificaciones
           IconButton(
             icon: Badge(

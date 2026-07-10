@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_queue_service.dart';
 import '../database/database_helper.dart';
 import '../models/proveedor.dart';
 import 'auth_service.dart';
@@ -48,7 +49,11 @@ class ProveedorService {
       'Nuevo proveedor: ${creado.nombre}',
       valorNuevo: _snapshot(creado.copyWith(id: id)),
     );
-    await FirestoreSyncService.instance.subirProveedor(id);
+    await SyncQueueService.instance.pushOrEnqueueUpsert(
+      entityType: 'proveedor',
+      id: id,
+      upload: () => FirestoreSyncService.instance.subirProveedor(id),
+    );
     DataRefreshHub.instance.notifyTodo();
 
     return id;
@@ -87,7 +92,11 @@ class ProveedorService {
       valorNuevo: _snapshot(listo),
     );
     if (listo.id != null) {
-      await FirestoreSyncService.instance.subirProveedor(listo.id!);
+      await SyncQueueService.instance.pushOrEnqueueUpsert(
+        entityType: 'proveedor',
+        id: listo.id!,
+        upload: () => FirestoreSyncService.instance.subirProveedor(listo.id!),
+      );
     }
     DataRefreshHub.instance.notifyTodo();
 
@@ -118,8 +127,14 @@ class ProveedorService {
         'Proveedor eliminado: ${proveedor.nombre}',
         valorAnterior: _snapshot(proveedor),
       );
-      await FirestoreSyncService.instance
-          .eliminarProveedorRemoto(proveedor.syncId);
+      await SyncQueueService.instance.pushOrEnqueue(
+        entityType: 'proveedor',
+        entityId: '${proveedor.id ?? id}',
+        operation: 'delete',
+        payloadJson: jsonEncode({'syncId': proveedor.syncId}),
+        upload: () => FirestoreSyncService.instance
+            .eliminarProveedorRemoto(proveedor.syncId),
+      );
     }
     DataRefreshHub.instance.notifyTodo();
 

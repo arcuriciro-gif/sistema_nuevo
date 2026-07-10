@@ -8,6 +8,7 @@ import '../core/auth/usuario_auth_email.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_queue_service.dart';
 import '../database/database_helper.dart';
 import '../models/usuario.dart';
 import '../repositories/firestore_usuario_repository.dart';
@@ -111,12 +112,15 @@ class AuthService {
         }
       }
       await FirestoreSyncService.instance.start();
+      await SyncQueueService.instance.start();
       debugPrint('Firebase Auth OK uid=$uidActual');
     } else {
       debugPrint(
         'Login local OK, pero sin Firebase Auth. '
         'Revisá Authentication > Correo/contraseña en Firebase.',
       );
+      // Aun sin Auth remoto, la cola queda lista para cuando haya sesión.
+      await SyncQueueService.instance.start();
     }
 
     await _registrarAudit(
@@ -140,6 +144,7 @@ class AuthService {
     );
     currentUser = null;
     _ultimaPasswordIngresada = null;
+    await SyncQueueService.instance.stop();
     await FirestoreSyncService.instance.stop();
     if (FirebaseAuthUsuarioService.instance.disponible) {
       try {
@@ -212,6 +217,7 @@ class AuthService {
         debugPrint('Firestore usuario en cambio password: $error');
       }
       await FirestoreSyncService.instance.start();
+      await SyncQueueService.instance.start();
       debugPrint('Firebase Auth OK uid=${FirebaseAuthUsuarioService.instance.uidActual}');
     }
 

@@ -22,7 +22,7 @@ class DatabaseHelper {
 
     return openDatabase(
       path,
-      version: 22,
+      version: 23,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -162,6 +162,7 @@ CREATE TABLE comparacion(
     await _crearTablasComunicaciones(db);
     await _crearTablaComentariosInternos(db);
     await _migrarSyncCompletoV21(db);
+    await _crearTablasSyncQueue(db);
     await _crearIndices(db);
   }
 
@@ -867,6 +868,9 @@ CREATE TABLE IF NOT EXISTS ventas_items(
         'foto': "TEXT DEFAULT ''",
       });
     }
+    if (oldVersion < 23) {
+      await _crearTablasSyncQueue(db);
+    }
   }
 
   Future<void> _migrarSyncCompletoV21(Database db) async {
@@ -965,6 +969,47 @@ CREATE TABLE IF NOT EXISTS comentarios_internos(
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_comentarios_entidad '
       'ON comentarios_internos(entidadTipo, entidadId)',
+    );
+  }
+
+  /// Cola persistente de sincronización outbound + historial técnico.
+  Future<void> _crearTablasSyncQueue(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS sync_queue (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entityType TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  entityId TEXT NOT NULL,
+  payloadJson TEXT DEFAULT '',
+  dedupeKey TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  lastError TEXT DEFAULT '',
+  createdAt TEXT NOT NULL,
+  updatedAt TEXT NOT NULL,
+  nextRetryAt TEXT
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sync_queue_status '
+      'ON sync_queue(status, nextRetryAt)',
+    );
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS sync_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  queueId INTEGER,
+  entityType TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  entityId TEXT NOT NULL,
+  status TEXT NOT NULL,
+  error TEXT DEFAULT '',
+  durationMs INTEGER DEFAULT 0,
+  finishedAt TEXT NOT NULL
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sync_history_finished '
+      'ON sync_history(finishedAt)',
     );
   }
 
