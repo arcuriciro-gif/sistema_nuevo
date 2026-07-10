@@ -93,9 +93,11 @@ endif()
 
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
-install(DIRECTORY "${NATIVE_ASSETS_DIR}"
-   DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
-   COMPONENT Runtime)
+if(EXISTS "${NATIVE_ASSETS_DIR}")
+  install(DIRECTORY "${NATIVE_ASSETS_DIR}"
+     DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+     COMPONENT Runtime)
+endif()
 
 # Fully re-copy the assets directory on each build to avoid having stale files
 # from a previous install.
@@ -119,24 +121,6 @@ if(EXISTS "${MANUAL_PDF}")
     COMPONENT Runtime)
 endif()
 
-# Copia el paquete completo a la raiz del proyecto (Instalador_Windows)
-# para encontrarlo facil sin entrar a build/.../Release
-set(PROJECT_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Instalador_Windows")
-set(DIST_LEEME "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/windows/LEEME.txt")
-set(DIST_ABRIR "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/windows/ABRIR_TATA_MANAGER.bat")
-install(CODE "
-  message(STATUS \"Preparando Instalador_Windows en: ${PROJECT_DIST_DIR}\")
-  file(REMOVE_RECURSE \"${PROJECT_DIST_DIR}\")
-  file(MAKE_DIRECTORY \"${PROJECT_DIST_DIR}\")
-  file(COPY \"\${CMAKE_INSTALL_PREFIX}/\" DESTINATION \"${PROJECT_DIST_DIR}\")
-  if(EXISTS \"${DIST_LEEME}\")
-    file(COPY \"${DIST_LEEME}\" DESTINATION \"${PROJECT_DIST_DIR}\")
-  endif()
-  if(EXISTS \"${DIST_ABRIR}\")
-    file(COPY \"${DIST_ABRIR}\" DESTINATION \"${PROJECT_DIST_DIR}\")
-  endif()
-  if(EXISTS \"${MANUAL_PDF}\")
-    file(COPY \"${MANUAL_PDF}\" DESTINATION \"${PROJECT_DIST_DIR}\")
-  endif()
-  message(STATUS \"Listo: abrí la carpeta Instalador_Windows en la raiz del proyecto\")
-" COMPONENT Runtime)
+# Nota: la carpeta Instalador_Windows se arma con
+# scripts/preparar_instalador_windows.bat (no en este paso de CMake),
+# para evitar fallos MSB3073 al copiar/borrar en discos externos.
