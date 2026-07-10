@@ -262,20 +262,43 @@ class CuentaCorrienteService {
 
   Future<List<ClienteDeudor>> clientesDeudores() async {
     final db = await _db.database;
+    // Une deudas de facturas/ventas + remitos no cobrados
     final rows = await db.rawQuery('''
       SELECT
-        c.id AS clienteId,
-        TRIM(c.nombre || ' ' || COALESCE(c.apellido, '')) AS nombre,
-        COALESCE(c.telefono, '') AS telefono,
-        COALESCE(SUM(v.saldoPendiente), 0) AS saldoPendiente,
-        COUNT(v.id) AS ventasPendientes,
-        MAX(v.fecha) AS ultimaCompra
-      FROM clientes c
-      INNER JOIN ventas v ON v.clienteId = c.id
-      WHERE v.estado != 'anulada'
-        AND v.saldoPendiente > 0.009
-        AND v.tipo NOT IN ('presupuesto')
-      GROUP BY c.id
+        clienteId,
+        nombre,
+        telefono,
+        SUM(saldoPendiente) AS saldoPendiente,
+        SUM(ops) AS ventasPendientes,
+        MAX(ultimaCompra) AS ultimaCompra
+      FROM (
+        SELECT
+          c.id AS clienteId,
+          TRIM(c.nombre || ' ' || COALESCE(c.apellido, '')) AS nombre,
+          COALESCE(c.telefono, '') AS telefono,
+          COALESCE(v.saldoPendiente, 0) AS saldoPendiente,
+          1 AS ops,
+          v.fecha AS ultimaCompra
+        FROM clientes c
+        INNER JOIN ventas v ON v.clienteId = c.id
+        WHERE v.estado != 'anulada'
+          AND v.saldoPendiente > 0.009
+          AND v.tipo NOT IN ('presupuesto')
+        UNION ALL
+        SELECT
+          c.id AS clienteId,
+          TRIM(c.nombre || ' ' || COALESCE(c.apellido, '')) AS nombre,
+          COALESCE(c.telefono, '') AS telefono,
+          COALESCE(r.total, 0) AS saldoPendiente,
+          1 AS ops,
+          r.fecha AS ultimaCompra
+        FROM clientes c
+        INNER JOIN remitos r ON r.clienteId = c.id
+        WHERE r.estado != 'anulado'
+          AND COALESCE(r.estadoPago, 'pendiente') != 'cobrado'
+          AND COALESCE(r.total, 0) > 0.009
+      )
+      GROUP BY clienteId
       HAVING saldoPendiente > 0.009
       ORDER BY saldoPendiente DESC
     ''');
@@ -288,17 +311,44 @@ class CuentaCorrienteService {
                 : 'Sin nombre',
             telefono: r['telefono']?.toString() ?? '',
             saldoPendiente: (r['saldoPendiente'] as num?)?.toDouble() ?? 0,
-            ventasPendientes: (r['ventasPendientes'] as int?) ?? 0,
+            ventasPendientes: (r['ventasPendientes'] as num?)?.toInt() ?? 0,
             ultimaCompra: DateTime.tryParse(r['ultimaCompra']?.toString() ?? ''),
           ),
         )
         .toList();
   }
 
+  Future<double> _montoRemitosPendientes() async {
+    final db = await _db.database;
+    final rows = await db.rawQuery('''
+      SELECT COALESCE(SUM(total), 0) AS total
+      FROM remitos
+      WHERE estado != 'anulado'
+        AND COALESCE(estadoPago, 'pendiente') != 'cobrado'
+        AND clienteId IS NOT NULL
+    ''');
+    return (rows.first['total'] as num?)?.toDouble() ?? 0;
+  }
+
+  Future<int> _cantidadRemitosPendientes() async {
+    final db = await _db.database;
+    final rows = await db.rawQuery('''
+      SELECT COUNT(*) AS c
+      FROM remitos
+      WHERE estado != 'anulado'
+        AND COALESCE(estadoPago, 'pendiente') != 'cobrado'
+        AND clienteId IS NOT NULL
+    ''');
+    return (rows.first['c'] as int?) ?? 0;
+  }
+
   Future<ResumenCuentasCobrar> resumenDashboard() async {
     final deudores = await clientesDeudores();
     final ventas = await ventasConSaldo();
-    final monto = ventas.fold<double>(0, (s, v) => s + v.saldoPendiente);
+    final montoVentas = ventas.fold<double>(0, (s, v) => s + v.saldoPendiente);
+    final montoRemitos = await _montoRemitosPendientes();
+    final monto = montoVentas + montoRemitos;
+    final remitosPendientes = await _cantidadRemitosPendientes();
     final mayor = deudores.isEmpty ? null : deudores.first;
     final ahora = DateTime.now();
     final hoy = DateTime(ahora.year, ahora.month, ahora.day);
@@ -327,7 +377,7 @@ class CuentaCorrienteService {
     }
     for (final d in deudores.where((e) => e.ventasPendientes >= 3).take(2)) {
       alertas.add(
-        '${d.nombre} posee ${d.ventasPendientes} facturas pendientes',
+        '${d.nombre} posee ${d.ventasPendientes} operaciones pendientes',
       );
     }
     if (vencenHoy.isNotEmpty) {
@@ -339,11 +389,17 @@ class CuentaCorrienteService {
     if (vencidas > 0) {
       alertas.add('$vencidas venta${vencidas == 1 ? '' : 's'} vencida${vencidas == 1 ? '' : 's'}');
     }
+    if (remitosPendientes > 0) {
+      alertas.add(
+        '$remitosPendientes remito${remitosPendientes == 1 ? '' : 's'} sin cobrar '
+        '(\$${montoRemitos.toStringAsFixed(2)})',
+      );
+    }
 
     return ResumenCuentasCobrar(
       montoTotalPendiente: monto,
       clientesConDeuda: deudores.length,
-      ventasPendientes: ventas.length,
+      ventasPendientes: ventas.length + remitosPendientes,
       mayorDeudor: mayor,
       proximosVencimientos: proximos.take(5).toList(),
       alertas: alertas,
@@ -357,6 +413,9 @@ class CuentaCorrienteService {
 
   Future<double> deudaTotal() async {
     final ventas = await ventasConSaldo();
-    return ventas.fold<double>(0, (s, v) => s + v.saldoPendiente);
+    final montoVentas =
+        ventas.fold<double>(0, (s, v) => s + v.saldoPendiente);
+    final montoRemitos = await _montoRemitosPendientes();
+    return montoVentas + montoRemitos;
   }
 }

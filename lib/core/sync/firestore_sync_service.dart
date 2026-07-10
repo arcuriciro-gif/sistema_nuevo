@@ -26,8 +26,10 @@ class FirestoreSyncService {
 
   StreamSubscription<List<Producto>>? _productosSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _ventasSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _remitosSub;
   bool _sincronizando = false;
   bool _sincronizandoVentas = false;
+  bool _sincronizandoRemitos = false;
 
   CollectionReference<Map<String, dynamic>> get _ventasCol {
     final tenant = BackendConfigService.instance.tenantId;
@@ -37,6 +39,14 @@ class FirestoreSyncService {
         .collection('ventas');
   }
 
+  CollectionReference<Map<String, dynamic>> get _remitosCol {
+    final tenant = BackendConfigService.instance.tenantId;
+    return FirebaseFirestore.instance
+        .collection('tenants')
+        .doc(tenant)
+        .collection('remitos');
+  }
+
   Future<void> start() async {
     if (!BackendConfigService.instance.firebaseEnabled ||
         !FirebaseBootstrap.isReady) {
@@ -44,6 +54,7 @@ class FirestoreSyncService {
     }
     await _productosSub?.cancel();
     await _ventasSub?.cancel();
+    await _remitosSub?.cancel();
     _productosSub = _remote.watchTodos(limit: 1000).listen(
       _aplicarProductosRemotos,
       onError: (Object error) => debugPrint('Sync productos: $error'),
@@ -52,13 +63,19 @@ class FirestoreSyncService {
       _aplicarVentasRemotas,
       onError: (Object error) => debugPrint('Sync ventas: $error'),
     );
+    _remitosSub = _remitosCol.snapshots().listen(
+      _aplicarRemitosRemotos,
+      onError: (Object error) => debugPrint('Sync remitos: $error'),
+    );
   }
 
   Future<void> stop() async {
     await _productosSub?.cancel();
     await _ventasSub?.cancel();
+    await _remitosSub?.cancel();
     _productosSub = null;
     _ventasSub = null;
+    _remitosSub = null;
   }
 
   ProductoRepository get writeRepository {
@@ -99,12 +116,32 @@ class FirestoreSyncService {
         where: 'ventaId = ?',
         whereArgs: [ventaId],
       );
+      final itemsEnriquecidos = <Map<String, dynamic>>[];
+      for (final item in items) {
+        final map = Map<String, dynamic>.from(item);
+        final pid = item['productoId'];
+        if (pid != null) {
+          final prod = await db.query(
+            'productos',
+            columns: ['codigo'],
+            where: 'id = ?',
+            whereArgs: [pid],
+            limit: 1,
+          );
+          if (prod.isNotEmpty) {
+            map['productoCodigo'] = prod.first['codigo'];
+          }
+        }
+        itemsEnriquecidos.add(map);
+      }
       final docId = venta.numero.isNotEmpty ? venta.numero : 'v_$ventaId';
       await _ventasCol.doc(docId).set({
         ...venta.toFirestore(),
         'localId': ventaId,
-        'items': items,
+        'clienteNombre': rows.first['clienteNombre'],
+        'items': itemsEnriquecidos,
         'pagos': pagos,
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
       }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('Firestore subir venta: $e');
@@ -118,6 +155,172 @@ class FirestoreSyncService {
       await _ventasCol.doc(docId).delete();
     } catch (e) {
       debugPrint('Firestore eliminar venta: $e');
+    }
+  }
+
+  /// Sube remito + ítems y empuja el stock actualizado de cada producto.
+  Future<void> subirRemito(int remitoId) async {
+    if (!_puedeEscribirRemoto) return;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      final rows = await db.rawQuery('''
+        SELECT r.*, c.nombre AS clienteNombre
+        FROM remitos r
+        LEFT JOIN clientes c ON c.id = r.clienteId
+        WHERE r.id = ?
+      ''', [remitoId]);
+      if (rows.isEmpty) return;
+      final remito = rows.first;
+      final items = await db.rawQuery('''
+        SELECT ri.*, p.codigo AS productoCodigo, p.descripcion AS productoDescripcion
+        FROM remito_items ri
+        LEFT JOIN productos p ON p.id = ri.productoId
+        WHERE ri.remitoId = ?
+      ''', [remitoId]);
+
+      final numero = remito['numero']?.toString() ?? 'R_$remitoId';
+      await _remitosCol.doc(numero).set({
+        'numero': numero,
+        'clienteId': remito['clienteId'],
+        'clienteNombre': remito['clienteNombre'],
+        'fecha': remito['fecha'],
+        'total': remito['total'],
+        'descuento': remito['descuento'],
+        'estado': remito['estado'],
+        'estadoPago': remito['estadoPago'],
+        'observaciones': remito['observaciones'],
+        'fechaCreacion': remito['fechaCreacion'],
+        'localId': remitoId,
+        'items': items,
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+      }, SetOptions(merge: true));
+
+      final productoIds =
+          items.map((e) => e['productoId']).whereType<int>().toSet();
+      for (final pid in productoIds) {
+        await subirProductoPorId(pid);
+      }
+    } catch (e) {
+      debugPrint('Firestore subir remito: $e');
+    }
+  }
+
+  Future<void> subirProductoPorId(int productoId) async {
+    if (!_puedeEscribirRemoto) return;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      final rows = await db.query(
+        'productos',
+        where: 'id = ?',
+        whereArgs: [productoId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return;
+      final producto = Producto.fromMap(rows.first);
+      await _remote.actualizar(producto);
+    } catch (e) {
+      debugPrint('Firestore subir producto $productoId: $e');
+    }
+  }
+
+  Future<void> _aplicarRemitosRemotos(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (_sincronizandoRemitos) return;
+    _sincronizandoRemitos = true;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final numero = data['numero']?.toString() ?? doc.id;
+        final existentes = await db.query(
+          'remitos',
+          where: 'numero = ?',
+          whereArgs: [numero],
+          limit: 1,
+        );
+
+        int? clienteId = (data['clienteId'] as num?)?.toInt();
+        final clienteNombre = data['clienteNombre']?.toString();
+        if (clienteNombre != null && clienteNombre.isNotEmpty) {
+          final clientes = await db.query(
+            'clientes',
+            where: 'nombre = ?',
+            whereArgs: [clienteNombre],
+            limit: 1,
+          );
+          if (clientes.isNotEmpty) {
+            clienteId = clientes.first['id'] as int?;
+          }
+        }
+
+        final remitoMap = <String, dynamic>{
+          'numero': numero,
+          'clienteId': clienteId,
+          'fecha': data['fecha'],
+          'total': data['total'] ?? 0,
+          'descuento': data['descuento'] ?? 0,
+          'estado': data['estado'] ?? 'confirmado',
+          'estadoPago': data['estadoPago'] ?? 'pendiente',
+          'observaciones': data['observaciones'] ?? '',
+          'fechaCreacion':
+              data['fechaCreacion'] ?? DateTime.now().toIso8601String(),
+        };
+
+        final int remitoId;
+        if (existentes.isEmpty) {
+          remitoId = await db.insert('remitos', remitoMap);
+        } else {
+          remitoId = existentes.first['id'] as int;
+          await db.update(
+            'remitos',
+            remitoMap,
+            where: 'id = ?',
+            whereArgs: [remitoId],
+          );
+          await db.delete(
+            'remito_items',
+            where: 'remitoId = ?',
+            whereArgs: [remitoId],
+          );
+        }
+
+        final items = (data['items'] as List?) ?? const [];
+        for (final raw in items) {
+          final item = Map<String, dynamic>.from(raw as Map);
+          int? productoId = (item['productoId'] as num?)?.toInt();
+          final codigo = item['productoCodigo']?.toString();
+          if (codigo != null && codigo.isNotEmpty) {
+            final prod = await db.query(
+              'productos',
+              columns: ['id'],
+              where: 'codigo = ?',
+              whereArgs: [codigo],
+              limit: 1,
+            );
+            if (prod.isNotEmpty) {
+              productoId = prod.first['id'] as int?;
+            }
+          }
+          if (productoId == null) continue;
+
+          await db.insert('remito_items', {
+            'remitoId': remitoId,
+            'productoId': productoId,
+            'cantidad': item['cantidad'] ?? 0,
+            'precio': item['precio'] ?? item['precioUnitario'] ?? 0,
+            'subtotal': item['subtotal'] ?? 0,
+            'costoUnitario': item['costoUnitario'] ?? 0,
+            'ganancia': item['ganancia'] ?? 0,
+          });
+        }
+        // Stock llega por sync de productos (evita doble descuento).
+      }
+      DataRefreshHub.instance.notifyTodo();
+    } catch (e) {
+      debugPrint('Aplicar remitos remotos: $e');
+    } finally {
+      _sincronizandoRemitos = false;
     }
   }
 
@@ -144,7 +347,21 @@ class FirestoreSyncService {
           ..remove('clienteNombre')
           ..remove('actualizadoEn')
           ..remove('id');
-        int ventaId;
+
+        final clienteNombre = data['clienteNombre']?.toString();
+        if (clienteNombre != null && clienteNombre.isNotEmpty) {
+          final clientes = await db.query(
+            'clientes',
+            where: 'nombre = ?',
+            whereArgs: [clienteNombre],
+            limit: 1,
+          );
+          if (clientes.isNotEmpty) {
+            map['clienteId'] = clientes.first['id'];
+          }
+        }
+
+        final int ventaId;
         if (existentes.isEmpty) {
           ventaId = await db.insert('ventas', map);
         } else {
@@ -166,6 +383,19 @@ class FirestoreSyncService {
         for (final raw in items) {
           final item = Map<String, dynamic>.from(raw as Map);
           item.remove('id');
+          final codigo = item.remove('productoCodigo')?.toString();
+          if (codigo != null && codigo.isNotEmpty) {
+            final prod = await db.query(
+              'productos',
+              columns: ['id'],
+              where: 'codigo = ?',
+              whereArgs: [codigo],
+              limit: 1,
+            );
+            if (prod.isNotEmpty) {
+              item['productoId'] = prod.first['id'];
+            }
+          }
           item['ventaId'] = ventaId;
           await db.insert('ventas_items', item);
         }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/chat_mensaje.dart';
 import '../services/pdf_service.dart';
 import '../services/remito_service.dart';
@@ -30,7 +31,20 @@ class _RemitosPageState extends State<RemitosPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
     cargar();
+  }
+
+  void _onDatosActualizados() {
+    if (!mounted) return;
+    cargar();
+  }
+
+  @override
+  void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
+    buscarController.dispose();
+    super.dispose();
   }
 
   Future<void> cargar() async {

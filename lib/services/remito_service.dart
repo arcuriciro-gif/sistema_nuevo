@@ -1,5 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
+import '../core/events/data_refresh_hub.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/movimiento_stock.dart';
 import '../models/remito.dart';
@@ -21,8 +23,8 @@ class RemitoService {
   Future<int> insertar(Remito remito, List<RemitoDetalle> items) async {
     final db = await dbHelper.database;
 
-    return db.transaction((txn) async {
-      final remitoId = await txn.insert(
+    final remitoId = await db.transaction((txn) async {
+      final id = await txn.insert(
         'remitos',
         {
           'numero': remito.numero,
@@ -60,7 +62,7 @@ class RemitoService {
         final ganancia = item.subtotal - (costoUnitario * item.cantidad);
 
         await txn.insert('remito_items', {
-          'remitoId': remitoId,
+          'remitoId': id,
           'productoId': item.productoId,
           'cantidad': item.cantidad,
           'precio': item.precioUnitario,
@@ -81,7 +83,7 @@ class RemitoService {
           tipo: 'salida',
           cantidad: item.cantidad,
           fecha: DateTime.now(),
-          remitoId: remitoId.toString(),
+          remitoId: id.toString(),
           motivo: 'Salida por remito ${remito.numero}',
           usuario: AuthService.instance.currentUser?.usuario ?? 'sistema',
           stockAnterior: stockAnterior,
@@ -91,8 +93,13 @@ class RemitoService {
         await txn.insert('movimientos_stock', movimiento.toMap()..remove('id'));
       }
 
-      return remitoId;
+      return id;
     });
+
+    // Sync a Firebase para que PC/celular se actualicen
+    await FirestoreSyncService.instance.subirRemito(remitoId);
+    DataRefreshHub.instance.notifyTodo();
+    return remitoId;
   }
 
   Future<List<Map<String, dynamic>>> obtenerTodosConCliente() async {
@@ -156,6 +163,8 @@ class RemitoService {
       where: 'id = ?',
       whereArgs: [id],
     );
+    await FirestoreSyncService.instance.subirRemito(id);
+    DataRefreshHub.instance.notifyTodo();
   }
 
   Future<void> anular(int id) async {
@@ -227,6 +236,9 @@ class RemitoService {
         whereArgs: [id],
       );
     });
+
+    await FirestoreSyncService.instance.subirRemito(id);
+    DataRefreshHub.instance.notifyTodo();
   }
 
   Future<int> cantidad() async {
