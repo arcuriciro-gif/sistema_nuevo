@@ -14,6 +14,7 @@ import 'services/document_numbering_service.dart';
 import 'services/permisos_service.dart';
 import 'core/config/backend_config_service.dart';
 import 'core/firebase/firebase_bootstrap.dart';
+import 'core/firebase/firebase_safe_mode.dart';
 import 'theme/theme_provider.dart';
 
 Future<void> _appendCrashLog(String message) async {
@@ -45,11 +46,19 @@ void main() async {
     await DocumentNumberingService.instance.cargar();
     await AfipConfigService.instance.cargar();
     await BackendConfigService.instance.cargar();
-    try {
-      await FirebaseBootstrap.initializeIfNeeded();
-    } catch (e, st) {
-      debugPrint('Firebase init falló: $e');
-      await _appendCrashLog('FirebaseInit: $e\n$st');
+    await FirebaseSafeMode.cargar();
+
+    // En modo seguro no inicializamos Firebase: evita el crash nativo al login.
+    if (!FirebaseSafeMode.enabled) {
+      try {
+        await FirebaseBootstrap.initializeIfNeeded();
+      } catch (e, st) {
+        debugPrint('Firebase init falló: $e');
+        await _appendCrashLog('FirebaseInit: $e\n$st');
+        await FirebaseSafeMode.activar();
+      }
+    } else {
+      debugPrint('Arranque en Firebase Safe Mode (solo local).');
     }
 
     const desktopPlatforms = {

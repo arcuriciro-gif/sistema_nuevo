@@ -91,20 +91,21 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
-    // Start automatic backup timer if configured
-    try {
-      AutoBackupService.instance.iniciar();
-    } catch (e) {
-      debugPrint('AutoBackup init: $e');
-    }
     BrandingService.instance.addListener(_onBrandingChanged);
     ComunicacionesService.instance.addListener(_onCommsChanged);
-    try {
-      ComunicacionesService.instance.iniciar();
-    } catch (e) {
-      debugPrint('Comunicaciones init: $e');
-    }
-    WidgetsBinding.instance.addPostFrameCallback((_) => _mostrarRecordatorioCc());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await AutoBackupService.instance.iniciar();
+      } catch (e) {
+        debugPrint('AutoBackup init: $e');
+      }
+      try {
+        await ComunicacionesService.instance.iniciar();
+      } catch (e) {
+        debugPrint('Comunicaciones init: $e');
+      }
+      if (mounted) _mostrarRecordatorioCc();
+    });
   }
 
   void _onCommsChanged() {

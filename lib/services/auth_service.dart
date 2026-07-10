@@ -7,6 +7,8 @@ import '../core/auth/rol_util.dart';
 import '../core/auth/usuario_auth_email.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
+import '../core/firebase/firebase_bootstrap.dart';
+import '../core/firebase/firebase_safe_mode.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/usuario.dart';
@@ -32,6 +34,9 @@ class AuthService {
 
   bool esAdministrador() => RolUtil.esAdministrador(currentUser?.rol);
 
+  /// Login local-first: valida SQLite y entra YA.
+  /// Firebase/sync se conectan después con [conectarFirebaseDespuesDelLogin]
+  /// para que un crash nativo de Firebase no tumbe el ingreso.
   Future<Usuario?> login(String usuario, String password) async {
     lastLoginError = null;
     final entrada = usuario.trim();
@@ -47,13 +52,23 @@ class AuthService {
     }
 
     final firebase = FirebaseAuthUsuarioService.instance;
+    final puedeFirebase = firebase.disponible && !FirebaseSafeMode.enabled;
 
-    // Otra PC / pendrive: no hay usuario local → Auth Firebase + perfil Firestore.
-    if ((localUser == null || !localUser.activo) && firebase.disponible) {
+    // Sin usuario local: solo posible vía Firebase (otra PC / pendrive).
+    if (localUser == null || !localUser.activo) {
+      if (!puedeFirebase) {
+        lastLoginError = FirebaseSafeMode.enabled
+            ? 'Modo seguro activo (la app se cerró antes con Firebase). '
+                'Entrá con un usuario local (ej. admin) o desactivá el modo seguro.'
+            : 'Usuario o contraseña incorrectos.';
+        return null;
+      }
       try {
+        await FirebaseSafeMode.marcarInicioLoginFirebase();
         final cred = await firebase.iniciarSesionFlexible(entrada, password);
         final uid = cred.user?.uid;
         if (uid == null) {
+          await FirebaseSafeMode.marcarFinLoginFirebase();
           lastLoginError = 'No se pudo autenticar en Firebase.';
           return null;
         }
@@ -61,14 +76,15 @@ class AuthService {
         Usuario? remoto;
         try {
           remoto = await FirestoreUsuarioRepository().buscarPorFirebaseUid(uid);
-          remoto ??= await FirestoreUsuarioRepository().buscarPorUsuario(entrada);
+          remoto ??=
+              await FirestoreUsuarioRepository().buscarPorUsuario(entrada);
         } catch (e) {
           debugPrint('Firestore perfil en login remoto: $e');
         }
 
         if (remoto == null || !remoto.activo) {
-          debugPrint('Login remoto OK en Auth pero sin perfil activo en Firestore');
           await firebase.cerrarSesion();
+          await FirebaseSafeMode.marcarFinLoginFirebase();
           lastLoginError =
               'Tu cuenta de Firebase existe, pero no hay perfil activo en el sistema. '
               'Pedile al administrador que te dé de alta de nuevo.';
@@ -83,115 +99,56 @@ class AuthService {
             ultimoAcceso: DateTime.now(),
           ),
         );
-        return _finalizarLogin(hidratado, password, sqlite);
+        await FirebaseSafeMode.marcarFinLoginFirebase();
+        return _finalizarLoginLocal(hidratado, password, sqlite);
       } catch (e) {
+        await FirebaseSafeMode.marcarFinLoginFirebase();
         debugPrint('Login remoto Firebase falló: $e');
         lastLoginError =
             'Usuario o contraseña incorrectos. '
-            'Si te llegó el mail de confirmación, usá la contraseña que definiste en el enlace '
-            '(el enlace abre el navegador; después volvé a la app).';
+            'Si te llegó el mail de confirmación, usá la contraseña del enlace.';
         return null;
       }
     }
 
-    if (localUser == null || !localUser.activo) {
-      lastLoginError = 'Usuario o contraseña incorrectos.';
-      return null;
-    }
-
-    final usuarioLocal = localUser;
-    var autenticado = false;
-    var usuarioActualizado = usuarioLocal;
-    var firebaseOk = false;
-
-    if (firebase.disponible && (usuarioLocal.firebaseUid?.isNotEmpty ?? false)) {
-      try {
-        final cred = await firebase.iniciarSesionFlexible(
-          usuarioLocal.usuario,
-          password,
-          emailHint: usuarioLocal.email,
-        );
-        final uid = cred.user?.uid;
-        if (uid != null && uid != usuarioLocal.firebaseUid) {
-          usuarioActualizado = usuarioLocal.copyWith(firebaseUid: uid);
-          await sqlite.actualizar(usuarioActualizado);
-        }
-        autenticado = true;
-        firebaseOk = true;
-        // Si definieron la clave por el mail de confirmación, alinear hash local.
-        if (usuarioLocal.password != _hash(password)) {
-          usuarioActualizado = usuarioActualizado.copyWith(
-            password: _hash(password),
-            debeCambiarPassword: false,
-          );
-          await sqlite.actualizar(usuarioActualizado);
-        }
-      } catch (error) {
-        debugPrint('Firebase login falló: $error');
-        autenticado = usuarioLocal.password == _hash(password);
-      }
-    } else if (firebase.disponible && usuarioLocal.password == _hash(password)) {
-      autenticado = true;
-      try {
-        final cred = await firebase.iniciarSesionFlexible(
-          usuarioLocal.usuario,
-          password,
-          emailHint: usuarioLocal.email,
-        );
-        final uid = cred.user?.uid;
-        if (uid != null) {
-          usuarioActualizado = usuarioLocal.copyWith(firebaseUid: uid);
-          await sqlite.actualizar(usuarioActualizado);
-          firebaseOk = true;
-        }
-      } catch (signInError) {
-        debugPrint('Firebase signIn falló, creando cuenta: $signInError');
+    // Usuario local: validar hash y entrar sin tocar Firebase todavía.
+    if (localUser.password != _hash(password)) {
+      // Si la clave local no coincide, probar Firebase (clave del mail).
+      if (puedeFirebase) {
         try {
-          final uid = await firebase.crearCuenta(
-            usuarioLocal.usuario,
+          await FirebaseSafeMode.marcarInicioLoginFirebase();
+          final cred = await firebase.iniciarSesionFlexible(
+            localUser.usuario,
             password,
-            email: usuarioLocal.email,
-            iniciarSesionDespues: true,
+            emailHint: localUser.email,
           );
-          usuarioActualizado = usuarioActualizado.copyWith(firebaseUid: uid);
-          await sqlite.actualizar(usuarioActualizado);
-          firebaseOk = true;
-        } catch (createError) {
-          debugPrint('Firebase crearCuenta falló: $createError');
+          final uid = cred.user?.uid;
+          if (uid != null) {
+            final actualizado = localUser.copyWith(
+              firebaseUid: uid,
+              password: _hash(password),
+              debeCambiarPassword: false,
+            );
+            await sqlite.actualizar(actualizado);
+            await FirebaseSafeMode.marcarFinLoginFirebase();
+            return _finalizarLoginLocal(actualizado, password, sqlite);
+          }
+        } catch (e) {
+          debugPrint('Firebase login (clave distinta a local): $e');
+        } finally {
+          await FirebaseSafeMode.marcarFinLoginFirebase();
         }
       }
-    } else {
-      autenticado = usuarioLocal.password == _hash(password);
-    }
-
-    if (!autenticado) {
       lastLoginError =
           'Usuario o contraseña incorrectos. '
-          'Si recibiste el email de confirmación, usá la contraseña del enlace '
-          '(no la temporal del alta, si ya la cambiaste).';
+          'Si recibiste el email de confirmación, usá la contraseña del enlace.';
       return null;
     }
 
-    // Si Auth falló pero el hash local coincide (p.ej. ya cambiaron la clave
-    // por el mail), no fingir éxito sin Firebase cuando el usuario ya tiene uid.
-    if (!firebaseOk &&
-        firebase.disponible &&
-        (usuarioActualizado.firebaseUid?.isNotEmpty ?? false)) {
-      debugPrint(
-        'Hash local OK pero Firebase rechazó la clave. '
-        'Probable contraseña definida por email de confirmación.',
-      );
-      lastLoginError =
-          'La contraseña local ya no coincide con Firebase. '
-          'Usá la contraseña que definiste en el email de confirmación, '
-          'o tocá "Olvidé mi contraseña" para recibir otro enlace.';
-      return null;
-    }
-
-    return _finalizarLogin(usuarioActualizado, password, sqlite);
+    return _finalizarLoginLocal(localUser, password, sqlite);
   }
 
-  Future<Usuario> _finalizarLogin(
+  Future<Usuario> _finalizarLoginLocal(
     Usuario usuario,
     String password,
     SqliteUsuarioRepository sqlite,
@@ -202,29 +159,6 @@ class AuthService {
 
     currentUser = usuarioSesion;
     _ultimaPasswordIngresada = password;
-
-    final uidActual = FirebaseAuthUsuarioService.instance.uidActual;
-    if (uidActual != null) {
-      if (BackendConfigService.instance.firebaseEnabled) {
-        try {
-          await FirestoreUsuarioRepository().actualizar(usuarioSesion);
-        } catch (error) {
-          debugPrint('Firestore usuario en login: $error');
-        }
-      }
-      // No bloquear el login si el sync falla o tarda.
-      try {
-        await FirestoreSyncService.instance.start();
-        debugPrint('Firebase Auth OK uid=$uidActual');
-      } catch (error) {
-        debugPrint('Sync start en login: $error');
-      }
-    } else {
-      debugPrint(
-        'Login local OK, pero sin Firebase Auth. '
-        'Revisá Authentication > Correo/contraseña en Firebase.',
-      );
-    }
 
     await _registrarAudit(
       'LOGIN',
@@ -238,11 +172,94 @@ class AuthService {
     return currentUser!;
   }
 
+  /// Conecta Firebase Auth + sync DESPUÉS de mostrar la UI.
+  Future<void> conectarFirebaseDespuesDelLogin() async {
+    final usuario = currentUser;
+    final password = _ultimaPasswordIngresada;
+    if (usuario == null || password == null || password.isEmpty) return;
+    if (FirebaseSafeMode.enabled) {
+      debugPrint('Safe mode: se omite conexión Firebase post-login.');
+      return;
+    }
+    if (!BackendConfigService.instance.firebaseEnabled) return;
+
+    try {
+      if (!FirebaseBootstrap.isReady) {
+        await FirebaseBootstrap.initializeIfNeeded();
+      }
+    } catch (e) {
+      debugPrint('Firebase init post-login: $e');
+      await FirebaseSafeMode.activar();
+      return;
+    }
+
+    final firebase = FirebaseAuthUsuarioService.instance;
+    if (!firebase.disponible) return;
+
+    try {
+      await FirebaseSafeMode.marcarInicioLoginFirebase();
+
+      if (firebase.uidActual == null) {
+        try {
+          final cred = await firebase.iniciarSesionFlexible(
+            usuario.usuario,
+            password,
+            emailHint: usuario.email,
+          );
+          final uid = cred.user?.uid;
+          if (uid != null && uid != usuario.firebaseUid) {
+            final actualizado = usuario.copyWith(firebaseUid: uid);
+            await SqliteUsuarioRepository().actualizar(actualizado);
+            currentUser = actualizado;
+          }
+        } catch (signInError) {
+          debugPrint('Firebase signIn post-login: $signInError');
+          try {
+            final uid = await firebase.crearCuenta(
+              usuario.usuario,
+              password,
+              email: usuario.email,
+              iniciarSesionDespues: true,
+            );
+            final actualizado =
+                (currentUser ?? usuario).copyWith(firebaseUid: uid);
+            await SqliteUsuarioRepository().actualizar(actualizado);
+            currentUser = actualizado;
+          } catch (createError) {
+            debugPrint('Firebase crearCuenta post-login: $createError');
+          }
+        }
+      }
+
+      final uidActual = firebase.uidActual;
+      if (uidActual != null) {
+        try {
+          await FirestoreUsuarioRepository().actualizar(currentUser!);
+        } catch (e) {
+          debugPrint('Firestore usuario post-login: $e');
+        }
+        try {
+          await FirestoreSyncService.instance.start();
+          debugPrint('Firebase Auth OK uid=$uidActual');
+        } catch (e) {
+          debugPrint('Sync start post-login: $e');
+        }
+      }
+    } finally {
+      await FirebaseSafeMode.marcarFinLoginFirebase();
+    }
+  }
+
   /// Envía el mail de restablecimiento (mismo flujo que la confirmación de alta).
   Future<void> enviarRecuperacionPassword(String usuarioOEmail) async {
     final entrada = usuarioOEmail.trim();
     if (entrada.isEmpty) {
       throw StateError('Ingresá tu usuario o email.');
+    }
+    if (FirebaseSafeMode.enabled) {
+      throw StateError(
+        'Modo seguro activo. Reiniciá tras desactivarlo, o usá un usuario local.',
+      );
     }
     final firebase = FirebaseAuthUsuarioService.instance;
     if (!firebase.disponible) {
@@ -319,7 +336,7 @@ class AuthService {
     await sqlite.actualizar(actualizado);
 
     final firebase = FirebaseAuthUsuarioService.instance;
-    if (firebase.disponible) {
+    if (firebase.disponible && !FirebaseSafeMode.enabled) {
       try {
         if (usuario.firebaseUid?.isNotEmpty ?? false) {
           if (firebase.uidActual == null) {
@@ -346,13 +363,18 @@ class AuthService {
     }
 
     if (BackendConfigService.instance.firebaseEnabled &&
+        !FirebaseSafeMode.enabled &&
         FirebaseAuthUsuarioService.instance.uidActual != null) {
       try {
         await FirestoreUsuarioRepository().actualizar(actualizado);
       } catch (error) {
         debugPrint('Firestore usuario en cambio password: $error');
       }
-      await FirestoreSyncService.instance.start();
+      try {
+        await FirestoreSyncService.instance.start();
+      } catch (error) {
+        debugPrint('Sync en cambio password: $error');
+      }
       debugPrint('Firebase Auth OK uid=${FirebaseAuthUsuarioService.instance.uidActual}');
     }
 

@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
-import '../core/firebase/firebase_auth_usuario_service.dart';
+import '../core/firebase/firebase_safe_mode.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
 import 'cambiar_password_obligatorio_page.dart';
@@ -25,17 +25,52 @@ class _LoginPageState extends State<LoginPage> {
   String? _info;
 
   @override
+  void initState() {
+    super.initState();
+    if (FirebaseSafeMode.enabled) {
+      _info =
+          'Modo seguro: la app se cerró antes al conectar Firebase. '
+          'Podés entrar con usuario local (admin / admin123 la primera vez). '
+          'La sync se reintenta después de entrar.';
+    }
+  }
+
+  @override
   void dispose() {
     _usuarioCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
   }
 
+  Future<void> _irDespuesDelLogin() async {
+    final user = AuthService.instance.currentUser;
+    if (user == null || !mounted) return;
+
+    // Solo forzar cambio de clave si es obligatorio localmente.
+    // Firebase se conecta en background; no bloqueamos el ingreso.
+    if (user.debeCambiarPassword) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => const CambiarPasswordObligatorioPage(),
+        ),
+      );
+    } else {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const MainShell()),
+      );
+    }
+
+    // Después de navegar, conectar Firebase sin tumbar el login.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AuthService.instance.conectarFirebaseDespuesDelLogin();
+    });
+  }
+
   Future<void> _login() async {
     setState(() {
       _loading = true;
       _error = null;
-      _info = null;
+      _info = FirebaseSafeMode.enabled ? _info : null;
     });
 
     try {
@@ -55,24 +90,7 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
 
-      final faltaFirebaseAuth =
-          FirebaseAuthUsuarioService.instance.disponible &&
-          FirebaseAuthUsuarioService.instance.uidActual == null;
-
-      // Sin sesión Firebase no se puede escribir en Firestore (reglas request.auth).
-      // Si la clave actual es corta (<6), hay que definir una nueva.
-      if (user.debeCambiarPassword || faltaFirebaseAuth) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => const CambiarPasswordObligatorioPage(),
-          ),
-        );
-        return;
-      }
-
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainShell()),
-      );
+      await _irDespuesDelLogin();
     } catch (e, st) {
       debugPrint('Login crash: $e\n$st');
       if (!mounted) return;
@@ -80,8 +98,7 @@ class _LoginPageState extends State<LoginPage> {
         _loading = false;
         _error =
             'Error al iniciar sesión: $e. '
-            'Si la app se cerraba antes, reintentá. '
-            'Revisá que abriste toda la carpeta Instalador_Windows (no solo el .exe).';
+            'Probá con admin / admin123 (primera vez en esta PC).';
       });
     }
   }
@@ -121,6 +138,16 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _salirModoSeguro() async {
+    await FirebaseSafeMode.desactivar();
+    if (!mounted) return;
+    setState(() {
+      _info =
+          'Modo seguro desactivado. Reiniciá la app para volver a usar Firebase.';
+      _error = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final branding = BrandingService.instance;
@@ -137,7 +164,6 @@ class _LoginPageState extends State<LoginPage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Logo / branding
                 if (logoPath.isNotEmpty && File(logoPath).existsSync())
                   CircleAvatar(
                     radius: 48,
@@ -180,7 +206,6 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ],
                 const SizedBox(height: 40),
-                // Login card
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
@@ -195,8 +220,8 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Podés usar tu usuario o el email. '
-                          'Si te llegó el mail de confirmación, definí la clave en el navegador y después entrá acá.',
+                          'Primera vez en esta PC: admin / admin123 '
+                          '(te va a pedir cambiar la clave).',
                           style: textTheme.bodySmall?.copyWith(
                             color: cs.onSurfaceVariant,
                           ),
@@ -260,7 +285,7 @@ class _LoginPageState extends State<LoginPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Icon(
-                                Icons.mark_email_read_outlined,
+                                Icons.info_outline,
                                 color: cs.primary,
                                 size: 16,
                               ),
@@ -319,6 +344,11 @@ class _LoginPageState extends State<LoginPage> {
                                 : const Text('Olvidé mi contraseña'),
                           ),
                         ),
+                        if (FirebaseSafeMode.enabled)
+                          TextButton(
+                            onPressed: _salirModoSeguro,
+                            child: const Text('Desactivar modo seguro'),
+                          ),
                       ],
                     ),
                   ),

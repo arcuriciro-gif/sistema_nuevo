@@ -52,6 +52,9 @@ class _CambiarPasswordObligatorioPageState
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const MainShell()),
       );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        AuthService.instance.conectarFirebaseDespuesDelLogin();
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
