@@ -1,6 +1,7 @@
 class Proveedor {
   int? id;
 
+  String syncId;
   String nombre;
   String contacto;
   String telefono;
@@ -17,6 +18,7 @@ class Proveedor {
 
   Proveedor({
     this.id,
+    this.syncId = '',
     required this.nombre,
     this.contacto = '',
     required this.telefono,
@@ -34,6 +36,7 @@ class Proveedor {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'syncId': syncId,
       'nombre': nombre,
       'contacto': contacto,
       'telefono': telefono,
@@ -49,9 +52,16 @@ class Proveedor {
     };
   }
 
+  Map<String, dynamic> toFirestore() {
+    final data = Map<String, dynamic>.from(toMap()..remove('id'));
+    data['actualizadoEn'] = DateTime.now().toUtc().toIso8601String();
+    return data;
+  }
+
   factory Proveedor.fromMap(Map<String, dynamic> map) {
     return Proveedor(
       id: map['id'],
+      syncId: map['syncId']?.toString() ?? '',
       nombre: map['nombre'] ?? '',
       contacto: map['contacto'] ?? '',
       telefono: map['telefono'] ?? '',
@@ -71,6 +81,7 @@ class Proveedor {
 
   Proveedor copyWith({
     int? id,
+    String? syncId,
     String? nombre,
     String? contacto,
     String? telefono,
@@ -86,6 +97,7 @@ class Proveedor {
   }) {
     return Proveedor(
       id: id ?? this.id,
+      syncId: syncId ?? this.syncId,
       nombre: nombre ?? this.nombre,
       contacto: contacto ?? this.contacto,
       telefono: telefono ?? this.telefono,

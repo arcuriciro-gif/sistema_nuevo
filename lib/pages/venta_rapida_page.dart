@@ -5,6 +5,8 @@ import '../models/producto.dart';
 import '../models/remito.dart';
 import '../models/remito_detalle.dart';
 import '../services/cliente_service.dart';
+import '../services/documento_cliente_service.dart';
+import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
 import '../theme/module_app_bar.dart';
@@ -248,7 +250,47 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
           )
           .toList();
 
-      await _remitoSvc.insertar(remito, items);
+      final remitoId = await _remitoSvc.insertar(remito, items);
+      final totalVenta = remito.total;
+      final carritoSnapshot = List<_ItemCarrito>.from(_carrito);
+
+      // Archivar PDF para enviarlo luego desde el celular
+      try {
+        final pdfSvc = PdfService();
+        final remitoMap = {
+          'id': remitoId,
+          'numero': numero,
+          'fecha': remito.fecha.toIso8601String(),
+          'total': remito.total,
+          'descuento': 0,
+        };
+        final itemsPdf = carritoSnapshot
+            .map(
+              (e) => {
+                'descripcion': e.producto.descripcion,
+                'cantidad': e.cantidad,
+                'precio': e.precioUnitario,
+                'subtotal': e.subtotal,
+              },
+            )
+            .toList();
+        final bytes = await pdfSvc.generateRemitoPdf(
+          remitoMap,
+          itemsPdf,
+          mostrador.nombre,
+        );
+        if (bytes.isNotEmpty) {
+          final archivo = await pdfSvc.guardarPdf(bytes, 'remito_$numero.pdf');
+          await DocumentoClienteService.instance.archivarPdf(
+            archivo: archivo,
+            tipo: 'remito',
+            numero: numero,
+            clienteNombre: mostrador.nombre,
+            clienteId: mostrador.id,
+            clienteSyncId: mostrador.syncId,
+          );
+        }
+      } catch (_) {}
 
       if (!mounted) return;
       setState(() {
@@ -259,7 +301,7 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Venta registrada · Remito $numero · Total \$${_total.toStringAsFixed(2)}',
+            'Venta registrada · Remito $numero · Total \$${totalVenta.toStringAsFixed(2)}',
           ),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 4),

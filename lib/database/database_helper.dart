@@ -22,7 +22,7 @@ class DatabaseHelper {
 
     return openDatabase(
       path,
-      version: 20,
+      version: 21,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -65,6 +65,7 @@ CREATE TABLE productos(
     await db.execute('''
 CREATE TABLE proveedores(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  syncId TEXT DEFAULT '',
   nombre TEXT NOT NULL,
   telefono TEXT,
   email TEXT,
@@ -83,6 +84,7 @@ CREATE TABLE proveedores(
     await db.execute('''
 CREATE TABLE clientes(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  syncId TEXT DEFAULT '',
   nombre TEXT NOT NULL,
   telefono TEXT,
   email TEXT,
@@ -159,6 +161,7 @@ CREATE TABLE comparacion(
     await _crearTablaPagos(db);
     await _crearTablasComunicaciones(db);
     await _crearTablaComentariosInternos(db);
+    await _migrarSyncCompletoV21(db);
     await _crearIndices(db);
   }
 
@@ -855,6 +858,37 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 20) {
       await _crearTablaComentariosInternos(db);
     }
+    if (oldVersion < 21) {
+      await _migrarSyncCompletoV21(db);
+    }
+  }
+
+  Future<void> _migrarSyncCompletoV21(Database db) async {
+    await _agregarColumnas(db, 'clientes', {
+      'syncId': "TEXT DEFAULT ''",
+    });
+    await _agregarColumnas(db, 'proveedores', {
+      'syncId': "TEXT DEFAULT ''",
+    });
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS documentos_cliente(
+  id TEXT PRIMARY KEY,
+  clienteSyncId TEXT NOT NULL,
+  clienteId INTEGER,
+  clienteNombre TEXT DEFAULT '',
+  tipo TEXT DEFAULT 'otro',
+  numero TEXT DEFAULT '',
+  nombreArchivo TEXT NOT NULL,
+  url TEXT DEFAULT '',
+  localPath TEXT DEFAULT '',
+  creadoPor TEXT DEFAULT '',
+  fecha TEXT NOT NULL
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_docs_cliente_sync '
+      'ON documentos_cliente(clienteSyncId)',
+    );
   }
 
   Future<void> _crearTablasComunicaciones(Database db) async {

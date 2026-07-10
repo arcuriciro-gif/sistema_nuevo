@@ -1,5 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
+import '../core/events/data_refresh_hub.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/compra.dart';
 import '../models/compra_detalle.dart';
@@ -21,7 +23,7 @@ class CompraService {
   Future<int> insertar(Compra compra, List<CompraDetalle> items) async {
     final db = await dbHelper.database;
 
-    return db.transaction((txn) async {
+    final compraId = await db.transaction((txn) async {
       final compraId = await txn.insert('compras', {
         'proveedorId': compra.proveedorId,
         'proveedorNombre': compra.proveedorNombre,
@@ -110,6 +112,10 @@ class CompraService {
 
       return compraId;
     });
+
+    await FirestoreSyncService.instance.subirCompra(compraId);
+    DataRefreshHub.instance.notifyTodo();
+    return compraId;
   }
 
   Future<List<Map<String, dynamic>>> obtenerTodasConProveedor() async {
@@ -199,6 +205,9 @@ class CompraService {
         whereArgs: [id],
       );
     });
+
+    await FirestoreSyncService.instance.subirCompra(id);
+    DataRefreshHub.instance.notifyTodo();
   }
 
   Future<int> cantidad() async {

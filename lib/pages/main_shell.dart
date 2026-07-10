@@ -10,6 +10,7 @@ import '../services/comunicaciones_service.dart';
 import '../services/cuenta_corriente_service.dart';
 import '../services/permisos_service.dart';
 import '../theme/layout_constants.dart';
+import 'archivo_pdfs_page.dart';
 import 'auditoria_page.dart';
 import 'backup_page.dart';
 import 'busqueda_global_page.dart';
@@ -231,6 +232,13 @@ class _MainShellState extends State<MainShell> {
           title: 'Clientes',
           modulo: 'clientes',
           builder: () => const ClientesPage(),
+          quickAccess: true,
+        ),
+        _ShellItem(
+          icon: Icons.folder_shared_rounded,
+          title: 'Archivo PDF',
+          modulo: 'clientes',
+          builder: () => const ArchivoPdfsPage(),
           quickAccess: true,
         ),
         _ShellItem(

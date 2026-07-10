@@ -11,6 +11,7 @@ import '../services/afip_service.dart';
 import '../services/branding_service.dart';
 import '../services/cliente_service.dart';
 import '../services/cuenta_corriente_service.dart';
+import '../services/documento_cliente_service.dart';
 import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
 import '../services/venta_service.dart';
@@ -399,6 +400,14 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
     final file = await pdfService.guardarPdf(
       bytes,
       '${_ventaExistente!.numero}.pdf',
+    );
+    await DocumentoClienteService.instance.archivarPdf(
+      archivo: file,
+      tipo: widget.tipo,
+      numero: _ventaExistente!.numero,
+      clienteNombre: _clienteSeleccionado?.nombre ?? 'Consumidor final',
+      clienteId: _clienteSeleccionado?.id,
+      clienteSyncId: _clienteSeleccionado?.syncId,
     );
     await SharePlus.instance.share(
       ShareParams(files: [XFile(file.path)], text: _ventaExistente!.numero),

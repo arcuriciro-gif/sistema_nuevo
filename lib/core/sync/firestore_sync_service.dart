@@ -3,13 +3,17 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:uuid/uuid.dart';
 
 import '../config/backend_config_service.dart';
 import '../events/data_refresh_hub.dart';
 import '../firebase/firebase_auth_usuario_service.dart';
 import '../firebase/firebase_bootstrap.dart';
 import '../../database/database_helper.dart';
+import '../../models/cliente.dart';
+import '../../models/documento_cliente.dart';
 import '../../models/producto.dart';
+import '../../models/proveedor.dart';
 import '../../models/venta.dart';
 import '../../repositories/firestore_producto_repository.dart';
 import '../../repositories/producto_repository.dart';
@@ -27,35 +31,44 @@ class FirestoreSyncService {
   StreamSubscription<List<Producto>>? _productosSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _ventasSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _remitosSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _clientesSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _proveedoresSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _comprasSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _documentosSub;
+
   bool _sincronizando = false;
   bool _sincronizandoVentas = false;
   bool _sincronizandoRemitos = false;
+  bool _sincronizandoClientes = false;
+  bool _sincronizandoProveedores = false;
+  bool _sincronizandoCompras = false;
+  bool _sincronizandoDocumentos = false;
 
-  CollectionReference<Map<String, dynamic>> get _ventasCol {
+  CollectionReference<Map<String, dynamic>> _col(String name) {
     final tenant = BackendConfigService.instance.tenantId;
     return FirebaseFirestore.instance
         .collection('tenants')
         .doc(tenant)
-        .collection('ventas');
+        .collection(name);
   }
 
-  CollectionReference<Map<String, dynamic>> get _remitosCol {
-    final tenant = BackendConfigService.instance.tenantId;
-    return FirebaseFirestore.instance
-        .collection('tenants')
-        .doc(tenant)
-        .collection('remitos');
-  }
+  CollectionReference<Map<String, dynamic>> get _ventasCol => _col('ventas');
+  CollectionReference<Map<String, dynamic>> get _remitosCol => _col('remitos');
+  CollectionReference<Map<String, dynamic>> get _clientesCol =>
+      _col('clientes');
+  CollectionReference<Map<String, dynamic>> get _proveedoresCol =>
+      _col('proveedores');
+  CollectionReference<Map<String, dynamic>> get _comprasCol => _col('compras');
+  CollectionReference<Map<String, dynamic>> get _documentosCol =>
+      _col('documentos');
 
   Future<void> start() async {
     if (!BackendConfigService.instance.firebaseEnabled ||
         !FirebaseBootstrap.isReady) {
       return;
     }
-    await _productosSub?.cancel();
-    await _ventasSub?.cancel();
-    await _remitosSub?.cancel();
-    _productosSub = _remote.watchTodos(limit: 1000).listen(
+    await stop();
+    _productosSub = _remote.watchTodos(limit: 2000).listen(
       _aplicarProductosRemotos,
       onError: (Object error) => debugPrint('Sync productos: $error'),
     );
@@ -67,15 +80,39 @@ class FirestoreSyncService {
       _aplicarRemitosRemotos,
       onError: (Object error) => debugPrint('Sync remitos: $error'),
     );
+    _clientesSub = _clientesCol.snapshots().listen(
+      _aplicarClientesRemotos,
+      onError: (Object error) => debugPrint('Sync clientes: $error'),
+    );
+    _proveedoresSub = _proveedoresCol.snapshots().listen(
+      _aplicarProveedoresRemotos,
+      onError: (Object error) => debugPrint('Sync proveedores: $error'),
+    );
+    _comprasSub = _comprasCol.snapshots().listen(
+      _aplicarComprasRemotas,
+      onError: (Object error) => debugPrint('Sync compras: $error'),
+    );
+    _documentosSub = _documentosCol.snapshots().listen(
+      _aplicarDocumentosRemotos,
+      onError: (Object error) => debugPrint('Sync documentos: $error'),
+    );
   }
 
   Future<void> stop() async {
     await _productosSub?.cancel();
     await _ventasSub?.cancel();
     await _remitosSub?.cancel();
+    await _clientesSub?.cancel();
+    await _proveedoresSub?.cancel();
+    await _comprasSub?.cancel();
+    await _documentosSub?.cancel();
     _productosSub = null;
     _ventasSub = null;
     _remitosSub = null;
+    _clientesSub = null;
+    _proveedoresSub = null;
+    _comprasSub = null;
+    _documentosSub = null;
   }
 
   ProductoRepository get writeRepository {
@@ -94,18 +131,184 @@ class FirestoreSyncService {
         FirebaseAuthUsuarioService.instance.uidActual != null;
   }
 
+  Future<String> asegurarSyncIdCliente(int clienteId) async {
+    final db = await DatabaseHelper.instance.database;
+    final rows = await db.query(
+      'clientes',
+      where: 'id = ?',
+      whereArgs: [clienteId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return '';
+    final actual = rows.first['syncId']?.toString() ?? '';
+    if (actual.isNotEmpty) return actual;
+    final syncId = const Uuid().v4();
+    await db.update(
+      'clientes',
+      {'syncId': syncId},
+      where: 'id = ?',
+      whereArgs: [clienteId],
+    );
+    return syncId;
+  }
+
+  Future<String> asegurarSyncIdProveedor(int proveedorId) async {
+    final db = await DatabaseHelper.instance.database;
+    final rows = await db.query(
+      'proveedores',
+      where: 'id = ?',
+      whereArgs: [proveedorId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return '';
+    final actual = rows.first['syncId']?.toString() ?? '';
+    if (actual.isNotEmpty) return actual;
+    final syncId = const Uuid().v4();
+    await db.update(
+      'proveedores',
+      {'syncId': syncId},
+      where: 'id = ?',
+      whereArgs: [proveedorId],
+    );
+    return syncId;
+  }
+
+  Future<void> subirCliente(int clienteId) async {
+    if (!_puedeEscribirRemoto) return;
+    try {
+      final syncId = await asegurarSyncIdCliente(clienteId);
+      if (syncId.isEmpty) return;
+      final db = await DatabaseHelper.instance.database;
+      final rows = await db.query(
+        'clientes',
+        where: 'id = ?',
+        whereArgs: [clienteId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return;
+      final cliente = Cliente.fromMap(rows.first);
+      await _clientesCol.doc(syncId).set({
+        ...cliente.toFirestore(),
+        'localId': clienteId,
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Firestore subir cliente: $e');
+    }
+  }
+
+  Future<void> eliminarClienteRemoto(String syncId) async {
+    if (!_puedeEscribirRemoto || syncId.isEmpty) return;
+    try {
+      await _clientesCol.doc(syncId).delete();
+    } catch (e) {
+      debugPrint('Firestore eliminar cliente: $e');
+    }
+  }
+
+  Future<void> subirProveedor(int proveedorId) async {
+    if (!_puedeEscribirRemoto) return;
+    try {
+      final syncId = await asegurarSyncIdProveedor(proveedorId);
+      if (syncId.isEmpty) return;
+      final db = await DatabaseHelper.instance.database;
+      final rows = await db.query(
+        'proveedores',
+        where: 'id = ?',
+        whereArgs: [proveedorId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return;
+      final proveedor = Proveedor.fromMap(rows.first);
+      await _proveedoresCol.doc(syncId).set({
+        ...proveedor.toFirestore(),
+        'localId': proveedorId,
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Firestore subir proveedor: $e');
+    }
+  }
+
+  Future<void> eliminarProveedorRemoto(String syncId) async {
+    if (!_puedeEscribirRemoto || syncId.isEmpty) return;
+    try {
+      await _proveedoresCol.doc(syncId).delete();
+    } catch (e) {
+      debugPrint('Firestore eliminar proveedor: $e');
+    }
+  }
+
+  Future<void> subirCompra(int compraId) async {
+    if (!_puedeEscribirRemoto) return;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      final rows = await db.query(
+        'compras',
+        where: 'id = ?',
+        whereArgs: [compraId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return;
+      final compra = rows.first;
+      final items = await db.rawQuery('''
+        SELECT ci.*, p.codigo AS productoCodigo
+        FROM compra_items ci
+        LEFT JOIN productos p ON p.id = ci.productoId
+        WHERE ci.compraId = ?
+      ''', [compraId]);
+
+      String? proveedorSyncId;
+      final proveedorId = (compra['proveedorId'] as num?)?.toInt();
+      if (proveedorId != null) {
+        proveedorSyncId = await asegurarSyncIdProveedor(proveedorId);
+        await subirProveedor(proveedorId);
+      }
+
+      final numero = compra['numero']?.toString() ?? 'C_$compraId';
+      await _comprasCol.doc(numero).set({
+        ...Map<String, dynamic>.from(compra)..remove('id'),
+        'localId': compraId,
+        'proveedorSyncId': proveedorSyncId,
+        'items': items,
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+      }, SetOptions(merge: true));
+
+      for (final item in items) {
+        final pid = item['productoId'];
+        if (pid is int) await subirProductoPorId(pid);
+      }
+    } catch (e) {
+      debugPrint('Firestore subir compra: $e');
+    }
+  }
+
+  Future<void> subirDocumento(DocumentoCliente doc) async {
+    if (!_puedeEscribirRemoto || doc.id.isEmpty) return;
+    try {
+      await _documentosCol.doc(doc.id).set(
+            doc.toFirestore(),
+            SetOptions(merge: true),
+          );
+    } catch (e) {
+      debugPrint('Firestore subir documento: $e');
+    }
+  }
+
   Future<void> subirVenta(int ventaId) async {
     if (!_puedeEscribirRemoto) return;
     try {
       final db = await DatabaseHelper.instance.database;
       final rows = await db.rawQuery('''
-        SELECT v.*, c.nombre AS clienteNombre
+        SELECT v.*, c.nombre AS clienteNombre, c.syncId AS clienteSyncId,
+               c.cuit AS clienteCuit
         FROM ventas v
         LEFT JOIN clientes c ON c.id = v.clienteId
         WHERE v.id = ?
       ''', [ventaId]);
       if (rows.isEmpty) return;
       final venta = Venta.fromMap(rows.first);
+      if (venta.clienteId != null) {
+        await subirCliente(venta.clienteId!);
+      }
       final items = await db.query(
         'ventas_items',
         where: 'ventaId = ?',
@@ -139,6 +342,8 @@ class FirestoreSyncService {
         ...venta.toFirestore(),
         'localId': ventaId,
         'clienteNombre': rows.first['clienteNombre'],
+        'clienteSyncId': rows.first['clienteSyncId'],
+        'clienteCuit': rows.first['clienteCuit'],
         'items': itemsEnriquecidos,
         'pagos': pagos,
         'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
@@ -164,13 +369,18 @@ class FirestoreSyncService {
     try {
       final db = await DatabaseHelper.instance.database;
       final rows = await db.rawQuery('''
-        SELECT r.*, c.nombre AS clienteNombre
+        SELECT r.*, c.nombre AS clienteNombre, c.syncId AS clienteSyncId,
+               c.cuit AS clienteCuit
         FROM remitos r
         LEFT JOIN clientes c ON c.id = r.clienteId
         WHERE r.id = ?
       ''', [remitoId]);
       if (rows.isEmpty) return;
       final remito = rows.first;
+      final clienteId = (remito['clienteId'] as num?)?.toInt();
+      if (clienteId != null) {
+        await subirCliente(clienteId);
+      }
       final items = await db.rawQuery('''
         SELECT ri.*, p.codigo AS productoCodigo, p.descripcion AS productoDescripcion
         FROM remito_items ri
@@ -183,6 +393,8 @@ class FirestoreSyncService {
         'numero': numero,
         'clienteId': remito['clienteId'],
         'clienteNombre': remito['clienteNombre'],
+        'clienteSyncId': remito['clienteSyncId'],
+        'clienteCuit': remito['clienteCuit'],
         'fecha': remito['fecha'],
         'total': remito['total'],
         'descuento': remito['descuento'],
@@ -223,6 +435,314 @@ class FirestoreSyncService {
     }
   }
 
+  Future<int?> _resolverClienteLocal({
+    required Database db,
+    String? syncId,
+    String? cuit,
+    String? nombre,
+  }) async {
+    if (syncId != null && syncId.isNotEmpty) {
+      final bySync = await db.query(
+        'clientes',
+        where: 'syncId = ?',
+        whereArgs: [syncId],
+        limit: 1,
+      );
+      if (bySync.isNotEmpty) return bySync.first['id'] as int?;
+    }
+    if (cuit != null && cuit.trim().isNotEmpty) {
+      final byCuit = await db.query(
+        'clientes',
+        where: 'cuit = ?',
+        whereArgs: [cuit.trim()],
+        limit: 1,
+      );
+      if (byCuit.isNotEmpty) return byCuit.first['id'] as int?;
+    }
+    if (nombre != null && nombre.trim().isNotEmpty) {
+      final byNombre = await db.query(
+        'clientes',
+        where: 'nombre = ?',
+        whereArgs: [nombre.trim()],
+        limit: 1,
+      );
+      if (byNombre.isNotEmpty) return byNombre.first['id'] as int?;
+    }
+    return null;
+  }
+
+  Future<void> _aplicarClientesRemotos(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (_sincronizandoClientes) return;
+    _sincronizandoClientes = true;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final syncId = data['syncId']?.toString().isNotEmpty == true
+            ? data['syncId'].toString()
+            : doc.id;
+        final map = Map<String, dynamic>.from(data)
+          ..remove('localId')
+          ..remove('actualizadoEn')
+          ..remove('id');
+        map['syncId'] = syncId;
+
+        final existentes = await db.query(
+          'clientes',
+          where: 'syncId = ?',
+          whereArgs: [syncId],
+          limit: 1,
+        );
+        if (existentes.isEmpty) {
+          final cuit = map['cuit']?.toString() ?? '';
+          final nombre = map['nombre']?.toString() ?? '';
+          final porCuit = cuit.isNotEmpty
+              ? await db.query(
+                  'clientes',
+                  where: 'cuit = ?',
+                  whereArgs: [cuit],
+                  limit: 1,
+                )
+              : <Map<String, dynamic>>[];
+          final porNombre = porCuit.isEmpty && nombre.isNotEmpty
+              ? await db.query(
+                  'clientes',
+                  where: 'nombre = ? AND (syncId IS NULL OR syncId = "")',
+                  whereArgs: [nombre],
+                  limit: 1,
+                )
+              : <Map<String, dynamic>>[];
+          final match =
+              porCuit.isNotEmpty ? porCuit.first : (porNombre.isNotEmpty ? porNombre.first : null);
+          if (match != null) {
+            await db.update(
+              'clientes',
+              map,
+              where: 'id = ?',
+              whereArgs: [match['id']],
+            );
+          } else {
+            await db.insert('clientes', map..remove('id'));
+          }
+        } else {
+          await db.update(
+            'clientes',
+            map..remove('id'),
+            where: 'id = ?',
+            whereArgs: [existentes.first['id']],
+          );
+        }
+      }
+      DataRefreshHub.instance.notifyTodo();
+    } catch (e) {
+      debugPrint('Aplicar clientes remotos: $e');
+    } finally {
+      _sincronizandoClientes = false;
+    }
+  }
+
+  Future<void> _aplicarProveedoresRemotos(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (_sincronizandoProveedores) return;
+    _sincronizandoProveedores = true;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final syncId = data['syncId']?.toString().isNotEmpty == true
+            ? data['syncId'].toString()
+            : doc.id;
+        final map = Map<String, dynamic>.from(data)
+          ..remove('localId')
+          ..remove('actualizadoEn')
+          ..remove('id');
+        map['syncId'] = syncId;
+        if (map['activo'] is bool) {
+          map['activo'] = (map['activo'] as bool) ? 1 : 0;
+        }
+
+        final existentes = await db.query(
+          'proveedores',
+          where: 'syncId = ?',
+          whereArgs: [syncId],
+          limit: 1,
+        );
+        if (existentes.isEmpty) {
+          final nombre = map['nombre']?.toString() ?? '';
+          final match = nombre.isNotEmpty
+              ? await db.query(
+                  'proveedores',
+                  where: 'nombre = ? AND (syncId IS NULL OR syncId = "")',
+                  whereArgs: [nombre],
+                  limit: 1,
+                )
+              : <Map<String, dynamic>>[];
+          if (match.isNotEmpty) {
+            await db.update(
+              'proveedores',
+              map,
+              where: 'id = ?',
+              whereArgs: [match.first['id']],
+            );
+          } else {
+            await db.insert('proveedores', map..remove('id'));
+          }
+        } else {
+          await db.update(
+            'proveedores',
+            map..remove('id'),
+            where: 'id = ?',
+            whereArgs: [existentes.first['id']],
+          );
+        }
+      }
+      DataRefreshHub.instance.notifyTodo();
+    } catch (e) {
+      debugPrint('Aplicar proveedores remotos: $e');
+    } finally {
+      _sincronizandoProveedores = false;
+    }
+  }
+
+  Future<void> _aplicarComprasRemotas(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (_sincronizandoCompras) return;
+    _sincronizandoCompras = true;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final numero = data['numero']?.toString() ?? doc.id;
+        final existentes = await db.query(
+          'compras',
+          where: 'numero = ?',
+          whereArgs: [numero],
+          limit: 1,
+        );
+
+        int? proveedorId = (data['proveedorId'] as num?)?.toInt();
+        final proveedorSyncId = data['proveedorSyncId']?.toString();
+        if (proveedorSyncId != null && proveedorSyncId.isNotEmpty) {
+          final prov = await db.query(
+            'proveedores',
+            where: 'syncId = ?',
+            whereArgs: [proveedorSyncId],
+            limit: 1,
+          );
+          if (prov.isNotEmpty) proveedorId = prov.first['id'] as int?;
+        }
+
+        final compraMap = <String, dynamic>{
+          'proveedorId': proveedorId,
+          'proveedorNombre': data['proveedorNombre'],
+          'numero': numero,
+          'factura': data['factura'],
+          'fecha': data['fecha'],
+          'total': data['total'] ?? 0,
+          'descuento': data['descuento'] ?? 0,
+          'iva': data['iva'] ?? 0,
+          'observaciones': data['observaciones'] ?? '',
+          'fechaCreacion':
+              data['fechaCreacion'] ?? DateTime.now().toIso8601String(),
+          'estado': data['estado'] ?? 'confirmada',
+        };
+
+        final int compraId;
+        if (existentes.isEmpty) {
+          compraId = await db.insert('compras', compraMap);
+        } else {
+          compraId = existentes.first['id'] as int;
+          await db.update(
+            'compras',
+            compraMap,
+            where: 'id = ?',
+            whereArgs: [compraId],
+          );
+          await db.delete(
+            'compra_items',
+            where: 'compraId = ?',
+            whereArgs: [compraId],
+          );
+        }
+
+        final items = (data['items'] as List?) ?? const [];
+        for (final raw in items) {
+          final item = Map<String, dynamic>.from(raw as Map);
+          int? productoId = (item['productoId'] as num?)?.toInt();
+          final codigo = item['productoCodigo']?.toString();
+          if (codigo != null && codigo.isNotEmpty) {
+            final prod = await db.query(
+              'productos',
+              columns: ['id'],
+              where: 'codigo = ?',
+              whereArgs: [codigo],
+              limit: 1,
+            );
+            if (prod.isNotEmpty) productoId = prod.first['id'] as int?;
+          }
+          if (productoId == null) continue;
+          await db.insert('compra_items', {
+            'compraId': compraId,
+            'productoId': productoId,
+            'productoDescripcion': item['productoDescripcion'] ?? '',
+            'cantidad': item['cantidad'] ?? 0,
+            'costo': item['costo'] ?? 0,
+            'subtotal': item['subtotal'] ?? 0,
+          });
+        }
+        // Stock llega por sync de productos.
+      }
+      DataRefreshHub.instance.notifyTodo();
+    } catch (e) {
+      debugPrint('Aplicar compras remotas: $e');
+    } finally {
+      _sincronizandoCompras = false;
+    }
+  }
+
+  Future<void> _aplicarDocumentosRemotos(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (_sincronizandoDocumentos) return;
+    _sincronizandoDocumentos = true;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final id = data['id']?.toString() ?? doc.id;
+        final map = Map<String, dynamic>.from(data)
+          ..remove('actualizadoEn');
+        map['id'] = id;
+
+        final existentes = await db.query(
+          'documentos_cliente',
+          where: 'id = ?',
+          whereArgs: [id],
+          limit: 1,
+        );
+        if (existentes.isEmpty) {
+          await db.insert('documentos_cliente', map);
+        } else {
+          await db.update(
+            'documentos_cliente',
+            map,
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+        }
+      }
+      DataRefreshHub.instance.notifyTodo();
+    } catch (e) {
+      debugPrint('Aplicar documentos remotos: $e');
+    } finally {
+      _sincronizandoDocumentos = false;
+    }
+  }
+
   Future<void> _aplicarRemitosRemotos(
     QuerySnapshot<Map<String, dynamic>> snap,
   ) async {
@@ -240,19 +760,12 @@ class FirestoreSyncService {
           limit: 1,
         );
 
-        int? clienteId = (data['clienteId'] as num?)?.toInt();
-        final clienteNombre = data['clienteNombre']?.toString();
-        if (clienteNombre != null && clienteNombre.isNotEmpty) {
-          final clientes = await db.query(
-            'clientes',
-            where: 'nombre = ?',
-            whereArgs: [clienteNombre],
-            limit: 1,
-          );
-          if (clientes.isNotEmpty) {
-            clienteId = clientes.first['id'] as int?;
-          }
-        }
+        final clienteId = await _resolverClienteLocal(
+          db: db,
+          syncId: data['clienteSyncId']?.toString(),
+          cuit: data['clienteCuit']?.toString(),
+          nombre: data['clienteNombre']?.toString(),
+        );
 
         final remitoMap = <String, dynamic>{
           'numero': numero,
@@ -314,7 +827,6 @@ class FirestoreSyncService {
             'ganancia': item['ganancia'] ?? 0,
           });
         }
-        // Stock llega por sync de productos (evita doble descuento).
       }
       DataRefreshHub.instance.notifyTodo();
     } catch (e) {
@@ -345,21 +857,18 @@ class FirestoreSyncService {
           ..remove('pagos')
           ..remove('localId')
           ..remove('clienteNombre')
+          ..remove('clienteSyncId')
+          ..remove('clienteCuit')
           ..remove('actualizadoEn')
           ..remove('id');
 
-        final clienteNombre = data['clienteNombre']?.toString();
-        if (clienteNombre != null && clienteNombre.isNotEmpty) {
-          final clientes = await db.query(
-            'clientes',
-            where: 'nombre = ?',
-            whereArgs: [clienteNombre],
-            limit: 1,
-          );
-          if (clientes.isNotEmpty) {
-            map['clienteId'] = clientes.first['id'];
-          }
-        }
+        final clienteId = await _resolverClienteLocal(
+          db: db,
+          syncId: data['clienteSyncId']?.toString(),
+          cuit: data['clienteCuit']?.toString(),
+          nombre: data['clienteNombre']?.toString(),
+        );
+        if (clienteId != null) map['clienteId'] = clienteId;
 
         final int ventaId;
         if (existentes.isEmpty) {

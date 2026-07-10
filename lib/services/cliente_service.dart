@@ -1,5 +1,9 @@
 import 'dart:convert';
 
+import 'package:uuid/uuid.dart';
+
+import '../core/events/data_refresh_hub.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/cliente.dart';
 import 'auth_service.dart';
@@ -10,6 +14,7 @@ class ClienteService {
   String _snapshot(Cliente cliente) {
     return jsonEncode({
       'id': cliente.id,
+      'syncId': cliente.syncId,
       'nombre': cliente.nombre,
       'apellido': cliente.apellido,
       'telefono': cliente.telefono,
@@ -20,15 +25,23 @@ class ClienteService {
     });
   }
 
+  Cliente _conSyncId(Cliente cliente) {
+    if (cliente.syncId.isNotEmpty) return cliente;
+    return cliente.copyWith(syncId: const Uuid().v4());
+  }
+
   Future<int> insertar(Cliente cliente) async {
     final db = await dbHelper.database;
-    final id = await db.insert('clientes', cliente.toMap());
+    final listo = _conSyncId(cliente);
+    final id = await db.insert('clientes', listo.toMap());
     await AuthService.instance.registrarCambio(
       'ALTA_CLIENTE',
       'clientes',
-      'Nuevo cliente: ${cliente.nombreCompleto}',
-      valorNuevo: _snapshot(cliente.copyWith(id: id)),
+      'Nuevo cliente: ${listo.nombreCompleto}',
+      valorNuevo: _snapshot(listo.copyWith(id: id)),
     );
+    await FirestoreSyncService.instance.subirCliente(id);
+    DataRefreshHub.instance.notifyTodo();
     return id;
   }
 
@@ -40,23 +53,35 @@ class ClienteService {
       whereArgs: [cliente.id],
       limit: 1,
     );
-    final clienteAnterior = anterior.isNotEmpty ? Cliente.fromMap(anterior.first) : null;
+    final clienteAnterior =
+        anterior.isNotEmpty ? Cliente.fromMap(anterior.first) : null;
+
+    final listo = cliente.syncId.isNotEmpty
+        ? cliente
+        : _conSyncId(
+            cliente.copyWith(syncId: clienteAnterior?.syncId ?? ''),
+          );
 
     final result = await db.update(
       'clientes',
-      cliente.toMap(),
+      listo.toMap(),
       where: 'id=?',
-      whereArgs: [cliente.id],
+      whereArgs: [listo.id],
     );
 
     await AuthService.instance.registrarCambio(
       'MODIFICACION_CLIENTE',
       'clientes',
-      'Cliente actualizado: ${cliente.nombreCompleto}',
-      valorAnterior: clienteAnterior != null ? _snapshot(clienteAnterior) : null,
-      valorNuevo: _snapshot(cliente),
+      'Cliente actualizado: ${listo.nombreCompleto}',
+      valorAnterior:
+          clienteAnterior != null ? _snapshot(clienteAnterior) : null,
+      valorNuevo: _snapshot(listo),
     );
 
+    if (listo.id != null) {
+      await FirestoreSyncService.instance.subirCliente(listo.id!);
+    }
+    DataRefreshHub.instance.notifyTodo();
     return result;
   }
 
@@ -83,7 +108,9 @@ class ClienteService {
         'Cliente eliminado: ${cliente.nombreCompleto}',
         valorAnterior: _snapshot(cliente),
       );
+      await FirestoreSyncService.instance.eliminarClienteRemoto(cliente.syncId);
     }
+    DataRefreshHub.instance.notifyTodo();
 
     return result;
   }
@@ -99,21 +126,23 @@ class ClienteService {
     final db = await dbHelper.database;
     final rows = await db.query(
       'clientes',
-      where: 'UPPER(nombre) = ?',
+      where: 'nombre = ?',
       whereArgs: ['MOSTRADOR'],
       limit: 1,
     );
     if (rows.isNotEmpty) {
       return Cliente.fromMap(rows.first);
     }
-    // Crear cliente MOSTRADOR
-    final mostrador = Cliente(
-      nombre: 'MOSTRADOR',
-      telefono: '',
-      direccion: '',
-      observaciones: 'Cliente especial para ventas rápidas en mostrador',
+    final id = await insertar(
+      Cliente(
+        nombre: 'MOSTRADOR',
+        telefono: '',
+        direccion: '',
+        observaciones: 'Cliente mostrador',
+      ),
     );
-    final id = await insertar(mostrador);
-    return mostrador.copyWith(id: id);
+    return (await db.query('clientes', where: 'id=?', whereArgs: [id], limit: 1))
+        .map(Cliente.fromMap)
+        .first;
   }
 }

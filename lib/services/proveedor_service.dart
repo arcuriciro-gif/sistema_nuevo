@@ -1,7 +1,10 @@
 import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
+import 'package:uuid/uuid.dart';
 
+import '../core/events/data_refresh_hub.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/proveedor.dart';
 import 'auth_service.dart';
@@ -12,6 +15,7 @@ class ProveedorService {
   String _snapshot(Proveedor proveedor) {
     return jsonEncode({
       'id': proveedor.id,
+      'syncId': proveedor.syncId,
       'nombre': proveedor.nombre,
       'contacto': proveedor.contacto,
       'telefono': proveedor.telefono,
@@ -21,11 +25,16 @@ class ProveedorService {
     });
   }
 
+  Proveedor _conSyncId(Proveedor proveedor) {
+    if (proveedor.syncId.isNotEmpty) return proveedor;
+    return proveedor.copyWith(syncId: const Uuid().v4());
+  }
+
   Future<int> insertar(Proveedor proveedor) async {
     final db = await _dbHelper.database;
-    final creado = proveedor.copyWith(
+    final creado = _conSyncId(proveedor.copyWith(
       fechaCreacion: proveedor.fechaCreacion ?? DateTime.now(),
-    );
+    ));
 
     final id = await db.insert(
       'proveedores',
@@ -39,6 +48,8 @@ class ProveedorService {
       'Nuevo proveedor: ${creado.nombre}',
       valorNuevo: _snapshot(creado.copyWith(id: id)),
     );
+    await FirestoreSyncService.instance.subirProveedor(id);
+    DataRefreshHub.instance.notifyTodo();
 
     return id;
   }
@@ -51,22 +62,34 @@ class ProveedorService {
       whereArgs: [proveedor.id],
       limit: 1,
     );
-    final proveedorAnterior = anterior.isNotEmpty ? Proveedor.fromMap(anterior.first) : null;
+    final proveedorAnterior =
+        anterior.isNotEmpty ? Proveedor.fromMap(anterior.first) : null;
+
+    final listo = proveedor.syncId.isNotEmpty
+        ? proveedor
+        : _conSyncId(
+            proveedor.copyWith(syncId: proveedorAnterior?.syncId ?? ''),
+          );
 
     final result = await db.update(
       'proveedores',
-      proveedor.toMap(),
+      listo.toMap(),
       where: 'id = ?',
-      whereArgs: [proveedor.id],
+      whereArgs: [listo.id],
     );
 
     await AuthService.instance.registrarCambio(
       'MODIFICACION_PROVEEDOR',
       'proveedores',
-      'Proveedor actualizado: ${proveedor.nombre}',
-      valorAnterior: proveedorAnterior != null ? _snapshot(proveedorAnterior) : null,
-      valorNuevo: _snapshot(proveedor),
+      'Proveedor actualizado: ${listo.nombre}',
+      valorAnterior:
+          proveedorAnterior != null ? _snapshot(proveedorAnterior) : null,
+      valorNuevo: _snapshot(listo),
     );
+    if (listo.id != null) {
+      await FirestoreSyncService.instance.subirProveedor(listo.id!);
+    }
+    DataRefreshHub.instance.notifyTodo();
 
     return result;
   }
@@ -79,7 +102,8 @@ class ProveedorService {
       whereArgs: [id],
       limit: 1,
     );
-    final proveedor = anterior.isNotEmpty ? Proveedor.fromMap(anterior.first) : null;
+    final proveedor =
+        anterior.isNotEmpty ? Proveedor.fromMap(anterior.first) : null;
 
     final result = await db.delete(
       'proveedores',
@@ -94,7 +118,10 @@ class ProveedorService {
         'Proveedor eliminado: ${proveedor.nombre}',
         valorAnterior: _snapshot(proveedor),
       );
+      await FirestoreSyncService.instance
+          .eliminarProveedorRemoto(proveedor.syncId);
     }
+    DataRefreshHub.instance.notifyTodo();
 
     return result;
   }

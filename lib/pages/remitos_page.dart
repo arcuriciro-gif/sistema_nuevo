@@ -4,6 +4,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../core/events/data_refresh_hub.dart';
 import '../models/chat_mensaje.dart';
+import '../services/documento_cliente_service.dart';
 import '../services/pdf_service.dart';
 import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
@@ -188,6 +189,17 @@ class _RemitosPageState extends State<RemitosPage> {
       remito['clienteNombre']?.toString() ?? 'Sin cliente',
     );
     if (pdf.isEmpty) return;
+    final archivo = await pdfService.guardarPdf(
+      pdf,
+      'remito_${remito['numero']}.pdf',
+    );
+    await DocumentoClienteService.instance.archivarPdf(
+      archivo: archivo,
+      tipo: 'remito',
+      numero: remito['numero']?.toString() ?? '',
+      clienteNombre: remito['clienteNombre']?.toString() ?? 'Sin cliente',
+      clienteId: remito['clienteId'] as int?,
+    );
     await Printing.layoutPdf(onLayout: (_) async => pdf);
   }
 
@@ -202,6 +214,13 @@ class _RemitosPageState extends State<RemitosPage> {
     final archivo = await pdfService.guardarPdf(
       pdf,
       'remito_${remito['numero']}.pdf',
+    );
+    await DocumentoClienteService.instance.archivarPdf(
+      archivo: archivo,
+      tipo: 'remito',
+      numero: remito['numero']?.toString() ?? '',
+      clienteNombre: remito['clienteNombre']?.toString() ?? 'Sin cliente',
+      clienteId: remito['clienteId'] as int?,
     );
     await SharePlus.instance.share(
       ShareParams(files: [XFile(archivo.path)]),

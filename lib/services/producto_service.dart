@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/media_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/producto.dart';
 import '../repositories/producto_repository.dart';
@@ -32,8 +33,21 @@ class ProductoService {
     });
   }
 
+  Future<Producto> _conFotosEnNube(Producto producto) async {
+    final fotos = await MediaSyncService.instance.sincronizarFotosProducto(
+      producto.codigo,
+      producto.todasLasFotos,
+    );
+    if (fotos.isEmpty) return producto;
+    return producto.copyWith(
+      foto: fotos.first,
+      fotos: fotos,
+    );
+  }
+
   Future<int> insertar(Producto producto) async {
-    final preparado = await _precioCalculador.aplicarListasDesdeCosto(producto);
+    final conFotos = await _conFotosEnNube(producto);
+    final preparado = await _precioCalculador.aplicarListasDesdeCosto(conFotos);
     final id = await _repo.insertar(preparado);
     final guardado = preparado.copyWith(id: id);
 
@@ -112,22 +126,23 @@ class ProductoService {
   }
 
   Future<int> actualizar(Producto producto) async {
+    final conFotos = await _conFotosEnNube(producto);
     final db = await _databaseHelper.database;
     Producto? anteriorProducto;
 
-    if (producto.id != null) {
+    if (conFotos.id != null) {
       final anterior = await db.query(
         'productos',
         where: 'id = ?',
-        whereArgs: [producto.id],
+        whereArgs: [conFotos.id],
         limit: 1,
       );
       if (anterior.isNotEmpty) {
         anteriorProducto = Producto.fromMap(anterior.first);
-        final costoCambio = anteriorProducto.costo != producto.costo;
-        var actualizado = producto;
+        final costoCambio = anteriorProducto.costo != conFotos.costo;
+        var actualizado = conFotos;
         if (costoCambio) {
-          actualizado = await _precioCalculador.aplicarListasDesdeCosto(producto);
+          actualizado = await _precioCalculador.aplicarListasDesdeCosto(conFotos);
         }
 
         final costoAnterior = anteriorProducto.costo;
@@ -146,7 +161,7 @@ class ProductoService {
               ? ((actualizado.precio - precioAnterior) / precioAnterior) * 100
               : 0.0;
           await db.insert('historial_precios', {
-            'productoId': producto.id,
+            'productoId': conFotos.id,
             'fecha': DateTime.now().toIso8601String(),
             'usuario': AuthService.instance.currentUser?.usuario ?? 'sistema',
             'costoAnterior': costoAnterior,
@@ -173,12 +188,12 @@ class ProductoService {
       }
     }
 
-    final result = await _repo.actualizar(producto);
+    final result = await _repo.actualizar(conFotos);
     await AuthService.instance.registrarCambio(
       'MODIFICACION_PRODUCTO',
       'productos',
-      'Producto actualizado: ${producto.descripcion}',
-      valorNuevo: _snapshot(producto),
+      'Producto actualizado: ${conFotos.descripcion}',
+      valorNuevo: _snapshot(conFotos),
     );
     DataRefreshHub.instance.notifyProductos();
     return result;

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../core/events/data_refresh_hub.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/movimiento_stock.dart';
 import '../models/producto.dart';
@@ -25,7 +27,7 @@ class StockService {
   Future<int> registrarMovimiento(MovimientoStock movimiento) async {
     final db = await dbHelper.database;
 
-    return db.transaction((txn) async {
+    final movimientoId = await db.transaction((txn) async {
       final productoRows = await txn.query(
         'productos',
         columns: ['stock'],
@@ -67,6 +69,11 @@ class StockService {
 
       return movimientoId;
     });
+
+    await FirestoreSyncService.instance
+        .subirProductoPorId(movimiento.productoId);
+    DataRefreshHub.instance.notifyStock();
+    return movimientoId;
   }
 
   Future<List<Producto>> obtenerProductosConStockBajo({int limite = 5}) async {

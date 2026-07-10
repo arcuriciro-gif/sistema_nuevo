@@ -1,8 +1,7 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../core/utils/media_path.dart';
 import '../models/lista_precio.dart';
 import '../models/producto.dart';
 import '../services/lista_precio_service.dart';
@@ -270,7 +269,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
               onTap: elegirFoto,
               child: CircleAvatar(
                 radius: 60,
-                backgroundImage: foto.isEmpty ? null : FileImage(File(foto)),
+                backgroundImage: imageProviderDesdePath(foto),
                 child: foto.isEmpty ? const Icon(Icons.camera_alt, size: 40) : null,
               ),
             ),

@@ -1,6 +1,7 @@
 class Cliente {
   int? id;
 
+  String syncId;
   String nombre;
   String apellido;
   String telefono;
@@ -18,6 +19,7 @@ class Cliente {
 
   Cliente({
     this.id,
+    this.syncId = '',
     required this.nombre,
     this.apellido = '',
     required this.telefono,
@@ -37,6 +39,7 @@ class Cliente {
   Map<String, dynamic> toMap() {
     return {
       "id": id,
+      "syncId": syncId,
       "nombre": nombre,
       "apellido": apellido,
       "telefono": telefono,
@@ -54,9 +57,16 @@ class Cliente {
     };
   }
 
+  Map<String, dynamic> toFirestore() {
+    final data = Map<String, dynamic>.from(toMap()..remove('id'));
+    data['actualizadoEn'] = DateTime.now().toUtc().toIso8601String();
+    return data;
+  }
+
   factory Cliente.fromMap(Map<String, dynamic> map) {
     return Cliente(
       id: map["id"],
+      syncId: map["syncId"]?.toString() ?? '',
       nombre: map["nombre"] ?? "",
       apellido: map["apellido"] ?? "",
       telefono: map["telefono"] ?? "",
@@ -79,6 +89,7 @@ class Cliente {
 
   Cliente copyWith({
     int? id,
+    String? syncId,
     String? nombre,
     String? apellido,
     String? telefono,
@@ -96,6 +107,7 @@ class Cliente {
   }) {
     return Cliente(
       id: id ?? this.id,
+      syncId: syncId ?? this.syncId,
       nombre: nombre ?? this.nombre,
       apellido: apellido ?? this.apellido,
       telefono: telefono ?? this.telefono,

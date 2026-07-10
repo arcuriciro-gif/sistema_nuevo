@@ -7,6 +7,7 @@ import '../models/producto.dart';
 import '../models/remito.dart';
 import '../models/remito_detalle.dart';
 import '../services/cliente_service.dart';
+import '../services/documento_cliente_service.dart';
 import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
@@ -379,7 +380,10 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Remito guardado'),
-        content: const Text('¿Querés imprimir o compartir el remito?'),
+        content: const Text(
+          'El PDF quedó archivado por cliente (disponible en el celular).\n'
+          '¿Querés imprimir o compartir ahora?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, 'cerrar'),
@@ -399,10 +403,6 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
       ),
     );
 
-    if (accion == null || accion == 'cerrar') {
-      return;
-    }
-
     final pdf = await pdfService.generateRemitoPdf(
       remitoMap,
       itemsPdf,
@@ -412,15 +412,28 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
       return;
     }
 
+    final archivo = await pdfService.guardarPdf(
+      pdf,
+      'remito_${remito.numero}.pdf',
+    );
+    await DocumentoClienteService.instance.archivarPdf(
+      archivo: archivo,
+      tipo: 'remito',
+      numero: remito.numero,
+      clienteNombre: clienteSeleccionado?.nombre ?? 'Sin cliente',
+      clienteId: clienteSeleccionado?.id,
+      clienteSyncId: clienteSeleccionado?.syncId,
+    );
+
+    if (accion == null || accion == 'cerrar') {
+      return;
+    }
+
     if (accion == 'imprimir') {
       await Printing.layoutPdf(onLayout: (_) async => pdf);
       return;
     }
 
-    final archivo = await pdfService.guardarPdf(
-      pdf,
-      'remito_${remito.numero}.pdf',
-    );
     await SharePlus.instance.share(
       ShareParams(files: [XFile(archivo.path)]),
     );
