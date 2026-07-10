@@ -34,44 +34,96 @@ class AuthService {
 
   Future<Usuario?> login(String usuario, String password) async {
     final nombreUsuario = usuario.trim();
+    if (nombreUsuario.isEmpty || password.isEmpty) return null;
+
     final sqlite = SqliteUsuarioRepository();
+    final firebase = FirebaseAuthUsuarioService.instance;
     var localUser = await sqlite.buscarPorUsuario(nombreUsuario);
 
-    if (localUser == null || !localUser.activo) return null;
+    // Si la clave local no coincide (o no hay usuario local), probar Firebase Auth.
+    // Así PC y celular pueden usar la misma clave de la nube aunque el hash local difiera.
+    final localOk =
+        localUser != null && localUser.activo && localUser.password == _hash(password);
 
-    final usuarioLocal = localUser;
-    var autenticado = false;
-    final firebase = FirebaseAuthUsuarioService.instance;
-    var usuarioActualizado = usuarioLocal;
-
-    if (firebase.disponible && (usuarioLocal.firebaseUid?.isNotEmpty ?? false)) {
+    if (!localOk && firebase.disponible) {
       try {
         final cred = await firebase.iniciarSesion(
           nombreUsuario,
           password,
-          email: usuarioLocal.email,
-        );
-        final uid = cred.user?.uid;
-        if (uid != null && uid != usuarioLocal.firebaseUid) {
-          usuarioActualizado = usuarioLocal.copyWith(firebaseUid: uid);
-          await sqlite.actualizar(usuarioActualizado);
-        }
-        autenticado = true;
-      } catch (error) {
-        debugPrint('Firebase login falló: $error');
-        autenticado = usuarioLocal.password == _hash(password);
-      }
-    } else if (firebase.disponible && usuarioLocal.password == _hash(password)) {
-      autenticado = true;
-      try {
-        final cred = await firebase.iniciarSesion(
-          nombreUsuario,
-          password,
-          email: usuarioLocal.email,
+          email: localUser?.email,
         );
         final uid = cred.user?.uid;
         if (uid != null) {
-          usuarioActualizado = usuarioLocal.copyWith(firebaseUid: uid);
+          if (localUser == null || !localUser.activo) {
+            // Traer perfil de Firestore o crear ficha local mínima.
+            Usuario? remoto;
+            try {
+              remoto = await FirestoreUsuarioRepository().buscarPorFirebaseUid(uid);
+              remoto ??=
+                  await FirestoreUsuarioRepository().buscarPorUsuario(nombreUsuario);
+            } catch (e) {
+              debugPrint('Buscar usuario remoto en login: $e');
+            }
+            final ahora = DateTime.now();
+            final nuevo = (remoto ??
+                    Usuario(
+                      nombre: nombreUsuario,
+                      usuario: nombreUsuario,
+                      password: _hash(password),
+                      rol: 'admin',
+                      email: cred.user?.email ??
+                          UsuarioAuthEmail.paraUsuario(nombreUsuario),
+                      activo: true,
+                    ))
+                .copyWith(
+              password: _hash(password),
+              firebaseUid: uid,
+              debeCambiarPassword: false,
+              activo: true,
+              ultimoAcceso: ahora,
+              fechaCreacion: remoto?.fechaCreacion ?? ahora,
+            );
+            if (localUser == null) {
+              final id = await sqlite.insertar(nuevo);
+              localUser = nuevo.copyWith(id: id);
+            } else {
+              localUser = nuevo.copyWith(id: localUser.id);
+              await sqlite.actualizar(localUser);
+            }
+          } else {
+            // Misma cuenta local, clave de la nube distinta → actualizar hash local.
+            localUser = localUser.copyWith(
+              password: _hash(password),
+              firebaseUid: uid,
+              debeCambiarPassword: false,
+              activo: true,
+            );
+            await sqlite.actualizar(localUser);
+          }
+        }
+      } catch (e) {
+        debugPrint('Firebase login (clave nube): $e');
+      }
+    }
+
+    if (localUser == null || !localUser.activo) return null;
+
+    var usuarioActualizado = localUser;
+    var autenticado = localUser.password == _hash(password);
+
+    if (!autenticado) return null;
+
+    // Vincular / asegurar sesión Firebase si aún no hay uid activo.
+    if (firebase.disponible && firebase.uidActual == null) {
+      try {
+        final cred = await firebase.iniciarSesion(
+          nombreUsuario,
+          password,
+          email: usuarioActualizado.email,
+        );
+        final uid = cred.user?.uid;
+        if (uid != null) {
+          usuarioActualizado = usuarioActualizado.copyWith(firebaseUid: uid);
           await sqlite.actualizar(usuarioActualizado);
         }
       } catch (signInError) {
@@ -80,21 +132,29 @@ class AuthService {
           final uid = await firebase.crearCuenta(
             nombreUsuario,
             password,
-            email: usuarioLocal.email,
+            email: usuarioActualizado.email,
           );
+          if (firebase.uidActual == null) {
+            await firebase.iniciarSesion(
+              nombreUsuario,
+              password,
+              email: usuarioActualizado.email,
+            );
+          }
           usuarioActualizado = usuarioActualizado.copyWith(firebaseUid: uid);
           await sqlite.actualizar(usuarioActualizado);
         } catch (createError) {
           debugPrint('Firebase crearCuenta falló: $createError');
-          // Cuenta ya creada en otro dispositivo con otra clave:
-          // el login local sigue, pero login_page pedirá vincular/cambiar clave.
         }
       }
-    } else {
-      autenticado = usuarioLocal.password == _hash(password);
+    } else if (firebase.disponible &&
+        firebase.uidActual != null &&
+        (usuarioActualizado.firebaseUid == null ||
+            usuarioActualizado.firebaseUid!.isEmpty)) {
+      usuarioActualizado =
+          usuarioActualizado.copyWith(firebaseUid: firebase.uidActual);
+      await sqlite.actualizar(usuarioActualizado);
     }
-
-    if (!autenticado) return null;
 
     final ahora = DateTime.now();
     final usuarioSesion = usuarioActualizado.copyWith(ultimoAcceso: ahora);
@@ -103,7 +163,6 @@ class AuthService {
     currentUser = usuarioSesion;
     _ultimaPasswordIngresada = password;
 
-    // Solo sincronizar / escribir remoto cuando haya sesión Firebase Auth.
     final uidActual = FirebaseAuthUsuarioService.instance.uidActual;
     if (uidActual != null) {
       if (BackendConfigService.instance.firebaseEnabled) {
@@ -121,7 +180,6 @@ class AuthService {
         'Login local OK, pero sin Firebase Auth. '
         'Revisá Authentication > Correo/contraseña en Firebase.',
       );
-      // Aun sin Auth remoto, la cola queda lista para cuando haya sesión.
       await SyncQueueService.instance.start();
     }
 
