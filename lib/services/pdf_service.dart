@@ -10,8 +10,37 @@ import 'branding_service.dart';
 
 class PdfService {
   String _formatearFecha(String? fechaTexto) {
+    final branding = BrandingService.instance;
     final fecha = DateTime.tryParse(fechaTexto ?? '') ?? DateTime.now();
-    return '${fecha.day.toString().padLeft(2, '0')}/${fecha.month.toString().padLeft(2, '0')}/${fecha.year}';
+    final dd = fecha.day.toString().padLeft(2, '0');
+    final mm = fecha.month.toString().padLeft(2, '0');
+    final yyyy = '${fecha.year}';
+    switch (branding.formatoFecha) {
+      case 'MM/dd/yyyy':
+        return '$mm/$dd/$yyyy';
+      case 'yyyy-MM-dd':
+        return '$yyyy-$mm-$dd';
+      default:
+        return '$dd/$mm/$yyyy';
+    }
+  }
+
+  String _monto(num value) {
+    final moneda = BrandingService.instance.moneda;
+    return '$moneda${value.toStringAsFixed(2)}';
+  }
+
+  PdfColor _colorMarca() {
+    final raw = BrandingService.instance.colorPdf.replaceAll('#', '').trim();
+    try {
+      if (raw.length == 6) {
+        return PdfColor.fromInt(int.parse('FF$raw', radix: 16));
+      }
+      if (raw.length == 8) {
+        return PdfColor.fromInt(int.parse(raw, radix: 16));
+      }
+    } catch (_) {}
+    return PdfColors.orange;
   }
 
   double _resolverPrecio(Map<String, dynamic> item) {
@@ -20,6 +49,26 @@ class PdfService {
   }
 
   Uint8List _bytesVacios() => Uint8List(0);
+
+  List<String> _lineasContacto(BrandingService branding) {
+    return [
+      if (branding.telefono.isNotEmpty) 'Tel: ${branding.telefono}',
+      if (branding.whatsapp.isNotEmpty) 'WhatsApp: ${branding.whatsapp}',
+      if (branding.email.isNotEmpty) branding.email,
+      if (branding.sitioWeb.isNotEmpty) branding.sitioWeb,
+      if (branding.instagram.isNotEmpty) 'IG: ${branding.instagram}',
+      if (branding.facebook.isNotEmpty) 'FB: ${branding.facebook}',
+    ];
+  }
+
+  List<String> _lineasFiscales(BrandingService branding) {
+    return [
+      if (branding.cuit.isNotEmpty) 'CUIT: ${branding.cuit}',
+      if (branding.ingresosBrutos.isNotEmpty) 'IIBB: ${branding.ingresosBrutos}',
+      if (branding.condicionIva.isNotEmpty) branding.condicionIva,
+      if (branding.direccionFiscal.isNotEmpty) branding.direccionFiscal,
+    ];
+  }
 
   Future<Uint8List> generateRemitoPdf(
     Map<String, dynamic> remito,
@@ -45,17 +94,28 @@ class PdfService {
     final total = (remito['total'] as num?)?.toDouble() ?? 0;
     final descuento = (remito['descuento'] as num?)?.toDouble() ?? 0;
     final estadoPago = remito['estadoPago']?.toString() ?? 'pendiente';
+    final colorMarca = _colorMarca();
+    final contacto = _lineasContacto(branding);
+    final fiscales = _lineasFiscales(branding);
 
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(28),
         build: (context) => [
+          if (branding.encabezadoPdf.isNotEmpty) ...[
+            pw.Text(
+              branding.encabezadoPdf,
+              textAlign: pw.TextAlign.center,
+              style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+            ),
+            pw.SizedBox(height: 8),
+          ],
           // ── Header ──────────────────────────────────
           pw.Container(
             padding: const pw.EdgeInsets.all(16),
             decoration: pw.BoxDecoration(
-              color: PdfColors.orange,
+              color: colorMarca,
               borderRadius: pw.BorderRadius.circular(8),
             ),
             child: pw.Row(
@@ -91,14 +151,6 @@ class PdfService {
                               color: PdfColors.white,
                             ),
                           ),
-                        if (branding.telefono.isNotEmpty)
-                          pw.Text(
-                            branding.telefono,
-                            style: const pw.TextStyle(
-                              fontSize: 9,
-                              color: PdfColors.white,
-                            ),
-                          ),
                         if (branding.direccion.isNotEmpty)
                           pw.Text(
                             branding.direccion,
@@ -107,6 +159,24 @@ class PdfService {
                               color: PdfColors.white,
                             ),
                           ),
+                        ...contacto.map(
+                          (linea) => pw.Text(
+                            linea,
+                            style: const pw.TextStyle(
+                              fontSize: 8,
+                              color: PdfColors.white,
+                            ),
+                          ),
+                        ),
+                        ...fiscales.map(
+                          (linea) => pw.Text(
+                            linea,
+                            style: const pw.TextStyle(
+                              fontSize: 8,
+                              color: PdfColors.white,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ],
@@ -185,7 +255,7 @@ class PdfService {
           pw.TableHelper.fromTextArray(
             border: null,
             headerDecoration: pw.BoxDecoration(
-              color: PdfColors.orange,
+              color: colorMarca,
               borderRadius: pw.BorderRadius.circular(4),
             ),
             headerStyle: pw.TextStyle(
@@ -209,8 +279,8 @@ class PdfService {
               return [
                 item['descripcion']?.toString() ?? '',
                 '${item['cantidad'] ?? 0}',
-                '\$${_resolverPrecio(item).toStringAsFixed(2)}',
-                '\$${subtotal.toStringAsFixed(2)}',
+                _monto(_resolverPrecio(item)),
+                _monto(subtotal),
               ];
             }).toList(),
           ),
@@ -237,7 +307,7 @@ class PdfService {
                           style: pw.TextStyle(fontSize: 10),
                         ),
                         pw.Text(
-                          '\$${(total / (1 - descuento / 100)).toStringAsFixed(2)}',
+                          _monto(total / (1 - descuento / 100)),
                           style: pw.TextStyle(fontSize: 10),
                         ),
                       ],
@@ -250,7 +320,7 @@ class PdfService {
                             style: pw.TextStyle(
                                 fontSize: 10, color: PdfColors.green)),
                         pw.Text(
-                          '-\$${(total / (1 - descuento / 100) * descuento / 100).toStringAsFixed(2)}',
+                          '-${_monto(total / (1 - descuento / 100) * descuento / 100)}',
                           style: pw.TextStyle(
                               fontSize: 10, color: PdfColors.green),
                         ),
@@ -269,11 +339,11 @@ class PdfService {
                         ),
                       ),
                       pw.Text(
-                        '\$${total.toStringAsFixed(2)}',
+                        _monto(total),
                         style: pw.TextStyle(
                           fontSize: 16,
                           fontWeight: pw.FontWeight.bold,
-                          color: PdfColors.orange,
+                          color: colorMarca,
                         ),
                       ),
                     ],
@@ -327,7 +397,7 @@ class PdfService {
                         ? PdfColors.green
                         : estadoPago == 'parcial'
                             ? PdfColors.blue
-                            : PdfColors.orange,
+                            : colorMarca,
                   ),
                 ),
                 child: pw.Text(
@@ -345,6 +415,23 @@ class PdfService {
               ),
             ],
           ),
+          if (branding.piePdf.isNotEmpty || contacto.isNotEmpty) ...[
+            pw.SizedBox(height: 24),
+            pw.Divider(color: PdfColors.grey300),
+            pw.SizedBox(height: 8),
+            if (branding.piePdf.isNotEmpty)
+              pw.Text(
+                branding.piePdf,
+                textAlign: pw.TextAlign.center,
+                style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+              ),
+            if (contacto.isNotEmpty)
+              pw.Text(
+                contacto.join('  ·  '),
+                textAlign: pw.TextAlign.center,
+                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
+              ),
+          ],
         ],
       ),
     );

@@ -24,13 +24,20 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   final _sloganCtrl = TextEditingController();
   final _telefonoCtrl = TextEditingController();
   final _direccionCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
+  final _sitioWebCtrl = TextEditingController();
+  final _whatsappCtrl = TextEditingController();
+  final _instagramCtrl = TextEditingController();
+  final _facebookCtrl = TextEditingController();
   final _monedaCtrl = TextEditingController();
   final _formatoFechaCtrl = TextEditingController();
   final _cuitCtrl = TextEditingController();
+  final _ingresosBrutosCtrl = TextEditingController();
   final _condicionIvaCtrl = TextEditingController();
   final _direccionFiscalCtrl = TextEditingController();
   final _encabezadoPdfCtrl = TextEditingController();
   final _piePdfCtrl = TextEditingController();
+  final _colorPdfCtrl = TextEditingController();
   String _logoPath = '';
   bool _guardandoBranding = false;
 
@@ -55,13 +62,20 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     _sloganCtrl.dispose();
     _telefonoCtrl.dispose();
     _direccionCtrl.dispose();
+    _emailCtrl.dispose();
+    _sitioWebCtrl.dispose();
+    _whatsappCtrl.dispose();
+    _instagramCtrl.dispose();
+    _facebookCtrl.dispose();
     _monedaCtrl.dispose();
     _formatoFechaCtrl.dispose();
     _cuitCtrl.dispose();
+    _ingresosBrutosCtrl.dispose();
     _condicionIvaCtrl.dispose();
     _direccionFiscalCtrl.dispose();
     _encabezadoPdfCtrl.dispose();
     _piePdfCtrl.dispose();
+    _colorPdfCtrl.dispose();
     super.dispose();
   }
 
@@ -71,13 +85,20 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     _sloganCtrl.text = b.slogan;
     _telefonoCtrl.text = b.telefono;
     _direccionCtrl.text = b.direccion;
+    _emailCtrl.text = b.email;
+    _sitioWebCtrl.text = b.sitioWeb;
+    _whatsappCtrl.text = b.whatsapp;
+    _instagramCtrl.text = b.instagram;
+    _facebookCtrl.text = b.facebook;
     _monedaCtrl.text = b.moneda;
     _formatoFechaCtrl.text = b.formatoFecha;
     _cuitCtrl.text = b.cuit;
+    _ingresosBrutosCtrl.text = b.ingresosBrutos;
     _condicionIvaCtrl.text = b.condicionIva;
     _direccionFiscalCtrl.text = b.direccionFiscal;
     _encabezadoPdfCtrl.text = b.encabezadoPdf;
     _piePdfCtrl.text = b.piePdf;
+    _colorPdfCtrl.text = b.colorPdf;
     setState(() => _logoPath = b.logoPath);
   }
 
@@ -95,15 +116,24 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       telefono: _telefonoCtrl.text.trim(),
       direccion: _direccionCtrl.text.trim(),
       logoPath: _logoPath,
+      email: _emailCtrl.text.trim(),
+      sitioWeb: _sitioWebCtrl.text.trim(),
+      whatsapp: _whatsappCtrl.text.trim(),
+      instagram: _instagramCtrl.text.trim(),
+      facebook: _facebookCtrl.text.trim(),
       moneda: _monedaCtrl.text.trim().isEmpty ? r'$' : _monedaCtrl.text.trim(),
       formatoFecha: _formatoFechaCtrl.text.trim().isEmpty
           ? 'dd/MM/yyyy'
           : _formatoFechaCtrl.text.trim(),
       cuit: _cuitCtrl.text.trim(),
+      ingresosBrutos: _ingresosBrutosCtrl.text.trim(),
       condicionIva: _condicionIvaCtrl.text.trim(),
       direccionFiscal: _direccionFiscalCtrl.text.trim(),
       encabezadoPdf: _encabezadoPdfCtrl.text.trim(),
       piePdf: _piePdfCtrl.text.trim(),
+      colorPdf: _colorPdfCtrl.text.trim().replaceAll('#', '').isEmpty
+          ? 'FF6D00'
+          : _colorPdfCtrl.text.trim().replaceAll('#', ''),
     );
     if (!mounted) return;
     setState(() => _guardandoBranding = false);
@@ -235,6 +265,54 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                         prefixIcon: Icon(Icons.location_on),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _emailCtrl,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'Correo electrónico',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.email_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _whatsappCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'WhatsApp',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.chat),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _sitioWebCtrl,
+                      keyboardType: TextInputType.url,
+                      decoration: const InputDecoration(
+                        labelText: 'Sitio web',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.language),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _instagramCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Instagram (opcional)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.camera_alt_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _facebookCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Facebook (opcional)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.public),
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     const Divider(),
                     const SizedBox(height: 8),
@@ -287,6 +365,15 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     ),
                     const SizedBox(height: 12),
                     TextField(
+                      controller: _ingresosBrutosCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Ingresos Brutos',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.account_balance),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
                       controller: _condicionIvaCtrl,
                       decoration: const InputDecoration(
                         labelText: 'Condición frente al IVA',
@@ -313,7 +400,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     TextField(
                       controller: _encabezadoPdfCtrl,
                       decoration: const InputDecoration(
-                        labelText: 'Encabezado de PDF',
+                        labelText: 'Encabezado / leyenda de PDF',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.description_outlined),
                       ),
@@ -323,11 +410,20 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     TextField(
                       controller: _piePdfCtrl,
                       decoration: const InputDecoration(
-                        labelText: 'Pie de PDF',
+                        labelText: 'Pie de página / observaciones PDF',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.notes),
                       ),
                       maxLines: 2,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _colorPdfCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Color encabezado PDF (hex, ej. FF6D00)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.palette_outlined),
+                      ),
                     ),
                     const SizedBox(height: 16),
                     SizedBox(
