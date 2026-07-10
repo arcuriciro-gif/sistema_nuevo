@@ -96,7 +96,7 @@ class _InicioPageState extends State<InicioPage> {
     final userName =
         AuthService.instance.currentUser?.nombre ?? 'Usuario';
     final cs = Theme.of(context).colorScheme;
-    final logoPath = branding.logoPath;
+    final logoPath = branding.imagenUiPath;
     final ahora = DateTime.now();
     const meses = [
       'enero',

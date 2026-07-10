@@ -111,8 +111,12 @@ class PdfService {
     final pdf = pw.Document();
 
     final logoImage = await _cargarImagen(branding.logoPath);
-    final firmaImage = await _cargarImagen(branding.firmaPath);
-    final selloImage = await _cargarImagen(branding.selloPath);
+    final firmaImage = branding.mostrarFirma
+        ? await _cargarImagen(branding.firmaPath)
+        : null;
+    final selloImage = branding.mostrarSello
+        ? await _cargarImagen(branding.selloPath)
+        : null;
 
     final total = (remito['total'] as num?)?.toDouble() ?? 0;
     final descuento = (remito['descuento'] as num?)?.toDouble() ?? 0;
@@ -346,67 +350,93 @@ class PdfService {
           ),
           pw.SizedBox(height: 12),
           // ── Estado de pago ────────────────────────────
-          pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              if ((remito['observaciones'] as String? ?? '').isNotEmpty)
-                pw.Expanded(
-                  child: pw.Container(
-                    padding: const pw.EdgeInsets.all(8),
-                    decoration: pw.BoxDecoration(
-                      color: PdfColors.grey100,
-                      borderRadius: pw.BorderRadius.circular(6),
+          if (branding.mostrarEstadoPago)
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                if ((remito['observaciones'] as String? ?? '').isNotEmpty)
+                  pw.Expanded(
+                    child: pw.Container(
+                      padding: const pw.EdgeInsets.all(8),
+                      decoration: pw.BoxDecoration(
+                        color: PdfColors.grey100,
+                        borderRadius: pw.BorderRadius.circular(6),
+                      ),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('Observaciones:',
+                              style: pw.TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: pw.FontWeight.bold,
+                                  color: PdfColors.grey600)),
+                          pw.Text(
+                            remito['observaciones']?.toString() ?? '',
+                            style: const pw.TextStyle(fontSize: 10),
+                          ),
+                        ],
+                      ),
                     ),
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        pw.Text('Observaciones:',
-                            style: pw.TextStyle(
-                                fontSize: 9,
-                                fontWeight: pw.FontWeight.bold,
-                                color: PdfColors.grey600)),
-                        pw.Text(
-                          remito['observaciones']?.toString() ?? '',
-                          style: const pw.TextStyle(fontSize: 10),
-                        ),
-                      ],
+                  )
+                else if ((remito['observaciones'] as String? ?? '').isEmpty)
+                  pw.SizedBox(),
+                pw.SizedBox(width: 8),
+                pw.Container(
+                  padding:
+                      const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: pw.BoxDecoration(
+                    color: estadoPago == 'cobrado'
+                        ? PdfColors.green100
+                        : estadoPago == 'parcial'
+                            ? PdfColors.blue100
+                            : PdfColors.orange100,
+                    borderRadius: pw.BorderRadius.circular(20),
+                    border: pw.Border.all(
+                      color: estadoPago == 'cobrado'
+                          ? PdfColors.green
+                          : estadoPago == 'parcial'
+                              ? PdfColors.blue
+                              : colorMarca,
+                    ),
+                  ),
+                  child: pw.Text(
+                    estadoPago.toUpperCase(),
+                    style: pw.TextStyle(
+                      fontSize: 9,
+                      fontWeight: pw.FontWeight.bold,
+                      color: estadoPago == 'cobrado'
+                          ? PdfColors.green900
+                          : estadoPago == 'parcial'
+                              ? PdfColors.blue900
+                              : PdfColors.orange900,
                     ),
                   ),
                 ),
-              pw.SizedBox(width: 8),
-              pw.Container(
-                padding:
-                    const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: pw.BoxDecoration(
-                  color: estadoPago == 'cobrado'
-                      ? PdfColors.green100
-                      : estadoPago == 'parcial'
-                          ? PdfColors.blue100
-                          : PdfColors.orange100,
-                  borderRadius: pw.BorderRadius.circular(20),
-                  border: pw.Border.all(
-                    color: estadoPago == 'cobrado'
-                        ? PdfColors.green
-                        : estadoPago == 'parcial'
-                            ? PdfColors.blue
-                            : colorMarca,
-                  ),
-                ),
-                child: pw.Text(
-                  estadoPago.toUpperCase(),
-                  style: pw.TextStyle(
-                    fontSize: 9,
-                    fontWeight: pw.FontWeight.bold,
-                    color: estadoPago == 'cobrado'
-                        ? PdfColors.green900
-                        : estadoPago == 'parcial'
-                            ? PdfColors.blue900
-                            : PdfColors.orange900,
-                  ),
-                ),
+              ],
+            )
+          else if ((remito['observaciones'] as String? ?? '').isNotEmpty)
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.all(8),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                borderRadius: pw.BorderRadius.circular(6),
               ),
-            ],
-          ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text('Observaciones:',
+                      style: pw.TextStyle(
+                          fontSize: 9,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.grey600)),
+                  pw.Text(
+                    remito['observaciones']?.toString() ?? '',
+                    style: const pw.TextStyle(fontSize: 10),
+                  ),
+                ],
+              ),
+            ),
           if (firmaImage != null || selloImage != null) ...[
             pw.SizedBox(height: 28),
             pw.Row(
@@ -435,7 +465,9 @@ class PdfService {
               ],
             ),
           ],
-          if (branding.piePdf.isNotEmpty || contacto.isNotEmpty) ...[
+          if (branding.piePdf.isNotEmpty ||
+              branding.leyendaLegal.isNotEmpty ||
+              contacto.isNotEmpty) ...[
             pw.SizedBox(height: 24),
             pw.Divider(color: PdfColors.grey300),
             pw.SizedBox(height: 8),
@@ -445,6 +477,14 @@ class PdfService {
                 textAlign: pw.TextAlign.center,
                 style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
               ),
+            if (branding.leyendaLegal.isNotEmpty) ...[
+              pw.SizedBox(height: 4),
+              pw.Text(
+                branding.leyendaLegal,
+                textAlign: pw.TextAlign.center,
+                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
+              ),
+            ],
             if (contacto.isNotEmpty)
               pw.Text(
                 contacto.join('  ·  '),

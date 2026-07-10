@@ -72,11 +72,22 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _selectedIndex = 0;
 
+  void _onBrandingChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
     // Start automatic backup timer if configured
     AutoBackupService.instance.iniciar();
+    BrandingService.instance.addListener(_onBrandingChanged);
+  }
+
+  @override
+  void dispose() {
+    BrandingService.instance.removeListener(_onBrandingChanged);
+    super.dispose();
   }
 
   List<_ShellItem> get _items => [
@@ -474,7 +485,7 @@ class _SidebarContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final branding = BrandingService.instance;
-    final logoPath = branding.logoPath;
+    final logoPath = branding.imagenUiPath;
 
     return Column(
       children: [
@@ -645,7 +656,7 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final branding = BrandingService.instance;
-    final logoPath = branding.logoPath;
+    final logoPath = branding.imagenUiPath;
     final userName = AuthService.instance.currentUser?.nombre ?? 'Usuario';
     final userInitial = userName.substring(0, 1).toUpperCase();
 

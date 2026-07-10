@@ -8,6 +8,7 @@ import '../services/branding_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_provider.dart';
 import 'listas_precio_page.dart';
+import 'plantilla_impresion_page.dart';
 import '../theme/module_app_bar.dart';
 
 class ConfiguracionPage extends StatefulWidget {
@@ -36,14 +37,8 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   final _ingresosBrutosCtrl = TextEditingController();
   final _condicionIvaCtrl = TextEditingController();
   final _direccionFiscalCtrl = TextEditingController();
-  final _encabezadoPdfCtrl = TextEditingController();
-  final _piePdfCtrl = TextEditingController();
-  final _colorPdfCtrl = TextEditingController();
-  final _margenPdfCtrl = TextEditingController();
   String _logoPath = '';
-  String _firmaPath = '';
-  String _selloPath = '';
-  String _papelPdf = 'a4';
+  String _iconoPath = '';
   bool _guardandoBranding = false;
 
   void _onThemeChanged() {
@@ -56,6 +51,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   void initState() {
     super.initState();
     themeProvider.addListener(_onThemeChanged);
+    BrandingService.instance.addListener(_onThemeChanged);
     _cargarPreferencias();
     _cargarBranding();
   }
@@ -63,6 +59,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   @override
   void dispose() {
     themeProvider.removeListener(_onThemeChanged);
+    BrandingService.instance.removeListener(_onThemeChanged);
     _nombreCtrl.dispose();
     _sloganCtrl.dispose();
     _telefonoCtrl.dispose();
@@ -78,10 +75,6 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     _ingresosBrutosCtrl.dispose();
     _condicionIvaCtrl.dispose();
     _direccionFiscalCtrl.dispose();
-    _encabezadoPdfCtrl.dispose();
-    _piePdfCtrl.dispose();
-    _colorPdfCtrl.dispose();
-    _margenPdfCtrl.dispose();
     super.dispose();
   }
 
@@ -102,28 +95,30 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     _ingresosBrutosCtrl.text = b.ingresosBrutos;
     _condicionIvaCtrl.text = b.condicionIva;
     _direccionFiscalCtrl.text = b.direccionFiscal;
-    _encabezadoPdfCtrl.text = b.encabezadoPdf;
-    _piePdfCtrl.text = b.piePdf;
-    _colorPdfCtrl.text = b.colorPdf;
-    _margenPdfCtrl.text = b.margenPdfMm.toStringAsFixed(0);
     setState(() {
       _logoPath = b.logoPath;
-      _firmaPath = b.firmaPath;
-      _selloPath = b.selloPath;
-      _papelPdf = b.papelPdf;
+      _iconoPath = b.iconoPath;
     });
   }
 
   Future<void> _elegirLogo() async {
     final picker = ImagePicker();
-    final img = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (img != null) setState(() => _logoPath = img.path);
+    final img =
+        await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (img == null) return;
+    final path =
+        await BrandingService.instance.persistirImagen(img.path, 'logo');
+    setState(() => _logoPath = path);
   }
 
-  Future<void> _elegirImagen(void Function(String path) onPicked) async {
+  Future<void> _elegirIcono() async {
     final picker = ImagePicker();
-    final img = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-    if (img != null) setState(() => onPicked(img.path));
+    final img =
+        await picker.pickImage(source: ImageSource.gallery, imageQuality: 90);
+    if (img == null) return;
+    final path =
+        await BrandingService.instance.persistirImagen(img.path, 'icono_app');
+    setState(() => _iconoPath = path);
   }
 
   Future<void> _guardarBranding() async {
@@ -134,6 +129,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       telefono: _telefonoCtrl.text.trim(),
       direccion: _direccionCtrl.text.trim(),
       logoPath: _logoPath,
+      iconoPath: _iconoPath,
       email: _emailCtrl.text.trim(),
       sitioWeb: _sitioWebCtrl.text.trim(),
       whatsapp: _whatsappCtrl.text.trim(),
@@ -147,15 +143,6 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       ingresosBrutos: _ingresosBrutosCtrl.text.trim(),
       condicionIva: _condicionIvaCtrl.text.trim(),
       direccionFiscal: _direccionFiscalCtrl.text.trim(),
-      encabezadoPdf: _encabezadoPdfCtrl.text.trim(),
-      piePdf: _piePdfCtrl.text.trim(),
-      colorPdf: _colorPdfCtrl.text.trim().replaceAll('#', '').isEmpty
-          ? 'FF7A00'
-          : _colorPdfCtrl.text.trim().replaceAll('#', ''),
-      papelPdf: _papelPdf,
-      margenPdfMm: double.tryParse(_margenPdfCtrl.text.trim()) ?? 10,
-      firmaPath: _firmaPath,
-      selloPath: _selloPath,
     );
     if (!mounted) return;
     setState(() => _guardandoBranding = false);
@@ -213,44 +200,103 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    Center(
-                      child: GestureDetector(
-                        onTap: _elegirLogo,
-                        child: Stack(
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        Column(
                           children: [
-                            CircleAvatar(
-                              radius: 48,
-                              backgroundColor: colorScheme.primaryContainer,
-                              backgroundImage: _logoPath.isNotEmpty
-                                  ? FileImage(File(_logoPath))
-                                  : null,
-                              child: _logoPath.isEmpty
-                                  ? Icon(Icons.store,
-                                      size: 40, color: colorScheme.primary)
-                                  : null,
-                            ),
-                            Positioned(
-                              right: 0,
-                              bottom: 0,
-                              child: CircleAvatar(
-                                radius: 14,
-                                backgroundColor: colorScheme.primary,
-                                child: const Icon(Icons.edit,
-                                    size: 16, color: Colors.white),
+                            GestureDetector(
+                              onTap: _elegirLogo,
+                              child: Stack(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 44,
+                                    backgroundColor: colorScheme.primaryContainer,
+                                    backgroundImage: _logoPath.isNotEmpty
+                                        ? FileImage(File(_logoPath))
+                                        : null,
+                                    child: _logoPath.isEmpty
+                                        ? Icon(Icons.store,
+                                            size: 36,
+                                            color: colorScheme.primary)
+                                        : null,
+                                  ),
+                                  Positioned(
+                                    right: 0,
+                                    bottom: 0,
+                                    child: CircleAvatar(
+                                      radius: 12,
+                                      backgroundColor: colorScheme.primary,
+                                      child: const Icon(Icons.edit,
+                                          size: 14, color: Colors.white),
+                                    ),
+                                  ),
+                                ],
                               ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Logo',
+                              style: theme.textTheme.bodySmall
+                                  ?.copyWith(color: Colors.grey),
                             ),
                           ],
                         ),
-                      ),
+                        Column(
+                          children: [
+                            GestureDetector(
+                              onTap: _elegirIcono,
+                              child: Stack(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 44,
+                                    backgroundColor:
+                                        colorScheme.secondaryContainer,
+                                    backgroundImage: _iconoPath.isNotEmpty
+                                        ? FileImage(File(_iconoPath))
+                                        : null,
+                                    child: _iconoPath.isEmpty
+                                        ? Icon(Icons.apps_rounded,
+                                            size: 36,
+                                            color: colorScheme.secondary)
+                                        : null,
+                                  ),
+                                  Positioned(
+                                    right: 0,
+                                    bottom: 0,
+                                    child: CircleAvatar(
+                                      radius: 12,
+                                      backgroundColor: colorScheme.secondary,
+                                      child: const Icon(Icons.edit,
+                                          size: 14, color: Colors.white),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Icono de la app',
+                              style: theme.textTheme.bodySmall
+                                  ?.copyWith(color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Center(
-                      child: Text(
-                        'Tocá para cambiar el logo',
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: Colors.grey),
-                      ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'El icono se ve en login y menú al instante. '
+                      'El icono del escritorio/Android se actualiza al generar una nueva versión.',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: colorScheme.onSurfaceVariant),
+                      textAlign: TextAlign.center,
                     ),
+                    if (_iconoPath.isNotEmpty)
+                      TextButton(
+                        onPressed: () => setState(() => _iconoPath = ''),
+                        child: const Text('Quitar icono personalizado'),
+                      ),
                     const SizedBox(height: 16),
                     TextField(
                       controller: _nombreCtrl,
@@ -415,118 +461,32 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'Documentos PDF',
+                      'Plantillas de impresión / PDF',
                       style: theme.textTheme.titleSmall
                           ?.copyWith(fontWeight: FontWeight.w600),
                     ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _encabezadoPdfCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Encabezado / leyenda de PDF',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.description_outlined),
-                      ),
-                      maxLines: 2,
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Editá encabezado, pie, papel, márgenes, firma y sello '
+                      'una sola vez. Queda guardado y se usa en todos los documentos.',
                     ),
                     const SizedBox(height: 12),
-                    TextField(
-                      controller: _piePdfCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Pie de página / observaciones PDF',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.notes),
-                      ),
-                      maxLines: 2,
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _colorPdfCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Color encabezado PDF (hex, ej. FF6D00)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.palette_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      key: ValueKey(_papelPdf),
-                      initialValue: _papelPdf,
-                      decoration: const InputDecoration(
-                        labelText: 'Tamaño de papel',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.print_outlined),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'a4', child: Text('A4')),
-                        DropdownMenuItem(
-                          value: 'ticket_80',
-                          child: Text('Ticket 80 mm'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'ticket_58',
-                          child: Text('Ticket 58 mm'),
-                        ),
-                      ],
-                      onChanged: (v) {
-                        if (v != null) setState(() => _papelPdf = v);
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _margenPdfCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Márgenes (mm)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.padding_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () =>
-                                _elegirImagen((p) => _firmaPath = p),
-                            icon: const Icon(Icons.draw_outlined),
-                            label: Text(
-                              _firmaPath.isEmpty ? 'Cargar firma' : 'Firma OK',
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          await Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const PlantillaImpresionPage(),
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () =>
-                                _elegirImagen((p) => _selloPath = p),
-                            icon: const Icon(Icons.approval_outlined),
-                            label: Text(
-                              _selloPath.isEmpty ? 'Cargar sello' : 'Sello OK',
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (_firmaPath.isNotEmpty || _selloPath.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          if (_firmaPath.isNotEmpty)
-                            TextButton(
-                              onPressed: () =>
-                                  setState(() => _firmaPath = ''),
-                              child: const Text('Quitar firma'),
-                            ),
-                          if (_selloPath.isNotEmpty)
-                            TextButton(
-                              onPressed: () =>
-                                  setState(() => _selloPath = ''),
-                              child: const Text('Quitar sello'),
-                            ),
-                        ],
+                          );
+                          _cargarBranding();
+                        },
+                        icon: const Icon(Icons.print_rounded),
+                        label: const Text('Editar plantilla de impresión'),
                       ),
-                    ],
+                    ),
                     const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,

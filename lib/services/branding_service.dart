@@ -1,6 +1,11 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-class BrandingService {
+class BrandingService extends ChangeNotifier {
   static const _keyNombre = 'brandNombre';
   static const _keySlogan = 'brandSlogan';
   static const _keyTelefono = 'brandTelefono';
@@ -11,6 +16,7 @@ class BrandingService {
   static const _keyInstagram = 'brandInstagram';
   static const _keyFacebook = 'brandFacebook';
   static const _keyLogo = 'brandLogoPath';
+  static const _keyIcono = 'brandIconoPath';
   static const _keyMoneda = 'brandMoneda';
   static const _keyFormatoFecha = 'brandFormatoFecha';
   static const _keyCuit = 'brandCuit';
@@ -24,6 +30,10 @@ class BrandingService {
   static const _keyMargenPdf = 'brandMargenPdf';
   static const _keyFirma = 'brandFirmaPath';
   static const _keySello = 'brandSelloPath';
+  static const _keyMostrarFirma = 'brandMostrarFirma';
+  static const _keyMostrarSello = 'brandMostrarSello';
+  static const _keyMostrarEstadoPago = 'brandMostrarEstadoPago';
+  static const _keyLeyendaLegal = 'brandLeyendaLegal';
 
   static final BrandingService instance = BrandingService._();
   BrandingService._();
@@ -38,6 +48,8 @@ class BrandingService {
   String instagram = '';
   String facebook = '';
   String logoPath = '';
+  /// Icono visible dentro de la app (login, menú, etc.).
+  String iconoPath = '';
   String moneda = r'$';
   String formatoFecha = 'dd/MM/yyyy';
   String cuit = '';
@@ -54,6 +66,14 @@ class BrandingService {
   double margenPdfMm = 10;
   String firmaPath = '';
   String selloPath = '';
+  bool mostrarFirma = true;
+  bool mostrarSello = true;
+  bool mostrarEstadoPago = true;
+  String leyendaLegal = '';
+
+  /// Imagen preferida para UI: icono si existe, si no logo.
+  String get imagenUiPath =>
+      iconoPath.isNotEmpty ? iconoPath : logoPath;
 
   Future<void> cargar() async {
     final prefs = await SharedPreferences.getInstance();
@@ -67,6 +87,7 @@ class BrandingService {
     instagram = prefs.getString(_keyInstagram) ?? '';
     facebook = prefs.getString(_keyFacebook) ?? '';
     logoPath = prefs.getString(_keyLogo) ?? '';
+    iconoPath = prefs.getString(_keyIcono) ?? '';
     moneda = prefs.getString(_keyMoneda) ?? r'$';
     formatoFecha = prefs.getString(_keyFormatoFecha) ?? 'dd/MM/yyyy';
     cuit = prefs.getString(_keyCuit) ?? '';
@@ -80,6 +101,24 @@ class BrandingService {
     margenPdfMm = prefs.getDouble(_keyMargenPdf) ?? 10;
     firmaPath = prefs.getString(_keyFirma) ?? '';
     selloPath = prefs.getString(_keySello) ?? '';
+    mostrarFirma = prefs.getBool(_keyMostrarFirma) ?? true;
+    mostrarSello = prefs.getBool(_keyMostrarSello) ?? true;
+    mostrarEstadoPago = prefs.getBool(_keyMostrarEstadoPago) ?? true;
+    leyendaLegal = prefs.getString(_keyLeyendaLegal) ?? '';
+    notifyListeners();
+  }
+
+  /// Copia la imagen a almacenamiento permanente de la app.
+  Future<String> persistirImagen(String sourcePath, String nombreBase) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final brandingDir = Directory(p.join(dir.path, 'branding'));
+    if (!await brandingDir.exists()) {
+      await brandingDir.create(recursive: true);
+    }
+    final ext = p.extension(sourcePath).isEmpty ? '.png' : p.extension(sourcePath);
+    final dest = p.join(brandingDir.path, '$nombreBase$ext');
+    await File(sourcePath).copy(dest);
+    return dest;
   }
 
   Future<void> guardar({
@@ -88,6 +127,7 @@ class BrandingService {
     required String telefono,
     required String direccion,
     required String logoPath,
+    String? iconoPath,
     String? email,
     String? sitioWeb,
     String? whatsapp,
@@ -106,6 +146,10 @@ class BrandingService {
     double? margenPdfMm,
     String? firmaPath,
     String? selloPath,
+    bool? mostrarFirma,
+    bool? mostrarSello,
+    bool? mostrarEstadoPago,
+    String? leyendaLegal,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyNombre, nombre);
@@ -113,6 +157,7 @@ class BrandingService {
     await prefs.setString(_keyTelefono, telefono);
     await prefs.setString(_keyDireccion, direccion);
     await prefs.setString(_keyLogo, logoPath);
+    await prefs.setString(_keyIcono, iconoPath ?? this.iconoPath);
     await prefs.setString(_keyEmail, email ?? this.email);
     await prefs.setString(_keySitioWeb, sitioWeb ?? this.sitioWeb);
     await prefs.setString(_keyWhatsapp, whatsapp ?? this.whatsapp);
@@ -134,12 +179,18 @@ class BrandingService {
     await prefs.setDouble(_keyMargenPdf, margenPdfMm ?? this.margenPdfMm);
     await prefs.setString(_keyFirma, firmaPath ?? this.firmaPath);
     await prefs.setString(_keySello, selloPath ?? this.selloPath);
+    await prefs.setBool(_keyMostrarFirma, mostrarFirma ?? this.mostrarFirma);
+    await prefs.setBool(_keyMostrarSello, mostrarSello ?? this.mostrarSello);
+    await prefs.setBool(
+        _keyMostrarEstadoPago, mostrarEstadoPago ?? this.mostrarEstadoPago);
+    await prefs.setString(_keyLeyendaLegal, leyendaLegal ?? this.leyendaLegal);
 
     this.nombre = nombre;
     this.slogan = slogan;
     this.telefono = telefono;
     this.direccion = direccion;
     this.logoPath = logoPath;
+    if (iconoPath != null) this.iconoPath = iconoPath;
     if (email != null) this.email = email;
     if (sitioWeb != null) this.sitioWeb = sitioWeb;
     if (whatsapp != null) this.whatsapp = whatsapp;
@@ -158,5 +209,44 @@ class BrandingService {
     if (margenPdfMm != null) this.margenPdfMm = margenPdfMm;
     if (firmaPath != null) this.firmaPath = firmaPath;
     if (selloPath != null) this.selloPath = selloPath;
+    if (mostrarFirma != null) this.mostrarFirma = mostrarFirma;
+    if (mostrarSello != null) this.mostrarSello = mostrarSello;
+    if (mostrarEstadoPago != null) this.mostrarEstadoPago = mostrarEstadoPago;
+    if (leyendaLegal != null) this.leyendaLegal = leyendaLegal;
+    notifyListeners();
+  }
+
+  Future<void> guardarPlantilla({
+    required String encabezadoPdf,
+    required String piePdf,
+    required String colorPdf,
+    required String papelPdf,
+    required double margenPdfMm,
+    required String firmaPath,
+    required String selloPath,
+    required bool mostrarFirma,
+    required bool mostrarSello,
+    required bool mostrarEstadoPago,
+    required String leyendaLegal,
+    String? logoPath,
+  }) {
+    return guardar(
+      nombre: nombre,
+      slogan: slogan,
+      telefono: telefono,
+      direccion: direccion,
+      logoPath: logoPath ?? this.logoPath,
+      encabezadoPdf: encabezadoPdf,
+      piePdf: piePdf,
+      colorPdf: colorPdf,
+      papelPdf: papelPdf,
+      margenPdfMm: margenPdfMm,
+      firmaPath: firmaPath,
+      selloPath: selloPath,
+      mostrarFirma: mostrarFirma,
+      mostrarSello: mostrarSello,
+      mostrarEstadoPago: mostrarEstadoPago,
+      leyendaLegal: leyendaLegal,
+    );
   }
 }

@@ -69,7 +69,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     final branding = BrandingService.instance;
-    final logoPath = branding.logoPath;
+    final logoPath = branding.imagenUiPath;
     final cs = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
