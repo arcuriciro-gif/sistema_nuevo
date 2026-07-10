@@ -67,35 +67,39 @@ class FirestoreSyncService {
         !FirebaseBootstrap.isReady) {
       return;
     }
-    await stop();
-    _productosSub = _remote.watchTodos(limit: 2000).listen(
-      _aplicarProductosRemotos,
-      onError: (Object error) => debugPrint('Sync productos: $error'),
-    );
-    _ventasSub = _ventasCol.snapshots().listen(
-      _aplicarVentasRemotas,
-      onError: (Object error) => debugPrint('Sync ventas: $error'),
-    );
-    _remitosSub = _remitosCol.snapshots().listen(
-      _aplicarRemitosRemotos,
-      onError: (Object error) => debugPrint('Sync remitos: $error'),
-    );
-    _clientesSub = _clientesCol.snapshots().listen(
-      _aplicarClientesRemotos,
-      onError: (Object error) => debugPrint('Sync clientes: $error'),
-    );
-    _proveedoresSub = _proveedoresCol.snapshots().listen(
-      _aplicarProveedoresRemotos,
-      onError: (Object error) => debugPrint('Sync proveedores: $error'),
-    );
-    _comprasSub = _comprasCol.snapshots().listen(
-      _aplicarComprasRemotas,
-      onError: (Object error) => debugPrint('Sync compras: $error'),
-    );
-    _documentosSub = _documentosCol.snapshots().listen(
-      _aplicarDocumentosRemotos,
-      onError: (Object error) => debugPrint('Sync documentos: $error'),
-    );
+    try {
+      await stop();
+      _productosSub = _remote.watchTodos(limit: 2000).listen(
+        _aplicarProductosRemotos,
+        onError: (Object error) => debugPrint('Sync productos: $error'),
+      );
+      _ventasSub = _ventasCol.snapshots().listen(
+        _aplicarVentasRemotas,
+        onError: (Object error) => debugPrint('Sync ventas: $error'),
+      );
+      _remitosSub = _remitosCol.snapshots().listen(
+        _aplicarRemitosRemotos,
+        onError: (Object error) => debugPrint('Sync remitos: $error'),
+      );
+      _clientesSub = _clientesCol.snapshots().listen(
+        _aplicarClientesRemotos,
+        onError: (Object error) => debugPrint('Sync clientes: $error'),
+      );
+      _proveedoresSub = _proveedoresCol.snapshots().listen(
+        _aplicarProveedoresRemotos,
+        onError: (Object error) => debugPrint('Sync proveedores: $error'),
+      );
+      _comprasSub = _comprasCol.snapshots().listen(
+        _aplicarComprasRemotas,
+        onError: (Object error) => debugPrint('Sync compras: $error'),
+      );
+      _documentosSub = _documentosCol.snapshots().listen(
+        _aplicarDocumentosRemotos,
+        onError: (Object error) => debugPrint('Sync documentos: $error'),
+      );
+    } catch (e, st) {
+      debugPrint('FirestoreSyncService.start falló: $e\n$st');
+    }
   }
 
   Future<void> stop() async {

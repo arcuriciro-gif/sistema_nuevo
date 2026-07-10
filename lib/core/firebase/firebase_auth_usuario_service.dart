@@ -74,6 +74,16 @@ class FirebaseAuthUsuarioService {
     bool iniciarSesionDespues = true,
   }) async {
     final authEmail = UsuarioAuthEmail.paraUsuario(usuario, emailReal: email);
+
+    // Si no hay sesión activa, crear directo en la app principal (más estable en Windows).
+    if (_auth.currentUser == null) {
+      final cred = await _auth.createUserWithEmailAndPassword(
+        email: authEmail,
+        password: password,
+      );
+      return cred.user!.uid;
+    }
+
     final appName = 'UsuarioCreator_${DateTime.now().millisecondsSinceEpoch}';
     final secondary = await Firebase.initializeApp(
       name: appName,
@@ -94,7 +104,9 @@ class FirebaseAuthUsuarioService {
       }
       return uid;
     } finally {
-      await secondary.delete();
+      try {
+        await secondary.delete();
+      } catch (_) {}
     }
   }
 

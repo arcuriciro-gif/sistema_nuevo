@@ -38,38 +38,52 @@ class _LoginPageState extends State<LoginPage> {
       _info = null;
     });
 
-    final user = await AuthService.instance.login(
-      _usuarioCtrl.text.trim(),
-      _passwordCtrl.text,
-    );
-
-    if (!mounted) return;
-    setState(() => _loading = false);
-
-    if (user == null) {
-      setState(() {
-        _error = AuthService.instance.lastLoginError ??
-            'Usuario o contraseña incorrectos.';
-      });
-      return;
-    }
-
-    final faltaFirebaseAuth =
-        FirebaseAuthUsuarioService.instance.disponible &&
-        FirebaseAuthUsuarioService.instance.uidActual == null;
-
-    // Sin sesión Firebase no se puede escribir en Firestore (reglas request.auth).
-    // Si la clave actual es corta (<6), hay que definir una nueva.
-    if (user.debeCambiarPassword || faltaFirebaseAuth) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const CambiarPasswordObligatorioPage()),
+    try {
+      final user = await AuthService.instance.login(
+        _usuarioCtrl.text.trim(),
+        _passwordCtrl.text,
       );
-      return;
-    }
 
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const MainShell()),
-    );
+      if (!mounted) return;
+      setState(() => _loading = false);
+
+      if (user == null) {
+        setState(() {
+          _error = AuthService.instance.lastLoginError ??
+              'Usuario o contraseña incorrectos.';
+        });
+        return;
+      }
+
+      final faltaFirebaseAuth =
+          FirebaseAuthUsuarioService.instance.disponible &&
+          FirebaseAuthUsuarioService.instance.uidActual == null;
+
+      // Sin sesión Firebase no se puede escribir en Firestore (reglas request.auth).
+      // Si la clave actual es corta (<6), hay que definir una nueva.
+      if (user.debeCambiarPassword || faltaFirebaseAuth) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => const CambiarPasswordObligatorioPage(),
+          ),
+        );
+        return;
+      }
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const MainShell()),
+      );
+    } catch (e, st) {
+      debugPrint('Login crash: $e\n$st');
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error =
+            'Error al iniciar sesión: $e. '
+            'Si la app se cerraba antes, reintentá. '
+            'Revisá que abriste toda la carpeta Instalador_Windows (no solo el .exe).';
+      });
+    }
   }
 
   Future<void> _olvidePassword() async {
@@ -124,7 +138,7 @@ class _LoginPageState extends State<LoginPage> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 // Logo / branding
-                if (logoPath.isNotEmpty)
+                if (logoPath.isNotEmpty && File(logoPath).existsSync())
                   CircleAvatar(
                     radius: 48,
                     backgroundImage: FileImage(File(logoPath)),

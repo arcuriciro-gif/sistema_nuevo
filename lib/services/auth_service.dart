@@ -212,8 +212,13 @@ class AuthService {
           debugPrint('Firestore usuario en login: $error');
         }
       }
-      await FirestoreSyncService.instance.start();
-      debugPrint('Firebase Auth OK uid=$uidActual');
+      // No bloquear el login si el sync falla o tarda.
+      try {
+        await FirestoreSyncService.instance.start();
+        debugPrint('Firebase Auth OK uid=$uidActual');
+      } catch (error) {
+        debugPrint('Sync start en login: $error');
+      }
     } else {
       debugPrint(
         'Login local OK, pero sin Firebase Auth. '

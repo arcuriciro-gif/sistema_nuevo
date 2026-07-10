@@ -28,10 +28,21 @@ class FirebaseBootstrap {
     }
 
     if (_initialized) return;
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    _initialized = true;
-    debugPrint('Firebase inicializado correctamente.');
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      _initialized = true;
+      debugPrint('Firebase inicializado correctamente.');
+    } catch (e) {
+      // Si ya estaba inicializado en un hot restart / segundo intento.
+      if (Firebase.apps.isNotEmpty) {
+        _initialized = true;
+        debugPrint('Firebase ya estaba inicializado.');
+        return;
+      }
+      debugPrint('Firebase.initializeApp falló: $e');
+      rethrow;
+    }
   }
 }
