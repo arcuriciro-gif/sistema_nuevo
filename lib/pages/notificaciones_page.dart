@@ -85,6 +85,11 @@ class _NotificacionesPageState extends State<NotificacionesPage> {
         context,
         title: 'Notificaciones',
         actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: () => _svc.refrescar(),
+          ),
           if (_svc.notifSinLeer > 0)
             TextButton(
               onPressed: () => _svc.marcarTodasNotificacionesLeidas(),

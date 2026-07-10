@@ -194,6 +194,11 @@ class _ComunicacionesPageState extends State<ComunicacionesPage> {
         title: 'Comunicaciones',
         actions: [
           IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: () => _svc.refrescar(),
+          ),
+          IconButton(
             tooltip: 'Notificaciones',
             onPressed: () {
               Navigator.push(

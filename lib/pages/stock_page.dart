@@ -272,6 +272,13 @@ class _StockPageState extends State<StockPage> {
         appBar: buildModuleAppBar(
           context,
           title: 'Stock',
+          actions: [
+            IconButton(
+              tooltip: 'Actualizar',
+              icon: const Icon(Icons.refresh_rounded),
+              onPressed: cargar,
+            ),
+          ],
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Movimientos'),

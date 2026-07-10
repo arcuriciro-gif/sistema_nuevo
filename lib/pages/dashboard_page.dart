@@ -434,7 +434,17 @@ class _DashboardPageState extends State<DashboardPage> {
     final sinStockColor = AppVisuals.danger(colorScheme);
 
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: 'Dashboard'),
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Dashboard',
+        actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: cargar,
+          ),
+        ],
+      ),
       body: cargando
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(

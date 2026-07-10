@@ -205,6 +205,11 @@ class _ProductosPageState extends State<ProductosPage> {
         title: 'Productos',
         actions: [
           IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: cargarProductos,
+          ),
+          IconButton(
             tooltip: _soloFavoritos ? 'Ver todos' : 'Solo favoritos',
             icon: Icon(
               _soloFavoritos ? Icons.star_rounded : Icons.star_outline_rounded,

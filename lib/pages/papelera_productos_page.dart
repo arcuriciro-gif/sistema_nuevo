@@ -91,7 +91,17 @@ class _PapeleraProductosPageState extends State<PapeleraProductosPage> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: 'Papelera de productos'),
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Papelera de productos',
+        actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _cargar,
+          ),
+        ],
+      ),
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
           : _items.isEmpty

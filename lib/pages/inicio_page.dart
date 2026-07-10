@@ -116,7 +116,17 @@ class _InicioPageState extends State<InicioPage> {
         '${ahora.day} de ${meses[ahora.month - 1]} de ${ahora.year}';
 
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: 'Inicio'),
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Inicio',
+        actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _cargar,
+          ),
+        ],
+      ),
       backgroundColor: cs.surface,
       body: _cargando
           ? const Center(child: CircularProgressIndicator())

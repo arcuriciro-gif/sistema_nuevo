@@ -151,7 +151,17 @@ class _VentasPageState extends State<VentasPage> {
     final unSoloTipo = _tipos.length == 1;
 
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: widget.titulo),
+      appBar: buildModuleAppBar(
+        context,
+        title: widget.titulo,
+        actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _cargar,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'fab_${widget.titulo}',
         onPressed: () {

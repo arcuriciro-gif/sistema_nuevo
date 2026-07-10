@@ -48,7 +48,17 @@ class _ClientesDeudoresPageState extends State<ClientesDeudoresPage> {
         _deudores.fold<double>(0, (s, d) => s + d.saldoPendiente);
 
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: 'Clientes con deuda'),
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Clientes con deuda',
+        actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _cargar,
+          ),
+        ],
+      ),
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
           : Column(

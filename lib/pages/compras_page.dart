@@ -220,7 +220,17 @@ class _ComprasPageState extends State<ComprasPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: 'Compras'),
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Compras',
+        actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: cargar,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab_compras',
         icon: const Icon(Icons.add_rounded),

@@ -323,7 +323,17 @@ class _RemitosPageState extends State<RemitosPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: 'Remitos'),
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Remitos',
+        actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: cargar,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'fab_remitos',
         child: const Icon(Icons.add),

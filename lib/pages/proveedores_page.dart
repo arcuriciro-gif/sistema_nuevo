@@ -67,7 +67,17 @@ class _ProveedoresPageState extends State<ProveedoresPage> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: 'Proveedores'),
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Proveedores',
+        actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: cargarProveedores,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'fab_proveedores',
         child: const Icon(Icons.add),

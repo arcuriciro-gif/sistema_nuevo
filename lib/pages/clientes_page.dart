@@ -111,7 +111,17 @@ class _ClientesPageState extends State<ClientesPage> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: 'Clientes'),
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Clientes',
+        actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: cargar,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'fab_clientes',
         child: const Icon(Icons.add),

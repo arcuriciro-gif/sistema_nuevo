@@ -243,7 +243,17 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: 'Inteligencia comercial'),
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Inteligencia comercial',
+        actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _cargar,
+          ),
+        ],
+      ),
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
