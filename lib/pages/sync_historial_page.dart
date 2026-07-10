@@ -85,13 +85,7 @@ class _SyncHistorialPageState extends State<SyncHistorialPage>
                       color: cs.primary,
                     ),
                     title: Text(sync.uiLabel),
-                    subtitle: Text(
-                      sync.lastError?.isNotEmpty == true
-                          ? sync.lastError!
-                          : sync.lastSuccessAt != null
-                              ? 'Último OK: ${sync.lastSuccessAt!.toLocal()}'
-                              : 'Sin envíos confirmados aún',
-                    ),
+                    subtitle: Text(sync.uiDetalle),
                   ),
                 ),
                 Expanded(

@@ -58,9 +58,7 @@ class SyncStatusChip extends StatelessWidget {
             : color.withValues(alpha: 0.12);
 
         return Tooltip(
-          message: sync.lastError?.isNotEmpty == true
-              ? '${sync.uiLabel}\n${sync.lastError}'
-              : sync.uiLabel,
+          message: sync.uiDetalle,
           child: InkWell(
             borderRadius: BorderRadius.circular(20),
             onTap: () {

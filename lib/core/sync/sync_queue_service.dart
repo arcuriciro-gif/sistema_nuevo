@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../database/database_helper.dart';
+import '../../firebase_options.dart';
 import '../../models/documento_cliente.dart';
 import '../../models/venta.dart';
 import '../firebase/firebase_auth_usuario_service.dart';
@@ -50,7 +51,10 @@ class SyncQueueService extends ChangeNotifier {
   }
 
   SyncUiStatus get uiStatus {
-    if (!puedeEscribirRemoto || _offlineHint) {
+    if (!BackendConfigService.instance.firebaseEnabled ||
+        !FirebaseBootstrap.isReady ||
+        FirebaseAuthUsuarioService.instance.uidActual == null ||
+        _offlineHint) {
       return SyncUiStatus.sinConexion;
     }
     if (isProcessing) return SyncUiStatus.procesando;
@@ -66,6 +70,15 @@ class SyncQueueService extends ChangeNotifier {
       case SyncUiStatus.pendiente:
         return 'Pendiente ($pendingCount)';
       case SyncUiStatus.sinConexion:
+        if (!BackendConfigService.instance.firebaseEnabled ||
+            !FirebaseBootstrap.isReady) {
+          return 'Firebase no listo';
+        }
+        if (FirebaseAuthUsuarioService.instance.uidActual == null) {
+          return pendingCount > 0
+              ? 'Sin sesión nube ($pendingCount)'
+              : 'Sin sesión nube';
+        }
         return pendingCount > 0
             ? 'Sin conexión ($pendingCount)'
             : 'Sin conexión';
@@ -74,6 +87,30 @@ class SyncQueueService extends ChangeNotifier {
       case SyncUiStatus.procesando:
         return 'Sincronizando…';
     }
+  }
+
+  /// Texto largo para tooltip / diagnóstico.
+  String get uiDetalle {
+    if (!DefaultFirebaseOptions.isConfigured) {
+      return 'Faltan credenciales Firebase en la app.';
+    }
+    if (!BackendConfigService.instance.firebaseEnabled) {
+      return 'Firebase está deshabilitado en configuración.';
+    }
+    if (!FirebaseBootstrap.isReady) {
+      return 'Firebase no inicializó en este dispositivo. Revisá internet y reiniciá la app.';
+    }
+    if (FirebaseAuthUsuarioService.instance.uidActual == null) {
+      return 'Entraste solo en modo local. Cerrá sesión y volvé a entrar; '
+          'si pide cambiar contraseña, usá la MISMA en PC y celular '
+          '(mínimo 6 caracteres). En Firebase Console debe estar activo '
+          'Authentication → Correo/contraseña.';
+    }
+    if (lastError?.isNotEmpty == true) return lastError!;
+    if (pendingCount > 0) {
+      return 'Hay $pendingCount operación(es) pendientes de subir.';
+    }
+    return 'Conectado a la nube. Los cambios se comparten entre dispositivos.';
   }
 
   Future<void> start() async {

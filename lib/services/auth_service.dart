@@ -86,6 +86,8 @@ class AuthService {
           await sqlite.actualizar(usuarioActualizado);
         } catch (createError) {
           debugPrint('Firebase crearCuenta falló: $createError');
+          // Cuenta ya creada en otro dispositivo con otra clave:
+          // el login local sigue, pero login_page pedirá vincular/cambiar clave.
         }
       }
     } else {
@@ -187,26 +189,70 @@ class AuthService {
       try {
         if (usuario.firebaseUid?.isNotEmpty ?? false) {
           if (firebase.uidActual == null) {
-            await firebase.iniciarSesion(
+            // La cuenta ya existe en la nube: probar clave actual y luego la nueva.
+            try {
+              await firebase.iniciarSesion(
+                usuario.usuario,
+                passwordActual,
+                email: usuario.email,
+              );
+            } catch (_) {
+              await firebase.iniciarSesion(
+                usuario.usuario,
+                passwordNueva,
+                email: usuario.email,
+              );
+            }
+          }
+          if (firebase.uidActual != null && passwordActual != passwordNueva) {
+            try {
+              await firebase.cambiarPasswordActual(passwordNueva);
+            } catch (e) {
+              debugPrint('Firebase updatePassword: $e');
+            }
+          }
+        } else {
+          // Primera vez en este dispositivo: crear o vincular cuenta existente.
+          try {
+            final uid = await firebase.crearCuenta(
               usuario.usuario,
-              passwordActual,
+              passwordNueva,
               email: usuario.email,
             );
+            actualizado = actualizado.copyWith(firebaseUid: uid);
+            await sqlite.actualizar(actualizado);
+          } catch (createError) {
+            debugPrint('Firebase crearCuenta: $createError');
+            // Ya existe en el otro dispositivo → entrar con la clave nueva.
+            final cred = await firebase.iniciarSesion(
+              usuario.usuario,
+              passwordNueva,
+              email: usuario.email,
+            );
+            final uid = cred.user?.uid;
+            if (uid != null) {
+              actualizado = actualizado.copyWith(firebaseUid: uid);
+              await sqlite.actualizar(actualizado);
+            }
           }
-          await firebase.cambiarPasswordActual(passwordNueva);
-        } else {
-          // Primera vez: crear cuenta Firebase con la contraseña nueva (>=6).
-          final uid = await firebase.crearCuenta(
-            usuario.usuario,
-            passwordNueva,
-            email: usuario.email,
-          );
-          actualizado = actualizado.copyWith(firebaseUid: uid);
-          await sqlite.actualizar(actualizado);
         }
       } catch (error) {
         debugPrint('Firebase en cambio de password: $error');
+        throw StateError(
+          'No se pudo vincular con la nube. '
+          'Usá en PC y celular la MISMA contraseña (mín. 6 caracteres). '
+          'Si ya la cambiaste en un equipo, usá esa misma acá. Detalle: $error',
+        );
       }
+    }
+
+    if (firebase.disponible &&
+        FirebaseAuthUsuarioService.instance.uidActual == null) {
+      throw StateError(
+        'Seguís sin sesión en la nube. '
+        'En Firebase Console activá Authentication → Correo/contraseña, '
+        'y usá la misma clave en ambos dispositivos.',
+      );
     }
 
     if (BackendConfigService.instance.firebaseEnabled &&
