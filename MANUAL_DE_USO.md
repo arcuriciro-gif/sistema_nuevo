@@ -92,6 +92,7 @@ Podés abrir este manual **antes de iniciar sesión** (botón en el login) o des
 - No copies solo el `.exe` en Windows: llevá toda la carpeta **Instalador_Windows**.  
 - En el celular, instalá el APK y permití orígenes desconocidos si lo pide.  
 - Si no sincroniza entre equipos: verificá internet e inicio de sesión en ambos.  
+- Si el indicador dice **Error**, tocá para ver el detalle o mantené pulsado para reintentar.  
 - Si no llega el mail de alta: revisá spam y que el email esté bien escrito.
 
 ---
