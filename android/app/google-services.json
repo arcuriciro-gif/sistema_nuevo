@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "813722460139",
-    "project_id": "stock-negocio-maco",
-    "storage_bucket": "stock-negocio-maco.firebasestorage.app"
+    "project_number": "932698618413",
+    "project_id": "tata-stock-8631e",
+    "storage_bucket": "tata-stock-8631e.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:813722460139:android:f159a807318cd2f964c3ae",
+        "mobilesdk_app_id": "1:932698618413:android:79f6dd8275b301f21896a4",
         "android_client_info": {
           "package_name": "com.example.sistema_nuevo"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyBPYEQpwn2wrxg0u4Vv7BvojQGnV7a2epE"
+          "current_key": "AIzaSyDIO601iRMJgk_pCERXJj3aalP5sUMRNgE"
         }
       ],
       "services": {
