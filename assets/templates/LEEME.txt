@@ -1,0 +1,51 @@
+PLANTILLAS DE IMPORTACIÓN — Tata.Manager
+========================================
+
+Usá estas plantillas (o las Excel que se generan desde la app) para saber
+el ORDEN exacto de cada columna.
+
+PRODUCTOS (plantilla_productos.csv / .xlsx)
+------------------------------------------
+1 Codigo          (obligatorio — si existe, actualiza)
+2 Descripcion
+3 Marca
+4 Categoria
+5 Proveedor
+6 Stock
+7 Costo
+8 Precio1
+9 Precio2
+10 Precio3
+11 CodigoBarras
+
+CLIENTES (plantilla_clientes.csv / .xlsx)
+----------------------------------------
+1 Nombre          (obligatorio)
+2 Apellido
+3 Telefono
+4 WhatsApp
+5 Email
+6 Direccion
+7 Localidad
+8 Provincia
+9 CUIT            (si coincide, actualiza)
+10 CondicionIVA
+11 Descuento
+12 LimiteCuenta
+13 Observaciones
+
+PROVEEDORES (plantilla_proveedores.csv / .xlsx)
+-----------------------------------------------
+1 Nombre          (obligatorio — si existe, actualiza)
+2 Contacto
+3 Telefono
+4 WhatsApp
+5 Email
+6 Web
+7 CUIT
+8 CondicionesComerciales
+9 TiempoEntrega
+10 Observaciones
+
+En la app: Centro de importaciones → Plantillas Excel → Descargar.
+Borrá la fila de ejemplo antes de importar tus datos reales.

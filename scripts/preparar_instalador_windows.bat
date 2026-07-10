@@ -45,6 +45,12 @@ if exist "%ROOT%\assets\docs\MANUAL_DE_USO.pdf" (
   copy /Y "%ROOT%\assets\docs\MANUAL_DE_USO.pdf" "%DST%\MANUAL_DE_USO.pdf" >nul
 )
 
+REM Plantillas Excel/CSV de importacion
+if exist "%ROOT%\assets\templates" (
+  mkdir "%DST%\plantillas" 2>nul
+  xcopy "%ROOT%\assets\templates\*" "%DST%\plantillas\" /E /I /Y /Q >nul
+)
+
 REM Accesos faciles
 copy /Y "%~dp0..\packaging\windows\ABRIR_TATA_MANAGER.bat" "%DST%\ABRIR_TATA_MANAGER.bat" >nul
 copy /Y "%~dp0..\packaging\windows\LEEME.txt" "%DST%\LEEME.txt" >nul

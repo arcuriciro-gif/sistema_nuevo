@@ -1,29 +1,75 @@
-import 'dart:io';
-
-import 'package:csv/csv.dart';
-import 'package:excel/excel.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../models/producto.dart';
+import '../services/importacion_archivo_helper.dart';
+import '../services/plantilla_importacion_service.dart';
 import '../services/producto_service.dart';
 import '../theme/module_app_bar.dart';
 
-// ---------------------------------------------------------------------------
-// Columnas reconocidas automáticamente
-// ---------------------------------------------------------------------------
-enum _Col { codigo, descripcion, marca, categoria, proveedor, costo, precio, stock }
+enum _Col {
+  codigo,
+  descripcion,
+  marca,
+  categoria,
+  proveedor,
+  costo,
+  precio,
+  precio2,
+  precio3,
+  stock,
+  codigoBarras,
+}
 
-const _colKeywords = {
-  _Col.codigo: ['cod', 'codigo', 'code', 'sku', 'art', 'articulo'],
-  _Col.descripcion: ['desc', 'descripcion', 'nombre', 'producto', 'detalle', 'name'],
-  _Col.marca: ['marca', 'brand', 'fabricante'],
-  _Col.categoria: ['cat', 'categoria', 'rubro', 'tipo'],
-  _Col.proveedor: ['prov', 'proveedor', 'supplier', 'vendor'],
-  _Col.costo: ['costo', 'cost', 'precio neto', 'neto', 'precio costo', 'p.costo'],
-  _Col.precio: ['precio', 'pvp', 'precio venta', 'p.venta', 'price'],
-  _Col.stock: ['stock', 'cant', 'cantidad', 'qty'],
+const _colAliases = <_Col, Set<String>>{
+  _Col.codigo: {'codigo', 'cod', 'sku', 'articulo', 'art', 'code'},
+  _Col.descripcion: {
+    'descripcion',
+    'desc',
+    'producto',
+    'nombre',
+    'detalle',
+    'name',
+  },
+  _Col.marca: {'marca', 'brand', 'fabricante'},
+  _Col.categoria: {'categoria', 'cat', 'rubro', 'tipo'},
+  _Col.proveedor: {'proveedor', 'prov', 'supplier', 'vendor'},
+  _Col.costo: {'costo', 'cost', 'precioneto', 'neto', 'preciocosto', 'pcosto'},
+  _Col.precio: {
+    'precio1',
+    'precio',
+    'pvp',
+    'precioventa',
+    'pventa',
+    'price',
+    'lista1',
+  },
+  _Col.precio2: {'precio2', 'pvp2', 'lista2'},
+  _Col.precio3: {'precio3', 'pvp3', 'lista3'},
+  _Col.stock: {'stock', 'cant', 'cantidad', 'qty'},
+  _Col.codigoBarras: {
+    'codigobarras',
+    'barcode',
+    'ean',
+    'barras',
+    'codigodebarras',
+  },
 };
+
+/// Orden: más específico primero (precio3/2 antes que precio1).
+const _ordenMapeo = [
+  _Col.codigoBarras,
+  _Col.precio3,
+  _Col.precio2,
+  _Col.precio,
+  _Col.costo,
+  _Col.codigo,
+  _Col.descripcion,
+  _Col.marca,
+  _Col.categoria,
+  _Col.proveedor,
+  _Col.stock,
+];
 
 class ImportacionPage extends StatefulWidget {
   const ImportacionPage({super.key});
@@ -36,6 +82,7 @@ enum _Estado { inicio, vista_previa, importando, listo }
 
 class _ImportacionPageState extends State<ImportacionPage> {
   final ProductoService _svc = ProductoService();
+  final _plantillas = PlantillaImportacionService.instance;
 
   _Estado _estado = _Estado.inicio;
 
@@ -47,10 +94,27 @@ class _ImportacionPageState extends State<ImportacionPage> {
   int _actualizados = 0;
   int _saltados = 0;
   String _mensajeError = '';
+  bool _descargando = false;
 
-  // ---------------------------------------------------------------------------
-  // Paso 1 – Seleccionar archivo
-  // ---------------------------------------------------------------------------
+  Future<void> _descargarPlantilla() async {
+    setState(() => _descargando = true);
+    try {
+      final file = await _plantillas.generarPlantillaProductos();
+      await _plantillas.compartirArchivo(file);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Plantilla guardada en:\n${file.path}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo generar la plantilla: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _descargando = false);
+    }
+  }
+
   Future<void> _seleccionarArchivo() async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
@@ -59,79 +123,31 @@ class _ImportacionPageState extends State<ImportacionPage> {
     if (result == null || result.files.single.path == null) return;
 
     final path = result.files.single.path!;
-    final ext = path.split('.').last.toLowerCase();
-
     try {
-      if (ext == 'csv') {
-        await _parsearCsv(path);
-      } else {
-        await _parsearExcel(path);
+      final data = await ImportacionArchivoHelper.leerArchivo(path);
+      if (data.headers.isEmpty) {
+        setState(() => _mensajeError = 'El archivo está vacío.');
+        return;
       }
+      final mapeo = ImportacionArchivoHelper.mapearColumnas<_Col>(
+        headers: data.headers,
+        aliases: _colAliases,
+        ordenPrioridad: _ordenMapeo,
+      );
+      if (!mounted) return;
+      setState(() {
+        _headers = data.headers;
+        _filas = data.filas;
+        _mapeo = mapeo;
+        _estado = _Estado.vista_previa;
+        _mensajeError = '';
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() => _mensajeError = 'Error al leer el archivo: $e');
     }
   }
 
-  Future<void> _parsearCsv(String path) async {
-    final contenido = await File(path).readAsString();
-    // Intentar detectar el delimitador
-    final delimitador = contenido.contains(';') ? ';' : ',';
-    final filas = CsvDecoder(fieldDelimiter: delimitador).convert(contenido);
-    if (filas.isEmpty) return;
-    _procesarFilas(
-      filas.first.map((e) => e.toString()).toList(),
-      filas.skip(1).toList(),
-    );
-  }
-
-  Future<void> _parsearExcel(String path) async {
-    final bytes = await File(path).readAsBytes();
-    final excel = Excel.decodeBytes(bytes);
-    final sheet = excel.tables[excel.getDefaultSheet()];
-    if (sheet == null || sheet.rows.isEmpty) return;
-
-    final headers =
-        sheet.rows.first.map((c) => c?.value?.toString() ?? '').toList();
-    final filas = sheet.rows
-        .skip(1)
-        .map((row) => row.map((c) => c?.value?.toString() ?? '').toList())
-        .cast<List<dynamic>>()
-        .toList();
-
-    _procesarFilas(headers, filas);
-  }
-
-  void _procesarFilas(List<String> headers, List<List<dynamic>> filas) {
-    final mapeo = <_Col, int>{};
-
-    for (int i = 0; i < headers.length; i++) {
-      final h = headers[i].toLowerCase().trim();
-      for (final entry in _colKeywords.entries) {
-        if (entry.value.any((kw) => h.contains(kw))) {
-          mapeo.putIfAbsent(entry.key, () => i);
-          break;
-        }
-      }
-    }
-
-    if (!mounted) return;
-    setState(() {
-      _headers = headers;
-      _filas = filas;
-      _mapeo = mapeo;
-      _estado = _Estado.vista_previa;
-      _mensajeError = '';
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // Paso 2 – Vista previa y confirmación
-  // ---------------------------------------------------------------------------
-
-  // ---------------------------------------------------------------------------
-  // Paso 3 – Importar
-  // ---------------------------------------------------------------------------
   Future<void> _importar() async {
     if (_mapeo[_Col.codigo] == null) {
       setState(() => _mensajeError = 'Debe asignar al menos la columna Código.');
@@ -151,19 +167,28 @@ class _ImportacionPageState extends State<ImportacionPage> {
     String valorCol(List<dynamic> fila, int? idx) =>
         (idx != null && idx < fila.length) ? fila[idx].toString().trim() : '';
     double numCol(List<dynamic> fila, int? idx) =>
-        _parsearNumero(valorCol(fila, idx));
+        ImportacionArchivoHelper.parsearNumero(valorCol(fila, idx));
 
     for (final fila in _filas) {
-      if (codigoIdx >= fila.length) continue;
+      if (codigoIdx >= fila.length) {
+        _saltados++;
+        continue;
+      }
       final codigo = fila[codigoIdx].toString().trim();
-      if (codigo.isEmpty) continue;
+      if (codigo.isEmpty) {
+        _saltados++;
+        continue;
+      }
 
       final descripcion = valorCol(fila, _mapeo[_Col.descripcion]);
       final marca = valorCol(fila, _mapeo[_Col.marca]);
       final categoria = valorCol(fila, _mapeo[_Col.categoria]);
       final proveedor = valorCol(fila, _mapeo[_Col.proveedor]);
+      final codigoBarras = valorCol(fila, _mapeo[_Col.codigoBarras]);
       final costo = numCol(fila, _mapeo[_Col.costo]);
       final precio = numCol(fila, _mapeo[_Col.precio]);
+      final precio2 = numCol(fila, _mapeo[_Col.precio2]);
+      final precio3 = numCol(fila, _mapeo[_Col.precio3]);
       final stock = numCol(fila, _mapeo[_Col.stock]).toInt();
 
       final existente = await _svc.buscarPorCodigo(codigo);
@@ -172,6 +197,7 @@ class _ImportacionPageState extends State<ImportacionPage> {
         await _svc.insertar(
           Producto(
             codigo: codigo,
+            codigoBarras: codigoBarras,
             descripcion: descripcion.isNotEmpty ? descripcion : codigo,
             marca: marca,
             categoria: categoria,
@@ -180,13 +206,14 @@ class _ImportacionPageState extends State<ImportacionPage> {
             stock: stock,
             costo: costo,
             precio: precio,
+            precio2: precio2,
+            precio3: precio3,
             observaciones: '',
             foto: '',
           ),
         );
         _importados++;
       } else {
-        // Actualizar solo los campos importados que no estén vacíos
         final actualizado = existente.copyWith(
           descripcion: descripcion.isNotEmpty
               ? descripcion
@@ -194,8 +221,13 @@ class _ImportacionPageState extends State<ImportacionPage> {
           marca: marca.isNotEmpty ? marca : existente.marca,
           categoria: categoria.isNotEmpty ? categoria : existente.categoria,
           proveedor: proveedor.isNotEmpty ? proveedor : existente.proveedor,
+          codigoBarras: codigoBarras.isNotEmpty
+              ? codigoBarras
+              : existente.codigoBarras,
           costo: _mapeo[_Col.costo] != null ? costo : existente.costo,
           precio: _mapeo[_Col.precio] != null ? precio : existente.precio,
+          precio2: _mapeo[_Col.precio2] != null ? precio2 : existente.precio2,
+          precio3: _mapeo[_Col.precio3] != null ? precio3 : existente.precio3,
           stock: _mapeo[_Col.stock] != null ? stock : existente.stock,
         );
         await _svc.actualizar(actualizado);
@@ -205,25 +237,6 @@ class _ImportacionPageState extends State<ImportacionPage> {
 
     if (!mounted) return;
     setState(() => _estado = _Estado.listo);
-  }
-
-  double _parsearNumero(String valor) {
-    valor = valor.replaceAll(RegExp(r'[^\d,\.]'), '');
-    if (valor.isEmpty) return 0;
-    // Si tiene punto y coma: 1.000,50 → punto es miles, coma es decimal
-    if (valor.contains(',') && valor.contains('.')) {
-      final lastComma = valor.lastIndexOf(',');
-      final lastDot = valor.lastIndexOf('.');
-      if (lastComma > lastDot) {
-        valor = valor.replaceAll('.', '').replaceAll(',', '.');
-      } else {
-        valor = valor.replaceAll(',', '');
-      }
-    } else if (valor.contains(',')) {
-      // Coma como decimal: 1500,50
-      valor = valor.replaceAll(',', '.');
-    }
-    return double.tryParse(valor) ?? 0;
   }
 
   void _reiniciar() {
@@ -236,9 +249,6 @@ class _ImportacionPageState extends State<ImportacionPage> {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Build
-  // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -263,7 +273,6 @@ class _ImportacionPageState extends State<ImportacionPage> {
     );
   }
 
-  // ---------------------
   Widget _buildInicio() {
     return Center(
       child: SingleChildScrollView(
@@ -284,33 +293,41 @@ class _ImportacionPageState extends State<ImportacionPage> {
             ),
             const SizedBox(height: 12),
             Text(
-              'Seleccioná un archivo Excel (.xlsx) o CSV para importar.\n'
-              'Si el producto ya existe se actualiza, si no existe se crea.',
+              'Seleccioná un archivo Excel (.xlsx) o CSV.\n'
+              'Si el producto ya existe (mismo Código) se actualiza; si no, se crea.',
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 8),
             if (_mensajeError.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
                   _mensajeError,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                  ),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
                   textAlign: TextAlign.center,
                 ),
               ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 28),
             FilledButton.icon(
               onPressed: _seleccionarArchivo,
               icon: const Icon(Icons.folder_open_rounded),
               label: const Text('Seleccionar archivo'),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size(220, 50),
-              ),
+              style: FilledButton.styleFrom(minimumSize: const Size(220, 50)),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _descargando ? null : _descargarPlantilla,
+              icon: _descargando
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.download_rounded),
+              label: const Text('Descargar plantilla Excel'),
+              style: OutlinedButton.styleFrom(minimumSize: const Size(220, 46)),
+            ),
+            const SizedBox(height: 20),
             _buildAyudaColumnas(),
           ],
         ),
@@ -319,6 +336,7 @@ class _ImportacionPageState extends State<ImportacionPage> {
   }
 
   Widget _buildAyudaColumnas() {
+    final orden = PlantillaImportacionService.productosHeaders;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -326,38 +344,32 @@ class _ImportacionPageState extends State<ImportacionPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Columnas reconocidas automáticamente:',
+              'Orden de columnas de la plantilla:',
               style: Theme.of(context).textTheme.labelLarge,
             ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: _colKeywords.entries
-                  .map(
-                    (e) => Chip(
-                      label: Text(
-                        '${_colNombre(e.key)}: "${e.value.first}"',
-                        style: const TextStyle(fontSize: 11),
-                      ),
+            ...orden.asMap().entries.map(
+                  (e) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Text(
+                      '${e.key + 1}. ${e.value}'
+                      '${e.value == 'Codigo' ? '  (obligatorio)' : ''}',
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
-                  )
-                  .toList(),
-            ),
+                  ),
+                ),
           ],
         ),
       ),
     );
   }
 
-  // ---------------------
   Widget _buildVistaPrevia() {
     final previewFilas = _filas.take(5).toList();
     final colRequerida = _mapeo.containsKey(_Col.codigo);
 
     return Column(
       children: [
-        // Mapeo de columnas detectado
         Padding(
           padding: const EdgeInsets.all(12),
           child: Card(
@@ -379,7 +391,7 @@ class _ImportacionPageState extends State<ImportacionPage> {
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        'Columnas detectadas (${_mapeo.length}/${_colKeywords.length})',
+                        'Columnas detectadas (${_mapeo.length}/${_Col.values.length})',
                         style: Theme.of(context).textTheme.labelLarge,
                       ),
                     ],
@@ -393,9 +405,7 @@ class _ImportacionPageState extends State<ImportacionPage> {
                       final ok = idx != null;
                       return Chip(
                         avatar: Icon(
-                          ok
-                              ? Icons.check_rounded
-                              : Icons.close_rounded,
+                          ok ? Icons.check_rounded : Icons.close_rounded,
                           size: 14,
                           color: ok ? Colors.green : Colors.grey,
                         ),
@@ -415,7 +425,7 @@ class _ImportacionPageState extends State<ImportacionPage> {
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: Text(
-                        '⚠ No se detectó columna de Código. Verificá los encabezados.',
+                        '⚠ No se detectó columna de Código. Usá la plantilla oficial.',
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.error,
                           fontSize: 12,
@@ -427,12 +437,10 @@ class _ImportacionPageState extends State<ImportacionPage> {
             ),
           ),
         ),
-
-        // Tabla de vista previa
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Text(
-            'Vista previa (${_filas.length} filas totales, mostrando primeras 5):',
+            'Vista previa (${_filas.length} filas, primeras 5):',
             style: Theme.of(context).textTheme.labelMedium,
           ),
         ),
@@ -448,12 +456,10 @@ class _ImportacionPageState extends State<ImportacionPage> {
                 dataRowMaxHeight: 48,
                 columnSpacing: 16,
                 columns: _headers
-                    .asMap()
-                    .entries
                     .map(
-                      (e) => DataColumn(
+                      (h) => DataColumn(
                         label: Text(
-                          e.value,
+                          h,
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
@@ -477,8 +483,6 @@ class _ImportacionPageState extends State<ImportacionPage> {
             ),
           ),
         ),
-
-        // Botones
         Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
@@ -502,7 +506,6 @@ class _ImportacionPageState extends State<ImportacionPage> {
     );
   }
 
-  // ---------------------
   Widget _buildImportando() {
     return Center(
       child: Padding(
@@ -524,7 +527,6 @@ class _ImportacionPageState extends State<ImportacionPage> {
     );
   }
 
-  // ---------------------
   Widget _buildListo() {
     return Center(
       child: Padding(
@@ -532,11 +534,7 @@ class _ImportacionPageState extends State<ImportacionPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.check_circle_rounded,
-              size: 80,
-              color: Colors.green,
-            ),
+            const Icon(Icons.check_circle_rounded, size: 80, color: Colors.green),
             const SizedBox(height: 24),
             Text(
               '¡Importación completada!',
@@ -544,13 +542,23 @@ class _ImportacionPageState extends State<ImportacionPage> {
             ),
             const SizedBox(height: 20),
             _resumenItem(
-                Icons.add_circle_rounded, 'Productos creados', _importados,
-                Colors.green),
-            _resumenItem(Icons.update_rounded, 'Productos actualizados',
-                _actualizados, Colors.blue),
+              Icons.add_circle_rounded,
+              'Productos creados',
+              _importados,
+              Colors.green,
+            ),
             _resumenItem(
-                Icons.skip_next_rounded, 'Saltados (sin código)', _saltados,
-                Colors.orange),
+              Icons.update_rounded,
+              'Productos actualizados',
+              _actualizados,
+              Colors.blue,
+            ),
+            _resumenItem(
+              Icons.skip_next_rounded,
+              'Saltados (sin código)',
+              _saltados,
+              Colors.orange,
+            ),
             const SizedBox(height: 32),
             FilledButton.icon(
               onPressed: _reiniciar,
@@ -571,10 +579,7 @@ class _ImportacionPageState extends State<ImportacionPage> {
         children: [
           Icon(icon, color: color, size: 20),
           const SizedBox(width: 10),
-          SizedBox(
-            width: 200,
-            child: Text(label),
-          ),
+          SizedBox(width: 200, child: Text(label)),
           Text(
             '$count',
             style: TextStyle(fontWeight: FontWeight.bold, color: color),
@@ -585,23 +590,18 @@ class _ImportacionPageState extends State<ImportacionPage> {
   }
 
   String _colNombre(_Col col) {
-    switch (col) {
-      case _Col.codigo:
-        return 'Código';
-      case _Col.descripcion:
-        return 'Descripción';
-      case _Col.marca:
-        return 'Marca';
-      case _Col.categoria:
-        return 'Categoría';
-      case _Col.proveedor:
-        return 'Proveedor';
-      case _Col.costo:
-        return 'Costo';
-      case _Col.precio:
-        return 'Precio';
-      case _Col.stock:
-        return 'Stock';
-    }
+    return switch (col) {
+      _Col.codigo => 'Código',
+      _Col.descripcion => 'Descripción',
+      _Col.marca => 'Marca',
+      _Col.categoria => 'Categoría',
+      _Col.proveedor => 'Proveedor',
+      _Col.costo => 'Costo',
+      _Col.precio => 'Precio1',
+      _Col.precio2 => 'Precio2',
+      _Col.precio3 => 'Precio3',
+      _Col.stock => 'Stock',
+      _Col.codigoBarras => 'Código barras',
+    };
   }
 }

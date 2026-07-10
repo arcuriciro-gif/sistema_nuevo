@@ -153,6 +153,34 @@ class ProveedorService {
     return resultado.map((e) => Proveedor.fromMap(e)).toList();
   }
 
+  Future<Proveedor?> buscarPorNombre(String nombre) async {
+    final limpio = nombre.trim();
+    if (limpio.isEmpty) return null;
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      'proveedores',
+      where: 'LOWER(nombre) = LOWER(?)',
+      whereArgs: [limpio],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Proveedor.fromMap(rows.first);
+  }
+
+  Future<Proveedor?> buscarPorCuit(String cuit) async {
+    final limpio = cuit.trim();
+    if (limpio.isEmpty) return null;
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      'proveedores',
+      where: 'cuit = ?',
+      whereArgs: [limpio],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Proveedor.fromMap(rows.first);
+  }
+
   Future<int> cantidad() async {
     final db = await _dbHelper.database;
     final resultado = await db.rawQuery('SELECT COUNT(*) total FROM proveedores');

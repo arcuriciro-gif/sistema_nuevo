@@ -97,6 +97,30 @@ Usá el ícono de **actualizar** (flecha circular) para refrescar.
 - **Categorías**: organizar el catálogo.  
 - **Listas de precios**: precios por lista (mayorista, etc.).
 
+### Importar productos desde Excel
+1. Menú **Centro de importaciones** → **Plantillas Excel**.  
+2. Descargá **plantilla_productos.xlsx**.  
+3. Completá las columnas **en este orden** (no renombres la primera fila):
+
+| # | Columna | Notas |
+|---|---------|--------|
+| 1 | Codigo | Obligatorio. Si ya existe, se actualiza |
+| 2 | Descripcion | Nombre / detalle del producto |
+| 3 | Marca | |
+| 4 | Categoria | |
+| 5 | Proveedor | |
+| 6 | Stock | Cantidad |
+| 7 | Costo | Precio de costo |
+| 8 | Precio1 | Precio de venta principal |
+| 9 | Precio2 | Segunda lista |
+| 10 | Precio3 | Tercera lista |
+| 11 | CodigoBarras | Opcional |
+
+4. Borrá la fila de ejemplo y guardá.  
+5. **Importar Productos** → seleccioná el archivo.
+
+También hay CSV de referencia en `Instalador_Windows/plantillas` y en `assets/templates`.
+
 ---
 
 ## 6. Vender (lo más usado)
@@ -125,6 +149,13 @@ Misma lógica: cliente + ítems → guardar → PDF / impresión.
 ### Clientes
 - Alta con nombre, teléfono, dirección, CUIT, etc.  
 - Historial de operaciones del cliente.
+
+### Importar clientes desde Excel
+**Centro de importaciones** → **Plantillas Excel** → plantilla de clientes.
+
+Orden: Nombre, Apellido, Telefono, WhatsApp, Email, Direccion, Localidad, Provincia, CUIT, CondicionIVA, Descuento, LimiteCuenta, Observaciones.
+
+Si el **CUIT** coincide (o Nombre+Apellido), se actualiza; si no, se crea.
 
 ### Cuenta corriente
 - Lista de deudores (incluye **ventas** y **remitos sin cobrar**).  
@@ -157,6 +188,11 @@ Así no hace falta regenerar el PDF en el teléfono.
 
 ### Proveedores
 - Alta y edición de proveedores.
+
+### Importar proveedores desde Excel
+**Centro de importaciones** → plantilla de proveedores.
+
+Orden: Nombre, Contacto, Telefono, WhatsApp, Email, Web, CUIT, CondicionesComerciales, TiempoEntrega, Observaciones.
 
 ---
 
@@ -316,4 +352,4 @@ Para temas técnicos de Firebase / instalación: quien mantenga el proyecto en G
 
 ---
 
-*Manual correspondiente a Tata.Manager (sistema_nuevo). Actualizado con sync multi-dispositivo, Archivo PDF, Mi perfil, alerta sin stock y plantilla de impresión.*
+*Manual correspondiente a Tata.Manager (sistema_nuevo). Actualizado con sync multi-dispositivo, Archivo PDF, Mi perfil, alerta sin stock, plantilla de impresión y plantillas Excel de importación.*

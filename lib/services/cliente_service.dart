@@ -121,6 +121,34 @@ class ClienteService {
     return resultado.map((e) => Cliente.fromMap(e)).toList();
   }
 
+  Future<Cliente?> buscarPorCuit(String cuit) async {
+    final limpio = cuit.trim();
+    if (limpio.isEmpty) return null;
+    final db = await dbHelper.database;
+    final rows = await db.query(
+      'clientes',
+      where: 'cuit = ?',
+      whereArgs: [limpio],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Cliente.fromMap(rows.first);
+  }
+
+  Future<Cliente?> buscarPorNombreApellido(String nombre, String apellido) async {
+    final n = nombre.trim();
+    if (n.isEmpty) return null;
+    final db = await dbHelper.database;
+    final rows = await db.query(
+      'clientes',
+      where: 'nombre = ? AND apellido = ?',
+      whereArgs: [n, apellido.trim()],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Cliente.fromMap(rows.first);
+  }
+
   /// Busca o crea el cliente especial MOSTRADOR para Venta Rápida.
   Future<Cliente> obtenerOCrearMostrador() async {
     final db = await dbHelper.database;

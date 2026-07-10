@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 
 import 'backup_page.dart';
 import 'comparacion_page.dart';
+import 'importacion_clientes_page.dart';
 import 'importacion_page.dart';
+import 'importacion_proveedores_page.dart';
+import 'plantillas_importacion_page.dart';
 import '../theme/module_app_bar.dart';
 
 class CentroImportacionesPage extends StatelessWidget {
@@ -14,11 +17,35 @@ class CentroImportacionesPage extends StatelessWidget {
 
     final acciones = [
       _Accion(
+        icon: Icons.table_chart_rounded,
+        titulo: 'Plantillas Excel',
+        subtitulo:
+            'Descargá plantillas con el orden exacto de columnas\n'
+            '(Código, Descripción, Precio1, Precio2…).',
+        color: Colors.indigo,
+        destino: const PlantillasImportacionPage(),
+      ),
+      _Accion(
         icon: Icons.upload_file_rounded,
         titulo: 'Importar Productos',
-        subtitulo: 'Carga masiva desde Excel o CSV.\nCrea o actualiza por código.',
+        subtitulo:
+            'Carga masiva desde Excel o CSV.\nCrea o actualiza por código.',
         color: Colors.blue,
         destino: const ImportacionPage(),
+      ),
+      _Accion(
+        icon: Icons.people_alt_rounded,
+        titulo: 'Importar Clientes',
+        subtitulo: 'Carga masiva de clientes desde Excel o CSV.',
+        color: Colors.teal,
+        destino: const ImportacionClientesPage(),
+      ),
+      _Accion(
+        icon: Icons.local_shipping_rounded,
+        titulo: 'Importar Proveedores',
+        subtitulo: 'Carga masiva de proveedores desde Excel o CSV.',
+        color: Colors.deepOrange,
+        destino: const ImportacionProveedoresPage(),
       ),
       _Accion(
         icon: Icons.compare_arrows_rounded,
@@ -41,7 +68,6 @@ class CentroImportacionesPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Banner descriptivo
           Container(
             padding: const EdgeInsets.all(16),
             margin: const EdgeInsets.only(bottom: 20),
@@ -69,8 +95,8 @@ class CentroImportacionesPage extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Todas las tareas masivas en un solo lugar: '
-                        'importar productos, comparar listas de proveedores y respaldar datos.',
+                        'Plantillas Excel, importar productos/clientes/proveedores, '
+                        'comparar listas y respaldar datos.',
                         style: theme.textTheme.bodySmall,
                       ),
                     ],
@@ -79,17 +105,9 @@ class CentroImportacionesPage extends StatelessWidget {
               ],
             ),
           ),
-
-          // Tarjetas de acciones
           ...acciones.map((a) => _TarjetaAccion(accion: a)),
-
           const SizedBox(height: 24),
-
-          // Flujo sugerido
-          Text(
-            'Flujo sugerido',
-            style: theme.textTheme.labelLarge,
-          ),
+          Text('Flujo sugerido', style: theme.textTheme.labelLarge),
           const SizedBox(height: 12),
           _buildFlujo(theme),
         ],
@@ -99,12 +117,11 @@ class CentroImportacionesPage extends StatelessWidget {
 
   Widget _buildFlujo(ThemeData theme) {
     final pasos = [
-      '📥 Importar productos (primera carga ~2500 productos)',
-      '🛍 Trabajar normalmente',
-      '📊 Llega lista nueva de proveedor (Febo, Bisso...)',
-      '🔄 Comparar costos',
-      '💰 Actualizar costos (solo modifica el costo)',
-      '✅ Seguir vendiendo con costos actualizados',
+      '📥 Descargar plantilla Excel (productos / clientes / proveedores)',
+      '✏️ Completar filas respetando el orden de columnas',
+      '📤 Importar el archivo desde la opción correspondiente',
+      '📊 Si llega lista de proveedor: Comparar costos',
+      '✅ Seguir vendiendo con datos actualizados',
     ];
 
     return Card(
@@ -126,7 +143,8 @@ class CentroImportacionesPage extends StatelessWidget {
                         height: 24,
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.primary.withValues(alpha: .15),
+                          color:
+                              theme.colorScheme.primary.withValues(alpha: .15),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
@@ -140,10 +158,7 @@ class CentroImportacionesPage extends StatelessWidget {
                       ),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: Text(
-                          e.value,
-                          style: theme.textTheme.bodySmall,
-                        ),
+                        child: Text(e.value, style: theme.textTheme.bodySmall),
                       ),
                     ],
                   ),
