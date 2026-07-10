@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'backup_page.dart';
 import 'comparacion_page.dart';
 import 'importacion_page.dart';
+import '../theme/module_app_bar.dart';
 
 class CentroImportacionesPage extends StatelessWidget {
   const CentroImportacionesPage({super.key});
@@ -36,10 +37,7 @@ class CentroImportacionesPage extends StatelessWidget {
     ];
 
     return Scaffold(
-      // AppBar solo cuando es abierta como ruta apilada (ej: desde un acceso directo)
-      appBar: ModalRoute.of(context)?.canPop == true
-          ? AppBar(title: const Text('Centro de Importaciones'))
-          : null,
+      appBar: buildModuleAppBar(context, title: 'Centro de importaciones'),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/permiso.dart';
 import '../services/permisos_service.dart';
+import '../theme/module_app_bar.dart';
 
 class PermisosPage extends StatefulWidget {
   const PermisosPage({super.key});
@@ -77,8 +78,9 @@ class _PermisosPageState extends State<PermisosPage> {
     return DefaultTabController(
       length: _roles.length,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Permisos por rol'),
+        appBar: buildModuleAppBar(
+          context,
+          title: 'Permisos por rol',
           bottom: TabBar(
             isScrollable: true,
             tabs: _roles

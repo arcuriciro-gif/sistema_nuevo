@@ -9,6 +9,7 @@ import '../services/producto_service.dart';
 import '../services/proveedor_service.dart';
 import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
+import '../theme/module_app_bar.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -295,6 +296,7 @@ class _DashboardPageState extends State<DashboardPage> {
     final sinStockColor = AppVisuals.danger(colorScheme);
 
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Dashboard'),
       body: cargando
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(

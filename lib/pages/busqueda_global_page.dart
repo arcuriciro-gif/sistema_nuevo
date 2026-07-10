@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../database/database_helper.dart';
 import '../models/producto.dart';
+import '../theme/module_app_bar.dart';
 import 'kardex_page.dart';
 
 class BusquedaGlobalPage extends StatefulWidget {
@@ -161,7 +162,7 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Búsqueda global')),
+      appBar: buildModuleAppBar(context, title: 'Búsqueda global'),
       body: Column(
         children: [
           Padding(

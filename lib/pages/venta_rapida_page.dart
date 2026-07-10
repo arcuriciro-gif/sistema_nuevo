@@ -7,6 +7,7 @@ import '../models/remito_detalle.dart';
 import '../services/cliente_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
+import '../theme/module_app_bar.dart';
 
 // ---------------------------------------------------------------------------
 // Ítem del carrito
@@ -257,28 +258,25 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
     final theme = Theme.of(context);
 
     return Scaffold(
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Venta rápida',
+        actions: [
+          if (_carrito.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Center(
+                child: Chip(
+                  avatar: const Icon(Icons.shopping_cart_rounded, size: 16),
+                  label: Text('${_carrito.length} ítems'),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ),
+        ],
+      ),
       body: Column(
         children: [
-          // --- Encabezado con título e indicador del carrito ---
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
-            child: Row(
-              children: [
-                Text(
-                  'Venta Rápida',
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const Spacer(),
-                if (_carrito.isNotEmpty)
-                  Chip(
-                    avatar: const Icon(Icons.shopping_cart_rounded, size: 16),
-                    label: Text('${_carrito.length} ítems'),
-                    visualDensity: VisualDensity.compact,
-                  ),
-              ],
-            ),
-          ),
           // --- Barra de búsqueda ---
           Padding(
             padding: const EdgeInsets.all(12),

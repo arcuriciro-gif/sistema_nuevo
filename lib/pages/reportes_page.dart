@@ -9,6 +9,7 @@ import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
 import '../services/proveedor_service.dart';
 import '../services/remito_service.dart';
+import '../theme/module_app_bar.dart';
 
 class ReportesPage extends StatefulWidget {
   const ReportesPage({super.key});
@@ -247,6 +248,7 @@ class _ReportesPageState extends State<ReportesPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Reportes'),
       body: Stack(
         children: [
           ListView(

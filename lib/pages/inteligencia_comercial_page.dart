@@ -5,6 +5,7 @@ import '../database/database_helper.dart';
 import '../services/compra_service.dart';
 import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
+import '../theme/module_app_bar.dart';
 
 class InteligenciaComercialPage extends StatefulWidget {
   const InteligenciaComercialPage({super.key});
@@ -244,6 +245,7 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Inteligencia comercial'),
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(

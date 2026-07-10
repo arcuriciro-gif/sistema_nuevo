@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/cliente.dart';
 import '../services/cliente_service.dart';
+import '../theme/module_app_bar.dart';
 
 class ClienteFormPage extends StatefulWidget {
   final Cliente? cliente;
@@ -151,8 +152,9 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(esEdicion ? "Editar cliente" : "Nuevo cliente"),
+      appBar: buildModuleAppBar(
+        context,
+        title: esEdicion ? "Editar cliente" : "Nuevo cliente",
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),

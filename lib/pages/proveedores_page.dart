@@ -4,6 +4,7 @@ import '../models/proveedor.dart';
 import '../services/proveedor_service.dart';
 import '../theme/app_visuals.dart';
 import 'proveedor_form_page.dart';
+import '../theme/module_app_bar.dart';
 
 class ProveedoresPage extends StatefulWidget {
   const ProveedoresPage({super.key});
@@ -65,6 +66,7 @@ class _ProveedoresPageState extends State<ProveedoresPage> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Proveedores'),
       floatingActionButton: FloatingActionButton(
         heroTag: 'fab_proveedores',
         child: const Icon(Icons.add),

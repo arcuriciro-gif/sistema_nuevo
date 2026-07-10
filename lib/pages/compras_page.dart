@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/compra_service.dart';
 import '../theme/app_visuals.dart';
 import 'compra_form_page.dart';
+import '../theme/module_app_bar.dart';
 
 class ComprasPage extends StatefulWidget {
   const ComprasPage({super.key});
@@ -216,6 +217,7 @@ class _ComprasPageState extends State<ComprasPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Compras'),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab_compras',
         icon: const Icon(Icons.add_rounded),

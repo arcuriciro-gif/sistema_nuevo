@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/categoria.dart';
 import '../services/categoria_service.dart';
 import '../theme/app_visuals.dart';
+import '../theme/module_app_bar.dart';
 
 class CategoriasPage extends StatefulWidget {
   const CategoriasPage({super.key});
@@ -86,6 +87,7 @@ class _CategoriasPageState extends State<CategoriasPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Categorías'),
       floatingActionButton: FloatingActionButton(
         heroTag: 'fab_categorias',
         onPressed: () => _abrirFormulario(),

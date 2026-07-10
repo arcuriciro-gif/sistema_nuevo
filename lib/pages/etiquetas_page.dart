@@ -7,6 +7,7 @@ import '../models/producto.dart';
 import '../services/lista_precio_service.dart';
 import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
+import '../theme/module_app_bar.dart';
 
 class EtiquetasPage extends StatefulWidget {
   const EtiquetasPage({super.key});
@@ -119,6 +120,7 @@ class _EtiquetasPageState extends State<EtiquetasPage> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Etiquetas'),
       body: cargando
           ? const Center(child: CircularProgressIndicator())
           : Column(

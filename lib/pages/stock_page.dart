@@ -6,6 +6,7 @@ import '../models/producto.dart';
 import '../services/producto_service.dart';
 import '../services/stock_service.dart';
 import '../theme/app_visuals.dart';
+import '../theme/module_app_bar.dart';
 
 class StockPage extends StatefulWidget {
   const StockPage({super.key});
@@ -268,9 +269,9 @@ class _StockPageState extends State<StockPage> {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        appBar: AppBar(
-          automaticallyImplyLeading: false,
-          toolbarHeight: 0,
+        appBar: buildModuleAppBar(
+          context,
+          title: 'Stock',
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Movimientos'),

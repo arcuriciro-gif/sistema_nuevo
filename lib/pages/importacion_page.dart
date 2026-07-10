@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../models/producto.dart';
 import '../services/producto_service.dart';
+import '../theme/module_app_bar.dart';
 
 // ---------------------------------------------------------------------------
 // Columnas reconocidas automáticamente
@@ -241,15 +242,17 @@ class _ImportacionPageState extends State<ImportacionPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Importar Productos'),
-        leading: _estado == _Estado.inicio || _estado == _Estado.listo
-            ? null
-            : BackButton(
-                onPressed: _estado == _Estado.vista_previa
-                    ? _reiniciar
-                    : null,
-              ),
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Importar Productos',
+        actions: [
+          if (_estado == _Estado.vista_previa)
+            IconButton(
+              tooltip: 'Volver al inicio',
+              icon: const Icon(Icons.restart_alt_rounded),
+              onPressed: _reiniciar,
+            ),
+        ],
       ),
       body: switch (_estado) {
         _Estado.inicio => _buildInicio(),

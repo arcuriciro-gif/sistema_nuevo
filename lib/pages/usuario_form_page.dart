@@ -4,6 +4,7 @@ import '../core/auth/rol_util.dart';
 import '../models/usuario.dart';
 import '../services/auth_service.dart';
 import '../services/usuario_service.dart';
+import '../theme/module_app_bar.dart';
 
 class UsuarioFormPage extends StatefulWidget {
   final Usuario? usuario;
@@ -124,7 +125,7 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
   Widget build(BuildContext context) {
     if (_sinPermiso) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Usuario')),
+        appBar: buildModuleAppBar(context, title: 'Usuario'),
         body: const Center(
           child: Text('Solo el administrador puede gestionar usuarios.'),
         ),
@@ -132,8 +133,9 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_esEdicion ? 'Editar usuario' : 'Nuevo usuario'),
+      appBar: buildModuleAppBar(
+        context,
+        title: _esEdicion ? 'Editar usuario' : 'Nuevo usuario',
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),

@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import '../services/usuario_service.dart';
 import '../theme/app_visuals.dart';
 import 'usuario_form_page.dart';
+import '../theme/module_app_bar.dart';
 
 class UsuariosPage extends StatefulWidget {
   const UsuariosPage({super.key});
@@ -145,6 +146,7 @@ class _UsuariosPageState extends State<UsuariosPage> {
     final cs = Theme.of(context).colorScheme;
     if (_sinPermiso) {
       return Scaffold(
+        appBar: buildModuleAppBar(context, title: 'Usuarios'),
         body: Center(
           child: Text(
             'Solo el administrador puede gestionar usuarios.',
@@ -154,6 +156,7 @@ class _UsuariosPageState extends State<UsuariosPage> {
       );
     }
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Usuarios'),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab_usuarios',
         onPressed: () => _abrirFormulario(),

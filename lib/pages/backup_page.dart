@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/auto_backup_service.dart';
 import '../services/backup_service.dart';
+import '../theme/module_app_bar.dart';
 
 class BackupPage extends StatefulWidget {
   const BackupPage({super.key});
@@ -132,6 +133,7 @@ class _BackupPageState extends State<BackupPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Backup'),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(

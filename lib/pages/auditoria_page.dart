@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../database/database_helper.dart';
+import '../theme/module_app_bar.dart';
 
 class AuditoriaPage extends StatefulWidget {
   const AuditoriaPage({super.key});
@@ -99,6 +100,7 @@ class _AuditoriaPageState extends State<AuditoriaPage> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Auditoría'),
       body: cargando
           ? const Center(child: CircularProgressIndicator())
           : Column(

@@ -10,6 +10,7 @@ import '../services/cliente_service.dart';
 import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
+import '../theme/module_app_bar.dart';
 import 'scanner_page.dart';
 
 class _ItemRemito {
@@ -499,9 +500,7 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
     final descuentoCliente = clienteSeleccionado?.descuento ?? 0;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Nuevo Remito'),
-      ),
+      appBar: buildModuleAppBar(context, title: 'Nuevo Remito'),
       body: cargando
           ? const Center(child: CircularProgressIndicator())
           : Column(

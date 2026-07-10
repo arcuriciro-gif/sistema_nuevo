@@ -8,6 +8,7 @@ import '../services/branding_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_provider.dart';
 import 'listas_precio_page.dart';
+import '../theme/module_app_bar.dart';
 
 class ConfiguracionPage extends StatefulWidget {
   const ConfiguracionPage({super.key});
@@ -165,6 +166,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     final colorScheme = theme.colorScheme;
 
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Configuración'),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(

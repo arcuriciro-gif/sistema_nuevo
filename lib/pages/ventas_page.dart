@@ -4,6 +4,7 @@ import '../models/venta.dart';
 import '../services/venta_service.dart';
 import '../theme/app_visuals.dart';
 import 'venta_factura_page.dart';
+import '../theme/module_app_bar.dart';
 
 class VentasPage extends StatefulWidget {
   const VentasPage({super.key});
@@ -112,6 +113,7 @@ class _VentasPageState extends State<VentasPage> {
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Ventas'),
       floatingActionButton: FloatingActionButton(
         heroTag: 'fab_ventas',
         onPressed: () => _mostrarMenuNueva(),

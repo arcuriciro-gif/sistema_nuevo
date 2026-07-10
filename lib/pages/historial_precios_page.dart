@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/historial_precio_service.dart';
+import '../theme/module_app_bar.dart';
 
 class HistorialPreciosPage extends StatefulWidget {
   final int productoId;
@@ -44,8 +45,9 @@ class _HistorialPreciosPageState extends State<HistorialPreciosPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Historial - ${widget.productoDescripcion}'),
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Historial - ${widget.productoDescripcion}',
       ),
       body: cargando
           ? const Center(child: CircularProgressIndicator())

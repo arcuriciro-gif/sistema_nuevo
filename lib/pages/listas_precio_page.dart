@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/lista_precio.dart';
 import '../services/lista_precio_service.dart';
 import '../theme/app_visuals.dart';
+import '../theme/module_app_bar.dart';
 
 class ListasPrecioPage extends StatefulWidget {
   const ListasPrecioPage({super.key});
@@ -149,20 +150,8 @@ class _ListasPrecioPageState extends State<ListasPrecioPage> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final puedeVolver = Navigator.of(context).canPop();
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Listas de precios'),
-        leading: puedeVolver
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back),
-                tooltip: 'Volver',
-                onPressed: () => Navigator.of(context).pop(),
-              )
-            : null,
-        automaticallyImplyLeading: puedeVolver,
-      ),
+      appBar: buildModuleAppBar(context, title: 'Listas de precios'),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab_listas_precio',
         onPressed: () => _editarLista(),

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../theme/module_app_bar.dart';
+
 class ScannerPage extends StatefulWidget {
   const ScannerPage({super.key});
 
@@ -14,7 +16,7 @@ class _ScannerPageState extends State<ScannerPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Escanear código')),
+      appBar: buildModuleAppBar(context, title: 'Escanear código'),
       body: MobileScanner(
         onDetect: (capture) {
           if (_escaneado) return;

@@ -8,6 +8,7 @@ import '../services/producto_service.dart';
 import '../theme/app_visuals.dart';
 import 'producto_form_page.dart';
 import 'scanner_page.dart';
+import '../theme/module_app_bar.dart';
 
 class ProductosPage extends StatefulWidget {
   const ProductosPage({super.key});
@@ -174,6 +175,7 @@ class _ProductosPageState extends State<ProductosPage> {
     final dangerColor = AppVisuals.danger(colorScheme);
 
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Productos'),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab_productos',
         onPressed: _nuevoProducto,

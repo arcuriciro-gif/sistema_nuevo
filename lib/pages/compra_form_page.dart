@@ -7,6 +7,7 @@ import '../models/proveedor.dart';
 import '../services/compra_service.dart';
 import '../services/producto_service.dart';
 import '../services/proveedor_service.dart';
+import '../theme/module_app_bar.dart';
 import 'scanner_page.dart';
 
 class _ItemCompra {
@@ -318,9 +319,7 @@ class _CompraFormPageState extends State<CompraFormPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Nueva Compra'),
-      ),
+      appBar: buildModuleAppBar(context, title: 'Nueva Compra'),
       body: cargando
           ? const Center(child: CircularProgressIndicator())
           : Column(

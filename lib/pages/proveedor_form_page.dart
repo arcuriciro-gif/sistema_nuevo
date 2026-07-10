@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/proveedor.dart';
 import '../services/proveedor_service.dart';
+import '../theme/module_app_bar.dart';
 
 class ProveedorFormPage extends StatefulWidget {
   final Proveedor? proveedor;
@@ -179,10 +180,9 @@ class _ProveedorFormPageState extends State<ProveedorFormPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          widget.proveedor == null ? "Nuevo Proveedor" : "Editar Proveedor",
-        ),
+      appBar: buildModuleAppBar(
+        context,
+        title: widget.proveedor == null ? "Nuevo Proveedor" : "Editar Proveedor",
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),

@@ -7,6 +7,7 @@ import '../models/lista_precio.dart';
 import '../models/producto.dart';
 import '../services/lista_precio_service.dart';
 import '../services/producto_service.dart';
+import '../theme/module_app_bar.dart';
 import 'historial_precios_page.dart';
 
 class ProductoFormPage extends StatefulWidget {
@@ -226,8 +227,9 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.producto == null ? 'Nuevo producto' : 'Editar producto'),
+      appBar: buildModuleAppBar(
+        context,
+        title: widget.producto == null ? 'Nuevo producto' : 'Editar producto',
         actions: [
           if (widget.producto?.id != null)
             IconButton(

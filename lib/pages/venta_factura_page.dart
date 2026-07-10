@@ -11,6 +11,7 @@ import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
 import '../services/venta_service.dart';
 import '../theme/app_visuals.dart';
+import '../theme/module_app_bar.dart';
 
 // ---------------------------------------------------------------------------
 // Ítem del carrito (temporal, no persistido)
@@ -327,13 +328,12 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          _modoLectura
-              ? '${_ventaExistente?.tipoLabel ?? _titulo}  '
-                  '${_ventaExistente?.numero ?? ''}'
-              : 'Nueva $_titulo',
-        ),
+      appBar: buildModuleAppBar(
+        context,
+        title: _modoLectura
+            ? '${_ventaExistente?.tipoLabel ?? _titulo}  '
+                '${_ventaExistente?.numero ?? ''}'
+            : 'Nueva $_titulo',
         actions: [
           if (_modoLectura && _ventaExistente != null)
             PopupMenuButton<String>(

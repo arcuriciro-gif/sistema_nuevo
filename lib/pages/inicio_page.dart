@@ -9,6 +9,7 @@ import '../services/cliente_service.dart';
 import '../services/compra_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
+import '../theme/module_app_bar.dart';
 
 class InicioPage extends StatefulWidget {
   const InicioPage({super.key});
@@ -109,6 +110,7 @@ class _InicioPageState extends State<InicioPage> {
         '${ahora.day} de ${meses[ahora.month - 1]} de ${ahora.year}';
 
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Inicio'),
       backgroundColor: cs.surface,
       body: _cargando
           ? const Center(child: CircularProgressIndicator())

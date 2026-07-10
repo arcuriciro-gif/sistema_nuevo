@@ -6,6 +6,7 @@ import '../services/pdf_service.dart';
 import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
 import 'remito_form_page.dart';
+import '../theme/module_app_bar.dart';
 
 class RemitosPage extends StatefulWidget {
   const RemitosPage({super.key});
@@ -319,6 +320,7 @@ class _RemitosPageState extends State<RemitosPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Remitos'),
       floatingActionButton: FloatingActionButton(
         heroTag: 'fab_remitos',
         child: const Icon(Icons.add),

@@ -5,6 +5,7 @@ import '../services/cliente_service.dart';
 import '../theme/app_visuals.dart';
 import 'cliente_form_page.dart';
 import 'cliente_historial_page.dart';
+import '../theme/module_app_bar.dart';
 
 class ClientesPage extends StatefulWidget {
   const ClientesPage({super.key});
@@ -91,6 +92,7 @@ class _ClientesPageState extends State<ClientesPage> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
+      appBar: buildModuleAppBar(context, title: 'Clientes'),
       floatingActionButton: FloatingActionButton(
         heroTag: 'fab_clientes',
         child: const Icon(Icons.add),

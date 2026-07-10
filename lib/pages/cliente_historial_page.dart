@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/cliente.dart';
 import '../services/pdf_service.dart';
 import '../services/remito_service.dart';
+import '../theme/module_app_bar.dart';
 
 class ClienteHistorialPage extends StatefulWidget {
   final Cliente cliente;
@@ -203,9 +204,7 @@ class _ClienteHistorialPageState extends State<ClienteHistorialPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Historial del cliente'),
-      ),
+      appBar: buildModuleAppBar(context, title: 'Historial del cliente'),
       body: Column(
         children: [
           Container(

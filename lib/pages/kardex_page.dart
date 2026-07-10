@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/producto.dart';
 import '../services/stock_service.dart';
 import '../theme/app_visuals.dart';
+import '../theme/module_app_bar.dart';
 
 class KardexPage extends StatefulWidget {
   final Producto producto;
@@ -52,8 +53,9 @@ class _KardexPageState extends State<KardexPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Kardex - ${widget.producto.descripcion}'),
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Kardex - ${widget.producto.descripcion}',
       ),
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
