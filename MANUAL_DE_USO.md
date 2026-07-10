@@ -155,6 +155,8 @@ Usá el ícono de **actualizar** (flecha circular) para refrescar.
 4. Borrá la fila de ejemplo y guardá.  
 5. **Importar Productos** → seleccioná el archivo.
 
+**Precios automáticos:** si cargás **Costo** y dejás Precio1/2/3 vacíos, el sistema los calcula con el % de **Listas de precios** (`costo × (1 + % / 100)`). Si ponés un precio en la planilla, ese valor gana.
+
 También hay CSV de referencia en `Instalador_Windows/plantillas` y en `assets/templates`.
 
 ---

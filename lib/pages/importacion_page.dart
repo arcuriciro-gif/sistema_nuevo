@@ -1,9 +1,12 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../models/lista_precio.dart';
 import '../models/producto.dart';
 import '../services/importacion_archivo_helper.dart';
+import '../services/lista_precio_service.dart';
 import '../services/plantilla_importacion_service.dart';
+import '../services/precio_calculador_service.dart';
 import '../services/producto_service.dart';
 import '../theme/module_app_bar.dart';
 
@@ -163,9 +166,12 @@ class _ImportacionPageState extends State<ImportacionPage> {
     });
 
     final codigoIdx = _mapeo[_Col.codigo]!;
+    final listas = await ListaPrecioService().obtenerActivas();
 
     String valorCol(List<dynamic> fila, int? idx) =>
         (idx != null && idx < fila.length) ? fila[idx].toString().trim() : '';
+    bool celdaVacia(List<dynamic> fila, int? idx) =>
+        idx == null || idx >= fila.length || fila[idx].toString().trim().isEmpty;
     double numCol(List<dynamic> fila, int? idx) =>
         ImportacionArchivoHelper.parsearNumero(valorCol(fila, idx));
 
@@ -185,36 +191,48 @@ class _ImportacionPageState extends State<ImportacionPage> {
       final categoria = valorCol(fila, _mapeo[_Col.categoria]);
       final proveedor = valorCol(fila, _mapeo[_Col.proveedor]);
       final codigoBarras = valorCol(fila, _mapeo[_Col.codigoBarras]);
-      final costo = numCol(fila, _mapeo[_Col.costo]);
-      final precio = numCol(fila, _mapeo[_Col.precio]);
-      final precio2 = numCol(fila, _mapeo[_Col.precio2]);
-      final precio3 = numCol(fila, _mapeo[_Col.precio3]);
       final stock = numCol(fila, _mapeo[_Col.stock]).toInt();
+
+      final costoImportado =
+          celdaVacia(fila, _mapeo[_Col.costo]) ? null : numCol(fila, _mapeo[_Col.costo]);
+      final precio1Importado =
+          celdaVacia(fila, _mapeo[_Col.precio]) ? null : numCol(fila, _mapeo[_Col.precio]);
+      final precio2Importado =
+          celdaVacia(fila, _mapeo[_Col.precio2]) ? null : numCol(fila, _mapeo[_Col.precio2]);
+      final precio3Importado =
+          celdaVacia(fila, _mapeo[_Col.precio3]) ? null : numCol(fila, _mapeo[_Col.precio3]);
 
       final existente = await _svc.buscarPorCodigo(codigo);
 
       if (existente == null) {
-        await _svc.insertar(
-          Producto(
-            codigo: codigo,
-            codigoBarras: codigoBarras,
-            descripcion: descripcion.isNotEmpty ? descripcion : codigo,
-            marca: marca,
-            categoria: categoria,
-            proveedor: proveedor,
-            ubicacion: '',
-            stock: stock,
-            costo: costo,
-            precio: precio,
-            precio2: precio2,
-            precio3: precio3,
-            observaciones: '',
-            foto: '',
-          ),
+        var nuevo = Producto(
+          codigo: codigo,
+          codigoBarras: codigoBarras,
+          descripcion: descripcion.isNotEmpty ? descripcion : codigo,
+          marca: marca,
+          categoria: categoria,
+          proveedor: proveedor,
+          ubicacion: '',
+          stock: stock,
+          costo: costoImportado ?? 0,
+          precio: precio1Importado ?? 0,
+          precio2: precio2Importado ?? 0,
+          precio3: precio3Importado ?? 0,
+          observaciones: '',
+          foto: '',
         );
+        nuevo = await _aplicarPreciosDesdeListas(
+          nuevo,
+          listas: listas,
+          calcularP1: precio1Importado == null || precio1Importado <= 0,
+          calcularP2: precio2Importado == null || precio2Importado <= 0,
+          calcularP3: precio3Importado == null || precio3Importado <= 0,
+        );
+        await _svc.insertar(nuevo);
         _importados++;
       } else {
-        final actualizado = existente.copyWith(
+        final costoFinal = costoImportado ?? existente.costo;
+        var actualizado = existente.copyWith(
           descripcion: descripcion.isNotEmpty
               ? descripcion
               : existente.descripcion,
@@ -224,11 +242,25 @@ class _ImportacionPageState extends State<ImportacionPage> {
           codigoBarras: codigoBarras.isNotEmpty
               ? codigoBarras
               : existente.codigoBarras,
-          costo: _mapeo[_Col.costo] != null ? costo : existente.costo,
-          precio: _mapeo[_Col.precio] != null ? precio : existente.precio,
-          precio2: _mapeo[_Col.precio2] != null ? precio2 : existente.precio2,
-          precio3: _mapeo[_Col.precio3] != null ? precio3 : existente.precio3,
+          costo: costoFinal,
+          precio: precio1Importado ?? existente.precio,
+          precio2: precio2Importado ?? existente.precio2,
+          precio3: precio3Importado ?? existente.precio3,
           stock: _mapeo[_Col.stock] != null ? stock : existente.stock,
+        );
+
+        // Si vino costo y faltan precios en la planilla, recalcular con % de listas.
+        final recalcularPorCosto =
+            costoImportado != null && costoImportado > 0;
+        actualizado = await _aplicarPreciosDesdeListas(
+          actualizado,
+          listas: listas,
+          calcularP1: recalcularPorCosto &&
+              (precio1Importado == null || precio1Importado <= 0),
+          calcularP2: recalcularPorCosto &&
+              (precio2Importado == null || precio2Importado <= 0),
+          calcularP3: recalcularPorCosto &&
+              (precio3Importado == null || precio3Importado <= 0),
         );
         await _svc.actualizar(actualizado);
         _actualizados++;
@@ -237,6 +269,33 @@ class _ImportacionPageState extends State<ImportacionPage> {
 
     if (!mounted) return;
     setState(() => _estado = _Estado.listo);
+  }
+
+  /// Completa Precio1/2/3 vacíos con: costo × (1 + % lista / 100).
+  Future<Producto> _aplicarPreciosDesdeListas(
+    Producto producto, {
+    required List<ListaPrecio> listas,
+    required bool calcularP1,
+    required bool calcularP2,
+    required bool calcularP3,
+  }) async {
+    if (producto.costo <= 0) return producto;
+    if (!calcularP1 && !calcularP2 && !calcularP3) return producto;
+    if (listas.isEmpty) return producto;
+
+    final calculado = await PrecioCalculadorService.instance
+        .aplicarListasDesdeCosto(
+      producto,
+      listasActivas: listas,
+      forzar: true,
+    );
+
+    return producto.copyWith(
+      precio: calcularP1 ? calculado.precio : producto.precio,
+      precio2: calcularP2 ? calculado.precio2 : producto.precio2,
+      precio3: calcularP3 ? calculado.precio3 : producto.precio3,
+      preciosListas: calculado.preciosListas,
+    );
   }
 
   void _reiniciar() {
@@ -294,7 +353,9 @@ class _ImportacionPageState extends State<ImportacionPage> {
             const SizedBox(height: 12),
             Text(
               'Seleccioná un archivo Excel (.xlsx) o CSV.\n'
-              'Si el producto ya existe (mismo Código) se actualiza; si no, se crea.',
+              'Si el producto ya existe (mismo Código) se actualiza; si no, se crea.\n'
+              'Si cargás Costo y dejás Precio1/2/3 vacíos, se calculan con el % '
+              'de tus Listas de precios.',
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
@@ -353,11 +414,19 @@ class _ImportacionPageState extends State<ImportacionPage> {
                     padding: const EdgeInsets.symmetric(vertical: 2),
                     child: Text(
                       '${e.key + 1}. ${e.value}'
-                      '${e.value == 'Codigo' ? '  (obligatorio)' : ''}',
+                      '${e.value == 'Codigo' ? '  (obligatorio)' : ''}'
+                      '${e.value.startsWith('Precio') ? '  (opcional: se calcula del costo)' : ''}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
                 ),
+            const SizedBox(height: 10),
+            Text(
+              'Fórmula: Precio = Costo × (1 + % de la lista / 100). '
+              'Configurá los % en Listas de precios. Si ponés un precio en la '
+              'planilla, ese valor tiene prioridad.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ],
         ),
       ),
