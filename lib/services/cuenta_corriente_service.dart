@@ -1,8 +1,10 @@
 import '../core/events/data_refresh_hub.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/pago.dart';
 import '../models/venta.dart';
 import '../models/venta_item.dart';
+import 'branding_service.dart';
 
 class ClienteDeudor {
   final int clienteId;
@@ -57,12 +59,17 @@ class CuentaCorrienteService {
     final abonado = montoAbonado.clamp(0, venta.total).toDouble();
     final saldo = (venta.total - abonado).clamp(0, venta.total).toDouble();
     final estadoPago = estadoDesdeMontos(venta.total, abonado);
+    final vencimiento = venta.fechaVencimiento ??
+        venta.fecha.add(
+          Duration(days: BrandingService.instance.diasVencimiento),
+        );
 
     final ventaMap = venta.toMap()
       ..remove('id')
       ..['totalPagado'] = abonado
       ..['saldoPendiente'] = saldo
-      ..['estadoPago'] = estadoPago;
+      ..['estadoPago'] = estadoPago
+      ..['fechaVencimiento'] = vencimiento.toIso8601String();
 
     final ventaId = await db.transaction((txn) async {
       final id = await txn.insert('ventas', ventaMap);
@@ -152,6 +159,7 @@ class CuentaCorrienteService {
     if (venta.clienteId != null) {
       await recalcularSaldoCliente(venta.clienteId!);
     }
+    await FirestoreSyncService.instance.subirVenta(ventaId);
     DataRefreshHub.instance.notifyVentas();
     return pago;
   }
@@ -282,18 +290,25 @@ class CuentaCorrienteService {
     final mayor = deudores.isEmpty ? null : deudores.first;
     final ahora = DateTime.now();
     final hoy = DateTime(ahora.year, ahora.month, ahora.day);
+
+    DateTime vencimientoDe(Venta v) {
+      if (v.fechaVencimiento != null) {
+        final f = v.fechaVencimiento!;
+        return DateTime(f.year, f.month, f.day);
+      }
+      final base = DateTime(v.fecha.year, v.fecha.month, v.fecha.day);
+      return base.add(
+        Duration(days: BrandingService.instance.diasVencimiento),
+      );
+    }
+
     final vencenHoy = ventas.where((v) {
-      final f = DateTime(v.fecha.year, v.fecha.month, v.fecha.day);
-      // Sin campo vencimiento: consideramos "viejas" las de hace 30+ días
-      // y "hoy" las que cumplen 30 días exactamente.
-      final vencimiento = f.add(const Duration(days: 30));
-      return vencimiento.year == hoy.year &&
-          vencimiento.month == hoy.month &&
-          vencimiento.day == hoy.day;
+      final venc = vencimientoDe(v);
+      return venc == hoy;
     }).toList();
 
     final proximos = [...ventas]
-      ..sort((a, b) => a.fecha.compareTo(b.fecha));
+      ..sort((a, b) => vencimientoDe(a).compareTo(vencimientoDe(b)));
     final alertas = <String>[];
     for (final d in deudores.take(3)) {
       alertas.add('${d.nombre} debe \$${d.saldoPendiente.toStringAsFixed(2)}');
@@ -307,6 +322,10 @@ class CuentaCorrienteService {
       alertas.add(
         'Hoy vencen ${vencenHoy.length} cuenta${vencenHoy.length == 1 ? '' : 's'} corriente${vencenHoy.length == 1 ? '' : 's'}',
       );
+    }
+    final vencidas = ventas.where((v) => vencimientoDe(v).isBefore(hoy)).length;
+    if (vencidas > 0) {
+      alertas.add('$vencidas venta${vencidas == 1 ? '' : 's'} vencida${vencidas == 1 ? '' : 's'}');
     }
 
     return ResumenCuentasCobrar(

@@ -1,11 +1,12 @@
 class Venta {
   int? id;
-  /// 'factura_a' | 'factura_b' | 'factura_c' | 'presupuesto' | 'nota_entrega' | 'remito'
+  /// 'factura_a' | 'factura_b' | 'factura_c' | 'presupuesto' | 'nota_entrega' | 'comprobante_interno' | 'remito'
   String tipo;
   String numero;
   int? clienteId;
   String? clienteNombre;
   DateTime fecha;
+  DateTime? fechaVencimiento;
   double subtotal;
   double descuento;
   double iva;
@@ -17,6 +18,11 @@ class Venta {
   String estado;
   /// 'pendiente' | 'parcial' | 'cobrado'
   String estadoPago;
+  /// 'no_aplica' | 'pendiente_afip' | 'pendiente_config' | 'autorizada' | 'rechazada'
+  String estadoAfip;
+  String cae;
+  DateTime? caeVencimiento;
+  int puntoVenta;
   String observaciones;
   String? fechaCreacion;
   int? usuarioId;
@@ -28,6 +34,7 @@ class Venta {
     this.clienteId,
     this.clienteNombre,
     required this.fecha,
+    this.fechaVencimiento,
     this.subtotal = 0,
     this.descuento = 0,
     this.iva = 0,
@@ -36,6 +43,10 @@ class Venta {
     double? saldoPendiente,
     this.estado = 'confirmada',
     this.estadoPago = 'pendiente',
+    this.estadoAfip = 'no_aplica',
+    this.cae = '',
+    this.caeVencimiento,
+    this.puntoVenta = 0,
     this.observaciones = '',
     this.fechaCreacion,
     this.usuarioId,
@@ -51,6 +62,7 @@ class Venta {
       'numero': numero,
       'clienteId': clienteId,
       'fecha': fecha.toIso8601String(),
+      'fechaVencimiento': fechaVencimiento?.toIso8601String(),
       'total': total,
       'descuento': descuento,
       'iva': iva,
@@ -58,10 +70,21 @@ class Venta {
       'estadoPago': estadoPago,
       'totalPagado': totalPagado,
       'saldoPendiente': saldoPendiente,
+      'estadoAfip': estadoAfip,
+      'cae': cae,
+      'caeVencimiento': caeVencimiento?.toIso8601String(),
+      'puntoVenta': puntoVenta,
       'observaciones': observaciones,
       'fechaCreacion': fechaCreacion ?? DateTime.now().toIso8601String(),
       'usuarioId': usuarioId,
     };
+  }
+
+  Map<String, dynamic> toFirestore() {
+    final data = Map<String, dynamic>.from(toMap()..remove('id'));
+    data['clienteNombre'] = clienteNombre;
+    data['actualizadoEn'] = DateTime.now().toUtc().toIso8601String();
+    return data;
   }
 
   factory Venta.fromMap(Map<String, dynamic> map) {
@@ -77,6 +100,7 @@ class Venta {
       clienteId: map['clienteId'],
       clienteNombre: map['clienteNombre'],
       fecha: DateTime.tryParse(map['fecha'] ?? '') ?? DateTime.now(),
+      fechaVencimiento: DateTime.tryParse(map['fechaVencimiento']?.toString() ?? ''),
       subtotal: (map['subtotal'] ?? (map['total'] ?? 0)).toDouble(),
       descuento: (map['descuento'] ?? 0).toDouble(),
       iva: (map['iva'] ?? 0).toDouble(),
@@ -85,6 +109,10 @@ class Venta {
       saldoPendiente: saldo,
       estado: map['estado'] ?? 'confirmada',
       estadoPago: map['estadoPago'] ?? 'pendiente',
+      estadoAfip: map['estadoAfip'] ?? 'no_aplica',
+      cae: map['cae']?.toString() ?? '',
+      caeVencimiento: DateTime.tryParse(map['caeVencimiento']?.toString() ?? ''),
+      puntoVenta: (map['puntoVenta'] as int?) ?? 0,
       observaciones: map['observaciones'] ?? '',
       fechaCreacion: map['fechaCreacion'],
       usuarioId: map['usuarioId'],
@@ -120,6 +148,8 @@ class Venta {
         return 'Presupuesto';
       case 'nota_entrega':
         return 'Nota de entrega';
+      case 'comprobante_interno':
+        return 'Comprobante interno';
       default:
         return 'Ticket / Remito';
     }
@@ -137,8 +167,13 @@ class Venta {
         return 'PRESUPUESTO';
       case 'nota_entrega':
         return 'NOTA DE ENTREGA';
+      case 'comprobante_interno':
+        return 'COMPROBANTE INTERNO';
       default:
         return tipoLabel.toUpperCase();
     }
   }
+
+  bool get esFactura =>
+      tipo == 'factura_a' || tipo == 'factura_b' || tipo == 'factura_c';
 }

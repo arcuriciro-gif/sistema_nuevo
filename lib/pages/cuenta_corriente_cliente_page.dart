@@ -213,7 +213,8 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
                         Text(
                           'Total \$${v.total.toStringAsFixed(2)} · '
                           'Pagado \$${v.totalPagado.toStringAsFixed(2)} · '
-                          'Saldo \$${v.saldoPendiente.toStringAsFixed(2)}',
+                          'Saldo \$${v.saldoPendiente.toStringAsFixed(2)}'
+                          '${v.fechaVencimiento == null ? '' : ' · Vence ${_fmtFecha(v.fechaVencimiento!)}'}',
                           style: TextStyle(
                             fontSize: 13,
                             color: cs.onSurfaceVariant,

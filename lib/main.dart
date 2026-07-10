@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'pages/login_page.dart';
+import 'services/afip_service.dart';
 import 'services/branding_service.dart';
+import 'services/document_numbering_service.dart';
 import 'services/permisos_service.dart';
 import 'core/config/backend_config_service.dart';
 import 'core/firebase/firebase_bootstrap.dart';
@@ -13,6 +15,8 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   initializeThemeProvider();
   await BrandingService.instance.cargar();
+  await DocumentNumberingService.instance.cargar();
+  await AfipConfigService.instance.cargar();
   await BackendConfigService.instance.cargar();
   await FirebaseBootstrap.initializeIfNeeded();
 

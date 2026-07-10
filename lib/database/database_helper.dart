@@ -22,7 +22,7 @@ class DatabaseHelper {
 
     return openDatabase(
       path,
-      version: 16,
+      version: 17,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -462,6 +462,11 @@ CREATE TABLE IF NOT EXISTS ventas(
   estadoPago TEXT DEFAULT 'pendiente',
   totalPagado REAL DEFAULT 0,
   saldoPendiente REAL DEFAULT 0,
+  fechaVencimiento TEXT,
+  estadoAfip TEXT DEFAULT 'no_aplica',
+  cae TEXT DEFAULT '',
+  caeVencimiento TEXT,
+  puntoVenta INTEGER DEFAULT 0,
   observaciones TEXT,
   fechaCreacion TEXT,
   usuarioId INTEGER,
@@ -737,6 +742,24 @@ CREATE TABLE IF NOT EXISTS ventas_items(
             AND v.estado != 'anulada'
             AND v.saldoPendiente > 0
         ), 0)
+      ''');
+    }
+
+    if (oldVersion < 17) {
+      await _agregarColumnas(db, 'ventas', {
+        'fechaVencimiento': 'TEXT',
+        'estadoAfip': "TEXT DEFAULT 'no_aplica'",
+        'cae': "TEXT DEFAULT ''",
+        'caeVencimiento': 'TEXT',
+        'puntoVenta': 'INTEGER DEFAULT 0',
+      });
+      // Vencimiento por defecto: fecha + 30 días para saldos abiertos
+      await db.execute('''
+        UPDATE ventas
+        SET fechaVencimiento = datetime(fecha, '+30 days')
+        WHERE fechaVencimiento IS NULL
+          AND estado != 'anulada'
+          AND saldoPendiente > 0
       ''');
     }
   }

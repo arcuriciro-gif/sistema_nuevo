@@ -108,6 +108,8 @@ class _VentasPageState extends State<VentasPage> {
         return AppVisuals.warning(cs);
       case 'nota_entrega':
         return AppVisuals.info(cs);
+      case 'comprobante_interno':
+        return AppVisuals.neutral(cs);
       default:
         return AppVisuals.neutral(cs);
     }
@@ -127,6 +129,8 @@ class _VentasPageState extends State<VentasPage> {
         return Icons.request_quote_rounded;
       case 'nota_entrega':
         return Icons.local_shipping_outlined;
+      case 'comprobante_interno':
+        return Icons.article_outlined;
       case 'factura_a':
         return Icons.looks_one_rounded;
       case 'factura_b':

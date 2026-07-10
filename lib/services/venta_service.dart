@@ -1,8 +1,10 @@
 import '../core/events/data_refresh_hub.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/venta.dart';
 import '../models/venta_item.dart';
 import 'cuenta_corriente_service.dart';
+import 'document_numbering_service.dart';
 
 class VentaService {
   final DatabaseHelper _db = DatabaseHelper.instance;
@@ -11,31 +13,17 @@ class VentaService {
   // ── Número correlativo ────────────────────────────────────────────────────
   Future<String> siguienteNumero(String tipo) async {
     final db = await _db.database;
-    final prefix = _prefijoPorTipo(tipo);
+    final numbering = DocumentNumberingService.instance;
+    final prefix = numbering.prefijo(tipo);
+    final forzado = numbering.proximoForzado(tipo);
     final rows = await db.rawQuery(
       "SELECT MAX(CAST(SUBSTR(numero, ${prefix.length + 2}) AS INTEGER)) as max "
       "FROM ventas WHERE tipo = ? AND numero LIKE ?",
       [tipo, '$prefix-%'],
     );
-    final max = (rows.first['max'] as int?) ?? 0;
-    return '$prefix-${(max + 1).toString().padLeft(6, '0')}';
-  }
-
-  String _prefijoPorTipo(String tipo) {
-    switch (tipo) {
-      case 'factura_a':
-        return 'FA';
-      case 'factura_b':
-        return 'FB';
-      case 'factura_c':
-        return 'FC';
-      case 'presupuesto':
-        return 'PR';
-      case 'nota_entrega':
-        return 'NE';
-      default:
-        return 'TK';
-    }
+    final maxDb = (rows.first['max'] as int?) ?? 0;
+    final next = forzado > maxDb ? forzado : maxDb + 1;
+    return '$prefix-${next.toString().padLeft(6, '0')}';
   }
 
   // ── CRUD ──────────────────────────────────────────────────────────────────
@@ -45,14 +33,16 @@ class VentaService {
     double montoAbonado = 0,
     String medioPago = 'efectivo',
     String observacionesPago = '',
-  }) {
-    return _cc.crearVentaConPago(
+  }) async {
+    final id = await _cc.crearVentaConPago(
       venta: venta,
       items: items,
       montoAbonado: montoAbonado,
       medioPago: medioPago,
       observacionesPago: observacionesPago,
     );
+    await FirestoreSyncService.instance.subirVenta(id);
+    return id;
   }
 
   Future<List<Venta>> obtenerTodas({String? tipo}) async {
@@ -104,6 +94,7 @@ class VentaService {
     if (venta?.clienteId != null) {
       await _cc.recalcularSaldoCliente(venta!.clienteId!);
     }
+    await FirestoreSyncService.instance.subirVenta(id);
     DataRefreshHub.instance.notifyVentas();
   }
 
@@ -138,7 +129,30 @@ class VentaService {
     if (venta.clienteId != null) {
       await _cc.recalcularSaldoCliente(venta.clienteId!);
     }
+    await FirestoreSyncService.instance.subirVenta(id);
     DataRefreshHub.instance.notifyVentas();
+  }
+
+  Future<void> actualizarAfip(
+    int id, {
+    required String estadoAfip,
+    String cae = '',
+    DateTime? caeVencimiento,
+    int puntoVenta = 0,
+  }) async {
+    final db = await _db.database;
+    await db.update(
+      'ventas',
+      {
+        'estadoAfip': estadoAfip,
+        'cae': cae,
+        'caeVencimiento': caeVencimiento?.toIso8601String(),
+        'puntoVenta': puntoVenta,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    await FirestoreSyncService.instance.subirVenta(id);
   }
 
   Future<void> eliminar(int id) async {
@@ -152,6 +166,9 @@ class VentaService {
     });
     if (venta?.clienteId != null) {
       await _cc.recalcularSaldoCliente(venta!.clienteId!);
+    }
+    if (venta != null) {
+      await FirestoreSyncService.instance.eliminarVentaRemota(venta);
     }
     DataRefreshHub.instance.notifyVentas();
   }

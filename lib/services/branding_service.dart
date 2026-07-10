@@ -34,6 +34,7 @@ class BrandingService extends ChangeNotifier {
   static const _keyMostrarSello = 'brandMostrarSello';
   static const _keyMostrarEstadoPago = 'brandMostrarEstadoPago';
   static const _keyLeyendaLegal = 'brandLeyendaLegal';
+  static const _keyDiasVencimiento = 'brandDiasVencimiento';
 
   static final BrandingService instance = BrandingService._();
   BrandingService._();
@@ -70,6 +71,8 @@ class BrandingService extends ChangeNotifier {
   bool mostrarSello = true;
   bool mostrarEstadoPago = true;
   String leyendaLegal = '';
+  /// Días por defecto para vencimiento de cuenta corriente.
+  int diasVencimiento = 30;
 
   /// Imagen preferida para UI: icono si existe, si no logo.
   String get imagenUiPath =>
@@ -105,6 +108,7 @@ class BrandingService extends ChangeNotifier {
     mostrarSello = prefs.getBool(_keyMostrarSello) ?? true;
     mostrarEstadoPago = prefs.getBool(_keyMostrarEstadoPago) ?? true;
     leyendaLegal = prefs.getString(_keyLeyendaLegal) ?? '';
+    diasVencimiento = prefs.getInt(_keyDiasVencimiento) ?? 30;
     notifyListeners();
   }
 
@@ -150,6 +154,7 @@ class BrandingService extends ChangeNotifier {
     bool? mostrarSello,
     bool? mostrarEstadoPago,
     String? leyendaLegal,
+    int? diasVencimiento,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyNombre, nombre);
@@ -184,6 +189,8 @@ class BrandingService extends ChangeNotifier {
     await prefs.setBool(
         _keyMostrarEstadoPago, mostrarEstadoPago ?? this.mostrarEstadoPago);
     await prefs.setString(_keyLeyendaLegal, leyendaLegal ?? this.leyendaLegal);
+    await prefs.setInt(
+        _keyDiasVencimiento, diasVencimiento ?? this.diasVencimiento);
 
     this.nombre = nombre;
     this.slogan = slogan;
@@ -213,6 +220,7 @@ class BrandingService extends ChangeNotifier {
     if (mostrarSello != null) this.mostrarSello = mostrarSello;
     if (mostrarEstadoPago != null) this.mostrarEstadoPago = mostrarEstadoPago;
     if (leyendaLegal != null) this.leyendaLegal = leyendaLegal;
+    if (diasVencimiento != null) this.diasVencimiento = diasVencimiento;
     notifyListeners();
   }
 
@@ -229,6 +237,7 @@ class BrandingService extends ChangeNotifier {
     required bool mostrarEstadoPago,
     required String leyendaLegal,
     String? logoPath,
+    int? diasVencimiento,
   }) {
     return guardar(
       nombre: nombre,
@@ -247,6 +256,7 @@ class BrandingService extends ChangeNotifier {
       mostrarSello: mostrarSello,
       mostrarEstadoPago: mostrarEstadoPago,
       leyendaLegal: leyendaLegal,
+      diasVencimiento: diasVencimiento,
     );
   }
 }

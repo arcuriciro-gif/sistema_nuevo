@@ -23,6 +23,7 @@ class _PlantillaImpresionPageState extends State<PlantillaImpresionPage> {
   final _colorCtrl = TextEditingController();
   final _margenCtrl = TextEditingController();
   final _leyendaCtrl = TextEditingController();
+  final _diasVencCtrl = TextEditingController();
 
   String _logoPath = '';
   String _firmaPath = '';
@@ -47,6 +48,7 @@ class _PlantillaImpresionPageState extends State<PlantillaImpresionPage> {
     _colorCtrl.dispose();
     _margenCtrl.dispose();
     _leyendaCtrl.dispose();
+    _diasVencCtrl.dispose();
     super.dispose();
   }
 
@@ -57,6 +59,7 @@ class _PlantillaImpresionPageState extends State<PlantillaImpresionPage> {
     _colorCtrl.text = b.colorPdf;
     _margenCtrl.text = b.margenPdfMm.toStringAsFixed(0);
     _leyendaCtrl.text = b.leyendaLegal;
+    _diasVencCtrl.text = '${b.diasVencimiento}';
     setState(() {
       _logoPath = b.logoPath;
       _firmaPath = b.firmaPath;
@@ -93,6 +96,7 @@ class _PlantillaImpresionPageState extends State<PlantillaImpresionPage> {
       mostrarEstadoPago: _mostrarEstadoPago,
       leyendaLegal: _leyendaCtrl.text.trim(),
       logoPath: _logoPath,
+      diasVencimiento: int.tryParse(_diasVencCtrl.text.trim()) ?? 30,
     );
     if (!mounted) return;
     setState(() => _guardando = false);
@@ -319,6 +323,16 @@ class _PlantillaImpresionPageState extends State<PlantillaImpresionPage> {
             decoration: const InputDecoration(
               labelText: 'Márgenes (mm)',
               border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _diasVencCtrl,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Días de vencimiento CC (por defecto)',
+              border: OutlineInputBorder(),
+              helperText: 'Se usa al crear ventas a cuenta corriente',
             ),
           ),
           const SizedBox(height: 16),

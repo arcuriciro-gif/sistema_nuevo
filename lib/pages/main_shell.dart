@@ -152,6 +152,15 @@ class _MainShellState extends State<MainShell> {
           ),
         ),
         _ShellItem(
+          icon: Icons.article_outlined,
+          title: 'Comprobantes internos',
+          modulo: 'remitos',
+          builder: () => const VentasPage(
+            titulo: 'Comprobantes internos',
+            tipos: {'comprobante_interno': 'Comprobante interno'},
+          ),
+        ),
+        _ShellItem(
           icon: Icons.compare_arrows_rounded,
           title: 'Comparador de listas',
           modulo: 'listas_precios',

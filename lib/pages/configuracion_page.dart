@@ -9,7 +9,9 @@ import '../theme/app_theme.dart';
 import '../theme/theme_provider.dart';
 import 'listas_precio_page.dart';
 import 'plantilla_impresion_page.dart';
+import 'documentos_config_page.dart';
 import '../theme/module_app_bar.dart';
+import '../services/app_icon_build_service.dart';
 
 class ConfiguracionPage extends StatefulWidget {
   const ConfiguracionPage({super.key});
@@ -297,6 +299,37 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                         onPressed: () => setState(() => _iconoPath = ''),
                         child: const Text('Quitar icono personalizado'),
                       ),
+                    if (_iconoPath.isNotEmpty)
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            try {
+                              final path = await AppIconBuildService.instance
+                                  .prepararDesdeArchivo(_iconoPath);
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Icono preparado para el próximo build.\n$path\n'
+                                    'En el proyecto ejecutá: dart run flutter_launcher_icons',
+                                  ),
+                                  duration: const Duration(seconds: 5),
+                                ),
+                              );
+                            } catch (e) {
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Error: $e')),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.build_rounded),
+                          label: const Text(
+                            'Preparar icono para instalador (próximo build)',
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 16),
                     TextField(
                       controller: _nombreCtrl,
@@ -485,6 +518,22 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                         },
                         icon: const Icon(Icons.print_rounded),
                         label: const Text('Editar plantilla de impresión'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          await Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const DocumentosConfigPage(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.numbers_rounded),
+                        label: const Text('Numeración y AFIP/ARCA'),
                       ),
                     ),
                     const SizedBox(height: 16),

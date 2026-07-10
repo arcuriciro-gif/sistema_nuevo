@@ -7,6 +7,8 @@ import '../models/pago.dart';
 import '../models/producto.dart';
 import '../models/venta.dart';
 import '../models/venta_item.dart';
+import '../services/afip_service.dart';
+import '../services/branding_service.dart';
 import '../services/cliente_service.dart';
 import '../services/cuenta_corriente_service.dart';
 import '../services/pdf_service.dart';
@@ -52,6 +54,7 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
   final TextEditingController _obsCtrl = TextEditingController();
   final TextEditingController _descCtrl = TextEditingController();
   final TextEditingController _abonadoCtrl = TextEditingController(text: '0');
+  final TextEditingController _diasVencCtrl = TextEditingController();
 
   List<Producto> _resultados = [];
   final List<_ItemCarrito> _carrito = [];
@@ -59,6 +62,7 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
   List<Pago> _pagos = [];
   Cliente? _clienteSeleccionado;
   String _medioPago = 'efectivo';
+  DateTime? _fechaVencimiento;
 
   bool _buscando = false;
   bool _finalizando = false;
@@ -68,6 +72,9 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
   @override
   void initState() {
     super.initState();
+    final dias = BrandingService.instance.diasVencimiento;
+    _diasVencCtrl.text = '$dias';
+    _fechaVencimiento = DateTime.now().add(Duration(days: dias));
     _cargarClientes();
     if (widget.ventaId != null) _cargarVentaExistente();
   }
@@ -78,6 +85,7 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
     _obsCtrl.dispose();
     _descCtrl.dispose();
     _abonadoCtrl.dispose();
+    _diasVencCtrl.dispose();
     super.dispose();
   }
 
@@ -99,6 +107,12 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
       _obsCtrl.text = venta.observaciones;
       _descCtrl.text = venta.descuento.toStringAsFixed(2);
       _abonadoCtrl.text = venta.totalPagado.toStringAsFixed(2);
+      _fechaVencimiento = venta.fechaVencimiento;
+      if (venta.fechaVencimiento != null) {
+        final dias =
+            venta.fechaVencimiento!.difference(venta.fecha).inDays.clamp(0, 3650);
+        _diasVencCtrl.text = '$dias';
+      }
     });
     if (venta.clienteId != null && _clientes.isNotEmpty) {
       await _cargarClientes();
@@ -198,7 +212,14 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
       widget.tipo == 'factura_a' ||
       widget.tipo == 'factura_b' ||
       widget.tipo == 'factura_c' ||
-      widget.tipo == 'nota_entrega';
+      widget.tipo == 'nota_entrega' ||
+      widget.tipo == 'comprobante_interno';
+
+  void _recalcularVencimiento() {
+    final dias = int.tryParse(_diasVencCtrl.text.trim()) ??
+        BrandingService.instance.diasVencimiento;
+    _fechaVencimiento = DateTime.now().add(Duration(days: dias));
+  }
 
   // ── Guardar ────────────────────────────────────────────────────────────────
   Future<void> _finalizar() async {
@@ -226,13 +247,15 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
     }
     setState(() => _finalizando = true);
     try {
+      _recalcularVencimiento();
       final numero = await _ventaSvc.siguienteNumero(widget.tipo);
       final abonado = _montoAbonado;
-      final venta = Venta(
+      var venta = Venta(
         tipo: widget.tipo,
         numero: numero,
         clienteId: _clienteSeleccionado?.id,
         fecha: DateTime.now(),
+        fechaVencimiento: _fechaVencimiento,
         subtotal: _subtotal,
         descuento: _descuento,
         iva: _iva,
@@ -243,6 +266,36 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
         estadoPago: _estadoPagoPreview,
         observaciones: _obsCtrl.text.trim(),
       );
+
+      if (venta.esFactura) {
+        final afip = await AfipService.instance.autorizarFactura(
+          tipo: widget.tipo,
+          numero: numero,
+          total: _total,
+          clienteCuit: _clienteSeleccionado?.cuit,
+        );
+        venta = Venta(
+          tipo: venta.tipo,
+          numero: venta.numero,
+          clienteId: venta.clienteId,
+          fecha: venta.fecha,
+          fechaVencimiento: venta.fechaVencimiento,
+          subtotal: venta.subtotal,
+          descuento: venta.descuento,
+          iva: venta.iva,
+          total: venta.total,
+          totalPagado: venta.totalPagado,
+          saldoPendiente: venta.saldoPendiente,
+          estado: venta.estado,
+          estadoPago: venta.estadoPago,
+          estadoAfip: afip.estado,
+          cae: afip.cae ?? '',
+          caeVencimiento: afip.caeVencimiento,
+          puntoVenta: AfipConfigService.instance.puntoVenta,
+          observaciones: venta.observaciones,
+        );
+      }
+
       final items = _carrito
           .map(
             (i) => VentaItem(
@@ -363,6 +416,8 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
         return 'Presupuesto';
       case 'nota_entrega':
         return 'Nota de entrega';
+      case 'comprobante_interno':
+        return 'Comprobante interno';
       default:
         return 'Venta';
     }
@@ -380,6 +435,8 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
         return 'PRESUPUESTO';
       case 'nota_entrega':
         return 'NOTA DE ENTREGA';
+      case 'comprobante_interno':
+        return 'COMPROBANTE INTERNO';
       default:
         return _titulo.toUpperCase();
     }
@@ -622,6 +679,24 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                 const Divider(),
                 _filaTotal('TOTAL', _total, bold: true, fontSize: 18),
                 if (!_modoLectura) ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _diasVencCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Días para vencimiento CC',
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                      helperText: _fechaVencimiento == null
+                          ? null
+                          : 'Vence: ${_fechaVencimiento!.day.toString().padLeft(2, '0')}/'
+                              '${_fechaVencimiento!.month.toString().padLeft(2, '0')}/'
+                              '${_fechaVencimiento!.year}',
+                    ),
+                    onChanged: (_) {
+                      setState(_recalcularVencimiento);
+                    },
+                  ),
                   const SizedBox(height: 8),
                   Row(
                     children: [
