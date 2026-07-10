@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/cliente.dart';
 import '../models/producto.dart';
 import '../models/venta.dart';
 import '../models/venta_item.dart';
 import '../services/cliente_service.dart';
+import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
 import '../services/venta_service.dart';
 import '../theme/app_visuals.dart';
@@ -231,6 +234,80 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
     }
   }
 
+  Future<Map<String, dynamic>> _mapaVentaPdf() async {
+    final venta = _ventaExistente!;
+    return {
+      'numero': venta.numero,
+      'fecha': venta.fecha.toIso8601String(),
+      'total': venta.total,
+      'descuento': venta.descuento,
+      'estadoPago': venta.estadoPago,
+      'observaciones': venta.observaciones,
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> _itemsVentaPdf() async {
+    if (_modoLectura && _ventaExistente?.id != null) {
+      final items = await _ventaSvc.obtenerItems(_ventaExistente!.id!);
+      return items
+          .map(
+            (i) => {
+              'descripcion': i.productoDescripcion,
+              'cantidad': i.cantidad,
+              'precioUnitario': i.precio,
+              'subtotal': i.subtotal,
+            },
+          )
+          .toList();
+    }
+    return _carrito
+        .map(
+          (i) => {
+            'descripcion': i.producto.descripcion,
+            'cantidad': i.cantidad,
+            'precioUnitario': i.precioUnitario,
+            'subtotal': i.subtotal,
+          },
+        )
+        .toList();
+  }
+
+  Future<void> _imprimirPdf() async {
+    if (_ventaExistente == null) return;
+    final pdfService = PdfService();
+    final items = await _itemsVentaPdf();
+    final bytes = await pdfService.generateFacturaPdf(
+      await _mapaVentaPdf(),
+      items,
+      _clienteSeleccionado?.nombre ?? 'Consumidor final',
+      clienteDireccion: _clienteSeleccionado?.direccion,
+      clienteTelefono: _clienteSeleccionado?.telefono,
+      tipoDocumento: _titulo.toUpperCase(),
+    );
+    await Printing.layoutPdf(onLayout: (_) async => bytes);
+  }
+
+  Future<void> _compartirPdf() async {
+    if (_ventaExistente == null) return;
+    final pdfService = PdfService();
+    final items = await _itemsVentaPdf();
+    final bytes = await pdfService.generateFacturaPdf(
+      await _mapaVentaPdf(),
+      items,
+      _clienteSeleccionado?.nombre ?? 'Consumidor final',
+      clienteDireccion: _clienteSeleccionado?.direccion,
+      clienteTelefono: _clienteSeleccionado?.telefono,
+      tipoDocumento: _titulo.toUpperCase(),
+    );
+    final file = await pdfService.guardarPdf(
+      bytes,
+      '${_ventaExistente!.numero}.pdf',
+    );
+    await SharePlus.instance.share(
+      ShareParams(files: [XFile(file.path)], text: _ventaExistente!.numero),
+    );
+  }
+
   // ── UI ─────────────────────────────────────────────────────────────────────
   String get _titulo {
     switch (widget.tipo) {
@@ -284,6 +361,10 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                     if (!mounted) return;
                     Navigator.pop(context);
                   }
+                } else if (action == 'imprimir') {
+                  await _imprimirPdf();
+                } else if (action == 'compartir') {
+                  await _compartirPdf();
                 } else if (action == 'cobrado' ||
                     action == 'parcial' ||
                     action == 'pendiente') {
@@ -295,6 +376,15 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                 }
               },
               itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'imprimir',
+                  child: Text('Imprimir PDF'),
+                ),
+                const PopupMenuItem(
+                  value: 'compartir',
+                  child: Text('Compartir PDF'),
+                ),
+                const PopupMenuDivider(),
                 const PopupMenuItem(
                   value: 'cobrado',
                   child: Text('Marcar como cobrado'),

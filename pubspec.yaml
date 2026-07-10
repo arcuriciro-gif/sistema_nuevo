@@ -1,5 +1,5 @@
 name: sistema_nuevo
-description: EL TATA Manager
+description: Tata.Manager
 
 publish_to: 'none'
 
@@ -43,3 +43,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/branding/

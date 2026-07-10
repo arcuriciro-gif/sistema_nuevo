@@ -132,7 +132,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       encabezadoPdf: _encabezadoPdfCtrl.text.trim(),
       piePdf: _piePdfCtrl.text.trim(),
       colorPdf: _colorPdfCtrl.text.trim().replaceAll('#', '').isEmpty
-          ? 'FF6D00'
+          ? 'FF7A00'
           : _colorPdfCtrl.text.trim().replaceAll('#', ''),
     );
     if (!mounted) return;

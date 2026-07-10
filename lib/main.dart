@@ -62,7 +62,7 @@ class _ElTataAppState extends State<ElTataApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'EL TATA Manager',
+      title: 'Tata.Manager',
       theme: themeProvider.lightTheme,
       darkTheme: themeProvider.darkTheme,
       themeMode: themeProvider.mode,

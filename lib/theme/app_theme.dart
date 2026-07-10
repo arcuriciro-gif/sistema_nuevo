@@ -3,12 +3,13 @@ import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   static const List<Color> coloresDisponibles = [
-    Color(0xFFFF6B00),
-    Color(0xFF7C3AED),
+    Color(0xFFFF7A00), // Tata.Manager primary
+    Color(0xFFFF9E1B),
+    Color(0xFFFFC166),
+    Color(0xFF1E1E1E),
+    Color(0xFF3A3A3A),
     Color(0xFF2563EB),
     Color(0xFF16A34A),
-    Color(0xFF0891B2),
-    Color(0xFFDC2626),
   ];
 
   static const List<String> fuentesDisponibles = [

@@ -24,7 +24,7 @@ class BrandingService {
   static final BrandingService instance = BrandingService._();
   BrandingService._();
 
-  String nombre = 'EL TATA Manager';
+  String nombre = 'Tata.Manager';
   String slogan = 'Gestión de stock, ventas y más';
   String telefono = '';
   String direccion = '';
@@ -42,12 +42,12 @@ class BrandingService {
   String direccionFiscal = '';
   String encabezadoPdf = '';
   String piePdf = '';
-  /// Hex sin #, ej. FF6D00
-  String colorPdf = 'FF6D00';
+  /// Hex sin #, ej. FF7A00
+  String colorPdf = 'FF7A00';
 
   Future<void> cargar() async {
     final prefs = await SharedPreferences.getInstance();
-    nombre = prefs.getString(_keyNombre) ?? 'EL TATA Manager';
+    nombre = prefs.getString(_keyNombre) ?? 'Tata.Manager';
     slogan = prefs.getString(_keySlogan) ?? 'Gestión de stock, ventas y más';
     telefono = prefs.getString(_keyTelefono) ?? '';
     direccion = prefs.getString(_keyDireccion) ?? '';
@@ -65,7 +65,7 @@ class BrandingService {
     direccionFiscal = prefs.getString(_keyDireccionFiscal) ?? '';
     encabezadoPdf = prefs.getString(_keyEncabezadoPdf) ?? '';
     piePdf = prefs.getString(_keyPiePdf) ?? '';
-    colorPdf = prefs.getString(_keyColorPdf) ?? 'FF6D00';
+    colorPdf = prefs.getString(_keyColorPdf) ?? 'FF7A00';
   }
 
   Future<void> guardar({

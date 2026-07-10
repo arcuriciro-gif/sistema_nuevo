@@ -76,6 +76,7 @@ class PdfService {
     String clienteNombre, {
     String? clienteDireccion,
     String? clienteTelefono,
+    String tipoDocumento = 'REMITO',
   }) async {
     if (items.isEmpty) return _bytesVacios();
 
@@ -185,7 +186,7 @@ class PdfService {
                   crossAxisAlignment: pw.CrossAxisAlignment.end,
                   children: [
                     pw.Text(
-                      'REMITO',
+                      tipoDocumento,
                       style: const pw.TextStyle(
                         fontSize: 10,
                         color: PdfColors.white,
@@ -437,6 +438,41 @@ class PdfService {
     );
 
     return pdf.save();
+  }
+
+  Future<Uint8List> generateFacturaPdf(
+    Map<String, dynamic> venta,
+    List items,
+    String clienteNombre, {
+    String? clienteDireccion,
+    String? clienteTelefono,
+    String tipoDocumento = 'FACTURA',
+  }) {
+    return generateRemitoPdf(
+      venta,
+      items,
+      clienteNombre,
+      clienteDireccion: clienteDireccion,
+      clienteTelefono: clienteTelefono,
+      tipoDocumento: tipoDocumento,
+    );
+  }
+
+  Future<Uint8List> generatePresupuestoPdf(
+    Map<String, dynamic> doc,
+    List items,
+    String clienteNombre, {
+    String? clienteDireccion,
+    String? clienteTelefono,
+  }) {
+    return generateRemitoPdf(
+      doc,
+      items,
+      clienteNombre,
+      clienteDireccion: clienteDireccion,
+      clienteTelefono: clienteTelefono,
+      tipoDocumento: 'PRESUPUESTO',
+    );
   }
 
   Future<File> guardarPdf(Uint8List bytes, String nombreArchivo) async {
