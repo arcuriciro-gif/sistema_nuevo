@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/producto.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
@@ -43,7 +44,19 @@ class _InicioPageState extends State<InicioPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
     _cargar();
+  }
+
+  void _onDatosActualizados() {
+    if (!mounted) return;
+    _cargar();
+  }
+
+  @override
+  void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
+    super.dispose();
   }
 
   Future<void> _cargar() async {

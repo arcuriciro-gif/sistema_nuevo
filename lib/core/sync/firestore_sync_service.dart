@@ -843,80 +843,124 @@ class FirestoreSyncService {
     _sincronizandoVentas = true;
     try {
       final db = await DatabaseHelper.instance.database;
+      var huboCambios = false;
       for (final doc in snap.docs) {
-        final data = doc.data();
-        final numero = data['numero']?.toString() ?? doc.id;
-        final existentes = await db.query(
-          'ventas',
-          where: 'numero = ?',
-          whereArgs: [numero],
-          limit: 1,
-        );
-        final map = Map<String, dynamic>.from(data)
-          ..remove('items')
-          ..remove('pagos')
-          ..remove('localId')
-          ..remove('clienteNombre')
-          ..remove('clienteSyncId')
-          ..remove('clienteCuit')
-          ..remove('actualizadoEn')
-          ..remove('id');
+        try {
+          final data = doc.data();
+          final numero = data['numero']?.toString() ?? doc.id;
+          if (numero.isEmpty) continue;
 
-        final clienteId = await _resolverClienteLocal(
-          db: db,
-          syncId: data['clienteSyncId']?.toString(),
-          cuit: data['clienteCuit']?.toString(),
-          nombre: data['clienteNombre']?.toString(),
-        );
-        if (clienteId != null) map['clienteId'] = clienteId;
-
-        final int ventaId;
-        if (existentes.isEmpty) {
-          ventaId = await db.insert('ventas', map);
-        } else {
-          ventaId = existentes.first['id'] as int;
-          await db.update(
+          final existentes = await db.query(
             'ventas',
-            map,
-            where: 'id = ?',
-            whereArgs: [ventaId],
+            where: 'numero = ?',
+            whereArgs: [numero],
+            limit: 1,
           );
-          await db.delete(
-            'ventas_items',
-            where: 'ventaId = ?',
-            whereArgs: [ventaId],
+
+          final clienteId = await _resolverClienteLocal(
+            db: db,
+            syncId: data['clienteSyncId']?.toString(),
+            cuit: data['clienteCuit']?.toString(),
+            nombre: data['clienteNombre']?.toString(),
           );
-          await db.delete('pagos', where: 'ventaId = ?', whereArgs: [ventaId]);
-        }
-        final items = (data['items'] as List?) ?? const [];
-        for (final raw in items) {
-          final item = Map<String, dynamic>.from(raw as Map);
-          item.remove('id');
-          final codigo = item.remove('productoCodigo')?.toString();
-          if (codigo != null && codigo.isNotEmpty) {
-            final prod = await db.query(
-              'productos',
-              columns: ['id'],
-              where: 'codigo = ?',
-              whereArgs: [codigo],
-              limit: 1,
+
+          final map = <String, dynamic>{
+            'tipo': data['tipo'] ?? 'factura_b',
+            'numero': numero,
+            'clienteId': clienteId,
+            'fecha': data['fecha'],
+            'fechaVencimiento': data['fechaVencimiento'],
+            'total': data['total'] ?? 0,
+            'descuento': data['descuento'] ?? 0,
+            'iva': data['iva'] ?? 0,
+            'estado': data['estado'] ?? 'confirmada',
+            'estadoPago': data['estadoPago'] ?? 'pendiente',
+            'totalPagado': data['totalPagado'] ?? 0,
+            'saldoPendiente': data['saldoPendiente'] ?? 0,
+            'estadoAfip': data['estadoAfip'] ?? 'no_aplica',
+            'cae': data['cae']?.toString() ?? '',
+            'caeVencimiento': data['caeVencimiento'],
+            'puntoVenta': (data['puntoVenta'] as num?)?.toInt() ?? 0,
+            'observaciones': data['observaciones'] ?? '',
+            'fechaCreacion':
+                data['fechaCreacion'] ?? DateTime.now().toIso8601String(),
+            'usuarioId': (data['usuarioId'] as num?)?.toInt(),
+          };
+
+          final int ventaId;
+          if (existentes.isEmpty) {
+            ventaId = await db.insert('ventas', map);
+          } else {
+            ventaId = existentes.first['id'] as int;
+            await db.update(
+              'ventas',
+              map,
+              where: 'id = ?',
+              whereArgs: [ventaId],
             );
-            if (prod.isNotEmpty) {
-              item['productoId'] = prod.first['id'];
-            }
+            await db.delete(
+              'ventas_items',
+              where: 'ventaId = ?',
+              whereArgs: [ventaId],
+            );
+            await db.delete('pagos', where: 'ventaId = ?', whereArgs: [ventaId]);
           }
-          item['ventaId'] = ventaId;
-          await db.insert('ventas_items', item);
-        }
-        final pagos = (data['pagos'] as List?) ?? const [];
-        for (final raw in pagos) {
-          final pago = Map<String, dynamic>.from(raw as Map);
-          pago.remove('id');
-          pago['ventaId'] = ventaId;
-          await db.insert('pagos', pago);
+
+          final items = (data['items'] as List?) ?? const [];
+          for (final raw in items) {
+            final item = Map<String, dynamic>.from(raw as Map);
+            int? productoId = (item['productoId'] as num?)?.toInt();
+            final codigo = item['productoCodigo']?.toString();
+            if (codigo != null && codigo.isNotEmpty) {
+              final prod = await db.query(
+                'productos',
+                columns: ['id'],
+                where: 'codigo = ?',
+                whereArgs: [codigo],
+                limit: 1,
+              );
+              if (prod.isNotEmpty) {
+                productoId = prod.first['id'] as int?;
+              }
+            }
+            // Si el producto no existe en esta PC, igual guardamos la línea
+            // con el id remoto (sin FK estricta) para no perder la venta.
+            if (productoId == null) continue;
+
+            await db.insert('ventas_items', {
+              'ventaId': ventaId,
+              'productoId': productoId,
+              'productoDescripcion':
+                  item['productoDescripcion']?.toString() ?? '',
+              'cantidad': item['cantidad'] ?? 0,
+              'precio': item['precio'] ?? 0,
+              'subtotal': item['subtotal'] ?? 0,
+              'costoUnitario': item['costoUnitario'] ?? 0,
+              'ganancia': item['ganancia'] ?? 0,
+            });
+          }
+
+          final pagos = (data['pagos'] as List?) ?? const [];
+          for (final raw in pagos) {
+            final pago = Map<String, dynamic>.from(raw as Map);
+            await db.insert('pagos', {
+              'ventaId': ventaId,
+              'clienteId':
+                  (pago['clienteId'] as num?)?.toInt() ?? clienteId,
+              'fecha': pago['fecha'] ?? DateTime.now().toIso8601String(),
+              'monto': pago['monto'] ?? 0,
+              'medioPago': pago['medioPago'] ?? 'efectivo',
+              'observaciones': pago['observaciones'] ?? '',
+            });
+          }
+          huboCambios = true;
+        } catch (e) {
+          debugPrint('Aplicar venta remota ${doc.id}: $e');
         }
       }
-      DataRefreshHub.instance.notifyVentas();
+      if (huboCambios) {
+        DataRefreshHub.instance.notifyVentas();
+      }
     } catch (e) {
       debugPrint('Aplicar ventas remotas: $e');
     } finally {

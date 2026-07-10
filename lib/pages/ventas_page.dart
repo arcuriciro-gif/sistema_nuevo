@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/chat_mensaje.dart';
 import '../models/venta.dart';
 import '../services/venta_service.dart';
@@ -50,11 +51,18 @@ class _VentasPageState extends State<VentasPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
+    _cargar();
+  }
+
+  void _onDatosActualizados() {
+    if (!mounted) return;
     _cargar();
   }
 
   @override
   void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
     _buscarCtrl.dispose();
     super.dispose();
   }

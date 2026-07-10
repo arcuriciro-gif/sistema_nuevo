@@ -42,6 +42,7 @@ class VentaService {
       observacionesPago: observacionesPago,
     );
     await FirestoreSyncService.instance.subirVenta(id);
+    DataRefreshHub.instance.notifyVentas();
     return id;
   }
 

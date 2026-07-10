@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/pago.dart';
 import '../services/cuenta_corriente_service.dart';
 import '../theme/module_app_bar.dart';
@@ -21,7 +22,19 @@ class _ClientesDeudoresPageState extends State<ClientesDeudoresPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
     _cargar();
+  }
+
+  void _onDatosActualizados() {
+    if (!mounted) return;
+    _cargar();
+  }
+
+  @override
+  void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
+    super.dispose();
   }
 
   Future<void> _cargar() async {
