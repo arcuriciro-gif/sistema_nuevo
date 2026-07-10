@@ -5,11 +5,13 @@ import '../core/events/data_refresh_hub.dart';
 import '../models/producto.dart';
 import '../services/cliente_service.dart';
 import '../services/compra_service.dart';
+import '../services/cuenta_corriente_service.dart';
 import '../services/producto_service.dart';
 import '../services/proveedor_service.dart';
 import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
+import 'clientes_deudores_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -24,6 +26,8 @@ class _DashboardPageState extends State<DashboardPage> {
   final RemitoService remitoService = RemitoService();
   final CompraService compraService = CompraService();
   final ProveedorService proveedorService = ProveedorService();
+  final CuentaCorrienteService cuentaCorrienteService =
+      CuentaCorrienteService();
 
   int totalProductos = 0;
   int totalClientes = 0;
@@ -40,6 +44,7 @@ class _DashboardPageState extends State<DashboardPage> {
   List<Map<String, dynamic>> clientesTop = [];
   List<Map<String, dynamic>> ventasMensuales = [];
   List<Producto> sinStock = [];
+  ResumenCuentasCobrar? resumenCc;
   bool cargando = true;
 
   @override
@@ -85,6 +90,7 @@ class _DashboardPageState extends State<DashboardPage> {
       DateTime(ahora.year, ahora.month, 1),
       ahora,
     );
+    final resumen = await cuentaCorrienteService.resumenDashboard();
 
     double stock = 0;
     List<Producto> agotados = [];
@@ -116,8 +122,101 @@ class _DashboardPageState extends State<DashboardPage> {
       productosCriticos = criticos;
       productosSinStock = sinStockCount;
       sinStock = agotados.take(5).toList();
+      resumenCc = resumen;
       cargando = false;
     });
+  }
+
+  Widget _cuentasPorCobrarCard(
+    ColorScheme cs,
+    ResumenCuentasCobrar resumen,
+  ) {
+    return Card(
+      elevation: 3,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor:
+                      AppVisuals.danger(cs).withValues(alpha: .15),
+                  child: Icon(
+                    Icons.account_balance_wallet_rounded,
+                    color: AppVisuals.danger(cs),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Cuentas por cobrar',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '\$${resumen.montoTotalPendiente.toStringAsFixed(2)}',
+              style: TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: AppVisuals.danger(cs),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text('${resumen.clientesConDeuda} clientes'),
+            Text('${resumen.ventasPendientes} ventas pendientes'),
+            if (resumen.mayorDeudor != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Mayor deuda: ${resumen.mayorDeudor!.nombre} '
+                '(\$${resumen.mayorDeudor!.saldoPendiente.toStringAsFixed(2)})',
+                style: TextStyle(color: cs.onSurfaceVariant),
+              ),
+            ],
+            if (resumen.proximosVencimientos.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Últimos vencimientos / saldos antiguos:',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+              ...resumen.proximosVencimientos.take(3).map(
+                    (v) => Text(
+                      '${v.clienteNombre ?? 'Cliente'} · ${v.numero} · '
+                      '\$${v.saldoPendiente.toStringAsFixed(2)}',
+                      style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                    ),
+                  ),
+            ],
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ClientesDeudoresPage(),
+                    ),
+                  ).then((_) => cargar());
+                },
+                icon: const Icon(Icons.visibility_rounded),
+                label: const Text('Ver detalle'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _statCard({
@@ -314,6 +413,35 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    if (resumenCc != null) ...[
+                      _cuentasPorCobrarCard(colorScheme, resumenCc!),
+                      const SizedBox(height: 12),
+                      if (resumenCc!.alertas.isNotEmpty) ...[
+                        Text(
+                          'Alertas de cuenta corriente',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ...resumenCc!.alertas.map((a) {
+                          final color = a.contains('debe')
+                              ? AppVisuals.danger(colorScheme)
+                              : a.contains('vencen')
+                                  ? AppVisuals.warning(colorScheme)
+                                  : AppVisuals.warning(colorScheme);
+                          return Card(
+                            child: ListTile(
+                              leading: Icon(Icons.warning_amber_rounded,
+                                  color: color),
+                              title: Text(a),
+                              dense: true,
+                            ),
+                          );
+                        }),
+                        const SizedBox(height: 12),
+                      ],
+                    ],
                     GridView.count(
                       crossAxisCount: 2,
                       shrinkWrap: true,

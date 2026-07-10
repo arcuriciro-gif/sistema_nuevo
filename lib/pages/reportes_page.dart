@@ -4,12 +4,14 @@ import 'package:share_plus/share_plus.dart';
 import '../services/cliente_service.dart';
 import '../services/compra_service.dart';
 import '../services/csv_service.dart';
+import '../services/cuenta_corriente_service.dart';
 import '../services/excel_service.dart';
 import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
 import '../services/proveedor_service.dart';
 import '../services/remito_service.dart';
 import '../theme/module_app_bar.dart';
+import '../models/pago.dart';
 
 class ReportesPage extends StatefulWidget {
   const ReportesPage({super.key});
@@ -24,6 +26,7 @@ class _ReportesPageState extends State<ReportesPage> {
   final ProveedorService proveedorService = ProveedorService();
   final RemitoService remitoService = RemitoService();
   final CompraService compraService = CompraService();
+  final CuentaCorrienteService ccService = CuentaCorrienteService();
   final PdfService pdfService = PdfService();
   final CsvService csvService = CsvService();
   final ExcelService excelService = ExcelService();
@@ -118,6 +121,79 @@ class _ReportesPageState extends State<ReportesPage> {
               c.saldo,
             ])
         .toList();
+  }
+
+  String _fmtFecha(DateTime f) =>
+      '${f.day.toString().padLeft(2, '0')}/'
+      '${f.month.toString().padLeft(2, '0')}/'
+      '${f.year}';
+
+  Future<List<List<dynamic>>> _filasDeudores() async {
+    final deudores = await ccService.clientesDeudores();
+    return deudores
+        .map((d) => [
+              d.nombre,
+              d.telefono,
+              d.saldoPendiente,
+              d.ventasPendientes,
+              d.ultimaCompra == null ? '-' : _fmtFecha(d.ultimaCompra!),
+            ])
+        .toList();
+  }
+
+  Future<List<List<dynamic>>> _filasCuentasCobrar() async {
+    final ventas = await ccService.ventasConSaldo();
+    return ventas
+        .map((v) => [
+              v.clienteNombre ?? 'Sin cliente',
+              v.numero,
+              _fmtFecha(v.fecha),
+              v.total,
+              v.totalPagado,
+              v.saldoPendiente,
+              v.estadoPagoLabel,
+            ])
+        .toList();
+  }
+
+  Future<List<List<dynamic>>> _filasCobros(DateTime desde, DateTime hasta) async {
+    final pagos = await ccService.pagosPorPeriodo(desde, hasta);
+    return pagos
+        .map((p) => [
+              _fmtFecha(p.fecha),
+              p.clienteNombre ?? '-',
+              p.ventaNumero ?? p.ventaId,
+              p.monto,
+              Pago.labelMedio(p.medioPago),
+            ])
+        .toList();
+  }
+
+  Future<List<List<dynamic>>> _filasCobrosDia() async {
+    final ahora = DateTime.now();
+    final desde = DateTime(ahora.year, ahora.month, ahora.day);
+    return _filasCobros(desde, ahora);
+  }
+
+  Future<List<List<dynamic>>> _filasCobrosMes() async {
+    final ahora = DateTime.now();
+    final desde = DateTime(ahora.year, ahora.month, 1);
+    return _filasCobros(desde, ahora);
+  }
+
+  Future<List<List<dynamic>>> _filasDeudaTotal() async {
+    final resumen = await ccService.resumenDashboard();
+    return [
+      ['Deuda total', resumen.montoTotalPendiente],
+      ['Clientes con deuda', resumen.clientesConDeuda],
+      ['Ventas pendientes', resumen.ventasPendientes],
+      [
+        'Mayor deudor',
+        resumen.mayorDeudor == null
+            ? '-'
+            : '${resumen.mayorDeudor!.nombre} (\$${resumen.mayorDeudor!.saldoPendiente.toStringAsFixed(2)})',
+      ],
+    ];
   }
 
   Future<List<List<dynamic>>> _filasProveedores() async {
@@ -370,6 +446,239 @@ class _ReportesPageState extends State<ReportesPage> {
                       'Localidad',
                       'Saldo',
                     ],
+                    filas: filas,
+                  );
+                },
+              ),
+              _tarjetaReporte(
+                icon: Icons.account_balance_wallet_rounded,
+                titulo: 'Clientes deudores',
+                descripcion: 'Clientes con saldo pendiente',
+                onPdf: () async {
+                  final filas = await _filasDeudores();
+                  await _exportarListaPdf(
+                    titulo: 'CLIENTES DEUDORES',
+                    archivo: 'clientes_deudores.pdf',
+                    headers: const [
+                      'Nombre',
+                      'Teléfono',
+                      'Saldo',
+                      'Ventas pend.',
+                      'Última compra',
+                    ],
+                    filas: filas,
+                  );
+                },
+                onCsv: () async {
+                  final filas = await _filasDeudores();
+                  await _exportarListaCsv(
+                    archivo: 'clientes_deudores.csv',
+                    headers: const [
+                      'Nombre',
+                      'Teléfono',
+                      'Saldo',
+                      'Ventas pend.',
+                      'Última compra',
+                    ],
+                    filas: filas,
+                  );
+                },
+                onExcel: () async {
+                  final filas = await _filasDeudores();
+                  await _exportarListaExcel(
+                    hoja: 'Deudores',
+                    archivo: 'clientes_deudores.xlsx',
+                    headers: const [
+                      'Nombre',
+                      'Teléfono',
+                      'Saldo',
+                      'Ventas pend.',
+                      'Última compra',
+                    ],
+                    filas: filas,
+                  );
+                },
+              ),
+              _tarjetaReporte(
+                icon: Icons.request_quote_rounded,
+                titulo: 'Cuentas por cobrar',
+                descripcion: 'Ventas con saldo pendiente',
+                onPdf: () async {
+                  final filas = await _filasCuentasCobrar();
+                  await _exportarListaPdf(
+                    titulo: 'CUENTAS POR COBRAR',
+                    archivo: 'cuentas_por_cobrar.pdf',
+                    headers: const [
+                      'Cliente',
+                      'Comprobante',
+                      'Fecha',
+                      'Total',
+                      'Pagado',
+                      'Saldo',
+                      'Estado',
+                    ],
+                    filas: filas,
+                  );
+                },
+                onCsv: () async {
+                  final filas = await _filasCuentasCobrar();
+                  await _exportarListaCsv(
+                    archivo: 'cuentas_por_cobrar.csv',
+                    headers: const [
+                      'Cliente',
+                      'Comprobante',
+                      'Fecha',
+                      'Total',
+                      'Pagado',
+                      'Saldo',
+                      'Estado',
+                    ],
+                    filas: filas,
+                  );
+                },
+                onExcel: () async {
+                  final filas = await _filasCuentasCobrar();
+                  await _exportarListaExcel(
+                    hoja: 'Cuentas',
+                    archivo: 'cuentas_por_cobrar.xlsx',
+                    headers: const [
+                      'Cliente',
+                      'Comprobante',
+                      'Fecha',
+                      'Total',
+                      'Pagado',
+                      'Saldo',
+                      'Estado',
+                    ],
+                    filas: filas,
+                  );
+                },
+              ),
+              _tarjetaReporte(
+                icon: Icons.payments_rounded,
+                titulo: 'Cobros del día',
+                descripcion: 'Pagos registrados hoy',
+                onPdf: () async {
+                  final filas = await _filasCobrosDia();
+                  await _exportarListaPdf(
+                    titulo: 'COBROS DEL DÍA',
+                    archivo: 'cobros_dia.pdf',
+                    headers: const [
+                      'Fecha',
+                      'Cliente',
+                      'Comprobante',
+                      'Monto',
+                      'Medio',
+                    ],
+                    filas: filas,
+                  );
+                },
+                onCsv: () async {
+                  final filas = await _filasCobrosDia();
+                  await _exportarListaCsv(
+                    archivo: 'cobros_dia.csv',
+                    headers: const [
+                      'Fecha',
+                      'Cliente',
+                      'Comprobante',
+                      'Monto',
+                      'Medio',
+                    ],
+                    filas: filas,
+                  );
+                },
+                onExcel: () async {
+                  final filas = await _filasCobrosDia();
+                  await _exportarListaExcel(
+                    hoja: 'CobrosDia',
+                    archivo: 'cobros_dia.xlsx',
+                    headers: const [
+                      'Fecha',
+                      'Cliente',
+                      'Comprobante',
+                      'Monto',
+                      'Medio',
+                    ],
+                    filas: filas,
+                  );
+                },
+              ),
+              _tarjetaReporte(
+                icon: Icons.calendar_month_rounded,
+                titulo: 'Cobros del mes',
+                descripcion: 'Pagos del mes en curso',
+                onPdf: () async {
+                  final filas = await _filasCobrosMes();
+                  await _exportarListaPdf(
+                    titulo: 'COBROS DEL MES',
+                    archivo: 'cobros_mes.pdf',
+                    headers: const [
+                      'Fecha',
+                      'Cliente',
+                      'Comprobante',
+                      'Monto',
+                      'Medio',
+                    ],
+                    filas: filas,
+                  );
+                },
+                onCsv: () async {
+                  final filas = await _filasCobrosMes();
+                  await _exportarListaCsv(
+                    archivo: 'cobros_mes.csv',
+                    headers: const [
+                      'Fecha',
+                      'Cliente',
+                      'Comprobante',
+                      'Monto',
+                      'Medio',
+                    ],
+                    filas: filas,
+                  );
+                },
+                onExcel: () async {
+                  final filas = await _filasCobrosMes();
+                  await _exportarListaExcel(
+                    hoja: 'CobrosMes',
+                    archivo: 'cobros_mes.xlsx',
+                    headers: const [
+                      'Fecha',
+                      'Cliente',
+                      'Comprobante',
+                      'Monto',
+                      'Medio',
+                    ],
+                    filas: filas,
+                  );
+                },
+              ),
+              _tarjetaReporte(
+                icon: Icons.summarize_rounded,
+                titulo: 'Deuda total',
+                descripcion: 'Resumen de deuda acumulada',
+                onPdf: () async {
+                  final filas = await _filasDeudaTotal();
+                  await _exportarListaPdf(
+                    titulo: 'DEUDA TOTAL',
+                    archivo: 'deuda_total.pdf',
+                    headers: const ['Concepto', 'Valor'],
+                    filas: filas,
+                  );
+                },
+                onCsv: () async {
+                  final filas = await _filasDeudaTotal();
+                  await _exportarListaCsv(
+                    archivo: 'deuda_total.csv',
+                    headers: const ['Concepto', 'Valor'],
+                    filas: filas,
+                  );
+                },
+                onExcel: () async {
+                  final filas = await _filasDeudaTotal();
+                  await _exportarListaExcel(
+                    hoja: 'Deuda',
+                    archivo: 'deuda_total.xlsx',
+                    headers: const ['Concepto', 'Valor'],
                     filas: filas,
                   );
                 },

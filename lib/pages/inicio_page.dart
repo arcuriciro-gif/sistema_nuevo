@@ -7,9 +7,11 @@ import '../services/auth_service.dart';
 import '../services/branding_service.dart';
 import '../services/cliente_service.dart';
 import '../services/compra_service.dart';
+import '../services/cuenta_corriente_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
 import '../theme/module_app_bar.dart';
+import 'clientes_deudores_page.dart';
 
 class InicioPage extends StatefulWidget {
   const InicioPage({super.key});
@@ -23,6 +25,7 @@ class _InicioPageState extends State<InicioPage> {
   final _clienteService = ClienteService();
   final _remitoService = RemitoService();
   final _compraService = CompraService();
+  final _ccService = CuentaCorrienteService();
 
   int _totalProductos = 0;
   int _stockTotal = 0;
@@ -32,6 +35,7 @@ class _InicioPageState extends State<InicioPage> {
   double _ventasMes = 0;
   double _comprasMes = 0;
   double _valorStock = 0;
+  ResumenCuentasCobrar? _resumenCc;
   List<Producto> _ultimosProductos = [];
   bool _cargando = true;
 
@@ -52,6 +56,7 @@ class _InicioPageState extends State<InicioPage> {
         await _remitoService.totalVentasPorPeriodo(inicioMes, ahora);
     final comprasMes =
         await _compraService.totalComprasPorPeriodo(inicioMes, ahora);
+    final resumenCc = await _ccService.resumenDashboard();
 
     if (!mounted) return;
     final sorted = [...productos]
@@ -65,6 +70,7 @@ class _InicioPageState extends State<InicioPage> {
       _totalRemitos = remitos;
       _ventasMes = ventasMes;
       _comprasMes = comprasMes;
+      _resumenCc = resumenCc;
       _ultimosProductos = sorted.take(5).toList();
       _cargando = false;
     });
@@ -231,6 +237,56 @@ class _InicioPageState extends State<InicioPage> {
                         );
                       },
                     ),
+                    if (_resumenCc != null) ...[
+                      const SizedBox(height: 16),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Cuentas por cobrar',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '\$${_fmt(_resumenCc!.montoTotalPendiente)}',
+                                style: TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.bold,
+                                  color: cs.error,
+                                ),
+                              ),
+                              Text('${_resumenCc!.clientesConDeuda} clientes'),
+                              Text(
+                                '${_resumenCc!.ventasPendientes} ventas pendientes',
+                              ),
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton.icon(
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            const ClientesDeudoresPage(),
+                                      ),
+                                    ).then((_) => _cargar());
+                                  },
+                                  icon: const Icon(Icons.visibility_rounded),
+                                  label: const Text('Ver detalle'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     // ── Últimos productos ────────────────────────────────────
                     Card(

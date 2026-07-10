@@ -4,6 +4,7 @@ import '../models/venta.dart';
 import '../services/venta_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/cobrar_dialog.dart';
 import 'venta_factura_page.dart';
 
 class VentasPage extends StatefulWidget {
@@ -112,16 +113,8 @@ class _VentasPageState extends State<VentasPage> {
     }
   }
 
-  Color _colorEstadoPago(String estado, ColorScheme cs) {
-    switch (estado) {
-      case 'cobrado':
-        return AppVisuals.success(cs);
-      case 'parcial':
-        return AppVisuals.warning(cs);
-      default:
-        return AppVisuals.danger(cs);
-    }
-  }
+  Color _colorEstadoPago(String estado, ColorScheme cs) =>
+      colorEstadoPago(estado, cs);
 
   String _formatFecha(DateTime fecha) =>
       '${fecha.day.toString().padLeft(2, '0')}/'
@@ -251,12 +244,20 @@ class _VentasPageState extends State<VentasPage> {
                                     ),
                                   ),
                                   Text(
-                                    v.estadoPago.toUpperCase(),
+                                    v.estadoPagoLabel,
                                     style: TextStyle(
                                       fontSize: 11,
                                       color: _colorEstadoPago(v.estadoPago, cs),
                                     ),
                                   ),
+                                  if (v.saldoPendiente > 0.009)
+                                    Text(
+                                      'Saldo \$${v.saldoPendiente.toStringAsFixed(2)}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: cs.onSurfaceVariant,
+                                      ),
+                                    ),
                                 ],
                               ),
                               onTap: () => _verDetalle(v),

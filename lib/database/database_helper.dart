@@ -22,7 +22,7 @@ class DatabaseHelper {
 
     return openDatabase(
       path,
-      version: 15,
+      version: 16,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -152,6 +152,7 @@ CREATE TABLE comparacion(
     await _crearTablaVentas(db);
     await _crearTablaCategorias(db);
     await _crearTablaVentasItems(db);
+    await _crearTablaPagos(db);
     await _crearIndices(db);
   }
 
@@ -459,9 +460,27 @@ CREATE TABLE IF NOT EXISTS ventas(
   iva REAL DEFAULT 0,
   estado TEXT DEFAULT 'confirmada',
   estadoPago TEXT DEFAULT 'pendiente',
+  totalPagado REAL DEFAULT 0,
+  saldoPendiente REAL DEFAULT 0,
   observaciones TEXT,
   fechaCreacion TEXT,
   usuarioId INTEGER,
+  FOREIGN KEY(clienteId) REFERENCES clientes(id)
+)
+''');
+  }
+
+  Future<void> _crearTablaPagos(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS pagos(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ventaId INTEGER NOT NULL,
+  clienteId INTEGER,
+  fecha TEXT NOT NULL,
+  monto REAL NOT NULL DEFAULT 0,
+  medioPago TEXT DEFAULT 'efectivo',
+  observaciones TEXT DEFAULT '',
+  FOREIGN KEY(ventaId) REFERENCES ventas(id),
   FOREIGN KEY(clienteId) REFERENCES clientes(id)
 )
 ''');
@@ -687,6 +706,38 @@ CREATE TABLE IF NOT EXISTS ventas_items(
           });
         } catch (_) {}
       }
+    }
+
+    if (oldVersion < 16) {
+      await _agregarColumnas(db, 'ventas', {
+        'totalPagado': 'REAL DEFAULT 0',
+        'saldoPendiente': 'REAL DEFAULT 0',
+      });
+      await _crearTablaPagos(db);
+      // Inicializar saldos de ventas existentes según estadoPago
+      await db.execute('''
+        UPDATE ventas SET
+          totalPagado = CASE
+            WHEN estadoPago = 'cobrado' THEN total
+            WHEN estadoPago = 'parcial' THEN total * 0.5
+            ELSE 0
+          END,
+          saldoPendiente = CASE
+            WHEN estadoPago = 'cobrado' THEN 0
+            WHEN estadoPago = 'parcial' THEN total * 0.5
+            ELSE total
+          END
+        WHERE estado != 'anulada'
+      ''');
+      await db.execute('''
+        UPDATE clientes SET saldo = COALESCE((
+          SELECT SUM(v.saldoPendiente)
+          FROM ventas v
+          WHERE v.clienteId = clientes.id
+            AND v.estado != 'anulada'
+            AND v.saldoPendiente > 0
+        ), 0)
+      ''');
     }
   }
 

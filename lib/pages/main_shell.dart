@@ -13,6 +13,7 @@ import 'busqueda_global_page.dart';
 import 'categorias_page.dart';
 import 'centro_importaciones_page.dart';
 import 'clientes_page.dart';
+import 'clientes_deudores_page.dart';
 import 'comparacion_page.dart';
 import 'compras_page.dart';
 import 'configuracion_page.dart';
@@ -181,6 +182,13 @@ class _MainShellState extends State<MainShell> {
           title: 'Clientes',
           modulo: 'clientes',
           builder: () => const ClientesPage(),
+          quickAccess: true,
+        ),
+        _ShellItem(
+          icon: Icons.account_balance_wallet_rounded,
+          title: 'Cuenta corriente',
+          modulo: 'clientes',
+          builder: () => const ClientesDeudoresPage(),
           quickAccess: true,
         ),
         _ShellItem(

@@ -5,7 +5,9 @@ import '../services/cliente_service.dart';
 import '../theme/app_visuals.dart';
 import 'cliente_form_page.dart';
 import 'cliente_historial_page.dart';
+import 'cuenta_corriente_cliente_page.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/cobrar_dialog.dart';
 
 class ClientesPage extends StatefulWidget {
   const ClientesPage({super.key});
@@ -87,6 +89,20 @@ class _ClientesPageState extends State<ClientesPage> {
     cargar();
   }
 
+  Future<void> abrirCuentaCorriente(Cliente cliente) async {
+    if (cliente.id == null) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CuentaCorrienteClientePage(
+          clienteId: cliente.id!,
+          clienteNombre: cliente.nombreCompleto,
+        ),
+      ),
+    );
+    cargar();
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -153,7 +169,7 @@ class _ClientesPageState extends State<ClientesPage> {
                                 ),
                               ),
                               title: Text(
-                                c.nombre,
+                                c.nombreCompleto,
                                 style: const TextStyle(
                                     fontWeight: FontWeight.bold),
                               ),
@@ -178,11 +194,30 @@ class _ClientesPageState extends State<ClientesPage> {
                                         Expanded(child: Text(c.direccion)),
                                       ],
                                     ),
+                                  if (c.saldo > 0.009)
+                                    Text(
+                                      'Deuda: \$${c.saldo.toStringAsFixed(2)}',
+                                      style: TextStyle(
+                                        color: colorEstadoPago(
+                                          'pendiente',
+                                          colorScheme,
+                                        ),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                 ],
                               ),
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  IconButton(
+                                    tooltip: 'Cuenta corriente',
+                                    icon: Icon(
+                                      Icons.account_balance_wallet_rounded,
+                                      color: colorScheme.primary,
+                                    ),
+                                    onPressed: () => abrirCuentaCorriente(c),
+                                  ),
                                   IconButton(
                                     icon: Icon(
                                       Icons.history_rounded,

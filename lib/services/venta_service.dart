@@ -1,9 +1,12 @@
+import '../core/events/data_refresh_hub.dart';
 import '../database/database_helper.dart';
 import '../models/venta.dart';
 import '../models/venta_item.dart';
+import 'cuenta_corriente_service.dart';
 
 class VentaService {
   final DatabaseHelper _db = DatabaseHelper.instance;
+  final CuentaCorrienteService _cc = CuentaCorrienteService();
 
   // ── Número correlativo ────────────────────────────────────────────────────
   Future<String> siguienteNumero(String tipo) async {
@@ -36,20 +39,20 @@ class VentaService {
   }
 
   // ── CRUD ──────────────────────────────────────────────────────────────────
-  Future<int> crear(Venta venta, List<VentaItem> items) async {
-    final db = await _db.database;
-    return db.transaction((txn) async {
-      final id = await txn.insert('ventas', venta.toMap()..remove('id'));
-      for (final item in items) {
-        await txn.insert(
-          'ventas_items',
-          item.toMap()
-            ..remove('id')
-            ..['ventaId'] = id,
-        );
-      }
-      return id;
-    });
+  Future<int> crear(
+    Venta venta,
+    List<VentaItem> items, {
+    double montoAbonado = 0,
+    String medioPago = 'efectivo',
+    String observacionesPago = '',
+  }) {
+    return _cc.crearVentaConPago(
+      venta: venta,
+      items: items,
+      montoAbonado: montoAbonado,
+      medioPago: medioPago,
+      observacionesPago: observacionesPago,
+    );
   }
 
   Future<List<Venta>> obtenerTodas({String? tipo}) async {
@@ -88,30 +91,68 @@ class VentaService {
 
   Future<void> anular(int id) async {
     final db = await _db.database;
+    final venta = await obtenerPorId(id);
     await db.update(
       'ventas',
-      {'estado': 'anulada'},
+      {
+        'estado': 'anulada',
+        'saldoPendiente': 0,
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
+    if (venta?.clienteId != null) {
+      await _cc.recalcularSaldoCliente(venta!.clienteId!);
+    }
+    DataRefreshHub.instance.notifyVentas();
   }
 
   Future<void> actualizarEstadoPago(int id, String estadoPago) async {
     final db = await _db.database;
+    final venta = await obtenerPorId(id);
+    if (venta == null) return;
+
+    double totalPagado = venta.totalPagado;
+    double saldo = venta.saldoPendiente;
+    if (estadoPago == 'cobrado') {
+      totalPagado = venta.total;
+      saldo = 0;
+    } else if (estadoPago == 'pendiente') {
+      totalPagado = 0;
+      saldo = venta.total;
+    } else if (estadoPago == 'parcial' && totalPagado <= 0) {
+      totalPagado = venta.total / 2;
+      saldo = venta.total - totalPagado;
+    }
+
     await db.update(
       'ventas',
-      {'estadoPago': estadoPago},
+      {
+        'estadoPago': estadoPago,
+        'totalPagado': totalPagado,
+        'saldoPendiente': saldo,
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
+    if (venta.clienteId != null) {
+      await _cc.recalcularSaldoCliente(venta.clienteId!);
+    }
+    DataRefreshHub.instance.notifyVentas();
   }
 
   Future<void> eliminar(int id) async {
     final db = await _db.database;
+    final venta = await obtenerPorId(id);
     await db.transaction((txn) async {
+      await txn.delete('pagos', where: 'ventaId = ?', whereArgs: [id]);
       await txn
           .delete('ventas_items', where: 'ventaId = ?', whereArgs: [id]);
       await txn.delete('ventas', where: 'id = ?', whereArgs: [id]);
     });
+    if (venta?.clienteId != null) {
+      await _cc.recalcularSaldoCliente(venta!.clienteId!);
+    }
+    DataRefreshHub.instance.notifyVentas();
   }
 }

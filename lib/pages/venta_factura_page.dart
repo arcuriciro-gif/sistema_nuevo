@@ -3,15 +3,18 @@ import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/cliente.dart';
+import '../models/pago.dart';
 import '../models/producto.dart';
 import '../models/venta.dart';
 import '../models/venta_item.dart';
 import '../services/cliente_service.dart';
+import '../services/cuenta_corriente_service.dart';
 import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
 import '../services/venta_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/cobrar_dialog.dart';
 
 // ---------------------------------------------------------------------------
 // Ítem del carrito (temporal, no persistido)
@@ -48,11 +51,14 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
   final TextEditingController _busquedaCtrl = TextEditingController();
   final TextEditingController _obsCtrl = TextEditingController();
   final TextEditingController _descCtrl = TextEditingController();
+  final TextEditingController _abonadoCtrl = TextEditingController(text: '0');
 
   List<Producto> _resultados = [];
   final List<_ItemCarrito> _carrito = [];
   List<Cliente> _clientes = [];
+  List<Pago> _pagos = [];
   Cliente? _clienteSeleccionado;
+  String _medioPago = 'efectivo';
 
   bool _buscando = false;
   bool _finalizando = false;
@@ -71,6 +77,7 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
     _busquedaCtrl.dispose();
     _obsCtrl.dispose();
     _descCtrl.dispose();
+    _abonadoCtrl.dispose();
     super.dispose();
   }
 
@@ -83,12 +90,15 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
     final venta = await _ventaSvc.obtenerPorId(widget.ventaId!);
     if (venta == null) return;
     final items = await _ventaSvc.obtenerItems(widget.ventaId!);
+    final pagos = await CuentaCorrienteService().pagosDeVenta(widget.ventaId!);
     if (!mounted) return;
     setState(() {
       _ventaExistente = venta;
       _modoLectura = true;
+      _pagos = pagos;
       _obsCtrl.text = venta.observaciones;
       _descCtrl.text = venta.descuento.toStringAsFixed(2);
+      _abonadoCtrl.text = venta.totalPagado.toStringAsFixed(2);
     });
     if (venta.clienteId != null && _clientes.isNotEmpty) {
       await _cargarClientes();
@@ -173,11 +183,34 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
 
   double get _total => _baseImponible + _iva;
 
+  double get _montoAbonado {
+    final v = double.tryParse(_abonadoCtrl.text.replaceAll(',', '.')) ?? 0;
+    return v.clamp(0, _total).toDouble();
+  }
+
+  double get _saldoPendiente =>
+      (_total - _montoAbonado).clamp(0, _total).toDouble();
+
+  String get _estadoPagoPreview =>
+      Venta.calcularEstadoPago(_total, _montoAbonado);
+
+  bool get _requiereCliente =>
+      widget.tipo == 'factura_a' ||
+      widget.tipo == 'factura_b' ||
+      widget.tipo == 'factura_c' ||
+      widget.tipo == 'nota_entrega';
+
   // ── Guardar ────────────────────────────────────────────────────────────────
   Future<void> _finalizar() async {
     if (_carrito.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('El carrito está vacío')),
+      );
+      return;
+    }
+    if (_requiereCliente && _clienteSeleccionado == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Seleccioná un cliente')),
       );
       return;
     }
@@ -194,6 +227,7 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
     setState(() => _finalizando = true);
     try {
       final numero = await _ventaSvc.siguienteNumero(widget.tipo);
+      final abonado = _montoAbonado;
       final venta = Venta(
         tipo: widget.tipo,
         numero: numero,
@@ -203,8 +237,10 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
         descuento: _descuento,
         iva: _iva,
         total: _total,
+        totalPagado: abonado,
+        saldoPendiente: _saldoPendiente,
         estado: 'confirmada',
-        estadoPago: 'pendiente',
+        estadoPago: _estadoPagoPreview,
         observaciones: _obsCtrl.text.trim(),
       );
       final items = _carrito
@@ -219,7 +255,12 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
             ),
           )
           .toList();
-      await _ventaSvc.crear(venta, items);
+      await _ventaSvc.crear(
+        venta,
+        items,
+        montoAbonado: abonado,
+        medioPago: _medioPago,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$numero guardada correctamente')),
@@ -386,14 +427,12 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                   await _imprimirPdf();
                 } else if (action == 'compartir') {
                   await _compartirPdf();
-                } else if (action == 'cobrado' ||
-                    action == 'parcial' ||
-                    action == 'pendiente') {
-                  await _ventaSvc.actualizarEstadoPago(
-                    _ventaExistente!.id!,
-                    action,
+                } else if (action == 'cobrar') {
+                  final ok = await mostrarDialogoCobrar(
+                    context: context,
+                    venta: _ventaExistente!,
                   );
-                  await _cargarVentaExistente();
+                  if (ok) await _cargarVentaExistente();
                 }
               },
               itemBuilder: (_) => [
@@ -405,19 +444,13 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                   value: 'compartir',
                   child: Text('Compartir PDF'),
                 ),
-                const PopupMenuDivider(),
-                const PopupMenuItem(
-                  value: 'cobrado',
-                  child: Text('Marcar como cobrado'),
-                ),
-                const PopupMenuItem(
-                  value: 'parcial',
-                  child: Text('Marcar como pago parcial'),
-                ),
-                const PopupMenuItem(
-                  value: 'pendiente',
-                  child: Text('Marcar como pendiente'),
-                ),
+                if ((_ventaExistente?.saldoPendiente ?? 0) > 0.009) ...[
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(
+                    value: 'cobrar',
+                    child: Text('Cobrar'),
+                  ),
+                ],
                 const PopupMenuDivider(),
                 PopupMenuItem(
                   value: 'anular',
@@ -436,16 +469,21 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
             child: DropdownButtonFormField<Cliente>(
+              key: ValueKey(_clienteSeleccionado?.id),
               initialValue: _clienteSeleccionado,
               decoration: InputDecoration(
-                labelText: widget.tipo == 'factura_a'
-                    ? 'Cliente (requerido para FA)'
+                labelText: _requiereCliente
+                    ? 'Cliente (obligatorio)'
                     : 'Cliente (opcional)',
                 border: const OutlineInputBorder(),
                 isDense: true,
               ),
               items: [
-                const DropdownMenuItem(value: null, child: Text('Sin cliente')),
+                if (!_requiereCliente)
+                  const DropdownMenuItem(
+                    value: null,
+                    child: Text('Sin cliente'),
+                  ),
                 ..._clientes.map(
                   (c) => DropdownMenuItem(
                     value: c,
@@ -583,7 +621,88 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                   _filaTotal('IVA 21%', _iva),
                 const Divider(),
                 _filaTotal('TOTAL', _total, bold: true, fontSize: 18),
-                if (!_modoLectura)
+                if (!_modoLectura) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _abonadoCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Monto abonado',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                            prefixText: '\$ ',
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          onChanged: (_) => setState(() {}),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          key: ValueKey(_medioPago),
+                          initialValue: _medioPago,
+                          decoration: const InputDecoration(
+                            labelText: 'Medio de pago',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          items: Pago.mediosPago
+                              .map(
+                                (m) => DropdownMenuItem(
+                                  value: m,
+                                  child: Text(Pago.labelMedio(m)),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) {
+                            if (v != null) setState(() => _medioPago = v);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _filaTotal(
+                          'Saldo pendiente',
+                          _saldoPendiente,
+                          color: colorEstadoPago(_estadoPagoPreview, cs),
+                        ),
+                      ),
+                      chipEstadoPago(_estadoPagoPreview, cs),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      TextButton(
+                        onPressed: () {
+                          _abonadoCtrl.text = '0';
+                          setState(() {});
+                        },
+                        child: const Text('No pagar'),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          _abonadoCtrl.text = (_total / 2).toStringAsFixed(2);
+                          setState(() {});
+                        },
+                        child: const Text('Mitad'),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          _abonadoCtrl.text = _total.toStringAsFixed(2);
+                          setState(() {});
+                        },
+                        child: const Text('Total'),
+                      ),
+                    ],
+                  ),
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: SizedBox(
@@ -603,6 +722,58 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                       ),
                     ),
                   ),
+                ] else if (_ventaExistente != null) ...[
+                  _filaTotal('Pagado', _ventaExistente!.totalPagado),
+                  _filaTotal(
+                    'Saldo pendiente',
+                    _ventaExistente!.saldoPendiente,
+                    color: colorEstadoPago(_ventaExistente!.estadoPago, cs),
+                  ),
+                  chipEstadoPago(_ventaExistente!.estadoPago, cs),
+                  if (_pagos.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Pagos (${_pagos.length})',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    ..._pagos.take(3).map(
+                          (p) => Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '${p.fecha.day.toString().padLeft(2, '0')}/'
+                              '${p.fecha.month.toString().padLeft(2, '0')} · '
+                              '\$${p.monto.toStringAsFixed(2)} · '
+                              '${Pago.labelMedio(p.medioPago)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                  ],
+                  if (_ventaExistente!.saldoPendiente > 0.009)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            final ok = await mostrarDialogoCobrar(
+                              context: context,
+                              venta: _ventaExistente!,
+                            );
+                            if (ok) await _cargarVentaExistente();
+                          },
+                          icon: const Icon(Icons.payments_rounded),
+                          label: const Text('Cobrar'),
+                        ),
+                      ),
+                    ),
+                ],
               ],
             ),
           ),
