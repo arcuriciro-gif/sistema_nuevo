@@ -35,11 +35,9 @@ class DefaultFirebaseOptions {
     storageBucket: 'tata-stock-8631e.firebasestorage.app',
   );
 
-  // TODO: reemplazar con el firebaseConfig de la app Web de tata-stock-8631e.
-  // Mientras tanto Windows usa los datos del proyecto; el appId web es obligatorio.
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyDIO601iRMJgk_pCERXJj3aalP5sUMRNgE',
-    appId: '1:932698618413:android:79f6dd8275b301f21896a4',
+    apiKey: 'AIzaSyAQpJUCBjgs9zWlhx9nbR2vzx9USEKdJjc',
+    appId: '1:932698618413:web:5f4fc06ef5b903a21896a4',
     messagingSenderId: '932698618413',
     projectId: 'tata-stock-8631e',
     authDomain: 'tata-stock-8631e.firebaseapp.com',
