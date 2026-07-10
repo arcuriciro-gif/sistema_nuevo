@@ -158,26 +158,40 @@ class AuthService {
     }
 
     final sqlite = SqliteUsuarioRepository();
-    final actualizado = usuario.copyWith(
+    var actualizado = usuario.copyWith(
       password: _hash(passwordNueva),
       debeCambiarPassword: false,
     );
     await sqlite.actualizar(actualizado);
 
-    if (BackendConfigService.instance.firebaseEnabled) {
+    final firebase = FirebaseAuthUsuarioService.instance;
+    if (firebase.disponible) {
       try {
-        await FirestoreUsuarioRepository().actualizar(actualizado);
-      } catch (_) {}
+        if (usuario.firebaseUid?.isNotEmpty ?? false) {
+          if (firebase.uidActual == null) {
+            await firebase.iniciarSesion(usuario.usuario, passwordActual);
+          }
+          await firebase.cambiarPasswordActual(passwordNueva);
+        } else {
+          // Primera vez: crear cuenta Firebase con la contraseña nueva (>=6).
+          final uid = await firebase.crearCuenta(usuario.usuario, passwordNueva);
+          actualizado = actualizado.copyWith(firebaseUid: uid);
+          await sqlite.actualizar(actualizado);
+        }
+      } catch (error) {
+        debugPrint('Firebase en cambio de password: $error');
+      }
     }
 
-    final firebase = FirebaseAuthUsuarioService.instance;
-    if (firebase.disponible && (usuario.firebaseUid?.isNotEmpty ?? false)) {
+    if (BackendConfigService.instance.firebaseEnabled &&
+        FirebaseAuthUsuarioService.instance.uidActual != null) {
       try {
-        if (firebase.uidActual == null) {
-          await firebase.iniciarSesion(usuario.usuario, passwordActual);
-        }
-        await firebase.cambiarPasswordActual(passwordNueva);
-      } catch (_) {}
+        await FirestoreUsuarioRepository().actualizar(actualizado);
+      } catch (error) {
+        debugPrint('Firestore usuario en cambio password: $error');
+      }
+      await FirestoreSyncService.instance.start();
+      debugPrint('Firebase Auth OK uid=${FirebaseAuthUsuarioService.instance.uidActual}');
     }
 
     currentUser = actualizado;

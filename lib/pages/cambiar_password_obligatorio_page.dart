@@ -31,8 +31,8 @@ class _CambiarPasswordObligatorioPageState
     final nueva = _nuevaCtrl.text;
     final confirmar = _confirmarCtrl.text;
 
-    if (nueva.length < 4) {
-      setState(() => _error = 'La nueva contraseña debe tener al menos 4 caracteres.');
+    if (nueva.length < 6) {
+      setState(() => _error = 'La nueva contraseña debe tener al menos 6 caracteres (requisito de Firebase).');
       return;
     }
     if (nueva != confirmar) {
