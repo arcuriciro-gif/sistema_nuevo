@@ -1,10 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/auth_service.dart';
 import '../services/auto_backup_service.dart';
 import '../services/branding_service.dart';
+import '../services/cuenta_corriente_service.dart';
 import '../services/permisos_service.dart';
 import '../theme/layout_constants.dart';
 import 'auditoria_page.dart';
@@ -24,11 +26,13 @@ import 'importacion_page.dart';
 import 'inteligencia_comercial_page.dart';
 import 'listas_precio_page.dart';
 import 'login_page.dart';
+import 'papelera_productos_page.dart';
 import 'permisos_page.dart';
 import 'productos_page.dart';
 import 'proveedores_page.dart';
 import 'remitos_page.dart';
 import 'reportes_page.dart';
+import 'scanner_page.dart';
 import 'stock_page.dart';
 import 'usuarios_page.dart';
 import 'ventas_page.dart';
@@ -71,6 +75,7 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _selectedIndex = 0;
+  bool _recordatorioMostrado = false;
 
   void _onBrandingChanged() {
     if (mounted) setState(() {});
@@ -82,6 +87,7 @@ class _MainShellState extends State<MainShell> {
     // Start automatic backup timer if configured
     AutoBackupService.instance.iniciar();
     BrandingService.instance.addListener(_onBrandingChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _mostrarRecordatorioCc());
   }
 
   @override
@@ -111,6 +117,12 @@ class _MainShellState extends State<MainShell> {
           modulo: 'productos',
           builder: () => const ProductosPage(),
           quickAccess: true,
+        ),
+        _ShellItem(
+          icon: Icons.delete_outline_rounded,
+          title: 'Papelera',
+          modulo: 'productos',
+          builder: () => const PapeleraProductosPage(),
         ),
         _ShellItem(
           icon: Icons.category_rounded,
@@ -316,16 +328,126 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
+  Future<void> _abrirScanner() async {
+    final codigo = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const ScannerPage()),
+    );
+    if (codigo == null || codigo.trim().isEmpty || !mounted) return;
+    // Abrir búsqueda con el código escaneado
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog.fullscreen(
+        backgroundColor: Theme.of(ctx).colorScheme.surface,
+        child: BusquedaGlobalPage(consultaInicial: codigo.trim()),
+      ),
+    );
+  }
+
+  void _irAModulo(String title) {
+    final items = _visibleItems;
+    final idx = items.indexWhere((e) => e.title == title);
+    if (idx >= 0) _select(idx);
+  }
+
+  Future<void> _mostrarRecordatorioCc() async {
+    if (_recordatorioMostrado || !mounted) return;
+    _recordatorioMostrado = true;
+    try {
+      final resumen = await CuentaCorrienteService().resumenDashboard();
+      if (!mounted || resumen.alertas.isEmpty) return;
+      final vencidas = resumen.alertas
+          .where((a) => a.toLowerCase().contains('vencid'))
+          .toList();
+      final relevantes = vencidas.isNotEmpty ? vencidas : resumen.alertas.take(3).toList();
+      if (relevantes.isEmpty) return;
+
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.notifications_active_rounded),
+              SizedBox(width: 8),
+              Expanded(child: Text('Cuentas por cobrar')),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Pendiente: \$${resumen.montoTotalPendiente.toStringAsFixed(2)}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              ...relevantes.map((a) => Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text('• $a'),
+                  )),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Después'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _irAModulo('Cuenta corriente');
+              },
+              child: const Text('Ver cuentas'),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final desktop = constraints.maxWidth >= kDesktopBreakpoint;
-        if (desktop) {
-          return _buildDesktopLayout();
-        }
-        return _buildMobileLayout();
+    final desktop = MediaQuery.sizeOf(context).width >= kDesktopBreakpoint;
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.keyK, control: true): () =>
+            _abrirBusqueda(desktop: desktop),
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true): () =>
+            _abrirBusqueda(desktop: desktop),
+        const SingleActivator(LogicalKeyboardKey.keyB, control: true): _abrirScanner,
+        const SingleActivator(LogicalKeyboardKey.digit1, control: true): () =>
+            _irAModulo('Inicio'),
+        const SingleActivator(LogicalKeyboardKey.digit2, control: true): () =>
+            _irAModulo('Dashboard'),
+        const SingleActivator(LogicalKeyboardKey.digit3, control: true): () =>
+            _irAModulo('Productos'),
+        const SingleActivator(LogicalKeyboardKey.digit4, control: true): () =>
+            _irAModulo('Venta Rápida'),
+        const SingleActivator(LogicalKeyboardKey.digit5, control: true): () =>
+            _irAModulo('Remitos'),
+        const SingleActivator(LogicalKeyboardKey.keyH, control: true): () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Atajos: Ctrl+K buscar · Ctrl+B escanear · Ctrl+1..5 módulos',
+              ),
+              duration: Duration(seconds: 4),
+            ),
+          );
+        },
       },
+      child: Focus(
+        autofocus: true,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isDesktop = constraints.maxWidth >= kDesktopBreakpoint;
+            if (isDesktop) {
+              return _buildDesktopLayout();
+            }
+            return _buildMobileLayout();
+          },
+        ),
+      ),
     );
   }
 

@@ -51,6 +51,7 @@ class FirestoreProductoRepository implements ProductoRepository {
     final snap = await query.get();
     return snap.docs
         .map((doc) => Producto.fromFirestore(doc.data(), docId: doc.id))
+        .where((p) => !p.estaEliminado)
         .toList();
   }
 

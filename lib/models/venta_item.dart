@@ -6,6 +6,8 @@ class VentaItem {
   int cantidad;
   double precio;
   double subtotal;
+  double costoUnitario;
+  double ganancia;
 
   VentaItem({
     this.id,
@@ -15,7 +17,9 @@ class VentaItem {
     required this.cantidad,
     required this.precio,
     required this.subtotal,
-  });
+    this.costoUnitario = 0,
+    double? ganancia,
+  }) : ganancia = ganancia ?? (subtotal - (costoUnitario * cantidad));
 
   Map<String, dynamic> toMap() {
     return {
@@ -26,18 +30,27 @@ class VentaItem {
       'cantidad': cantidad,
       'precio': precio,
       'subtotal': subtotal,
+      'costoUnitario': costoUnitario,
+      'ganancia': ganancia,
     };
   }
 
   factory VentaItem.fromMap(Map<String, dynamic> map) {
+    final cantidad = map['cantidad'] ?? 0;
+    final precio = (map['precio'] ?? 0).toDouble();
+    final subtotal = (map['subtotal'] ?? 0).toDouble();
+    final costo = (map['costoUnitario'] ?? 0).toDouble();
     return VentaItem(
       id: map['id'],
       ventaId: map['ventaId'],
       productoId: map['productoId'],
       productoDescripcion: map['productoDescripcion'] ?? '',
-      cantidad: map['cantidad'] ?? 0,
-      precio: (map['precio'] ?? 0).toDouble(),
-      subtotal: (map['subtotal'] ?? 0).toDouble(),
+      cantidad: cantidad is int ? cantidad : (cantidad as num).toInt(),
+      precio: precio,
+      subtotal: subtotal,
+      costoUnitario: costo,
+      ganancia: (map['ganancia'] as num?)?.toDouble() ??
+          (subtotal - costo * (cantidad as num).toDouble()),
     );
   }
 }

@@ -74,12 +74,24 @@ class CuentaCorrienteService {
     final ventaId = await db.transaction((txn) async {
       final id = await txn.insert('ventas', ventaMap);
       for (final item in items) {
-        await txn.insert(
-          'ventas_items',
-          item.toMap()
-            ..remove('id')
-            ..['ventaId'] = id,
-        );
+        final map = item.toMap()
+          ..remove('id')
+          ..['ventaId'] = id;
+        if ((map['costoUnitario'] as num?)?.toDouble() == 0) {
+          final prod = await txn.query(
+            'productos',
+            columns: ['costo'],
+            where: 'id = ?',
+            whereArgs: [item.productoId],
+            limit: 1,
+          );
+          final costo =
+              (prod.isNotEmpty ? prod.first['costo'] as num? : 0)?.toDouble() ??
+                  0;
+          map['costoUnitario'] = costo;
+          map['ganancia'] = item.subtotal - (costo * item.cantidad);
+        }
+        await txn.insert('ventas_items', map);
       }
       if (abonado > 0.009) {
         await txn.insert('pagos', {

@@ -279,13 +279,14 @@ class _DualProductoRepository implements ProductoRepository {
         await db.query('productos', where: 'id = ?', whereArgs: [id], limit: 1);
     final result = await local.eliminar(id);
     if (rows.isNotEmpty) {
-      final producto = Producto.fromMap(rows.first);
-      if (producto.codigo.isNotEmpty) {
-        try {
-          await remote.eliminarPorCodigo(producto.codigo);
-        } catch (error) {
-          debugPrint('Firestore eliminar producto: $error');
-        }
+      final producto = Producto.fromMap(rows.first).copyWith(
+        deletedAt: DateTime.now().toIso8601String(),
+        favorito: false,
+      );
+      try {
+        await remote.actualizar(producto);
+      } catch (error) {
+        debugPrint('Firestore soft-delete producto: $error');
       }
     }
     return result;

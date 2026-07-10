@@ -3,10 +3,12 @@ class RemitoDetalle {
 
   int remitoId;
   int productoId;
-  
+
   int cantidad;
   double precioUnitario;
   double subtotal;
+  double costoUnitario;
+  double ganancia;
 
   RemitoDetalle({
     this.id,
@@ -15,7 +17,9 @@ class RemitoDetalle {
     required this.cantidad,
     required this.precioUnitario,
     required this.subtotal,
-  });
+    this.costoUnitario = 0,
+    double? ganancia,
+  }) : ganancia = ganancia ?? (subtotal - (costoUnitario * cantidad));
 
   Map<String, dynamic> toMap() {
     return {
@@ -25,17 +29,27 @@ class RemitoDetalle {
       'cantidad': cantidad,
       'precioUnitario': precioUnitario,
       'subtotal': subtotal,
+      'costoUnitario': costoUnitario,
+      'ganancia': ganancia,
     };
   }
 
   factory RemitoDetalle.fromMap(Map<String, dynamic> map) {
+    final cantidad = map['cantidad'] ?? 0;
+    final precio = (map['precioUnitario'] ?? map['precio'] ?? 0).toDouble();
+    final subtotal = (map['subtotal'] ?? 0).toDouble();
+    final costo = (map['costoUnitario'] ?? 0).toDouble();
+    final qty = cantidad is int ? cantidad : (cantidad as num).toInt();
     return RemitoDetalle(
       id: map['id'],
       remitoId: map['remitoId'],
       productoId: map['productoId'],
-      cantidad: map['cantidad'] ?? 0,
-      precioUnitario: (map['precioUnitario'] ?? 0).toDouble(),
-      subtotal: (map['subtotal'] ?? 0).toDouble(),
+      cantidad: qty,
+      precioUnitario: precio,
+      subtotal: subtotal,
+      costoUnitario: costo,
+      ganancia: (map['ganancia'] as num?)?.toDouble() ??
+          (subtotal - costo * qty),
     );
   }
 
@@ -46,6 +60,8 @@ class RemitoDetalle {
     int? cantidad,
     double? precioUnitario,
     double? subtotal,
+    double? costoUnitario,
+    double? ganancia,
   }) {
     return RemitoDetalle(
       id: id ?? this.id,
@@ -54,6 +70,8 @@ class RemitoDetalle {
       cantidad: cantidad ?? this.cantidad,
       precioUnitario: precioUnitario ?? this.precioUnitario,
       subtotal: subtotal ?? this.subtotal,
+      costoUnitario: costoUnitario ?? this.costoUnitario,
+      ganancia: ganancia ?? this.ganancia,
     );
   }
 }

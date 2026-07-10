@@ -6,6 +6,7 @@ import '../models/producto.dart';
 import '../services/lista_precio_service.dart';
 import '../services/producto_service.dart';
 import '../theme/app_visuals.dart';
+import 'papelera_productos_page.dart';
 import 'producto_form_page.dart';
 import 'scanner_page.dart';
 import '../theme/module_app_bar.dart';
@@ -32,6 +33,7 @@ class _ProductosPageState extends State<ProductosPage> {
   String _filtroBusqueda = '';
   String? _filtroMarca;
   String? _filtroProveedor;
+  bool _soloFavoritos = false;
 
   List<String> _marcas = [];
   List<String> _proveedores = [];
@@ -92,9 +94,18 @@ class _ProductosPageState extends State<ProductosPage> {
 
       final matchMarca = _filtroMarca == null || p.marca == _filtroMarca;
       final matchProveedor = _filtroProveedor == null || p.proveedor == _filtroProveedor;
+      final matchFavorito = !_soloFavoritos || p.favorito;
 
-      return matchBusqueda && matchMarca && matchProveedor;
+      return matchBusqueda && matchMarca && matchProveedor && matchFavorito;
     }).toList();
+
+    // Favoritos primero
+    filtrados.sort((a, b) {
+      if (a.favorito == b.favorito) {
+        return a.descripcion.compareTo(b.descripcion);
+      }
+      return a.favorito ? -1 : 1;
+    });
 
     if (mounted) setState(() {});
   }
@@ -115,9 +126,9 @@ class _ProductosPageState extends State<ProductosPage> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Eliminar producto'),
+        title: const Text('Enviar a papelera'),
         content: Text(
-          '¿Eliminar "${producto.descripcion}"? Esta acción no se puede deshacer.',
+          '¿Mover "${producto.descripcion}" a la papelera? Podés recuperarlo después.',
         ),
         actions: [
           TextButton(
@@ -126,13 +137,23 @@ class _ProductosPageState extends State<ProductosPage> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+            child: const Text('Mover', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
     if (confirm != true) return;
     await service.eliminar(producto.id!);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Producto enviado a la papelera')),
+      );
+    }
+    await cargarProductos();
+  }
+
+  Future<void> _toggleFavorito(Producto producto) async {
+    await service.toggleFavorito(producto);
     await cargarProductos();
   }
 
@@ -165,6 +186,7 @@ class _ProductosPageState extends State<ProductosPage> {
       _filtroBusqueda = '';
       _filtroMarca = null;
       _filtroProveedor = null;
+      _soloFavoritos = false;
     });
     _aplicarFiltros();
   }
@@ -175,7 +197,33 @@ class _ProductosPageState extends State<ProductosPage> {
     final dangerColor = AppVisuals.danger(colorScheme);
 
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: 'Productos'),
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Productos',
+        actions: [
+          IconButton(
+            tooltip: _soloFavoritos ? 'Ver todos' : 'Solo favoritos',
+            icon: Icon(
+              _soloFavoritos ? Icons.star_rounded : Icons.star_outline_rounded,
+            ),
+            onPressed: () {
+              setState(() => _soloFavoritos = !_soloFavoritos);
+              _aplicarFiltros();
+            },
+          ),
+          IconButton(
+            tooltip: 'Papelera',
+            icon: const Icon(Icons.delete_outline_rounded),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PapeleraProductosPage()),
+              );
+              await cargarProductos();
+            },
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab_productos',
         onPressed: _nuevoProducto,
@@ -256,7 +304,7 @@ class _ProductosPageState extends State<ProductosPage> {
                           },
                           decoration: InputDecoration(
                             prefixIcon: const Icon(Icons.search_rounded),
-                            hintText: 'Buscar por código, nombre, marca...',
+                            hintText: 'Código, barras, nombre, marca...',
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
                             ),
@@ -353,6 +401,7 @@ class _ProductosPageState extends State<ProductosPage> {
                               listasActivas: listasActivas,
                               onEdit: () => _editarProducto(p),
                               onDelete: () => eliminar(p),
+                              onToggleFavorito: () => _toggleFavorito(p),
                             );
                           },
                         ),
@@ -541,6 +590,7 @@ class _ProductoCard extends StatelessWidget {
   final List<ListaPrecio> listasActivas;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback onToggleFavorito;
 
   const _ProductoCard({
     required this.producto,
@@ -549,6 +599,7 @@ class _ProductoCard extends StatelessWidget {
     required this.listasActivas,
     required this.onEdit,
     required this.onDelete,
+    required this.onToggleFavorito,
   });
 
   @override
@@ -579,6 +630,16 @@ class _ProductoCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                ),
+                IconButton(
+                  tooltip: p.favorito ? 'Quitar favorito' : 'Marcar favorito',
+                  icon: Icon(
+                    p.favorito ? Icons.star_rounded : Icons.star_outline_rounded,
+                    color: p.favorito
+                        ? const Color(0xFFFFB020)
+                        : colorScheme.onSurfaceVariant,
+                  ),
+                  onPressed: onToggleFavorito,
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -632,7 +693,7 @@ class _ProductoCard extends StatelessWidget {
                 TextButton.icon(
                   onPressed: onDelete,
                   icon: const Icon(Icons.delete_outline_rounded, size: 16),
-                  label: const Text('Eliminar'),
+                  label: const Text('Papelera'),
                   style: TextButton.styleFrom(
                     foregroundColor: AppVisuals.danger(colorScheme),
                     visualDensity: VisualDensity.compact,

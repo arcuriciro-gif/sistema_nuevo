@@ -7,12 +7,17 @@ import 'producto_repository.dart';
 class SqliteProductoRepository implements ProductoRepository {
   final DatabaseHelper _databaseHelper = DatabaseHelper.instance;
 
+  static const String _activosWhere =
+      "(deleted_at IS NULL OR deleted_at = '')";
+
   @override
   Future<int> insertar(Producto producto) async {
     final db = await _databaseHelper.database;
+    final map = producto.toMap()..remove('id');
+    map['deleted_at'] = null;
     return db.insert(
       'productos',
-      producto.toMap()..remove('id'),
+      map,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -22,9 +27,11 @@ class SqliteProductoRepository implements ProductoRepository {
     final db = await _databaseHelper.database;
     final batch = db.batch();
     for (final producto in productos) {
+      final map = producto.toMap()..remove('id');
+      map['deleted_at'] = null;
       batch.insert(
         'productos',
-        producto.toMap()..remove('id'),
+        map,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
@@ -36,7 +43,8 @@ class SqliteProductoRepository implements ProductoRepository {
     final db = await _databaseHelper.database;
     final resultado = await db.query(
       'productos',
-      orderBy: 'descripcion',
+      where: _activosWhere,
+      orderBy: 'favorito DESC, descripcion',
       limit: limit,
       offset: offset,
     );
@@ -48,7 +56,7 @@ class SqliteProductoRepository implements ProductoRepository {
     final db = await _databaseHelper.database;
     final resultado = await db.query(
       'productos',
-      where: 'codigo = ?',
+      where: 'codigo = ? AND $_activosWhere',
       whereArgs: [codigo],
       limit: 1,
     );
@@ -62,7 +70,7 @@ class SqliteProductoRepository implements ProductoRepository {
     final db = await _databaseHelper.database;
     final resultado = await db.query(
       'productos',
-      where: 'codigo_barras = ? OR codigo = ?',
+      where: '(codigo_barras = ? OR codigo = ?) AND $_activosWhere',
       whereArgs: [codigoBarras, codigoBarras],
       limit: 1,
     );
@@ -73,7 +81,9 @@ class SqliteProductoRepository implements ProductoRepository {
   @override
   Future<bool> tieneProductos() async {
     final db = await _databaseHelper.database;
-    final resultado = await db.rawQuery('SELECT COUNT(*) total FROM productos');
+    final resultado = await db.rawQuery(
+      'SELECT COUNT(*) total FROM productos WHERE $_activosWhere',
+    );
     return Sqflite.firstIntValue(resultado)! > 0;
   }
 
@@ -88,11 +98,13 @@ class SqliteProductoRepository implements ProductoRepository {
     );
   }
 
+  /// Soft-delete: marca deleted_at en lugar de borrar la fila.
   @override
   Future<int> eliminar(int id) async {
     final db = await _databaseHelper.database;
-    return db.delete(
+    return db.update(
       'productos',
+      {'deleted_at': DateTime.now().toIso8601String(), 'favorito': 0},
       where: 'id = ?',
       whereArgs: [id],
     );

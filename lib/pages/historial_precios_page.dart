@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../services/historial_precio_service.dart';
+import '../services/producto_service.dart';
 import '../theme/module_app_bar.dart';
 
+/// Historial de cambios por producto: precios + auditoría.
 class HistorialPreciosPage extends StatefulWidget {
   final int productoId;
   final String productoDescripcion;
@@ -19,6 +21,7 @@ class HistorialPreciosPage extends StatefulWidget {
 
 class _HistorialPreciosPageState extends State<HistorialPreciosPage> {
   final HistorialPrecioService service = HistorialPrecioService();
+  final ProductoService productoService = ProductoService();
 
   List<Map<String, dynamic>> historial = [];
   bool cargando = true;
@@ -31,7 +34,22 @@ class _HistorialPreciosPageState extends State<HistorialPreciosPage> {
 
   Future<void> _cargar() async {
     setState(() => cargando = true);
-    historial = await service.obtenerPorProducto(widget.productoId);
+    historial = await productoService.historialCambios(widget.productoId);
+    if (historial.isEmpty) {
+      // Fallback a solo precios si no hay auditoría combinada
+      final precios = await service.obtenerPorProducto(widget.productoId);
+      historial = precios
+          .map(
+            (p) => {
+              'tipo': 'precio',
+              'fecha': p['fecha'],
+              'usuario': p['usuario'],
+              'detalle': p['motivo'] ?? 'Cambio de precio',
+              'extra': p,
+            },
+          )
+          .toList();
+    }
     if (!mounted) return;
     setState(() => cargando = false);
   }
@@ -44,6 +62,7 @@ class _HistorialPreciosPageState extends State<HistorialPreciosPage> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: buildModuleAppBar(
         context,
@@ -60,52 +79,68 @@ class _HistorialPreciosPageState extends State<HistorialPreciosPage> {
                   itemCount: historial.length,
                   itemBuilder: (context, i) {
                     final item = historial[i];
-                    final costoAnterior =
-                        (item['costoAnterior'] as num?)?.toDouble() ?? 0;
-                    final costoNuevo =
-                        (item['costoNuevo'] as num?)?.toDouble() ?? 0;
-                    final precioAnterior =
-                        (item['precioAnterior'] as num?)?.toDouble() ?? 0;
-                    final precioNuevo =
-                        (item['precioNuevo'] as num?)?.toDouble() ?? 0;
-                    final porcentaje =
-                        (item['porcentaje'] as num?)?.toDouble() ?? 0;
-                    final lista =
-                        (item['listaModificada'] ?? '').toString();
-                    final subio = costoNuevo >= costoAnterior;
+                    final tipo = item['tipo']?.toString() ?? 'auditoria';
+                    final extra = item['extra'] as Map<String, dynamic>? ?? {};
+
+                    if (tipo == 'precio') {
+                      final costoAnterior =
+                          (extra['costoAnterior'] as num?)?.toDouble() ?? 0;
+                      final costoNuevo =
+                          (extra['costoNuevo'] as num?)?.toDouble() ?? 0;
+                      final precioAnterior =
+                          (extra['precioAnterior'] as num?)?.toDouble() ?? 0;
+                      final precioNuevo =
+                          (extra['precioNuevo'] as num?)?.toDouble() ?? 0;
+                      final porcentaje =
+                          (extra['porcentaje'] as num?)?.toDouble() ?? 0;
+                      final lista =
+                          (extra['listaModificada'] ?? '').toString();
+                      final subio = costoNuevo >= costoAnterior;
+
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: subio
+                                ? Colors.red.withValues(alpha: 0.15)
+                                : Colors.green.withValues(alpha: 0.15),
+                            child: Icon(
+                              subio
+                                  ? Icons.trending_up_rounded
+                                  : Icons.trending_down_rounded,
+                              color: subio ? Colors.red : Colors.green,
+                            ),
+                          ),
+                          title: Text(
+                            lista.isEmpty
+                                ? 'Cambio de precio'
+                                : 'Cambio · $lista',
+                          ),
+                          subtitle: Text(
+                            'Costo \$${costoAnterior.toStringAsFixed(2)} → \$${costoNuevo.toStringAsFixed(2)}\n'
+                            'Precio \$${precioAnterior.toStringAsFixed(2)} → \$${precioNuevo.toStringAsFixed(2)} '
+                            '(${porcentaje.toStringAsFixed(1)}%)\n'
+                            '${_formatearFecha(item['fecha']?.toString())} · ${item['usuario'] ?? ''}',
+                          ),
+                          isThreeLine: true,
+                        ),
+                      );
+                    }
 
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 4),
                       child: ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: (subio ? Colors.red : Colors.green)
-                              .withValues(alpha: .15),
+                          backgroundColor: cs.primaryContainer,
                           child: Icon(
-                            subio
-                                ? Icons.trending_up_rounded
-                                : Icons.trending_down_rounded,
-                            color: subio ? Colors.red : Colors.green,
+                            Icons.history_edu_rounded,
+                            color: cs.onPrimaryContainer,
                           ),
                         ),
-                        title: Text(
-                          'Costo: \$${costoAnterior.toStringAsFixed(2)} → \$${costoNuevo.toStringAsFixed(2)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (precioAnterior > 0 || precioNuevo > 0)
-                              Text(
-                                'Precio: \$${precioAnterior.toStringAsFixed(2)} → \$${precioNuevo.toStringAsFixed(2)}'
-                                '${porcentaje != 0 ? '  (${porcentaje >= 0 ? '+' : ''}${porcentaje.toStringAsFixed(1)}%)' : ''}',
-                              ),
-                            if (lista.isNotEmpty)
-                              Text('Lista: $lista'),
-                            Text(_formatearFecha(item['fecha']?.toString())),
-                            Text('Usuario: ${item['usuario'] ?? '-'}'),
-                            if ((item['motivo'] ?? '').toString().isNotEmpty)
-                              Text('Motivo: ${item['motivo']}'),
-                          ],
+                        title: Text(item['detalle']?.toString() ?? 'Cambio'),
+                        subtitle: Text(
+                          '${_formatearFecha(item['fecha']?.toString())} · ${item['usuario'] ?? ''}\n'
+                          '${extra['accion'] ?? ''}',
                         ),
                         isThreeLine: true,
                       ),

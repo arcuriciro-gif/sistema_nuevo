@@ -2,8 +2,8 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../database/database_helper.dart';
+import '../services/analytics_service.dart';
 import '../services/compra_service.dart';
-import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
 
@@ -15,7 +15,6 @@ class InteligenciaComercialPage extends StatefulWidget {
 }
 
 class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
-  final RemitoService _remitoService = RemitoService();
   final CompraService _compraService = CompraService();
 
   List<Map<String, dynamic>> _topRentabilidad = [];
@@ -42,12 +41,13 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
 
     _topRentabilidad = await db.rawQuery('''
       SELECT descripcion, codigo, costo, precio,
-      CASE WHEN costo > 0 THEN ((precio - costo) / costo) * 100 ELSE 0 END AS rentabilidad
+      CASE WHEN precio > 0 THEN ((precio - costo) / precio) * 100 ELSE 0 END AS rentabilidad
       FROM productos
+      WHERE (deleted_at IS NULL OR deleted_at = '')
       ORDER BY rentabilidad DESC, descripcion ASC
       LIMIT 10
     ''');
-    _topVendidos = await _remitoService.topProductos(limite: 10);
+    _topVendidos = await AnalyticsService.instance.topProductos(limite: 10);
     _sinMovimiento = await db.rawQuery('''
       SELECT p.id, p.codigo, p.descripcion, p.stock
       FROM productos p
@@ -56,6 +56,7 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
        AND m.tipo = 'salida'
        AND datetime(m.fecha) >= datetime('now', '-30 days')
       WHERE m.id IS NULL
+        AND (p.deleted_at IS NULL OR p.deleted_at = '')
       ORDER BY p.descripcion
       LIMIT 10
     ''');
@@ -63,10 +64,11 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
       SELECT id, codigo, descripcion, stock
       FROM productos
       WHERE stock <= 5
+        AND (deleted_at IS NULL OR deleted_at = '')
       ORDER BY stock ASC, descripcion
       LIMIT 10
     ''');
-    _topClientes = await _remitoService.topClientes(limite: 10);
+    _topClientes = await AnalyticsService.instance.topClientes(limite: 10);
     _clientesInactivos = await db.rawQuery('''
       SELECT c.id, c.nombre, c.apellido, c.telefono
       FROM clientes c
@@ -86,17 +88,13 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
       ORDER BY totalComprado DESC
       LIMIT 10
     ''');
-    _ventasMes = await _remitoService.ventasPorMes(meses: 6);
+    _ventasMes = await AnalyticsService.instance.ventasPorMes(meses: 6);
     _comprasMes = await _compraService.comprasPorMes(meses: 6);
-    final ganancia = await db.rawQuery('''
-      SELECT SUM(ri.subtotal - (ri.cantidad * COALESCE(p.costo, 0))) AS ganancia
-      FROM remito_items ri
-      JOIN remitos r ON r.id = ri.remitoId
-      JOIN productos p ON p.id = ri.productoId
-      WHERE r.estado != 'anulado'
-        AND datetime(r.fecha) >= datetime('now', '-6 months')
-    ''');
-    _gananciaEstimada = (ganancia.first['ganancia'] as num?)?.toDouble() ?? 0;
+    final ahora = DateTime.now();
+    _gananciaEstimada = await AnalyticsService.instance.gananciaReal(
+      desde: DateTime(ahora.year, ahora.month - 5, 1),
+      hasta: ahora,
+    );
 
     if (!mounted) return;
     setState(() => _cargando = false);
@@ -270,7 +268,7 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
                     crossAxisSpacing: 12,
                     children: [
                       _metricCard(
-                        'Ganancia estimada (6 meses)',
+                        'Ganancia real (6 meses)',
                         '\$${_gananciaEstimada.toStringAsFixed(0)}',
                         Icons.trending_up_rounded,
                         AppVisuals.success(cs),
@@ -335,7 +333,7 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
                     _topClientes,
                     (item) => (item['nombre'] ?? 'Sin nombre').toString(),
                     (item) =>
-                        '${((item['cantidadRemitos'] as num?)?.toInt() ?? 0)} remitos • \$${((item['totalCompras'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+                        '${((item['cantidadOps'] as num?)?.toInt() ?? (item['cantidadRemitos'] as num?)?.toInt() ?? 0)} operaciones • \$${((item['totalCompras'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
                   ),
                   const SizedBox(height: 12),
                   _listCard(

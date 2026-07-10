@@ -131,10 +131,30 @@ class AppTheme {
   }
 
   static ThemeData dark(Color seed, String fuente) {
-    return _buildTheme(
+    final base = _buildTheme(
       seed: seed,
       brightness: Brightness.dark,
       fuente: fuente,
+    );
+    final cs = base.colorScheme;
+    return base.copyWith(
+      scaffoldBackgroundColor: const Color(0xFF0F1419),
+      cardTheme: base.cardTheme.copyWith(
+        color: const Color(0xFF1A222C),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: const Color(0xFF1A222C),
+      ),
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(
+        backgroundColor: const Color(0xFF151B22),
+        selectedItemColor: cs.primary,
+        unselectedItemColor: cs.onSurfaceVariant,
+      ),
+      dividerColor: cs.outlineVariant.withValues(alpha: 0.4),
+      listTileTheme: ListTileThemeData(
+        iconColor: cs.onSurfaceVariant,
+        textColor: cs.onSurface,
+      ),
     );
   }
 }

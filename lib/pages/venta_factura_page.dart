@@ -305,6 +305,7 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
               cantidad: i.cantidad,
               precio: i.precioUnitario,
               subtotal: i.subtotal,
+              costoUnitario: i.producto.costo,
             ),
           )
           .toList();

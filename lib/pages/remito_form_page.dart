@@ -476,6 +476,7 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
                 cantidad: i.cantidad,
                 precioUnitario: i.precioUnitario,
                 subtotal: i.subtotal,
+                costoUnitario: i.producto.costo,
               ))
           .toList();
 

@@ -8,6 +8,7 @@ import '../services/cliente_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
 import '../theme/module_app_bar.dart';
+import 'scanner_page.dart';
 
 // ---------------------------------------------------------------------------
 // Ítem del carrito
@@ -72,6 +73,21 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
       return;
     }
     setState(() => _buscando = true);
+    // Match exacto por código de barras primero (escáner)
+    final porBarras = await _prodSvc.buscarPorCodigoBarras(query.trim());
+    if (porBarras != null) {
+      if (!mounted) return;
+      setState(() {
+        _resultados = [porBarras];
+        _buscando = false;
+      });
+      // Si es match exacto de barras, agregar directo
+      if (porBarras.codigoBarras == query.trim() ||
+          porBarras.codigo == query.trim()) {
+        _agregarAlCarrito(porBarras);
+        return;
+      }
+    }
     final todos = await _prodSvc.obtenerTodos();
     final q = query.toLowerCase();
     final filtrados = todos.where((p) {
@@ -85,6 +101,16 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
       _resultados = filtrados;
       _buscando = false;
     });
+  }
+
+  Future<void> _escanear() async {
+    final codigo = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const ScannerPage()),
+    );
+    if (codigo == null || codigo.trim().isEmpty || !mounted) return;
+    _busquedaCtrl.text = codigo.trim();
+    await _buscar(codigo.trim());
   }
 
   // ---------------------------------------------------------------------------
@@ -217,6 +243,7 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
               cantidad: e.cantidad,
               precioUnitario: e.precioUnitario,
               subtotal: e.subtotal,
+              costoUnitario: e.producto.costo,
             ),
           )
           .toList();
@@ -284,17 +311,26 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
               controller: _busquedaCtrl,
               autofocus: false,
               decoration: InputDecoration(
-                hintText: 'Buscar por código, descripción o marca...',
+                hintText: 'Código, barras, descripción o marca...',
                 prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: _busquedaCtrl.text.isNotEmpty
-                    ? IconButton(
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Escanear código',
+                      icon: const Icon(Icons.qr_code_scanner_rounded),
+                      onPressed: _escanear,
+                    ),
+                    if (_busquedaCtrl.text.isNotEmpty)
+                      IconButton(
                         icon: const Icon(Icons.clear_rounded),
                         onPressed: () {
                           _busquedaCtrl.clear();
                           setState(() => _resultados = []);
                         },
-                      )
-                    : null,
+                      ),
+                  ],
+                ),
               ),
               onChanged: _buscar,
             ),

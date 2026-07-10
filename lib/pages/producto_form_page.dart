@@ -9,6 +9,7 @@ import '../services/lista_precio_service.dart';
 import '../services/producto_service.dart';
 import '../theme/module_app_bar.dart';
 import 'historial_precios_page.dart';
+import 'scanner_page.dart';
 
 class ProductoFormPage extends StatefulWidget {
   final Producto? producto;
@@ -26,6 +27,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
   List<ListaPrecio> listasActivas = [];
 
   final codigoController = TextEditingController();
+  final codigoBarrasController = TextEditingController();
   final descripcionController = TextEditingController();
   final marcaController = TextEditingController();
   final categoriaController = TextEditingController();
@@ -49,6 +51,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
     if (widget.producto != null) {
       final p = widget.producto!;
       codigoController.text = p.codigo;
+      codigoBarrasController.text = p.codigoBarras;
       descripcionController.text = p.descripcion;
       marcaController.text = p.marca;
       categoriaController.text = p.categoria;
@@ -83,6 +86,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
   @override
   void dispose() {
     codigoController.dispose();
+    codigoBarrasController.dispose();
     descripcionController.dispose();
     marcaController.dispose();
     categoriaController.dispose();
@@ -137,6 +141,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
     final producto = Producto(
       id: widget.producto?.id,
       codigo: codigoController.text.trim(),
+      codigoBarras: codigoBarrasController.text.trim(),
       descripcion: descripcionController.text.trim(),
       marca: marcaController.text.trim(),
       categoria: categoriaController.text.trim(),
@@ -149,6 +154,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
       precio3: _parseDbl(precio3Controller.text),
       observaciones: observacionesController.text.trim(),
       foto: foto,
+      favorito: widget.producto?.favorito ?? false,
     );
 
     if (widget.producto == null) {
@@ -234,7 +240,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
           if (widget.producto?.id != null)
             IconButton(
               icon: const Icon(Icons.history_rounded),
-              tooltip: 'Ver historial de precios',
+              tooltip: 'Historial de cambios',
               onPressed: () {
                 Navigator.push(
                   context,
@@ -263,6 +269,28 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
             ),
             const SizedBox(height: 20),
             _campo('Código', codigoController),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: TextField(
+                controller: codigoBarrasController,
+                decoration: InputDecoration(
+                  labelText: 'Código de barras',
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    tooltip: 'Escanear',
+                    icon: const Icon(Icons.qr_code_scanner_rounded),
+                    onPressed: () async {
+                      final codigo = await Navigator.push<String>(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ScannerPage()),
+                      );
+                      if (codigo == null || codigo.trim().isEmpty) return;
+                      setState(() => codigoBarrasController.text = codigo.trim());
+                    },
+                  ),
+                ),
+              ),
+            ),
             _campo('Descripción', descripcionController),
             _campo('Marca', marcaController),
             _campo('Categoría', categoriaController),

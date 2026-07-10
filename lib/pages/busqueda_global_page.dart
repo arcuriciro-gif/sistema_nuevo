@@ -8,7 +8,9 @@ import '../theme/module_app_bar.dart';
 import 'kardex_page.dart';
 
 class BusquedaGlobalPage extends StatefulWidget {
-  const BusquedaGlobalPage({super.key});
+  final String? consultaInicial;
+
+  const BusquedaGlobalPage({super.key, this.consultaInicial});
 
   @override
   State<BusquedaGlobalPage> createState() => _BusquedaGlobalPageState();
@@ -26,6 +28,16 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
 
   Timer? _debounce;
   bool _cargando = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final inicial = widget.consultaInicial?.trim() ?? '';
+    if (inicial.isNotEmpty) {
+      _controller.text = inicial;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _buscar(inicial));
+    }
+  }
 
   @override
   void dispose() {
@@ -51,11 +63,15 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
     final productos = await db.rawQuery(
       '''
       SELECT * FROM productos
-      WHERE codigo LIKE ? OR descripcion LIKE ? OR marca LIKE ? OR categoria LIKE ?
-      ORDER BY descripcion
-      LIMIT 10
+      WHERE (deleted_at IS NULL OR deleted_at = '')
+        AND (
+          codigo LIKE ? OR codigo_barras LIKE ? OR descripcion LIKE ?
+          OR marca LIKE ? OR categoria LIKE ?
+        )
+      ORDER BY favorito DESC, descripcion
+      LIMIT 15
       ''',
-      [like, like, like, like],
+      [like, like, like, like, like],
     );
     final clientes = await db.rawQuery(
       '''
@@ -109,7 +125,7 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
 
   void _onChanged(String value) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 300), () => _buscar(value));
+    _debounce = Timer(const Duration(milliseconds: 150), () => _buscar(value));
   }
 
   Future<void> _abrirResultado(String categoria, Map<String, dynamic> item) async {

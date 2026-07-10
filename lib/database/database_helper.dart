@@ -22,7 +22,7 @@ class DatabaseHelper {
 
     return openDatabase(
       path,
-      version: 17,
+      version: 18,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -56,7 +56,9 @@ CREATE TABLE productos(
   foto TEXT,
   fotos TEXT DEFAULT '[]',
   precios_listas TEXT DEFAULT '{}',
-  precios_bloqueados TEXT DEFAULT '[]'
+  precios_bloqueados TEXT DEFAULT '[]',
+  favorito INTEGER DEFAULT 0,
+  deleted_at TEXT
 )
 ''');
 
@@ -124,6 +126,8 @@ CREATE TABLE remito_items(
   cantidad INTEGER,
   precio REAL,
   subtotal REAL,
+  costoUnitario REAL DEFAULT 0,
+  ganancia REAL DEFAULT 0,
   FOREIGN KEY(remitoId) REFERENCES remitos(id),
   FOREIGN KEY(productoId) REFERENCES productos(id)
 )
@@ -512,6 +516,8 @@ CREATE TABLE IF NOT EXISTS ventas_items(
   cantidad INTEGER DEFAULT 0,
   precio REAL DEFAULT 0,
   subtotal REAL DEFAULT 0,
+  costoUnitario REAL DEFAULT 0,
+  ganancia REAL DEFAULT 0,
   FOREIGN KEY(ventaId) REFERENCES ventas(id),
   FOREIGN KEY(productoId) REFERENCES productos(id)
 )
@@ -760,6 +766,52 @@ CREATE TABLE IF NOT EXISTS ventas_items(
         WHERE fechaVencimiento IS NULL
           AND estado != 'anulada'
           AND saldoPendiente > 0
+      ''');
+    }
+
+    if (oldVersion < 18) {
+      await _agregarColumnas(db, 'productos', {
+        'favorito': 'INTEGER DEFAULT 0',
+        'deleted_at': 'TEXT',
+      });
+      await _agregarColumnas(db, 'ventas_items', {
+        'costoUnitario': 'REAL DEFAULT 0',
+        'ganancia': 'REAL DEFAULT 0',
+      });
+      await _agregarColumnas(db, 'remito_items', {
+        'costoUnitario': 'REAL DEFAULT 0',
+        'ganancia': 'REAL DEFAULT 0',
+      });
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_productos_favorito ON productos(favorito)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_productos_deleted_at ON productos(deleted_at)',
+      );
+      // Backfill ganancia con costo actual (aprox. para historial previo)
+      await db.execute('''
+        UPDATE ventas_items
+        SET costoUnitario = COALESCE((
+          SELECT costo FROM productos WHERE productos.id = ventas_items.productoId
+        ), 0),
+        ganancia = subtotal - (
+          cantidad * COALESCE((
+            SELECT costo FROM productos WHERE productos.id = ventas_items.productoId
+          ), 0)
+        )
+        WHERE COALESCE(costoUnitario, 0) = 0
+      ''');
+      await db.execute('''
+        UPDATE remito_items
+        SET costoUnitario = COALESCE((
+          SELECT costo FROM productos WHERE productos.id = remito_items.productoId
+        ), 0),
+        ganancia = subtotal - (
+          cantidad * COALESCE((
+            SELECT costo FROM productos WHERE productos.id = remito_items.productoId
+          ), 0)
+        )
+        WHERE COALESCE(costoUnitario, 0) = 0
       ''');
     }
   }

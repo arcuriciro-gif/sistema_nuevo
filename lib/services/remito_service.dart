@@ -40,17 +40,9 @@ class RemitoService {
       );
 
       for (final item in items) {
-        await txn.insert('remito_items', {
-          'remitoId': remitoId,
-          'productoId': item.productoId,
-          'cantidad': item.cantidad,
-          'precio': item.precioUnitario,
-          'subtotal': item.subtotal,
-        });
-
         final productoRows = await txn.query(
           'productos',
-          columns: ['stock'],
+          columns: ['stock', 'costo'],
           where: 'id = ?',
           whereArgs: [item.productoId],
           limit: 1,
@@ -59,6 +51,24 @@ class RemitoService {
             (productoRows.isNotEmpty ? productoRows.first['stock'] as num? : 0)
                     ?.toInt() ??
                 0;
+        final costoUnitario = item.costoUnitario > 0
+            ? item.costoUnitario
+            : (productoRows.isNotEmpty
+                    ? (productoRows.first['costo'] as num?)?.toDouble()
+                    : 0) ??
+                0;
+        final ganancia = item.subtotal - (costoUnitario * item.cantidad);
+
+        await txn.insert('remito_items', {
+          'remitoId': remitoId,
+          'productoId': item.productoId,
+          'cantidad': item.cantidad,
+          'precio': item.precioUnitario,
+          'subtotal': item.subtotal,
+          'costoUnitario': costoUnitario,
+          'ganancia': ganancia,
+        });
+
         final stockNuevo = stockAnterior - item.cantidad;
 
         await txn.rawUpdate(

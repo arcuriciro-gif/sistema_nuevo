@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
 import '../models/producto.dart';
+import '../services/analytics_service.dart';
 import '../services/cliente_service.dart';
 import '../services/compra_service.dart';
 import '../services/cuenta_corriente_service.dart';
@@ -28,6 +29,7 @@ class _DashboardPageState extends State<DashboardPage> {
   final ProveedorService proveedorService = ProveedorService();
   final CuentaCorrienteService cuentaCorrienteService =
       CuentaCorrienteService();
+  final AnalyticsService analytics = AnalyticsService.instance;
 
   int totalProductos = 0;
   int totalClientes = 0;
@@ -35,15 +37,19 @@ class _DashboardPageState extends State<DashboardPage> {
   int totalProveedores = 0;
   int productosCriticos = 0;
   int productosSinStock = 0;
+  int productosBajoMargen = 0;
   double totalVentas = 0;
   double ventasHoy = 0;
   double ventasMes = 0;
   double comprasMes = 0;
+  double gananciaMes = 0;
+  double gananciaTotal = 0;
   double valorStock = 0;
   List<Map<String, dynamic>> productosTop = [];
   List<Map<String, dynamic>> clientesTop = [];
   List<Map<String, dynamic>> ventasMensuales = [];
   List<Producto> sinStock = [];
+  List<Producto> bajoMargen = [];
   ResumenCuentasCobrar? resumenCc;
   bool cargando = true;
 
@@ -71,26 +77,23 @@ class _DashboardPageState extends State<DashboardPage> {
     final productos = await productoService.obtenerTodos();
     final clientes = await clienteService.obtenerTodos();
     final remitos = await remitoService.cantidad();
-    final ventas = await remitoService.totalVentas();
-    final topProductos = await remitoService.topProductos();
-    final topClientes = await remitoService.topClientes();
-    final ventasMeses = await remitoService.ventasPorMes(meses: 6);
     final proveedores = await proveedorService.cantidad();
 
     final ahora = DateTime.now();
-    final ventasDelDia = await remitoService.totalVentasPorPeriodo(
-      DateTime(ahora.year, ahora.month, ahora.day),
-      ahora,
-    );
-    final ventasDelMes = await remitoService.totalVentasPorPeriodo(
-      DateTime(ahora.year, ahora.month, 1),
-      ahora,
-    );
-    final comprasDelMes = await compraService.totalComprasPorPeriodo(
-      DateTime(ahora.year, ahora.month, 1),
-      ahora,
-    );
+    final inicioDia = DateTime(ahora.year, ahora.month, ahora.day);
+    final inicioMes = DateTime(ahora.year, ahora.month, 1);
+
+    final ventas = await analytics.ventasTotales();
+    final topProductos = await analytics.topProductos();
+    final topClientes = await analytics.topClientes();
+    final ventasMeses = await analytics.ventasPorMes(meses: 6);
+    final ventasDelDia = await analytics.ventasTotales(desde: inicioDia, hasta: ahora);
+    final ventasDelMes = await analytics.ventasTotales(desde: inicioMes, hasta: ahora);
+    final gananciaDelMes = await analytics.gananciaReal(desde: inicioMes, hasta: ahora);
+    final gananciaAll = await analytics.gananciaReal();
+    final comprasDelMes = await compraService.totalComprasPorPeriodo(inicioMes, ahora);
     final resumen = await cuentaCorrienteService.resumenDashboard();
+    final margenBajo = await analytics.productosBajoMargen(umbralPorcentaje: 15);
 
     double stock = 0;
     List<Producto> agotados = [];
@@ -115,13 +118,17 @@ class _DashboardPageState extends State<DashboardPage> {
       ventasHoy = ventasDelDia;
       ventasMes = ventasDelMes;
       comprasMes = comprasDelMes;
+      gananciaMes = gananciaDelMes;
+      gananciaTotal = gananciaAll;
       valorStock = stock;
       productosTop = topProductos;
       clientesTop = topClientes;
       ventasMensuales = ventasMeses;
       productosCriticos = criticos;
       productosSinStock = sinStockCount;
+      productosBajoMargen = margenBajo.length;
       sinStock = agotados.take(5).toList();
+      bajoMargen = margenBajo.take(5).toList();
       resumenCc = resumen;
       cargando = false;
     });
@@ -291,17 +298,25 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _chartCard(Color color) {
+  Widget _chartCard(Color ventasColor, Color gananciaColor) {
     final groups = List.generate(ventasMensuales.length, (index) {
       final total = ((ventasMensuales[index]['total'] as num?)?.toDouble() ?? 0);
+      final ganancia =
+          ((ventasMensuales[index]['ganancia'] as num?)?.toDouble() ?? 0);
       return BarChartGroupData(
         x: index,
         barRods: [
           BarChartRodData(
             toY: total,
-            color: color,
-            width: 18,
-            borderRadius: BorderRadius.circular(6),
+            color: ventasColor,
+            width: 12,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          BarChartRodData(
+            toY: ganancia < 0 ? 0 : ganancia,
+            color: gananciaColor,
+            width: 12,
+            borderRadius: BorderRadius.circular(4),
           ),
         ],
       );
@@ -315,11 +330,19 @@ class _DashboardPageState extends State<DashboardPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Ventas últimos 6 meses',
+              'Ventas y ganancia · últimos 6 meses',
               style: Theme.of(context)
                   .textTheme
                   .titleMedium
                   ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _legendDot(ventasColor, 'Ventas'),
+                const SizedBox(width: 16),
+                _legendDot(gananciaColor, 'Ganancia real'),
+              ],
             ),
             const SizedBox(height: 12),
             SizedBox(
@@ -330,7 +353,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       BarChartData(
                         barGroups: groups,
                         borderData: FlBorderData(show: false),
-                        gridData: FlGridData(show: true),
+                        gridData: const FlGridData(show: true),
                         alignment: BarChartAlignment.spaceAround,
                         titlesData: FlTitlesData(
                           topTitles: const AxisTitles(
@@ -356,11 +379,12 @@ class _DashboardPageState extends State<DashboardPage> {
                               showTitles: true,
                               getTitlesWidget: (value, meta) {
                                 final index = value.toInt();
-                                if (index < 0 || index >= ventasMensuales.length) {
+                                if (index < 0 ||
+                                    index >= ventasMensuales.length) {
                                   return const SizedBox.shrink();
                                 }
-                                final mes =
-                                    (ventasMensuales[index]['mes'] ?? '').toString();
+                                final mes = (ventasMensuales[index]['mes'] ?? '')
+                                    .toString();
                                 return Padding(
                                   padding: const EdgeInsets.only(top: 6),
                                   child: Text(
@@ -378,6 +402,21 @@ class _DashboardPageState extends State<DashboardPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _legendDot(Color color, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(label, style: const TextStyle(fontSize: 12)),
+      ],
     );
   }
 
@@ -505,6 +544,24 @@ class _DashboardPageState extends State<DashboardPage> {
                           color: sinStockColor,
                         ),
                         _statCard(
+                          titulo: 'Ganancia del mes',
+                          valor: '\$${gananciaMes.toStringAsFixed(0)}',
+                          icono: Icons.trending_up_rounded,
+                          color: AppVisuals.success(colorScheme),
+                        ),
+                        _statCard(
+                          titulo: 'Ganancia total',
+                          valor: '\$${gananciaTotal.toStringAsFixed(0)}',
+                          icono: Icons.savings_rounded,
+                          color: AppVisuals.success(colorScheme),
+                        ),
+                        _statCard(
+                          titulo: 'Bajo margen (<15%)',
+                          valor: '$productosBajoMargen',
+                          icono: Icons.percent_rounded,
+                          color: AppVisuals.warning(colorScheme),
+                        ),
+                        _statCard(
                           titulo: 'Total ventas',
                           valor: '\$${totalVentas.toStringAsFixed(0)}',
                           icono: Icons.payments_rounded,
@@ -533,7 +590,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    _chartCard(ventasColor),
+                    _chartCard(ventasColor, AppVisuals.tertiaryAccent(colorScheme)),
                     const SizedBox(height: 20),
                     Text(
                       'Top 5 productos más vendidos',
@@ -550,7 +607,8 @@ class _DashboardPageState extends State<DashboardPage> {
                           titulo: (producto['descripcion'] ?? 'Sin descripción')
                               .toString(),
                           subtitulo:
-                              '${((producto['totalVendido'] as num?)?.toInt() ?? 0)} unidades vendidas',
+                              '${((producto['totalVendido'] as num?)?.toInt() ?? 0)} u. · '
+                              'Gan. \$${((producto['totalGanancia'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
                           valor:
                               '\$${((producto['totalMonto'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
                           icono: Icons.sell_rounded,
@@ -572,13 +630,43 @@ class _DashboardPageState extends State<DashboardPage> {
                         (cliente) => _rankingCard(
                           titulo: (cliente['nombre'] ?? 'Sin nombre').toString(),
                           subtitulo:
-                              '${((cliente['cantidadRemitos'] as num?)?.toInt() ?? 0)} remitos',
+                              '${((cliente['cantidadOps'] as num?)?.toInt() ?? (cliente['cantidadRemitos'] as num?)?.toInt() ?? 0)} operaciones',
                           valor:
                               '\$${((cliente['totalCompras'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
                           icono: Icons.workspace_premium_rounded,
                           color: topClientesColor,
                         ),
                       ),
+                    if (bajoMargen.isNotEmpty) ...[
+                      const SizedBox(height: 20),
+                      Text(
+                        'Alertas de bajo margen',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ...bajoMargen.map(
+                        (p) => Card(
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor:
+                                  AppVisuals.warning(colorScheme).withValues(alpha: .15),
+                              child: Icon(
+                                Icons.percent_rounded,
+                                color: AppVisuals.warning(colorScheme),
+                              ),
+                            ),
+                            title: Text(p.descripcion),
+                            subtitle: Text(
+                              'Margen ${p.margenPorcentaje.toStringAsFixed(1)}% · '
+                              'Costo \$${p.costo.toStringAsFixed(2)} · '
+                              'Precio \$${p.precio.toStringAsFixed(2)}',
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                     if (sinStock.isNotEmpty) ...[
                       const SizedBox(height: 20),
                       Text(

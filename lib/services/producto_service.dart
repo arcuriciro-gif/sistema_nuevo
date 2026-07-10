@@ -27,6 +27,8 @@ class ProductoService {
       'precio': producto.precio,
       'precio2': producto.precio2,
       'precio3': producto.precio3,
+      'favorito': producto.favorito,
+      'deletedAt': producto.deletedAt,
     });
   }
 
@@ -64,6 +66,50 @@ class ProductoService {
       _repo.buscarPorCodigoBarras(codigoBarras);
 
   Future<bool> tieneProductos() => _repo.tieneProductos();
+
+  Future<List<Producto>> obtenerFavoritos() async {
+    final db = await _databaseHelper.database;
+    final rows = await db.query(
+      'productos',
+      where: "favorito = 1 AND (deleted_at IS NULL OR deleted_at = '')",
+      orderBy: 'descripcion',
+    );
+    return rows.map(Producto.fromMap).toList();
+  }
+
+  Future<List<Producto>> obtenerEliminados() async {
+    final db = await _databaseHelper.database;
+    final rows = await db.query(
+      'productos',
+      where: "deleted_at IS NOT NULL AND deleted_at != ''",
+      orderBy: 'datetime(deleted_at) DESC',
+    );
+    return rows.map(Producto.fromMap).toList();
+  }
+
+  Future<void> toggleFavorito(Producto producto) async {
+    if (producto.id == null) return;
+    final nuevo = !producto.favorito;
+    final db = await _databaseHelper.database;
+    await db.update(
+      'productos',
+      {'favorito': nuevo ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [producto.id],
+    );
+    await AuthService.instance.registrarCambio(
+      nuevo ? 'FAVORITO_PRODUCTO' : 'QUITAR_FAVORITO_PRODUCTO',
+      'productos',
+      '${nuevo ? 'Marcado' : 'Quitado'} favorito: ${producto.descripcion}',
+      valorAnterior: _snapshot(producto),
+      valorNuevo: _snapshot(producto.copyWith(favorito: nuevo)),
+    );
+    // Sync remoto si aplica
+    try {
+      await _repo.actualizar(producto.copyWith(favorito: nuevo));
+    } catch (_) {}
+    DataRefreshHub.instance.notifyProductos();
+  }
 
   Future<int> actualizar(Producto producto) async {
     final db = await _databaseHelper.database;
@@ -138,6 +184,7 @@ class ProductoService {
     return result;
   }
 
+  /// Soft-delete → va a la papelera.
   Future<int> eliminar(int id) async {
     final db = await _databaseHelper.database;
     final anterior = await db.query(
@@ -154,12 +201,115 @@ class ProductoService {
       await AuthService.instance.registrarCambio(
         'BAJA_PRODUCTO',
         'productos',
-        'Producto eliminado: ${producto.descripcion}',
+        'Producto enviado a papelera: ${producto.descripcion}',
         valorAnterior: _snapshot(producto),
+        valorNuevo: _snapshot(
+          producto.copyWith(deletedAt: DateTime.now().toIso8601String()),
+        ),
       );
     }
     DataRefreshHub.instance.notifyProductos();
 
     return result;
+  }
+
+  Future<void> restaurar(int id) async {
+    final db = await _databaseHelper.database;
+    final rows = await db.query(
+      'productos',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final producto = Producto.fromMap(rows.first);
+    final restaurado = producto.copyWith(clearDeletedAt: true);
+    await db.update(
+      'productos',
+      {'deleted_at': null},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    try {
+      await _repo.actualizar(restaurado);
+    } catch (_) {}
+    await AuthService.instance.registrarCambio(
+      'RESTAURAR_PRODUCTO',
+      'productos',
+      'Producto restaurado: ${producto.descripcion}',
+      valorAnterior: _snapshot(producto),
+      valorNuevo: _snapshot(restaurado),
+    );
+    DataRefreshHub.instance.notifyProductos();
+  }
+
+  Future<void> eliminarDefinitivo(int id) async {
+    final db = await _databaseHelper.database;
+    final rows = await db.query(
+      'productos',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final producto = Producto.fromMap(rows.first);
+    await db.delete('productos', where: 'id = ?', whereArgs: [id]);
+    try {
+      // Soft-delete remoto ya aplicado; forzar borrado remoto vía actualizar no aplica.
+      // El Dual repo no expone hard delete; se deja solo local + audit.
+    } catch (_) {}
+    await AuthService.instance.registrarCambio(
+      'ELIMINAR_DEFINITIVO_PRODUCTO',
+      'productos',
+      'Producto eliminado definitivamente: ${producto.descripcion}',
+      valorAnterior: _snapshot(producto),
+    );
+    DataRefreshHub.instance.notifyProductos();
+  }
+
+  Future<List<Map<String, dynamic>>> historialCambios(int productoId) async {
+    final db = await _databaseHelper.database;
+    final precios = await db.query(
+      'historial_precios',
+      where: 'productoId = ?',
+      whereArgs: [productoId],
+      orderBy: 'datetime(fecha) DESC',
+    );
+    final audit = await db.rawQuery('''
+      SELECT * FROM audit_log
+      WHERE tablaAfectada = 'productos'
+        AND (
+          valorAnterior LIKE ? OR valorNuevo LIKE ?
+          OR detalle LIKE ?
+        )
+      ORDER BY datetime(fecha) DESC
+      LIMIT 100
+    ''', ['%"id":$productoId%', '%"id":$productoId%', '%id":$productoId%']);
+
+    final combinados = <Map<String, dynamic>>[];
+    for (final p in precios) {
+      combinados.add({
+        'tipo': 'precio',
+        'fecha': p['fecha'],
+        'usuario': p['usuario'],
+        'detalle': p['motivo'] ?? 'Cambio de precio',
+        'extra': p,
+      });
+    }
+    for (final a in audit) {
+      combinados.add({
+        'tipo': 'auditoria',
+        'fecha': a['fecha'],
+        'usuario': a['usuario'],
+        'detalle': a['detalle'] ?? a['accion'],
+        'extra': a,
+      });
+    }
+    combinados.sort((a, b) {
+      final fa = DateTime.tryParse(a['fecha']?.toString() ?? '') ?? DateTime(1970);
+      final fb = DateTime.tryParse(b['fecha']?.toString() ?? '') ?? DateTime(1970);
+      return fb.compareTo(fa);
+    });
+    return combinados;
   }
 }

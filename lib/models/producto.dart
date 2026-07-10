@@ -35,6 +35,8 @@ class Producto {
 
   /// IDs de listas con precio bloqueado manualmente.
   Set<String> preciosBloqueados;
+  bool favorito;
+  String? deletedAt;
 
   Producto({
     this.id,
@@ -63,9 +65,18 @@ class Producto {
     List<String>? fotos,
     Map<String, double>? preciosListas,
     Set<String>? preciosBloqueados,
+    this.favorito = false,
+    this.deletedAt,
   })  : fotos = fotos ?? const [],
         preciosListas = preciosListas ?? const {},
         preciosBloqueados = preciosBloqueados ?? const {};
+
+  bool get estaEliminado => deletedAt != null && deletedAt!.isNotEmpty;
+
+  double get margenPorcentaje {
+    if (precio <= 0) return 0;
+    return ((precio - costo) / precio) * 100;
+  }
 
   List<String> get todasLasFotos {
     if (fotos.isNotEmpty) return fotos;
@@ -105,6 +116,8 @@ class Producto {
       'fotos': jsonEncode(fotosNormalizadas),
       'precios_listas': jsonEncode(preciosListas),
       'precios_bloqueados': jsonEncode(preciosBloqueados.toList()),
+      'favorito': favorito ? 1 : 0,
+      'deleted_at': deletedAt,
     };
   }
 
@@ -141,6 +154,8 @@ class Producto {
       fotos: fotosFinal,
       preciosListas: _parsePreciosListas(map['precios_listas']),
       preciosBloqueados: _parseStringSet(map['precios_bloqueados']),
+      favorito: (map['favorito'] ?? 0) == 1 || map['favorito'] == true,
+      deletedAt: map['deleted_at']?.toString(),
     );
   }
 
@@ -185,6 +200,9 @@ class Producto {
     List<String>? fotos,
     Map<String, double>? preciosListas,
     Set<String>? preciosBloqueados,
+    bool? favorito,
+    String? deletedAt,
+    bool clearDeletedAt = false,
   }) {
     return Producto(
       id: id ?? this.id,
@@ -213,6 +231,8 @@ class Producto {
       fotos: fotos ?? this.fotos,
       preciosListas: preciosListas ?? this.preciosListas,
       preciosBloqueados: preciosBloqueados ?? this.preciosBloqueados,
+      favorito: favorito ?? this.favorito,
+      deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
     );
   }
 
