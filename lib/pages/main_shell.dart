@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../services/auth_service.dart';
 import '../services/auto_backup_service.dart';
 import '../services/branding_service.dart';
+import '../services/comunicaciones_service.dart';
 import '../services/cuenta_corriente_service.dart';
 import '../services/permisos_service.dart';
 import '../theme/layout_constants.dart';
@@ -18,6 +19,7 @@ import 'clientes_page.dart';
 import 'clientes_deudores_page.dart';
 import 'comparacion_page.dart';
 import 'compras_page.dart';
+import 'comunicaciones_page.dart';
 import 'configuracion_page.dart';
 import 'dashboard_page.dart';
 import 'etiquetas_page.dart';
@@ -26,6 +28,7 @@ import 'importacion_page.dart';
 import 'inteligencia_comercial_page.dart';
 import 'listas_precio_page.dart';
 import 'login_page.dart';
+import 'notificaciones_page.dart';
 import 'papelera_productos_page.dart';
 import 'permisos_page.dart';
 import 'productos_page.dart';
@@ -87,12 +90,19 @@ class _MainShellState extends State<MainShell> {
     // Start automatic backup timer if configured
     AutoBackupService.instance.iniciar();
     BrandingService.instance.addListener(_onBrandingChanged);
+    ComunicacionesService.instance.addListener(_onCommsChanged);
+    ComunicacionesService.instance.iniciar();
     WidgetsBinding.instance.addPostFrameCallback((_) => _mostrarRecordatorioCc());
+  }
+
+  void _onCommsChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     BrandingService.instance.removeListener(_onBrandingChanged);
+    ComunicacionesService.instance.removeListener(_onCommsChanged);
     super.dispose();
   }
 
@@ -109,6 +119,13 @@ class _MainShellState extends State<MainShell> {
           title: 'Dashboard',
           modulo: 'dashboard',
           builder: () => const DashboardPage(),
+          quickAccess: true,
+        ),
+        _ShellItem(
+          icon: Icons.forum_rounded,
+          title: 'Comunicaciones',
+          modulo: 'comunicaciones',
+          builder: () => const ComunicacionesPage(),
           quickAccess: true,
         ),
         _ShellItem(
@@ -303,6 +320,7 @@ class _MainShellState extends State<MainShell> {
   }
 
   Future<void> _logout() async {
+    await ComunicacionesService.instance.detener();
     await AuthService.instance.logout();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
@@ -504,6 +522,20 @@ class _MainShellState extends State<MainShell> {
         ),
         centerTitle: true,
         actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const NotificacionesPage()),
+              );
+            },
+            icon: Badge(
+              isLabelVisible: ComunicacionesService.instance.badgeTotal > 0,
+              label: Text('${ComunicacionesService.instance.badgeTotal}'),
+              child: const Icon(Icons.notifications_rounded),
+            ),
+            tooltip: 'Notificaciones',
+          ),
           IconButton(
             onPressed: () => _abrirBusqueda(desktop: false),
             icon: const Icon(Icons.search_rounded),
@@ -845,12 +877,20 @@ class _TopBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          // Notificaciones (placeholder)
+          // Notificaciones
           IconButton(
-            icon: const Icon(Icons.notifications_rounded),
+            icon: Badge(
+              isLabelVisible: ComunicacionesService.instance.badgeTotal > 0,
+              label: Text('${ComunicacionesService.instance.badgeTotal}'),
+              child: const Icon(Icons.notifications_rounded),
+            ),
             color: _kSidebarInactiveIcon,
             tooltip: 'Notificaciones',
-            onPressed: () {},
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const NotificacionesPage()),
+              );
+            },
           ),
           const SizedBox(width: 4),
           // Usuario

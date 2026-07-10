@@ -22,7 +22,7 @@ class DatabaseHelper {
 
     return openDatabase(
       path,
-      version: 18,
+      version: 19,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -157,6 +157,7 @@ CREATE TABLE comparacion(
     await _crearTablaCategorias(db);
     await _crearTablaVentasItems(db);
     await _crearTablaPagos(db);
+    await _crearTablasComunicaciones(db);
     await _crearIndices(db);
   }
 
@@ -380,6 +381,7 @@ CREATE TABLE IF NOT EXISTS permisos(
       'backup',
       'configuracion',
       'usuarios',
+      'comunicaciones',
     ];
 
     for (final rol in roles) {
@@ -400,6 +402,7 @@ CREATE TABLE IF NOT EXISTS permisos(
             'clientes',
             'proveedores',
             'productos',
+            'comunicaciones',
           ].contains(modulo)
               ? 1
               : 0;
@@ -411,6 +414,7 @@ CREATE TABLE IF NOT EXISTS permisos(
             'productos',
             'stock',
             'listas_precios',
+            'comunicaciones',
           ].contains(modulo)
               ? 1
               : 0;
@@ -419,7 +423,8 @@ CREATE TABLE IF NOT EXISTS permisos(
             verVal = 0;
           }
         } else if (rol == 'empleado') {
-          crearVal = ['remitos'].contains(modulo) ? 1 : 0;
+          crearVal = ['remitos', 'comunicaciones'].contains(modulo) ? 1 : 0;
+          editarVal = ['comunicaciones'].contains(modulo) ? 1 : 0;
           if ([
             'auditoria',
             'backup',
@@ -814,6 +819,89 @@ CREATE TABLE IF NOT EXISTS ventas_items(
         WHERE COALESCE(costoUnitario, 0) = 0
       ''');
     }
+
+    if (oldVersion < 19) {
+      await _crearTablasComunicaciones(db);
+      final roles = ['admin', 'supervisor', 'empleado', 'solo_lectura'];
+      for (final rol in roles) {
+        int ver = 1;
+        int crear = 0;
+        int editar = 0;
+        int eliminar = 0;
+        if (rol == 'admin') {
+          crear = 1;
+          editar = 1;
+          eliminar = 1;
+        } else if (rol == 'supervisor' || rol == 'empleado') {
+          crear = 1;
+          editar = 1;
+        }
+        await db.insert(
+          'permisos',
+          {
+            'rol': rol,
+            'modulo': 'comunicaciones',
+            'puede_ver': ver,
+            'puede_crear': crear,
+            'puede_editar': editar,
+            'puede_eliminar': eliminar,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+    }
+  }
+
+  Future<void> _crearTablasComunicaciones(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS chat_conversaciones(
+  id TEXT PRIMARY KEY,
+  tipo TEXT DEFAULT 'dm',
+  participantes TEXT NOT NULL,
+  nombres TEXT DEFAULT '{}',
+  titulo TEXT,
+  ultimoMensaje TEXT DEFAULT '',
+  ultimoMensajeAt TEXT,
+  noLeidos TEXT DEFAULT '{}',
+  creadaAt TEXT NOT NULL
+)
+''');
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS chat_mensajes(
+  id TEXT PRIMARY KEY,
+  conversacionId TEXT NOT NULL,
+  autorUsuario TEXT NOT NULL,
+  autorNombre TEXT NOT NULL,
+  tipo TEXT DEFAULT 'texto',
+  texto TEXT DEFAULT '',
+  archivoPath TEXT,
+  archivoNombre TEXT,
+  archivoMime TEXT,
+  compartido TEXT,
+  fecha TEXT NOT NULL,
+  estados TEXT DEFAULT '{}'
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_chat_mensajes_conv ON chat_mensajes(conversacionId)',
+    );
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS notificaciones_internas(
+  id TEXT PRIMARY KEY,
+  usuarioDestino TEXT NOT NULL,
+  tipo TEXT NOT NULL,
+  titulo TEXT NOT NULL,
+  cuerpo TEXT DEFAULT '',
+  conversacionId TEXT,
+  entidadTipo TEXT,
+  entidadId TEXT,
+  fecha TEXT NOT NULL,
+  leida INTEGER DEFAULT 0
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_notif_destino ON notificaciones_internas(usuarioDestino)',
+    );
   }
 
   Future<void> cerrar() async {

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../models/chat_mensaje.dart';
 import '../models/cliente.dart';
 import '../services/cliente_service.dart';
 import '../theme/app_visuals.dart';
+import '../widgets/compartir_chat_dialog.dart';
 import 'cliente_form_page.dart';
 import 'cliente_historial_page.dart';
 import 'cuenta_corriente_cliente_page.dart';
@@ -210,6 +212,34 @@ class _ClientesPageState extends State<ClientesPage> {
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  IconButton(
+                                    tooltip: 'Compartir en chat',
+                                    icon: Icon(
+                                      Icons.share_rounded,
+                                      color: colorScheme.secondary,
+                                    ),
+                                    onPressed: () => showCompartirEnChatDialog(
+                                      context,
+                                      compartido: ChatCompartido(
+                                        tipo: 'cliente',
+                                        idRef: '${c.id}',
+                                        titulo:
+                                            '${c.nombre} ${c.apellido}'.trim(),
+                                        subtitulo: [
+                                          if (c.cuit.isNotEmpty) 'CUIT ${c.cuit}',
+                                          if (c.telefono.isNotEmpty) c.telefono,
+                                          if (c.saldo > 0)
+                                            'Saldo \$${c.saldo.toStringAsFixed(2)}',
+                                        ].join(' · '),
+                                        datos: {
+                                          'telefono': c.telefono,
+                                          'email': c.email,
+                                          'cuit': c.cuit,
+                                          'saldo': c.saldo,
+                                        },
+                                      ),
+                                    ),
+                                  ),
                                   IconButton(
                                     tooltip: 'Cuenta corriente',
                                     icon: Icon(

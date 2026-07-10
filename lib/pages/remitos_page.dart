@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../models/chat_mensaje.dart';
 import '../services/pdf_service.dart';
 import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
+import '../widgets/compartir_chat_dialog.dart';
 import 'remito_form_page.dart';
 import '../theme/module_app_bar.dart';
 
@@ -491,6 +493,31 @@ class _RemitosPageState extends State<RemitosPage> {
                                           onPressed: () => compartirRemito(remito),
                                           icon: const Icon(
                                             Icons.share_rounded,
+                                          ),
+                                        ),
+                                        IconButton(
+                                          tooltip: 'Compartir en chat',
+                                          onPressed: () => showCompartirEnChatDialog(
+                                            context,
+                                            compartido: ChatCompartido(
+                                              tipo: 'remito',
+                                              idRef: '${remito['id']}',
+                                              titulo:
+                                                  'Remito ${remito['numero'] ?? ''}',
+                                              subtitulo:
+                                                  '${remito['clienteNombre'] ?? 'Sin cliente'} · '
+                                                  '\$${((remito['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)} · '
+                                                  '${remito['estadoPago'] ?? ''}',
+                                              datos: {
+                                                'numero': remito['numero'],
+                                                'total': remito['total'],
+                                                'estado': remito['estado'],
+                                                'estadoPago': remito['estadoPago'],
+                                              },
+                                            ),
+                                          ),
+                                          icon: const Icon(
+                                            Icons.forum_rounded,
                                           ),
                                         ),
                                       ],

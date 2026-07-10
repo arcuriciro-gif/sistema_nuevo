@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../models/chat_mensaje.dart';
 import '../models/lista_precio.dart';
 import '../models/producto.dart';
 import '../services/lista_precio_service.dart';
 import '../services/producto_service.dart';
 import '../theme/app_visuals.dart';
+import '../widgets/compartir_chat_dialog.dart';
 import 'papelera_productos_page.dart';
 import 'producto_form_page.dart';
 import 'scanner_page.dart';
@@ -402,6 +404,23 @@ class _ProductosPageState extends State<ProductosPage> {
                               onEdit: () => _editarProducto(p),
                               onDelete: () => eliminar(p),
                               onToggleFavorito: () => _toggleFavorito(p),
+                              onShare: () => showCompartirEnChatDialog(
+                                context,
+                                compartido: ChatCompartido(
+                                  tipo: 'producto',
+                                  idRef: '${p.id}',
+                                  titulo: p.descripcion,
+                                  subtitulo:
+                                      'Cód: ${p.codigo} · Stock ${p.stock} · \$${p.precio.toStringAsFixed(2)}',
+                                  datos: {
+                                    'codigo': p.codigo,
+                                    'stock': p.stock,
+                                    'precio': p.precio,
+                                    'costo': p.costo,
+                                    'foto': p.fotoPrincipal,
+                                  },
+                                ),
+                              ),
                             );
                           },
                         ),
@@ -591,6 +610,7 @@ class _ProductoCard extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onToggleFavorito;
+  final VoidCallback onShare;
 
   const _ProductoCard({
     required this.producto,
@@ -600,6 +620,7 @@ class _ProductoCard extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onToggleFavorito,
+    required this.onShare,
   });
 
   @override
@@ -680,6 +701,16 @@ class _ProductoCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
+                TextButton.icon(
+                  onPressed: onShare,
+                  icon: const Icon(Icons.share_rounded, size: 16),
+                  label: const Text('Compartir'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: colorScheme.secondary,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+                const SizedBox(width: 4),
                 TextButton.icon(
                   onPressed: onEdit,
                   icon: const Icon(Icons.edit_rounded, size: 16),

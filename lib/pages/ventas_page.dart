@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../models/chat_mensaje.dart';
 import '../models/venta.dart';
 import '../services/venta_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/cobrar_dialog.dart';
+import '../widgets/compartir_chat_dialog.dart';
 import 'venta_factura_page.dart';
 
 class VentasPage extends StatefulWidget {
@@ -237,31 +239,54 @@ class _VentasPageState extends State<VentasPage> {
                                 '${v.clienteNombre ?? 'Consumidor final'} · '
                                 '${_formatFecha(v.fecha)}',
                               ),
-                              trailing: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Text(
-                                    '\$${v.total.toStringAsFixed(2)}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  Text(
-                                    v.estadoPagoLabel,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: _colorEstadoPago(v.estadoPago, cs),
-                                    ),
-                                  ),
-                                  if (v.saldoPendiente > 0.009)
-                                    Text(
-                                      'Saldo \$${v.saldoPendiente.toStringAsFixed(2)}',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: cs.onSurfaceVariant,
+                                  IconButton(
+                                    tooltip: 'Compartir en chat',
+                                    icon: const Icon(Icons.forum_rounded),
+                                    onPressed: () => showCompartirEnChatDialog(
+                                      context,
+                                      compartido: ChatCompartido(
+                                        tipo: v.tipo == 'presupuesto'
+                                            ? 'presupuesto'
+                                            : 'venta',
+                                        idRef: '${v.id}',
+                                        titulo: '${v.tipoLabel} ${v.numero}',
+                                        subtitulo:
+                                            '${v.clienteNombre ?? 'Consumidor final'} · '
+                                            '\$${v.total.toStringAsFixed(2)} · '
+                                            '${v.estadoPagoLabel}'
+                                            '${v.saldoPendiente > 0.009 ? ' · Saldo \$${v.saldoPendiente.toStringAsFixed(2)}' : ''}',
+                                        datos: {
+                                          'cliente': v.clienteNombre,
+                                          'total': v.total,
+                                          'estadoPago': v.estadoPago,
+                                          'saldoPendiente': v.saldoPendiente,
+                                          'tipo': v.tipo,
+                                        },
                                       ),
                                     ),
+                                  ),
+                                  Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        '\$${v.total.toStringAsFixed(2)}',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      Text(
+                                        v.estadoPagoLabel,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: _colorEstadoPago(v.estadoPago, cs),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ],
                               ),
                               onTap: () => _verDetalle(v),

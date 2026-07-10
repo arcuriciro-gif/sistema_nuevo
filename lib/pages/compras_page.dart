@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../models/chat_mensaje.dart';
 import '../services/compra_service.dart';
 import '../theme/app_visuals.dart';
+import '../widgets/compartir_chat_dialog.dart';
 import 'compra_form_page.dart';
 import '../theme/module_app_bar.dart';
 
@@ -342,6 +344,32 @@ class _ComprasPageState extends State<ComprasPage> {
                                         mainAxisAlignment:
                                             MainAxisAlignment.end,
                                         children: [
+                                          TextButton.icon(
+                                            onPressed: () =>
+                                                showCompartirEnChatDialog(
+                                              context,
+                                              compartido: ChatCompartido(
+                                                tipo: 'compra',
+                                                idRef: '${compra['id']}',
+                                                titulo:
+                                                    'Compra ${compra['numero'] ?? compra['id']}',
+                                                subtitulo:
+                                                    '${compra['proveedorNombre'] ?? 'Sin proveedor'} · '
+                                                    '\$${((compra['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+                                                datos: {
+                                                  'proveedor':
+                                                      compra['proveedorNombre'],
+                                                  'total': compra['total'],
+                                                  'estado': compra['estado'],
+                                                },
+                                              ),
+                                            ),
+                                            icon: const Icon(
+                                              Icons.forum_rounded,
+                                              size: 18,
+                                            ),
+                                            label: const Text('Compartir'),
+                                          ),
                                           TextButton.icon(
                                             onPressed: () =>
                                                 confirmarAnular(compra),
