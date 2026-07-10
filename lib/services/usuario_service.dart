@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import '../core/auth/rol_util.dart';
 import '../core/auth/usuario_auth_email.dart';
 import '../core/config/backend_config_service.dart';
@@ -8,6 +10,8 @@ import '../models/usuario.dart';
 import '../repositories/firestore_usuario_repository.dart';
 import '../repositories/sqlite_usuario_repository.dart';
 import 'auth_service.dart';
+import 'branding_service.dart';
+import 'comunicaciones_service.dart';
 
 class UsuarioService {
   static final UsuarioService instance = UsuarioService._();
@@ -26,15 +30,19 @@ class UsuarioService {
     return _repoLocal.obtenerTodos();
   }
 
-  Future<int> insertar(Usuario usuario) async {
+  /// Resultado del alta: id local + si se envió email de confirmación.
+  Future<({int id, bool emailEnviado, String? aviso})> insertarConAviso(
+    Usuario usuario,
+  ) async {
     _requiereAdministrador();
     final ahora = DateTime.now();
     final rol = RolUtil.normalizar(usuario.rol);
     final passwordPlano = usuario.password;
+    final emailReal = usuario.email.trim();
     var nuevo = usuario.copyWith(
       rol: rol,
-      email: usuario.email.isNotEmpty
-          ? usuario.email
+      email: emailReal.isNotEmpty
+          ? emailReal
           : UsuarioAuthEmail.paraUsuario(usuario.usuario),
       fechaCreacion: usuario.fechaCreacion ?? ahora,
       password: AuthService.hashPassword(passwordPlano),
@@ -42,10 +50,39 @@ class UsuarioService {
     );
 
     final firebase = FirebaseAuthUsuarioService.instance;
+    var emailEnviado = false;
+    String? aviso;
     if (firebase.disponible) {
-      final uid = await firebase.crearCuenta(usuario.usuario, passwordPlano);
+      final uid = await firebase.crearCuenta(
+        usuario.usuario,
+        passwordPlano,
+        email: emailReal,
+      );
       nuevo = nuevo.copyWith(firebaseUid: uid);
       await FirestoreUsuarioRepository().insertar(nuevo);
+
+      if (UsuarioAuthEmail.esEmailReal(emailReal)) {
+        try {
+          await firebase.enviarConfirmacionAlta(
+            usuario: usuario.usuario,
+            email: emailReal,
+          );
+          emailEnviado = true;
+          aviso =
+              'Se envió un email de confirmación a $emailReal '
+              '(verificación y enlace para definir/recuperar contraseña).';
+        } catch (e) {
+          debugPrint('Email confirmación alta: $e');
+          aviso =
+              'Usuario creado, pero no se pudo enviar el email. '
+              'Revisá Authentication > Templates en Firebase y que el email sea válido.';
+        }
+      } else {
+        aviso =
+            'Usuario creado. Para enviar confirmación por mail, cargá un email real.';
+      }
+    } else {
+      aviso = 'Usuario creado en este dispositivo (Firebase no disponible).';
     }
 
     final id = await _repoLocal.insertar(nuevo);
@@ -58,10 +95,32 @@ class UsuarioService {
         'usuario': nuevo.usuario,
         'rol': nuevo.rol,
         'nombre': nuevo.nombre,
+        'email': nuevo.email,
       }),
     );
 
-    return id;
+    // Aviso interno a administradores / email de la empresa
+    try {
+      final adminEmail = BrandingService.instance.email.trim();
+      await ComunicacionesService.instance.crearNotificacion(
+        usuarioDestino: AuthService.instance.currentUser?.usuario ?? 'admin',
+        tipo: 'usuario_alta',
+        titulo: 'Nuevo usuario: ${nuevo.nombre}',
+        cuerpo:
+            'Se dio de alta a ${nuevo.usuario}'
+            '${UsuarioAuthEmail.esEmailReal(nuevo.email) ? ' (${nuevo.email})' : ''}'
+            '${adminEmail.isNotEmpty ? '. Contacto empresa: $adminEmail' : ''}.',
+      );
+    } catch (e) {
+      debugPrint('Notificación alta usuario: $e');
+    }
+
+    return (id: id, emailEnviado: emailEnviado, aviso: aviso);
+  }
+
+  Future<int> insertar(Usuario usuario) async {
+    final r = await insertarConAviso(usuario);
+    return r.id;
   }
 
   Future<int> actualizar(Usuario usuario, {String? nuevaPassword}) async {
@@ -89,8 +148,11 @@ class UsuarioService {
       'MODIFICAR_USUARIO',
       'usuarios',
       'Modificación de usuario ${actualizado.usuario}',
-      valorAnterior: jsonEncode({'usuario': usuario.usuario, 'rol': usuario.rol}),
-      valorNuevo: jsonEncode({'usuario': actualizado.usuario, 'rol': actualizado.rol}),
+      valorAnterior:
+          jsonEncode({'usuario': usuario.usuario, 'rol': usuario.rol}),
+      valorNuevo: jsonEncode(
+        {'usuario': actualizado.usuario, 'rol': actualizado.rol},
+      ),
     );
 
     return resultado;

@@ -5,6 +5,7 @@ import '../models/usuario.dart';
 import '../services/auth_service.dart';
 import '../services/usuario_service.dart';
 import '../theme/app_visuals.dart';
+import '../core/utils/media_path.dart';
 import 'usuario_form_page.dart';
 import '../theme/module_app_bar.dart';
 
@@ -195,13 +196,19 @@ class _UsuariosPageState extends State<UsuariosPage> {
                             child: ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: colorRol.withValues(alpha: .15),
-                                child: Text(
-                                  usuario.nombre.substring(0, 1).toUpperCase(),
-                                  style: TextStyle(
-                                    color: colorRol,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
+                                backgroundImage:
+                                    imageProviderDesdePath(usuario.foto),
+                                child: usuario.foto.isEmpty
+                                    ? Text(
+                                        usuario.nombre
+                                            .substring(0, 1)
+                                            .toUpperCase(),
+                                        style: TextStyle(
+                                          color: colorRol,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      )
+                                    : null,
                               ),
                               title: Text(
                                 usuario.nombre,
@@ -211,6 +218,11 @@ class _UsuariosPageState extends State<UsuariosPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text('@${usuario.usuario}'),
+                                  if (usuario.email.isNotEmpty)
+                                    Text(
+                                      usuario.email,
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
                                   const SizedBox(height: 6),
                                   Wrap(
                                     spacing: 8,

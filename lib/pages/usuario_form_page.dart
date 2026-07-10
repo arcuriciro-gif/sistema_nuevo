@@ -19,6 +19,7 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
   final _formKey = GlobalKey<FormState>();
   final _nombreController = TextEditingController();
   final _usuarioController = TextEditingController();
+  final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmarController = TextEditingController();
 
@@ -42,6 +43,7 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
     final usuario = widget.usuario;
     _nombreController.text = usuario?.nombre ?? '';
     _usuarioController.text = usuario?.usuario ?? '';
+    _emailController.text = usuario?.email ?? '';
     _activo = usuario?.activo ?? true;
     _rol = RolUtil.normalizar(usuario?.rol ?? RolUtil.empleado);
   }
@@ -50,6 +52,7 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
   void dispose() {
     _nombreController.dispose();
     _usuarioController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     _confirmarController.dispose();
     super.dispose();
@@ -63,6 +66,7 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
     setState(() => _guardando = true);
     try {
       final usuarioTexto = _usuarioController.text.trim();
+      final emailTexto = _emailController.text.trim();
       final cambiaUsuario = !_esEdicion ||
           widget.usuario!.usuario.toLowerCase() != usuarioTexto.toLowerCase();
       if (cambiaUsuario && await _service.existeUsuario(usuarioTexto)) {
@@ -82,7 +86,8 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
         rol: _rol,
         activo: _activo,
         debeCambiarPassword: widget.usuario?.debeCambiarPassword ?? !_esEdicion,
-        email: widget.usuario?.email ?? '',
+        email: emailTexto,
+        foto: widget.usuario?.foto ?? '',
         fechaCreacion: widget.usuario?.fechaCreacion ?? DateTime.now(),
         ultimoAcceso: widget.usuario?.ultimoAcceso,
       );
@@ -94,12 +99,32 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
               ? null
               : _passwordController.text.trim(),
         );
+        if (!mounted) return;
+        navigator.pop(true);
       } else {
-        await _service.insertar(usuario);
+        final resultado = await _service.insertarConAviso(usuario);
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Usuario creado'),
+            content: Text(
+              resultado.aviso ??
+                  (resultado.emailEnviado
+                      ? 'Se envió la confirmación por email.'
+                      : 'Usuario dado de alta correctamente.'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Entendido'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
+        navigator.pop(true);
       }
-
-      if (!mounted) return;
-      navigator.pop(true);
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('No se pudo guardar: $e')));
@@ -159,6 +184,26 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
                     : null,
               ),
               const SizedBox(height: 16),
+              TextFormField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: _decoracion(
+                  'Email (confirmación)',
+                  Icons.email_outlined,
+                ),
+                validator: (value) {
+                  if (_esEdicion) return null;
+                  final v = (value ?? '').trim();
+                  if (v.isEmpty) {
+                    return 'Ingresá un email real para enviar la confirmación';
+                  }
+                  if (!v.contains('@') || !v.contains('.')) {
+                    return 'Email inválido';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 initialValue: _rol,
                 decoration: _decoracion('Rol', Icons.security_rounded),
@@ -194,8 +239,8 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
                   if (!_esEdicion && (value == null || value.isEmpty)) {
                     return 'Ingresá la contraseña';
                   }
-                  if (value != null && value.isNotEmpty && value.length < 4) {
-                    return 'Usá al menos 4 caracteres';
+                  if (value != null && value.isNotEmpty && value.length < 6) {
+                    return 'Usá al menos 6 caracteres (Firebase)';
                   }
                   return null;
                 },

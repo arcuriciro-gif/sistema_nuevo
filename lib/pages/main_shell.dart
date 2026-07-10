@@ -31,6 +31,7 @@ import 'listas_precio_page.dart';
 import 'login_page.dart';
 import 'notificaciones_page.dart';
 import 'papelera_productos_page.dart';
+import 'perfil_usuario_page.dart';
 import 'permisos_page.dart';
 import 'productos_page.dart';
 import 'proveedores_page.dart';
@@ -41,6 +42,7 @@ import 'stock_page.dart';
 import 'usuarios_page.dart';
 import 'ventas_page.dart';
 import 'venta_rapida_page.dart';
+import '../core/utils/media_path.dart';
 
 // ── Paleta fija para la barra lateral oscura ──────────────────────────────────
 const Color _kSidebarBg = Color(0xFF111827);
@@ -283,6 +285,13 @@ class _MainShellState extends State<MainShell> {
           title: 'Auditoría',
           modulo: 'auditoria',
           builder: () => const AuditoriaPage(),
+        ),
+        _ShellItem(
+          icon: Icons.manage_accounts_rounded,
+          title: 'Mi perfil',
+          modulo: 'dashboard',
+          builder: () => const PerfilUsuarioPage(),
+          quickAccess: true,
         ),
         _ShellItem(
           icon: Icons.people_alt_rounded,
@@ -551,18 +560,31 @@ class _MainShellState extends State<MainShell> {
           ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
-            child: CircleAvatar(
-              radius: 16,
-              backgroundColor: cs.primaryContainer,
-              child: Text(
-                (AuthService.instance.currentUser?.nombre ?? 'A')
-                    .substring(0, 1)
-                    .toUpperCase(),
-                style: TextStyle(
-                  color: cs.onPrimaryContainer,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
+            child: InkWell(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const PerfilUsuarioPage()),
+                );
+              },
+              borderRadius: BorderRadius.circular(20),
+              child: CircleAvatar(
+                radius: 16,
+                backgroundColor: cs.primaryContainer,
+                backgroundImage: imageProviderDesdePath(
+                  AuthService.instance.currentUser?.foto,
                 ),
+                child: (AuthService.instance.currentUser?.foto ?? '').isEmpty
+                    ? Text(
+                        (AuthService.instance.currentUser?.nombre ?? 'A')
+                            .substring(0, 1)
+                            .toUpperCase(),
+                        style: TextStyle(
+                          color: cs.onPrimaryContainer,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      )
+                    : null,
               ),
             ),
           ),
@@ -760,56 +782,69 @@ class _SidebarContent extends StatelessWidget {
             color: _kSidebarUserBg,
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 16,
-                backgroundColor: const Color(0xFF1E3A5F),
-                child: Text(
-                  (AuthService.instance.currentUser?.nombre ?? 'A')
-                      .substring(0, 1)
-                      .toUpperCase(),
-                  style: const TextStyle(
-                    color: Color(0xFF93C5FD),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+          child: InkWell(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PerfilUsuarioPage()),
+              );
+            },
+            borderRadius: BorderRadius.circular(10),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: const Color(0xFF1E3A5F),
+                  backgroundImage: imageProviderDesdePath(
+                    AuthService.instance.currentUser?.foto,
+                  ),
+                  child: (AuthService.instance.currentUser?.foto ?? '').isEmpty
+                      ? Text(
+                          (AuthService.instance.currentUser?.nombre ?? 'A')
+                              .substring(0, 1)
+                              .toUpperCase(),
+                          style: const TextStyle(
+                            color: Color(0xFF93C5FD),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        AuthService.instance.currentUser?.nombre ?? 'Usuario',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const Text(
+                        'Editar perfil',
+                        style: TextStyle(color: _kSidebarSubtext, fontSize: 11),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      AuthService.instance.currentUser?.nombre ?? 'Usuario',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      AuthService.instance.currentUser?.rol ?? '',
-                      style: const TextStyle(color: _kSidebarSubtext, fontSize: 11),
-                    ),
-                  ],
+                IconButton(
+                  icon: const Icon(
+                    Icons.logout_rounded,
+                    color: _kSidebarInactiveIcon,
+                    size: 20,
+                  ),
+                  tooltip: 'Cerrar sesión',
+                  onPressed: onLogout,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                 ),
-              ),
-              IconButton(
-                icon: const Icon(
-                  Icons.logout_rounded,
-                  color: _kSidebarInactiveIcon,
-                  size: 20,
-                ),
-                tooltip: 'Cerrar sesión',
-                onPressed: onLogout,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ],
@@ -902,22 +937,42 @@ class _TopBar extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           // Usuario
-          CircleAvatar(
-            radius: 15,
-            backgroundColor: const Color(0xFF1E3A5F),
-            child: Text(
-              userInitial,
-              style: const TextStyle(
-                color: Color(0xFF93C5FD),
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-              ),
+          InkWell(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PerfilUsuarioPage()),
+              );
+            },
+            borderRadius: BorderRadius.circular(20),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 15,
+                  backgroundColor: const Color(0xFF1E3A5F),
+                  backgroundImage: imageProviderDesdePath(
+                    AuthService.instance.currentUser?.foto,
+                  ),
+                  child: (AuthService.instance.currentUser?.foto ?? '').isEmpty
+                      ? Text(
+                          userInitial,
+                          style: const TextStyle(
+                            color: Color(0xFF93C5FD),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  userName,
+                  style: const TextStyle(
+                    color: _kSidebarInactiveText,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            userName,
-            style: const TextStyle(color: _kSidebarInactiveText, fontSize: 13),
           ),
           const SizedBox(width: 8),
           // Cerrar sesión

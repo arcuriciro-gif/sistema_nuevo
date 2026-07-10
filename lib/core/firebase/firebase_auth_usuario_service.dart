@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 
 import '../auth/usuario_auth_email.dart';
 import '../config/backend_config_service.dart';
@@ -16,26 +17,43 @@ class FirebaseAuthUsuarioService {
 
   FirebaseAuth get _auth => FirebaseAuth.instance;
 
-  Future<UserCredential> iniciarSesion(String usuario, String password) {
-    final email = UsuarioAuthEmail.paraUsuario(usuario);
-    return _auth.signInWithEmailAndPassword(email: email, password: password);
+  Future<UserCredential> iniciarSesion(
+    String usuario,
+    String password, {
+    String? email,
+  }) {
+    final authEmail = UsuarioAuthEmail.paraUsuario(usuario, emailReal: email);
+    return _auth.signInWithEmailAndPassword(
+      email: authEmail,
+      password: password,
+    );
   }
 
   Future<void> cerrarSesion() => _auth.signOut();
 
-  Future<String> crearCuenta(String usuario, String password) async {
-    final email = UsuarioAuthEmail.paraUsuario(usuario);
+  Future<String> crearCuenta(
+    String usuario,
+    String password, {
+    String? email,
+  }) async {
+    final authEmail = UsuarioAuthEmail.paraUsuario(usuario, emailReal: email);
     final appName = 'UsuarioCreator_${DateTime.now().millisecondsSinceEpoch}';
     final secondary = await Firebase.initializeApp(
       name: appName,
       options: _auth.app.options,
     );
     try {
-      final cred = await FirebaseAuth.instanceFor(app: secondary)
-          .createUserWithEmailAndPassword(email: email, password: password);
+      final secondaryAuth = FirebaseAuth.instanceFor(app: secondary);
+      final cred = await secondaryAuth.createUserWithEmailAndPassword(
+        email: authEmail,
+        password: password,
+      );
       final uid = cred.user!.uid;
       // Dejar la sesión activa en la app principal para que Firestore acepte writes.
-      await _auth.signInWithEmailAndPassword(email: email, password: password);
+      await _auth.signInWithEmailAndPassword(
+        email: authEmail,
+        password: password,
+      );
       return uid;
     } finally {
       await secondary.delete();
@@ -50,9 +68,50 @@ class FirebaseAuthUsuarioService {
     await user.updatePassword(passwordNueva);
   }
 
-  Future<void> enviarRestablecimiento(String usuario) async {
-    final email = UsuarioAuthEmail.paraUsuario(usuario);
-    await _auth.sendPasswordResetEmail(email: email);
+  Future<void> actualizarEmailActual(String emailNuevo) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw StateError('No hay sesión activa de Firebase.');
+    }
+    await user.verifyBeforeUpdateEmail(emailNuevo.trim().toLowerCase());
+  }
+
+  Future<void> enviarVerificacionEmail() async {
+    final user = _auth.currentUser;
+    if (user == null || user.emailVerified) return;
+    try {
+      await user.sendEmailVerification();
+    } catch (e) {
+      debugPrint('enviarVerificacionEmail: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> enviarRestablecimiento(String usuario, {String? email}) async {
+    final authEmail = UsuarioAuthEmail.paraUsuario(usuario, emailReal: email);
+    await _auth.sendPasswordResetEmail(email: authEmail);
+  }
+
+  Future<void> enviarConfirmacionAlta({
+    required String usuario,
+    required String email,
+  }) async {
+    if (!UsuarioAuthEmail.esEmailReal(email)) {
+      throw StateError('Se necesita un email real para enviar la confirmación.');
+    }
+    // Aviso al nuevo usuario: puede definir/recuperar su contraseña.
+    await _auth.sendPasswordResetEmail(email: email.trim().toLowerCase());
+    // Si hay sesión del usuario recién creado, también verificación.
+    final user = _auth.currentUser;
+    if (user != null &&
+        (user.email ?? '').toLowerCase() == email.trim().toLowerCase() &&
+        !user.emailVerified) {
+      try {
+        await user.sendEmailVerification();
+      } catch (e) {
+        debugPrint('sendEmailVerification: $e');
+      }
+    }
   }
 
   String? get uidActual => _auth.currentUser?.uid;

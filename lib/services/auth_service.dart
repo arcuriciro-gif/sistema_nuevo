@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
 import '../core/auth/rol_util.dart';
+import '../core/auth/usuario_auth_email.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/sync/firestore_sync_service.dart';
@@ -44,7 +45,11 @@ class AuthService {
 
     if (firebase.disponible && (usuarioLocal.firebaseUid?.isNotEmpty ?? false)) {
       try {
-        final cred = await firebase.iniciarSesion(nombreUsuario, password);
+        final cred = await firebase.iniciarSesion(
+          nombreUsuario,
+          password,
+          email: usuarioLocal.email,
+        );
         final uid = cred.user?.uid;
         if (uid != null && uid != usuarioLocal.firebaseUid) {
           usuarioActualizado = usuarioLocal.copyWith(firebaseUid: uid);
@@ -58,7 +63,11 @@ class AuthService {
     } else if (firebase.disponible && usuarioLocal.password == _hash(password)) {
       autenticado = true;
       try {
-        final cred = await firebase.iniciarSesion(nombreUsuario, password);
+        final cred = await firebase.iniciarSesion(
+          nombreUsuario,
+          password,
+          email: usuarioLocal.email,
+        );
         final uid = cred.user?.uid;
         if (uid != null) {
           usuarioActualizado = usuarioLocal.copyWith(firebaseUid: uid);
@@ -67,8 +76,12 @@ class AuthService {
       } catch (signInError) {
         debugPrint('Firebase signIn falló, creando cuenta: $signInError');
         try {
-          final uid = await firebase.crearCuenta(nombreUsuario, password);
-          usuarioActualizado = usuarioLocal.copyWith(firebaseUid: uid);
+          final uid = await firebase.crearCuenta(
+            nombreUsuario,
+            password,
+            email: usuarioLocal.email,
+          );
+          usuarioActualizado = usuarioActualizado.copyWith(firebaseUid: uid);
           await sqlite.actualizar(usuarioActualizado);
         } catch (createError) {
           debugPrint('Firebase crearCuenta falló: $createError');
@@ -169,12 +182,20 @@ class AuthService {
       try {
         if (usuario.firebaseUid?.isNotEmpty ?? false) {
           if (firebase.uidActual == null) {
-            await firebase.iniciarSesion(usuario.usuario, passwordActual);
+            await firebase.iniciarSesion(
+              usuario.usuario,
+              passwordActual,
+              email: usuario.email,
+            );
           }
           await firebase.cambiarPasswordActual(passwordNueva);
         } else {
           // Primera vez: crear cuenta Firebase con la contraseña nueva (>=6).
-          final uid = await firebase.crearCuenta(usuario.usuario, passwordNueva);
+          final uid = await firebase.crearCuenta(
+            usuario.usuario,
+            passwordNueva,
+            email: usuario.email,
+          );
           actualizado = actualizado.copyWith(firebaseUid: uid);
           await sqlite.actualizar(actualizado);
         }
@@ -203,6 +224,104 @@ class AuthService {
       'Cambio de contraseña del usuario ${usuario.usuario}',
       valorAnterior: jsonEncode({'usuario': usuario.usuario}),
       valorNuevo: jsonEncode({'usuario': usuario.usuario, 'fecha': DateTime.now().toIso8601String()}),
+    );
+  }
+
+  /// Actualiza nombre, usuario, email y/o foto del usuario logueado.
+  Future<void> actualizarPerfilPropio({
+    String? nombre,
+    String? usuario,
+    String? email,
+    String? foto,
+    String? passwordActual,
+  }) async {
+    final actual = currentUser;
+    if (actual == null) {
+      throw StateError('No hay sesión activa.');
+    }
+    if (actual.id == null) {
+      throw StateError('Usuario inválido.');
+    }
+
+    final nuevoUsuario = (usuario ?? actual.usuario).trim();
+    final nuevoNombre = (nombre ?? actual.nombre).trim();
+    final nuevoEmail = (email ?? actual.email).trim();
+    final nuevaFoto = foto ?? actual.foto;
+
+    if (nuevoNombre.isEmpty) {
+      throw StateError('El nombre no puede estar vacío.');
+    }
+    if (nuevoUsuario.isEmpty) {
+      throw StateError('El usuario no puede estar vacío.');
+    }
+
+    final sqlite = SqliteUsuarioRepository();
+    if (nuevoUsuario.toLowerCase() != actual.usuario.toLowerCase()) {
+      final existe = await sqlite.buscarPorUsuario(nuevoUsuario);
+      if (existe != null && existe.id != actual.id) {
+        throw StateError('Ese nombre de usuario ya está en uso.');
+      }
+      if (passwordActual == null || passwordActual.isEmpty) {
+        throw StateError('Ingresá tu contraseña actual para cambiar el usuario.');
+      }
+      final hashOk = actual.password == _hash(passwordActual) ||
+          _ultimaPasswordIngresada == passwordActual;
+      if (!hashOk) {
+        throw StateError('La contraseña actual no es correcta.');
+      }
+    }
+
+    var actualizado = actual.copyWith(
+      nombre: nuevoNombre,
+      usuario: nuevoUsuario,
+      email: nuevoEmail,
+      foto: nuevaFoto,
+    );
+    await sqlite.actualizar(actualizado);
+
+    final firebase = FirebaseAuthUsuarioService.instance;
+    if (firebase.disponible &&
+        (actual.firebaseUid?.isNotEmpty ?? false) &&
+        UsuarioAuthEmail.esEmailReal(nuevoEmail) &&
+        nuevoEmail.toLowerCase() != actual.email.toLowerCase()) {
+      try {
+        if (firebase.uidActual == null && passwordActual != null) {
+          await firebase.iniciarSesion(
+            actual.usuario,
+            passwordActual,
+            email: actual.email,
+          );
+        }
+        await firebase.actualizarEmailActual(nuevoEmail);
+      } catch (e) {
+        debugPrint('Firebase update email: $e');
+      }
+    }
+
+    if (BackendConfigService.instance.firebaseEnabled &&
+        (actualizado.firebaseUid?.isNotEmpty ?? false)) {
+      try {
+        await FirestoreUsuarioRepository().actualizar(actualizado);
+      } catch (e) {
+        debugPrint('Firestore perfil: $e');
+      }
+    }
+
+    currentUser = actualizado;
+    await registrarCambio(
+      'ACTUALIZAR_PERFIL',
+      'usuarios',
+      'Perfil actualizado: ${actualizado.usuario}',
+      valorAnterior: jsonEncode({
+        'nombre': actual.nombre,
+        'usuario': actual.usuario,
+        'email': actual.email,
+      }),
+      valorNuevo: jsonEncode({
+        'nombre': actualizado.nombre,
+        'usuario': actualizado.usuario,
+        'email': actualizado.email,
+      }),
     );
   }
 

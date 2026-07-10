@@ -74,6 +74,20 @@ class MediaSyncService {
     return resultado;
   }
 
+  Future<String?> subirFotoUsuario({
+    required String uidOrUsuario,
+    required File file,
+  }) async {
+    final safe = uidOrUsuario.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    final ext = p.extension(file.path).isNotEmpty ? p.extension(file.path) : '.jpg';
+    return subirArchivo(
+      storagePath:
+          'tenants/$_tenant/usuarios/$safe/avatar_${const Uuid().v4()}$ext',
+      file: file,
+      contentType: 'image/jpeg',
+    );
+  }
+
   Future<String?> subirPdfCliente({
     required String clienteSyncId,
     required String nombreArchivo,

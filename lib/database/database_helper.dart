@@ -22,7 +22,7 @@ class DatabaseHelper {
 
     return openDatabase(
       path,
-      version: 21,
+      version: 22,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -298,6 +298,7 @@ CREATE TABLE IF NOT EXISTS usuarios(
   activo INTEGER DEFAULT 1,
   debe_cambiar_password INTEGER DEFAULT 0,
   email TEXT DEFAULT '',
+  foto TEXT DEFAULT '',
   fechaCreacion TEXT,
   ultimoAcceso TEXT
 )
@@ -860,6 +861,11 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     }
     if (oldVersion < 21) {
       await _migrarSyncCompletoV21(db);
+    }
+    if (oldVersion < 22) {
+      await _agregarColumnas(db, 'usuarios', {
+        'foto': "TEXT DEFAULT ''",
+      });
     }
   }
 
