@@ -26,6 +26,10 @@ class VentaService {
         return 'FB';
       case 'factura_c':
         return 'FC';
+      case 'presupuesto':
+        return 'PR';
+      case 'nota_entrega':
+        return 'NE';
       default:
         return 'TK';
     }

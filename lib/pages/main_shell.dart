@@ -121,6 +121,25 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
+          icon: Icons.request_quote_rounded,
+          title: 'Presupuestos',
+          modulo: 'remitos',
+          builder: () => const VentasPage(
+            titulo: 'Presupuestos',
+            tipos: {'presupuesto': 'Presupuesto'},
+          ),
+          quickAccess: true,
+        ),
+        _ShellItem(
+          icon: Icons.local_shipping_outlined,
+          title: 'Notas de entrega',
+          modulo: 'remitos',
+          builder: () => const VentasPage(
+            titulo: 'Notas de entrega',
+            tipos: {'nota_entrega': 'Nota de entrega'},
+          ),
+        ),
+        _ShellItem(
           icon: Icons.compare_arrows_rounded,
           title: 'Comparador de listas',
           modulo: 'listas_precios',

@@ -39,7 +39,11 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   final _encabezadoPdfCtrl = TextEditingController();
   final _piePdfCtrl = TextEditingController();
   final _colorPdfCtrl = TextEditingController();
+  final _margenPdfCtrl = TextEditingController();
   String _logoPath = '';
+  String _firmaPath = '';
+  String _selloPath = '';
+  String _papelPdf = 'a4';
   bool _guardandoBranding = false;
 
   void _onThemeChanged() {
@@ -77,6 +81,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     _encabezadoPdfCtrl.dispose();
     _piePdfCtrl.dispose();
     _colorPdfCtrl.dispose();
+    _margenPdfCtrl.dispose();
     super.dispose();
   }
 
@@ -100,13 +105,25 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     _encabezadoPdfCtrl.text = b.encabezadoPdf;
     _piePdfCtrl.text = b.piePdf;
     _colorPdfCtrl.text = b.colorPdf;
-    setState(() => _logoPath = b.logoPath);
+    _margenPdfCtrl.text = b.margenPdfMm.toStringAsFixed(0);
+    setState(() {
+      _logoPath = b.logoPath;
+      _firmaPath = b.firmaPath;
+      _selloPath = b.selloPath;
+      _papelPdf = b.papelPdf;
+    });
   }
 
   Future<void> _elegirLogo() async {
     final picker = ImagePicker();
     final img = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
     if (img != null) setState(() => _logoPath = img.path);
+  }
+
+  Future<void> _elegirImagen(void Function(String path) onPicked) async {
+    final picker = ImagePicker();
+    final img = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (img != null) setState(() => onPicked(img.path));
   }
 
   Future<void> _guardarBranding() async {
@@ -135,6 +152,10 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       colorPdf: _colorPdfCtrl.text.trim().replaceAll('#', '').isEmpty
           ? 'FF7A00'
           : _colorPdfCtrl.text.trim().replaceAll('#', ''),
+      papelPdf: _papelPdf,
+      margenPdfMm: double.tryParse(_margenPdfCtrl.text.trim()) ?? 10,
+      firmaPath: _firmaPath,
+      selloPath: _selloPath,
     );
     if (!mounted) return;
     setState(() => _guardandoBranding = false);
@@ -427,6 +448,85 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                         prefixIcon: Icon(Icons.palette_outlined),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(_papelPdf),
+                      initialValue: _papelPdf,
+                      decoration: const InputDecoration(
+                        labelText: 'Tamaño de papel',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.print_outlined),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'a4', child: Text('A4')),
+                        DropdownMenuItem(
+                          value: 'ticket_80',
+                          child: Text('Ticket 80 mm'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'ticket_58',
+                          child: Text('Ticket 58 mm'),
+                        ),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) setState(() => _papelPdf = v);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _margenPdfCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Márgenes (mm)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.padding_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () =>
+                                _elegirImagen((p) => _firmaPath = p),
+                            icon: const Icon(Icons.draw_outlined),
+                            label: Text(
+                              _firmaPath.isEmpty ? 'Cargar firma' : 'Firma OK',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () =>
+                                _elegirImagen((p) => _selloPath = p),
+                            icon: const Icon(Icons.approval_outlined),
+                            label: Text(
+                              _selloPath.isEmpty ? 'Cargar sello' : 'Sello OK',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_firmaPath.isNotEmpty || _selloPath.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          if (_firmaPath.isNotEmpty)
+                            TextButton(
+                              onPressed: () =>
+                                  setState(() => _firmaPath = ''),
+                              child: const Text('Quitar firma'),
+                            ),
+                          if (_selloPath.isNotEmpty)
+                            TextButton(
+                              onPressed: () =>
+                                  setState(() => _selloPath = ''),
+                              child: const Text('Quitar sello'),
+                            ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,

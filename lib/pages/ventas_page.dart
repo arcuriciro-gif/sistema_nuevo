@@ -3,11 +3,19 @@ import 'package:flutter/material.dart';
 import '../models/venta.dart';
 import '../services/venta_service.dart';
 import '../theme/app_visuals.dart';
-import 'venta_factura_page.dart';
 import '../theme/module_app_bar.dart';
+import 'venta_factura_page.dart';
 
 class VentasPage extends StatefulWidget {
-  const VentasPage({super.key});
+  final String titulo;
+  /// Tipos disponibles en este módulo. Si es null, usa facturas A/B/C.
+  final Map<String, String>? tipos;
+
+  const VentasPage({
+    super.key,
+    this.titulo = 'Ventas',
+    this.tipos,
+  });
 
   @override
   State<VentasPage> createState() => _VentasPageState();
@@ -22,12 +30,18 @@ class _VentasPageState extends State<VentasPage> {
   String _tipoFiltro = 'todos';
   bool _cargando = true;
 
-  static const _tipos = {
-    'todos': 'Todos',
-    'factura_a': 'Factura A',
-    'factura_b': 'Factura B',
-    'factura_c': 'Factura C',
-  };
+  Map<String, String> get _tipos =>
+      widget.tipos ??
+      const {
+        'factura_a': 'Factura A',
+        'factura_b': 'Factura B',
+        'factura_c': 'Factura C',
+      };
+
+  Map<String, String> get _tiposFiltro => {
+        'todos': 'Todos',
+        ..._tipos,
+      };
 
   @override
   void initState() {
@@ -43,7 +57,9 @@ class _VentasPageState extends State<VentasPage> {
 
   Future<void> _cargar() async {
     setState(() => _cargando = true);
-    _todas = await _service.obtenerTodas();
+    final todas = await _service.obtenerTodas();
+    final permitidos = _tipos.keys.toSet();
+    _todas = todas.where((v) => permitidos.contains(v.tipo)).toList();
     _aplicarFiltro();
     if (!mounted) return;
     setState(() => _cargando = false);
@@ -87,6 +103,10 @@ class _VentasPageState extends State<VentasPage> {
         return AppVisuals.info(cs);
       case 'factura_c':
         return AppVisuals.success(cs);
+      case 'presupuesto':
+        return AppVisuals.warning(cs);
+      case 'nota_entrega':
+        return AppVisuals.info(cs);
       default:
         return AppVisuals.neutral(cs);
     }
@@ -108,20 +128,43 @@ class _VentasPageState extends State<VentasPage> {
       '${fecha.month.toString().padLeft(2, '0')}/'
       '${fecha.year}';
 
+  IconData _iconoTipo(String tipo) {
+    switch (tipo) {
+      case 'presupuesto':
+        return Icons.request_quote_rounded;
+      case 'nota_entrega':
+        return Icons.local_shipping_outlined;
+      case 'factura_a':
+        return Icons.looks_one_rounded;
+      case 'factura_b':
+        return Icons.looks_two_rounded;
+      case 'factura_c':
+        return Icons.looks_3_rounded;
+      default:
+        return Icons.receipt_rounded;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final unSoloTipo = _tipos.length == 1;
 
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: 'Ventas'),
+      appBar: buildModuleAppBar(context, title: widget.titulo),
       floatingActionButton: FloatingActionButton(
-        heroTag: 'fab_ventas',
-        onPressed: () => _mostrarMenuNueva(),
+        heroTag: 'fab_${widget.titulo}',
+        onPressed: () {
+          if (unSoloTipo) {
+            _nuevaVenta(_tipos.keys.first);
+          } else {
+            _mostrarMenuNueva();
+          }
+        },
         child: const Icon(Icons.add),
       ),
       body: Column(
         children: [
-          // Filtros
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
             child: Row(
@@ -138,108 +181,90 @@ class _VentasPageState extends State<VentasPage> {
                     onChanged: (_) => _aplicarFiltro(),
                   ),
                 ),
-                const SizedBox(width: 8),
-                DropdownButton<String>(
-                  value: _tipoFiltro,
-                  items: _tipos.entries
-                      .map(
-                        (e) => DropdownMenuItem(
-                          value: e.key,
-                          child: Text(e.value),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (v) {
-                    if (v != null) {
+                if (_tipos.length > 1) ...[
+                  const SizedBox(width: 8),
+                  DropdownButton<String>(
+                    value: _tipoFiltro,
+                    items: _tiposFiltro.entries
+                        .map(
+                          (e) => DropdownMenuItem(
+                            value: e.key,
+                            child: Text(e.value),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) {
+                      if (v == null) return;
                       _tipoFiltro = v;
                       _aplicarFiltro();
-                    }
-                  },
-                ),
+                    },
+                  ),
+                ],
               ],
             ),
           ),
-          if (_cargando)
-            const Expanded(child: Center(child: CircularProgressIndicator()))
-          else if (_filtradas.isEmpty)
-            const Expanded(
-              child: Center(child: Text('No hay ventas registradas.')),
-            )
-          else
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: _filtradas.length,
-                itemBuilder: (context, i) {
-                  final v = _filtradas[i];
-                  final colorTipo = _colorTipo(v.tipo, cs);
-                  return Card(
-                    child: ListTile(
-                      onTap: () => _verDetalle(v),
-                      leading: CircleAvatar(
-                        backgroundColor: colorTipo.withValues(alpha: .15),
+          Expanded(
+            child: _cargando
+                ? const Center(child: CircularProgressIndicator())
+                : _filtradas.isEmpty
+                    ? Center(
                         child: Text(
-                          v.tipo == 'factura_a'
-                              ? 'A'
-                              : v.tipo == 'factura_b'
-                                  ? 'B'
-                                  : v.tipo == 'factura_c'
-                                      ? 'C'
-                                      : 'T',
-                          style: TextStyle(
-                            color: colorTipo,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          'No hay documentos para mostrar',
+                          style: TextStyle(color: cs.onSurfaceVariant),
                         ),
-                      ),
-                      title: Text(
-                        '${v.tipoLabel}  ${v.numero}',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(v.clienteNombre ?? 'Sin cliente'),
-                          Text(_formatFecha(v.fecha)),
-                        ],
-                      ),
-                      trailing: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            '\$${v.total.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(8),
+                        itemCount: _filtradas.length,
+                        itemBuilder: (context, i) {
+                          final v = _filtradas[i];
+                          final colorTipo = _colorTipo(v.tipo, cs);
+                          return Card(
+                            margin: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 4,
                             ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _colorEstadoPago(v.estadoPago, cs)
-                                  .withValues(alpha: .15),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              v.estadoPago,
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: _colorEstadoPago(v.estadoPago, cs),
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: colorTipo.withValues(alpha: .15),
+                                child: Icon(
+                                  _iconoTipo(v.tipo),
+                                  color: colorTipo,
+                                ),
                               ),
+                              title: Text(
+                                '${v.tipoLabel}  ${v.numero}',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                              subtitle: Text(
+                                '${v.clienteNombre ?? 'Consumidor final'} · '
+                                '${_formatFecha(v.fecha)}',
+                              ),
+                              trailing: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    '\$${v.total.toStringAsFixed(2)}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  Text(
+                                    v.estadoPago.toUpperCase(),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: _colorEstadoPago(v.estadoPago, cs),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              onTap: () => _verDetalle(v),
                             ),
-                          ),
-                        ],
+                          );
+                        },
                       ),
-                      isThreeLine: true,
-                    ),
-                  );
-                },
-              ),
-            ),
+          ),
         ],
       ),
     );
@@ -252,39 +277,22 @@ class _VentasPageState extends State<VentasPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Padding(
-              padding: EdgeInsets.all(12),
+            Padding(
+              padding: const EdgeInsets.all(12),
               child: Text(
-                'Tipo de comprobante',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                'Nuevo ${widget.titulo.toLowerCase()}',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
             ),
-            ListTile(
-              leading: const CircleAvatar(child: Text('A')),
-              title: const Text('Factura A'),
-              subtitle: const Text('Responsable Inscripto — con IVA discriminado'),
-              onTap: () {
-                Navigator.pop(context);
-                _nuevaVenta('factura_a');
-              },
-            ),
-            ListTile(
-              leading: const CircleAvatar(child: Text('B')),
-              title: const Text('Factura B'),
-              subtitle: const Text('Consumidor Final — IVA incluido'),
-              onTap: () {
-                Navigator.pop(context);
-                _nuevaVenta('factura_b');
-              },
-            ),
-            ListTile(
-              leading: const CircleAvatar(child: Text('C')),
-              title: const Text('Factura C'),
-              subtitle: const Text('Monotributista — sin IVA'),
-              onTap: () {
-                Navigator.pop(context);
-                _nuevaVenta('factura_c');
-              },
+            ..._tipos.entries.map(
+              (e) => ListTile(
+                leading: CircleAvatar(child: Icon(_iconoTipo(e.key))),
+                title: Text(e.value),
+                onTap: () {
+                  Navigator.pop(context);
+                  _nuevaVenta(e.key);
+                },
+              ),
             ),
             const SizedBox(height: 8),
           ],

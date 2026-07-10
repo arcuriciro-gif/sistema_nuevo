@@ -20,6 +20,10 @@ class BrandingService {
   static const _keyEncabezadoPdf = 'brandEncabezadoPdf';
   static const _keyPiePdf = 'brandPiePdf';
   static const _keyColorPdf = 'brandColorPdf';
+  static const _keyPapelPdf = 'brandPapelPdf';
+  static const _keyMargenPdf = 'brandMargenPdf';
+  static const _keyFirma = 'brandFirmaPath';
+  static const _keySello = 'brandSelloPath';
 
   static final BrandingService instance = BrandingService._();
   BrandingService._();
@@ -44,6 +48,12 @@ class BrandingService {
   String piePdf = '';
   /// Hex sin #, ej. FF7A00
   String colorPdf = 'FF7A00';
+  /// 'a4' | 'ticket_80' | 'ticket_58'
+  String papelPdf = 'a4';
+  /// Márgenes en mm
+  double margenPdfMm = 10;
+  String firmaPath = '';
+  String selloPath = '';
 
   Future<void> cargar() async {
     final prefs = await SharedPreferences.getInstance();
@@ -66,6 +76,10 @@ class BrandingService {
     encabezadoPdf = prefs.getString(_keyEncabezadoPdf) ?? '';
     piePdf = prefs.getString(_keyPiePdf) ?? '';
     colorPdf = prefs.getString(_keyColorPdf) ?? 'FF7A00';
+    papelPdf = prefs.getString(_keyPapelPdf) ?? 'a4';
+    margenPdfMm = prefs.getDouble(_keyMargenPdf) ?? 10;
+    firmaPath = prefs.getString(_keyFirma) ?? '';
+    selloPath = prefs.getString(_keySello) ?? '';
   }
 
   Future<void> guardar({
@@ -88,6 +102,10 @@ class BrandingService {
     String? encabezadoPdf,
     String? piePdf,
     String? colorPdf,
+    String? papelPdf,
+    double? margenPdfMm,
+    String? firmaPath,
+    String? selloPath,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyNombre, nombre);
@@ -112,6 +130,10 @@ class BrandingService {
         _keyEncabezadoPdf, encabezadoPdf ?? this.encabezadoPdf);
     await prefs.setString(_keyPiePdf, piePdf ?? this.piePdf);
     await prefs.setString(_keyColorPdf, colorPdf ?? this.colorPdf);
+    await prefs.setString(_keyPapelPdf, papelPdf ?? this.papelPdf);
+    await prefs.setDouble(_keyMargenPdf, margenPdfMm ?? this.margenPdfMm);
+    await prefs.setString(_keyFirma, firmaPath ?? this.firmaPath);
+    await prefs.setString(_keySello, selloPath ?? this.selloPath);
 
     this.nombre = nombre;
     this.slogan = slogan;
@@ -132,5 +154,9 @@ class BrandingService {
     if (encabezadoPdf != null) this.encabezadoPdf = encabezadoPdf;
     if (piePdf != null) this.piePdf = piePdf;
     if (colorPdf != null) this.colorPdf = colorPdf;
+    if (papelPdf != null) this.papelPdf = papelPdf;
+    if (margenPdfMm != null) this.margenPdfMm = margenPdfMm;
+    if (firmaPath != null) this.firmaPath = firmaPath;
+    if (selloPath != null) this.selloPath = selloPath;
   }
 }

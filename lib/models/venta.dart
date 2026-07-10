@@ -1,6 +1,6 @@
 class Venta {
   int? id;
-  /// 'factura_a' | 'factura_b' | 'factura_c' | 'remito'
+  /// 'factura_a' | 'factura_b' | 'factura_c' | 'presupuesto' | 'nota_entrega' | 'remito'
   String tipo;
   String numero;
   int? clienteId;
@@ -82,8 +82,29 @@ class Venta {
         return 'Factura B';
       case 'factura_c':
         return 'Factura C';
+      case 'presupuesto':
+        return 'Presupuesto';
+      case 'nota_entrega':
+        return 'Nota de entrega';
       default:
         return 'Ticket / Remito';
+    }
+  }
+
+  String get tipoDocumentoPdf {
+    switch (tipo) {
+      case 'factura_a':
+        return 'FACTURA A';
+      case 'factura_b':
+        return 'FACTURA B';
+      case 'factura_c':
+        return 'FACTURA C';
+      case 'presupuesto':
+        return 'PRESUPUESTO';
+      case 'nota_entrega':
+        return 'NOTA DE ENTREGA';
+      default:
+        return tipoLabel.toUpperCase();
     }
   }
 }

@@ -70,6 +70,33 @@ class PdfService {
     ];
   }
 
+  PdfPageFormat _pageFormat(BrandingService branding) {
+    switch (branding.papelPdf) {
+      case 'ticket_80':
+        return PdfPageFormat.roll80;
+      case 'ticket_58':
+        return PdfPageFormat.roll57;
+      default:
+        return PdfPageFormat.a4;
+    }
+  }
+
+  pw.EdgeInsets _pageMargin(BrandingService branding) {
+    final mm = branding.margenPdfMm.clamp(2, 30);
+    final pts = mm * PdfPageFormat.mm;
+    return pw.EdgeInsets.all(pts);
+  }
+
+  Future<pw.ImageProvider?> _cargarImagen(String path) async {
+    if (path.isEmpty) return null;
+    try {
+      final bytes = await File(path).readAsBytes();
+      return pw.MemoryImage(bytes);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<Uint8List> generateRemitoPdf(
     Map<String, dynamic> remito,
     List items,
@@ -83,14 +110,9 @@ class PdfService {
     final branding = BrandingService.instance;
     final pdf = pw.Document();
 
-    // Load logo if available
-    pw.ImageProvider? logoImage;
-    if (branding.logoPath.isNotEmpty) {
-      try {
-        final bytes = await File(branding.logoPath).readAsBytes();
-        logoImage = pw.MemoryImage(bytes);
-      } catch (_) {}
-    }
+    final logoImage = await _cargarImagen(branding.logoPath);
+    final firmaImage = await _cargarImagen(branding.firmaPath);
+    final selloImage = await _cargarImagen(branding.selloPath);
 
     final total = (remito['total'] as num?)?.toDouble() ?? 0;
     final descuento = (remito['descuento'] as num?)?.toDouble() ?? 0;
@@ -98,11 +120,12 @@ class PdfService {
     final colorMarca = _colorMarca();
     final contacto = _lineasContacto(branding);
     final fiscales = _lineasFiscales(branding);
+    final esTicket = branding.papelPdf.startsWith('ticket');
 
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(28),
+        pageFormat: _pageFormat(branding),
+        margin: _pageMargin(branding),
         build: (context) => [
           if (branding.encabezadoPdf.isNotEmpty) ...[
             pw.Text(
@@ -121,88 +144,74 @@ class PdfService {
             ),
             child: pw.Row(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Row(
-                  children: [
-                    if (logoImage != null) ...[
-                      pw.ClipRRect(
-                        horizontalRadius: 4,
-                        verticalRadius: 4,
-                        child: pw.Image(logoImage, width: 50, height: 50),
+                if (logoImage != null) ...[
+                  pw.ClipRRect(
+                    horizontalRadius: 4,
+                    verticalRadius: 4,
+                    child: pw.Image(logoImage, width: esTicket ? 36 : 48, height: esTicket ? 36 : 48),
+                  ),
+                  pw.SizedBox(width: 12),
+                ],
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        branding.nombre,
+                        style: pw.TextStyle(
+                          fontSize: esTicket ? 14 : 18,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.white,
+                        ),
                       ),
-                      pw.SizedBox(width: 12),
-                    ],
-                    pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
+                      if (branding.slogan.isNotEmpty)
                         pw.Text(
-                          branding.nombre,
-                          style: pw.TextStyle(
-                            fontSize: 18,
-                            fontWeight: pw.FontWeight.bold,
+                          branding.slogan,
+                          style: const pw.TextStyle(
+                            fontSize: 9,
                             color: PdfColors.white,
                           ),
                         ),
-                        if (branding.slogan.isNotEmpty)
-                          pw.Text(
-                            branding.slogan,
-                            style: const pw.TextStyle(
-                              fontSize: 9,
-                              color: PdfColors.white,
-                            ),
-                          ),
-                        if (branding.direccion.isNotEmpty)
-                          pw.Text(
-                            branding.direccion,
-                            style: const pw.TextStyle(
-                              fontSize: 9,
-                              color: PdfColors.white,
-                            ),
-                          ),
-                        ...contacto.map(
-                          (linea) => pw.Text(
-                            linea,
-                            style: const pw.TextStyle(
-                              fontSize: 8,
-                              color: PdfColors.white,
-                            ),
+                      if (branding.direccion.isNotEmpty)
+                        pw.Text(
+                          branding.direccion,
+                          style: const pw.TextStyle(
+                            fontSize: 8,
+                            color: PdfColors.white,
                           ),
                         ),
-                        ...fiscales.map(
-                          (linea) => pw.Text(
-                            linea,
-                            style: const pw.TextStyle(
-                              fontSize: 8,
-                              color: PdfColors.white,
-                            ),
+                      if (fiscales.isNotEmpty)
+                        pw.Text(
+                          fiscales.join(' · '),
+                          style: const pw.TextStyle(
+                            fontSize: 8,
+                            color: PdfColors.white,
                           ),
                         ),
-                      ],
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.end,
                   children: [
                     pw.Text(
                       tipoDocumento,
-                      style: const pw.TextStyle(
-                        fontSize: 10,
+                      style: pw.TextStyle(
+                        fontSize: esTicket ? 10 : 12,
+                        fontWeight: pw.FontWeight.bold,
                         color: PdfColors.white,
                       ),
                     ),
                     pw.Text(
                       remito['numero']?.toString() ?? '',
-                      style: pw.TextStyle(
-                        fontSize: 20,
-                        fontWeight: pw.FontWeight.bold,
+                      style: const pw.TextStyle(
+                        fontSize: 11,
                         color: PdfColors.white,
                       ),
                     ),
-                    pw.SizedBox(height: 4),
                     pw.Text(
-                      'Fecha: ${_formatearFecha(remito['fecha']?.toString())}',
+                      _formatearFecha(remito['fecha']?.toString()),
                       style: const pw.TextStyle(
                         fontSize: 9,
                         color: PdfColors.white,
@@ -213,138 +222,120 @@ class PdfService {
               ],
             ),
           ),
-          pw.SizedBox(height: 16),
-          // ── Cliente ──────────────────────────────────
+          pw.SizedBox(height: 12),
+          // ── Cliente ─────────────────────────────────
           pw.Container(
-            width: double.infinity,
-            padding: const pw.EdgeInsets.all(12),
+            padding: const pw.EdgeInsets.all(10),
             decoration: pw.BoxDecoration(
-              color: PdfColors.grey100,
-              borderRadius: pw.BorderRadius.circular(8),
               border: pw.Border.all(color: PdfColors.grey300),
+              borderRadius: pw.BorderRadius.circular(6),
             ),
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Text(
-                  'CLIENTE',
+                  'Cliente: $clienteNombre',
                   style: pw.TextStyle(
-                    fontSize: 9,
-                    fontWeight: pw.FontWeight.bold,
-                    color: PdfColors.grey600,
-                  ),
-                ),
-                pw.SizedBox(height: 4),
-                pw.Text(
-                  clienteNombre.isEmpty ? 'Sin cliente' : clienteNombre,
-                  style: pw.TextStyle(
-                    fontSize: 13,
+                    fontSize: 11,
                     fontWeight: pw.FontWeight.bold,
                   ),
                 ),
-                if (clienteDireccion != null && clienteDireccion.isNotEmpty)
-                  pw.Text(clienteDireccion,
-                      style: const pw.TextStyle(fontSize: 10)),
-                if (clienteTelefono != null && clienteTelefono.isNotEmpty)
-                  pw.Text(clienteTelefono,
-                      style: const pw.TextStyle(fontSize: 10)),
+                if ((clienteDireccion ?? '').isNotEmpty)
+                  pw.Text(
+                    clienteDireccion!,
+                    style: const pw.TextStyle(fontSize: 9),
+                  ),
+                if ((clienteTelefono ?? '').isNotEmpty)
+                  pw.Text(
+                    'Tel: $clienteTelefono',
+                    style: const pw.TextStyle(fontSize: 9),
+                  ),
               ],
             ),
           ),
-          pw.SizedBox(height: 20),
-          // ── Tabla de productos ────────────────────────
+          pw.SizedBox(height: 12),
+          // ── Items table ─────────────────────────────
           pw.TableHelper.fromTextArray(
-            border: null,
-            headerDecoration: pw.BoxDecoration(
-              color: colorMarca,
-              borderRadius: pw.BorderRadius.circular(4),
-            ),
+            headers: esTicket
+                ? ['Desc.', 'Cant', 'Total']
+                : ['Descripción', 'Cant.', 'P. Unit.', 'Subtotal'],
+            data: items.map((raw) {
+              final item = Map<String, dynamic>.from(raw as Map);
+              final cant = (item['cantidad'] as num?)?.toDouble() ?? 0;
+              final precio = _resolverPrecio(item);
+              final sub = (item['subtotal'] as num?)?.toDouble() ??
+                  (cant * precio);
+              if (esTicket) {
+                return [
+                  item['descripcion']?.toString() ?? '',
+                  cant.toStringAsFixed(cant % 1 == 0 ? 0 : 2),
+                  _monto(sub),
+                ];
+              }
+              return [
+                item['descripcion']?.toString() ?? '',
+                cant.toStringAsFixed(cant % 1 == 0 ? 0 : 2),
+                _monto(precio),
+                _monto(sub),
+              ];
+            }).toList(),
             headerStyle: pw.TextStyle(
               fontWeight: pw.FontWeight.bold,
               color: PdfColors.white,
-              fontSize: 10,
+              fontSize: esTicket ? 8 : 10,
             ),
-            cellStyle: const pw.TextStyle(fontSize: 10),
+            headerDecoration: pw.BoxDecoration(color: colorMarca),
+            cellStyle: pw.TextStyle(fontSize: esTicket ? 8 : 9),
             cellAlignment: pw.Alignment.centerLeft,
-            cellPadding:
-                const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            headers: const ['Producto', 'Cant.', 'P. Unit.', 'Subtotal'],
-            columnWidths: {
-              0: const pw.FlexColumnWidth(4),
-              1: const pw.FlexColumnWidth(1),
-              2: const pw.FlexColumnWidth(2),
-              3: const pw.FlexColumnWidth(2),
-            },
-            data: items.map<List<String>>((item) {
-              final subtotal = (item['subtotal'] as num?)?.toDouble() ?? 0;
-              return [
-                item['descripcion']?.toString() ?? '',
-                '${item['cantidad'] ?? 0}',
-                _monto(_resolverPrecio(item)),
-                _monto(subtotal),
-              ];
-            }).toList(),
+            cellAlignments: esTicket
+                ? {
+                    1: pw.Alignment.center,
+                    2: pw.Alignment.centerRight,
+                  }
+                : {
+                    1: pw.Alignment.center,
+                    2: pw.Alignment.centerRight,
+                    3: pw.Alignment.centerRight,
+                  },
           ),
-          pw.SizedBox(height: 16),
-          // ── Totales ──────────────────────────────────
+          pw.SizedBox(height: 12),
+          // ── Totales ─────────────────────────────────
           pw.Align(
             alignment: pw.Alignment.centerRight,
             child: pw.Container(
-              width: 220,
-              padding: const pw.EdgeInsets.all(12),
+              width: esTicket ? double.infinity : 220,
+              padding: const pw.EdgeInsets.all(10),
               decoration: pw.BoxDecoration(
-                color: PdfColors.grey50,
-                borderRadius: pw.BorderRadius.circular(8),
-                border: pw.Border.all(color: PdfColors.grey300),
+                color: PdfColors.grey100,
+                borderRadius: pw.BorderRadius.circular(6),
               ),
               child: pw.Column(
                 children: [
-                  if (descuento > 0) ...[
+                  if (descuento > 0)
                     pw.Row(
                       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                       children: [
-                        pw.Text(
-                          'Subtotal:',
-                          style: pw.TextStyle(fontSize: 10),
-                        ),
-                        pw.Text(
-                          _monto(total / (1 - descuento / 100)),
-                          style: pw.TextStyle(fontSize: 10),
-                        ),
+                        pw.Text('Descuento',
+                            style: const pw.TextStyle(fontSize: 10)),
+                        pw.Text('-${_monto(descuento)}',
+                            style: const pw.TextStyle(fontSize: 10)),
                       ],
                     ),
-                    pw.SizedBox(height: 4),
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        pw.Text('Descuento ${descuento.toStringAsFixed(0)}%:',
-                            style: pw.TextStyle(
-                                fontSize: 10, color: PdfColors.green)),
-                        pw.Text(
-                          '-${_monto(total / (1 - descuento / 100) * descuento / 100)}',
-                          style: pw.TextStyle(
-                              fontSize: 10, color: PdfColors.green),
-                        ),
-                      ],
-                    ),
-                    pw.Divider(color: PdfColors.grey300),
-                  ],
                   pw.Row(
                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
                       pw.Text(
-                        'TOTAL:',
+                        'TOTAL',
                         style: pw.TextStyle(
-                          fontSize: 13,
+                          fontSize: 12,
                           fontWeight: pw.FontWeight.bold,
                         ),
                       ),
                       pw.Text(
                         _monto(total),
                         style: pw.TextStyle(
-                          fontSize: 16,
+                          fontSize: 12,
                           fontWeight: pw.FontWeight.bold,
-                          color: colorMarca,
                         ),
                       ),
                     ],
@@ -416,6 +407,34 @@ class PdfService {
               ),
             ],
           ),
+          if (firmaImage != null || selloImage != null) ...[
+            pw.SizedBox(height: 28),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+              children: [
+                if (firmaImage != null)
+                  pw.Column(
+                    children: [
+                      pw.Image(firmaImage, height: 48),
+                      pw.SizedBox(height: 4),
+                      pw.Text('Firma',
+                          style: const pw.TextStyle(
+                              fontSize: 8, color: PdfColors.grey600)),
+                    ],
+                  ),
+                if (selloImage != null)
+                  pw.Column(
+                    children: [
+                      pw.Image(selloImage, height: 48),
+                      pw.SizedBox(height: 4),
+                      pw.Text('Sello',
+                          style: const pw.TextStyle(
+                              fontSize: 8, color: PdfColors.grey600)),
+                    ],
+                  ),
+              ],
+            ),
+          ],
           if (branding.piePdf.isNotEmpty || contacto.isNotEmpty) ...[
             pw.SizedBox(height: 24),
             pw.Divider(color: PdfColors.grey300),
@@ -472,6 +491,23 @@ class PdfService {
       clienteDireccion: clienteDireccion,
       clienteTelefono: clienteTelefono,
       tipoDocumento: 'PRESUPUESTO',
+    );
+  }
+
+  Future<Uint8List> generateNotaEntregaPdf(
+    Map<String, dynamic> doc,
+    List items,
+    String clienteNombre, {
+    String? clienteDireccion,
+    String? clienteTelefono,
+  }) {
+    return generateRemitoPdf(
+      doc,
+      items,
+      clienteNombre,
+      clienteDireccion: clienteDireccion,
+      clienteTelefono: clienteTelefono,
+      tipoDocumento: 'NOTA DE ENTREGA',
     );
   }
 

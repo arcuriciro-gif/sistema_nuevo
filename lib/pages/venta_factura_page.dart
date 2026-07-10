@@ -283,7 +283,7 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
       _clienteSeleccionado?.nombre ?? 'Consumidor final',
       clienteDireccion: _clienteSeleccionado?.direccion,
       clienteTelefono: _clienteSeleccionado?.telefono,
-      tipoDocumento: _titulo.toUpperCase(),
+      tipoDocumento: _tipoDocumentoPdf,
     );
     await Printing.layoutPdf(onLayout: (_) async => bytes);
   }
@@ -298,7 +298,7 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
       _clienteSeleccionado?.nombre ?? 'Consumidor final',
       clienteDireccion: _clienteSeleccionado?.direccion,
       clienteTelefono: _clienteSeleccionado?.telefono,
-      tipoDocumento: _titulo.toUpperCase(),
+      tipoDocumento: _tipoDocumentoPdf,
     );
     final file = await pdfService.guardarPdf(
       bytes,
@@ -318,8 +318,29 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
         return 'Factura B';
       case 'factura_c':
         return 'Factura C';
+      case 'presupuesto':
+        return 'Presupuesto';
+      case 'nota_entrega':
+        return 'Nota de entrega';
       default:
         return 'Venta';
+    }
+  }
+
+  String get _tipoDocumentoPdf {
+    switch (widget.tipo) {
+      case 'factura_a':
+        return 'FACTURA A';
+      case 'factura_b':
+        return 'FACTURA B';
+      case 'factura_c':
+        return 'FACTURA C';
+      case 'presupuesto':
+        return 'PRESUPUESTO';
+      case 'nota_entrega':
+        return 'NOTA DE ENTREGA';
+      default:
+        return _titulo.toUpperCase();
     }
   }
 
