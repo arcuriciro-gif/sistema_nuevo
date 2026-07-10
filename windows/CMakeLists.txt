@@ -2,6 +2,10 @@
 cmake_minimum_required(VERSION 3.14)
 project(sistema_nuevo LANGUAGES CXX)
 
+# Firebase C++ SDK still declares cmake_minimum_required < 3.5.
+# CMake 4.x (Visual Studio 2026) rejects that unless we raise the policy floor.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
 set(BINARY_NAME "sistema_nuevo")
