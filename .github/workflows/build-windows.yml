@@ -1,0 +1,64 @@
+name: Build Windows Instalador
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cursor/fix-login-confirmacion-e44b
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Preparar carpeta Instalador_Windows
+        shell: pwsh
+        run: |
+          $src = "build\windows\x64\runner\Release"
+          $dst = "Instalador_Windows"
+          if (-not (Test-Path "$src\sistema_nuevo.exe")) {
+            throw "No se encontró sistema_nuevo.exe en $src"
+          }
+          if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
+          New-Item -ItemType Directory -Path $dst | Out-Null
+          Copy-Item -Path "$src\*" -Destination $dst -Recurse -Force
+          if (Test-Path "assets\docs\MANUAL_DE_USO.pdf") {
+            Copy-Item "assets\docs\MANUAL_DE_USO.pdf" "$dst\MANUAL_DE_USO.pdf" -Force
+          }
+          if (Test-Path "packaging\windows\ABRIR_TATA_MANAGER.bat") {
+            Copy-Item "packaging\windows\ABRIR_TATA_MANAGER.bat" "$dst\ABRIR_TATA_MANAGER.bat" -Force
+          }
+          if (Test-Path "packaging\windows\LEEME.txt") {
+            Copy-Item "packaging\windows\LEEME.txt" "$dst\LEEME.txt" -Force
+          }
+          Get-ChildItem $dst | Select-Object Name, Length
+
+      - name: Subir Instalador_Windows (ZIP)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Instalador_Windows
+          path: Instalador_Windows
+          if-no-files-found: error
+          retention-days: 14
