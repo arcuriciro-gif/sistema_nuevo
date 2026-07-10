@@ -22,7 +22,7 @@ class DatabaseHelper {
 
     return openDatabase(
       path,
-      version: 19,
+      version: 20,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -158,6 +158,7 @@ CREATE TABLE comparacion(
     await _crearTablaVentasItems(db);
     await _crearTablaPagos(db);
     await _crearTablasComunicaciones(db);
+    await _crearTablaComentariosInternos(db);
     await _crearIndices(db);
   }
 
@@ -850,6 +851,10 @@ CREATE TABLE IF NOT EXISTS ventas_items(
         );
       }
     }
+
+    if (oldVersion < 20) {
+      await _crearTablaComentariosInternos(db);
+    }
   }
 
   Future<void> _crearTablasComunicaciones(Database db) async {
@@ -901,6 +906,25 @@ CREATE TABLE IF NOT EXISTS notificaciones_internas(
 ''');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_notif_destino ON notificaciones_internas(usuarioDestino)',
+    );
+  }
+
+  Future<void> _crearTablaComentariosInternos(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS comentarios_internos(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entidadTipo TEXT NOT NULL,
+  entidadId TEXT NOT NULL,
+  usuario TEXT NOT NULL,
+  nombre TEXT NOT NULL,
+  texto TEXT NOT NULL,
+  fecha TEXT NOT NULL,
+  activo INTEGER DEFAULT 1
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_comentarios_entidad '
+      'ON comentarios_internos(entidadTipo, entidadId)',
     );
   }
 

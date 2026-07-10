@@ -5,11 +5,12 @@ import '../models/cliente.dart';
 import '../services/cliente_service.dart';
 import '../theme/app_visuals.dart';
 import '../widgets/compartir_chat_dialog.dart';
+import '../widgets/comentarios_internos_sheet.dart';
+import '../widgets/cobrar_dialog.dart';
 import 'cliente_form_page.dart';
 import 'cliente_historial_page.dart';
 import 'cuenta_corriente_cliente_page.dart';
 import '../theme/module_app_bar.dart';
-import '../widgets/cobrar_dialog.dart';
 
 class ClientesPage extends StatefulWidget {
   const ClientesPage({super.key});
@@ -212,6 +213,20 @@ class _ClientesPageState extends State<ClientesPage> {
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  IconButton(
+                                    tooltip: 'Comentarios internos',
+                                    icon: Icon(
+                                      Icons.chat_bubble_outline_rounded,
+                                      color: colorScheme.tertiary,
+                                    ),
+                                    onPressed: () => showComentariosInternos(
+                                      context,
+                                      entidadTipo: 'cliente',
+                                      entidadId: '${c.id}',
+                                      titulo:
+                                          '${c.nombre} ${c.apellido}'.trim(),
+                                    ),
+                                  ),
                                   IconButton(
                                     tooltip: 'Compartir en chat',
                                     icon: Icon(

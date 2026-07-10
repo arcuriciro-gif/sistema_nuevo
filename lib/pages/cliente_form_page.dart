@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/cliente.dart';
 import '../services/cliente_service.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/comentarios_internos_sheet.dart';
 
 class ClienteFormPage extends StatefulWidget {
   final Cliente? cliente;
@@ -155,6 +156,14 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
       appBar: buildModuleAppBar(
         context,
         title: esEdicion ? "Editar cliente" : "Nuevo cliente",
+        actions: [
+          if (esEdicion && widget.cliente?.id != null)
+            ComentariosInternosButton(
+              entidadTipo: 'cliente',
+              entidadId: '${widget.cliente!.id}',
+              titulo: '${widget.cliente!.nombre} ${widget.cliente!.apellido}'.trim(),
+            ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),

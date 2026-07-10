@@ -7,6 +7,7 @@ import '../services/pdf_service.dart';
 import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
 import '../widgets/compartir_chat_dialog.dart';
+import '../widgets/comentarios_internos_sheet.dart';
 import 'remito_form_page.dart';
 import '../theme/module_app_bar.dart';
 
@@ -481,6 +482,19 @@ class _RemitosPageState extends State<RemitosPage> {
                                     Row(
                                       mainAxisAlignment: MainAxisAlignment.end,
                                       children: [
+                                        IconButton(
+                                          tooltip: 'Comentarios internos',
+                                          onPressed: () => showComentariosInternos(
+                                            context,
+                                            entidadTipo: 'remito',
+                                            entidadId: '${remito['id']}',
+                                            titulo:
+                                                'Remito ${remito['numero'] ?? ''}',
+                                          ),
+                                          icon: const Icon(
+                                            Icons.chat_bubble_outline_rounded,
+                                          ),
+                                        ),
                                         IconButton(
                                           tooltip: 'Imprimir PDF',
                                           onPressed: () => imprimirRemito(remito),

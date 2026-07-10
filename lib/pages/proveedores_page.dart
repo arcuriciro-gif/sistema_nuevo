@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/proveedor.dart';
 import '../services/proveedor_service.dart';
 import '../theme/app_visuals.dart';
+import '../widgets/comentarios_internos_sheet.dart';
 import 'proveedor_form_page.dart';
 import '../theme/module_app_bar.dart';
 

@@ -4,6 +4,7 @@ import '../models/chat_mensaje.dart';
 import '../services/compra_service.dart';
 import '../theme/app_visuals.dart';
 import '../widgets/compartir_chat_dialog.dart';
+import '../widgets/comentarios_internos_sheet.dart';
 import 'compra_form_page.dart';
 import '../theme/module_app_bar.dart';
 
@@ -344,6 +345,21 @@ class _ComprasPageState extends State<ComprasPage> {
                                         mainAxisAlignment:
                                             MainAxisAlignment.end,
                                         children: [
+                                          TextButton.icon(
+                                            onPressed: () =>
+                                                showComentariosInternos(
+                                              context,
+                                              entidadTipo: 'compra',
+                                              entidadId: '${compra['id']}',
+                                              titulo:
+                                                  'Compra ${compra['numero'] ?? compra['id']}',
+                                            ),
+                                            icon: const Icon(
+                                              Icons.chat_bubble_outline_rounded,
+                                              size: 18,
+                                            ),
+                                            label: const Text('Notas'),
+                                          ),
                                           TextButton.icon(
                                             onPressed: () =>
                                                 showCompartirEnChatDialog(

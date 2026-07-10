@@ -8,6 +8,7 @@ import '../services/lista_precio_service.dart';
 import '../services/producto_service.dart';
 import '../theme/app_visuals.dart';
 import '../widgets/compartir_chat_dialog.dart';
+import '../widgets/comentarios_internos_sheet.dart';
 import 'papelera_productos_page.dart';
 import 'producto_form_page.dart';
 import 'scanner_page.dart';
@@ -421,6 +422,12 @@ class _ProductosPageState extends State<ProductosPage> {
                                   },
                                 ),
                               ),
+                              onComment: () => showComentariosInternos(
+                                context,
+                                entidadTipo: 'producto',
+                                entidadId: '${p.id}',
+                                titulo: p.descripcion,
+                              ),
                             );
                           },
                         ),
@@ -611,6 +618,7 @@ class _ProductoCard extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onToggleFavorito;
   final VoidCallback onShare;
+  final VoidCallback onComment;
 
   const _ProductoCard({
     required this.producto,
@@ -621,6 +629,7 @@ class _ProductoCard extends StatelessWidget {
     required this.onDelete,
     required this.onToggleFavorito,
     required this.onShare,
+    required this.onComment,
   });
 
   @override
@@ -701,6 +710,16 @@ class _ProductoCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
+                TextButton.icon(
+                  onPressed: onComment,
+                  icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16),
+                  label: const Text('Notas'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: colorScheme.tertiary,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+                const SizedBox(width: 4),
                 TextButton.icon(
                   onPressed: onShare,
                   icon: const Icon(Icons.share_rounded, size: 16),

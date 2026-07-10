@@ -17,6 +17,7 @@ import '../services/venta_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/cobrar_dialog.dart';
+import '../widgets/comentarios_internos_sheet.dart';
 
 // ---------------------------------------------------------------------------
 // Ítem del carrito (temporal, no persistido)
@@ -455,7 +456,15 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                 '${_ventaExistente?.numero ?? ''}'
             : 'Nueva $_titulo',
         actions: [
-          if (_modoLectura && _ventaExistente != null)
+          if (_modoLectura && _ventaExistente != null) ...[
+            ComentariosInternosButton(
+              entidadTipo: _ventaExistente!.tipo == 'presupuesto'
+                  ? 'presupuesto'
+                  : 'venta',
+              entidadId: '${_ventaExistente!.id}',
+              titulo:
+                  '${_ventaExistente!.tipoLabel} ${_ventaExistente!.numero}',
+            ),
             PopupMenuButton<String>(
               onSelected: (action) async {
                 if (action == 'anular') {
@@ -519,6 +528,7 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                 ),
               ],
             ),
+          ],
         ],
       ),
       body: Column(

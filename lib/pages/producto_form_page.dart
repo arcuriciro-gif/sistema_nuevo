@@ -8,6 +8,7 @@ import '../models/producto.dart';
 import '../services/lista_precio_service.dart';
 import '../services/producto_service.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/comentarios_internos_sheet.dart';
 import 'historial_precios_page.dart';
 import 'scanner_page.dart';
 
@@ -237,7 +238,12 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
         context,
         title: widget.producto == null ? 'Nuevo producto' : 'Editar producto',
         actions: [
-          if (widget.producto?.id != null)
+          if (widget.producto?.id != null) ...[
+            ComentariosInternosButton(
+              entidadTipo: 'producto',
+              entidadId: '${widget.producto!.id}',
+              titulo: widget.producto!.descripcion,
+            ),
             IconButton(
               icon: const Icon(Icons.history_rounded),
               tooltip: 'Historial de cambios',
@@ -253,6 +259,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
                 );
               },
             ),
+          ],
         ],
       ),
       body: SingleChildScrollView(

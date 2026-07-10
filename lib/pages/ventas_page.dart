@@ -7,6 +7,7 @@ import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/cobrar_dialog.dart';
 import '../widgets/compartir_chat_dialog.dart';
+import '../widgets/comentarios_internos_sheet.dart';
 import 'venta_factura_page.dart';
 
 class VentasPage extends StatefulWidget {
@@ -242,6 +243,20 @@ class _VentasPageState extends State<VentasPage> {
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  IconButton(
+                                    tooltip: 'Comentarios internos',
+                                    icon: const Icon(
+                                      Icons.chat_bubble_outline_rounded,
+                                    ),
+                                    onPressed: () => showComentariosInternos(
+                                      context,
+                                      entidadTipo: v.tipo == 'presupuesto'
+                                          ? 'presupuesto'
+                                          : 'venta',
+                                      entidadId: '${v.id}',
+                                      titulo: '${v.tipoLabel} ${v.numero}',
+                                    ),
+                                  ),
                                   IconButton(
                                     tooltip: 'Compartir en chat',
                                     icon: const Icon(Icons.forum_rounded),
