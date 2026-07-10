@@ -1,0 +1,717 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+
+import '../services/auth_service.dart';
+import '../services/auto_backup_service.dart';
+import '../services/branding_service.dart';
+import '../services/permisos_service.dart';
+import '../theme/layout_constants.dart';
+import 'auditoria_page.dart';
+import 'backup_page.dart';
+import 'busqueda_global_page.dart';
+import 'categorias_page.dart';
+import 'centro_importaciones_page.dart';
+import 'clientes_page.dart';
+import 'comparacion_page.dart';
+import 'compras_page.dart';
+import 'configuracion_page.dart';
+import 'dashboard_page.dart';
+import 'etiquetas_page.dart';
+import 'inicio_page.dart';
+import 'importacion_page.dart';
+import 'inteligencia_comercial_page.dart';
+import 'listas_precio_page.dart';
+import 'login_page.dart';
+import 'permisos_page.dart';
+import 'productos_page.dart';
+import 'proveedores_page.dart';
+import 'remitos_page.dart';
+import 'reportes_page.dart';
+import 'stock_page.dart';
+import 'usuarios_page.dart';
+import 'ventas_page.dart';
+import 'venta_rapida_page.dart';
+
+// ── Paleta fija para la barra lateral oscura ──────────────────────────────────
+const Color _kSidebarBg = Color(0xFF111827);
+const Color _kSidebarBorder = Color(0xFF1F2937);
+const Color _kSidebarHeaderBorder = Color(0xFF374151);
+const Color _kSidebarSelectedBg = Color(0xFFFF7A00);
+const Color _kSidebarSelectedIcon = Colors.white;
+const Color _kSidebarSelectedText = Colors.white;
+const Color _kSidebarInactiveIcon = Color(0xFF9CA3AF);
+const Color _kSidebarInactiveText = Color(0xFFD1D5DB);
+const Color _kSidebarUserBg = Color(0xFF1F2937);
+const Color _kSidebarSubtext = Color(0xFF6B7280);
+
+class _ShellItem {
+  final IconData icon;
+  final String title;
+  final String modulo;
+  final Widget Function() builder;
+  final bool quickAccess;
+
+  const _ShellItem({
+    required this.icon,
+    required this.title,
+    required this.modulo,
+    required this.builder,
+    this.quickAccess = false,
+  });
+}
+
+class MainShell extends StatefulWidget {
+  const MainShell({super.key});
+
+  @override
+  State<MainShell> createState() => _MainShellState();
+}
+
+class _MainShellState extends State<MainShell> {
+  int _selectedIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Start automatic backup timer if configured
+    AutoBackupService.instance.iniciar();
+  }
+
+  List<_ShellItem> get _items => [
+        _ShellItem(
+          icon: Icons.home_rounded,
+          title: 'Inicio',
+          modulo: 'dashboard',
+          builder: () => const InicioPage(),
+          quickAccess: true,
+        ),
+        _ShellItem(
+          icon: Icons.query_stats_rounded,
+          title: 'Dashboard',
+          modulo: 'dashboard',
+          builder: () => const DashboardPage(),
+          quickAccess: true,
+        ),
+        _ShellItem(
+          icon: Icons.inventory_2_rounded,
+          title: 'Productos',
+          modulo: 'productos',
+          builder: () => const ProductosPage(),
+          quickAccess: true,
+        ),
+        _ShellItem(
+          icon: Icons.category_rounded,
+          title: 'Categorías',
+          modulo: 'productos',
+          builder: () => const CategoriasPage(),
+        ),
+        _ShellItem(
+          icon: Icons.point_of_sale_rounded,
+          title: 'Venta Rápida',
+          modulo: 'remitos',
+          builder: () => const VentaRapidaPage(),
+          quickAccess: true,
+        ),
+        _ShellItem(
+          icon: Icons.receipt_long_rounded,
+          title: 'Ventas / Facturas',
+          modulo: 'remitos',
+          builder: () => const VentasPage(),
+          quickAccess: true,
+        ),
+        _ShellItem(
+          icon: Icons.compare_arrows_rounded,
+          title: 'Comparador de listas',
+          modulo: 'listas_precios',
+          builder: () => const ComparacionPage(),
+        ),
+        _ShellItem(
+          icon: Icons.hub_rounded,
+          title: 'Importaciones',
+          modulo: 'productos',
+          builder: () => const CentroImportacionesPage(),
+        ),
+        _ShellItem(
+          icon: Icons.upload_file_rounded,
+          title: 'Importar Productos',
+          modulo: 'productos',
+          builder: () => const ImportacionPage(),
+        ),
+        _ShellItem(
+          icon: Icons.warehouse_rounded,
+          title: 'Stock',
+          modulo: 'stock',
+          builder: () => const StockPage(),
+        ),
+        _ShellItem(
+          icon: Icons.shopping_cart_rounded,
+          title: 'Compras',
+          modulo: 'compras',
+          builder: () => const ComprasPage(),
+        ),
+        _ShellItem(
+          icon: Icons.description_rounded,
+          title: 'Remitos',
+          modulo: 'remitos',
+          builder: () => const RemitosPage(),
+          quickAccess: true,
+        ),
+        _ShellItem(
+          icon: Icons.groups_rounded,
+          title: 'Clientes',
+          modulo: 'clientes',
+          builder: () => const ClientesPage(),
+          quickAccess: true,
+        ),
+        _ShellItem(
+          icon: Icons.local_shipping_rounded,
+          title: 'Proveedores',
+          modulo: 'proveedores',
+          builder: () => const ProveedoresPage(),
+        ),
+        _ShellItem(
+          icon: Icons.sell_rounded,
+          title: 'Listas de Precios',
+          modulo: 'listas_precios',
+          builder: () => const ListasPrecioPage(),
+        ),
+        _ShellItem(
+          icon: Icons.bar_chart_rounded,
+          title: 'Reportes',
+          modulo: 'reportes',
+          builder: () => const ReportesPage(),
+        ),
+        _ShellItem(
+          icon: Icons.insights_rounded,
+          title: 'Inteligencia Comercial',
+          modulo: 'reportes',
+          builder: () => const InteligenciaComercialPage(),
+        ),
+        _ShellItem(
+          icon: Icons.label_rounded,
+          title: 'Etiquetas',
+          modulo: 'etiquetas',
+          builder: () => const EtiquetasPage(),
+        ),
+        _ShellItem(
+          icon: Icons.history_edu_rounded,
+          title: 'Auditoría',
+          modulo: 'auditoria',
+          builder: () => const AuditoriaPage(),
+        ),
+        _ShellItem(
+          icon: Icons.people_alt_rounded,
+          title: 'Usuarios',
+          modulo: 'usuarios',
+          builder: () => const UsuariosPage(),
+        ),
+        _ShellItem(
+          icon: Icons.admin_panel_settings_rounded,
+          title: 'Permisos',
+          modulo: 'usuarios',
+          builder: () => const PermisosPage(),
+        ),
+        _ShellItem(
+          icon: Icons.cloud_upload_rounded,
+          title: 'Respaldo',
+          modulo: 'backup',
+          builder: () => const BackupPage(),
+        ),
+        _ShellItem(
+          icon: Icons.settings_rounded,
+          title: 'Configuración',
+          modulo: 'configuracion',
+          builder: () => const ConfiguracionPage(),
+        ),
+      ];
+
+  List<_ShellItem> get _visibleItems {
+    final rol = AuthService.instance.currentUser?.rol ?? 'empleado';
+    return _items
+        .where((item) => PermisosService.instance.puedeVer(rol, item.modulo))
+        .toList();
+  }
+
+  int _safeIndex(List<_ShellItem> items) {
+    if (items.isEmpty) return 0;
+    if (_selectedIndex >= items.length) return 0;
+    return _selectedIndex;
+  }
+
+  void _select(int index) {
+    if (_selectedIndex != index) setState(() => _selectedIndex = index);
+  }
+
+  Future<void> _logout() async {
+    await AuthService.instance.logout();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginPage()),
+      (_) => false,
+    );
+  }
+
+  Future<void> _abrirBusqueda({required bool desktop}) async {
+    if (desktop) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => Dialog.fullscreen(
+          backgroundColor: Theme.of(ctx).colorScheme.surface,
+          child: const BusquedaGlobalPage(),
+        ),
+      );
+    } else {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const BusquedaGlobalPage()),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final desktop = constraints.maxWidth >= kDesktopBreakpoint;
+        if (desktop) {
+          return _buildDesktopLayout();
+        }
+        return _buildMobileLayout();
+      },
+    );
+  }
+
+  Widget _buildDesktopLayout() {
+    final items = _visibleItems;
+    final index = _safeIndex(items);
+    return Scaffold(
+      body: Column(
+        children: [
+          _TopBar(
+            onSearch: () => _abrirBusqueda(desktop: true),
+            onLogout: _logout,
+          ),
+          Expanded(
+            child: Row(
+              children: [
+                _Sidebar(
+                  selectedIndex: index,
+                  items: items,
+                  onTap: _select,
+                  onLogout: _logout,
+                ),
+                Expanded(
+                  child: items.isEmpty
+                      ? const Center(child: Text('Sin módulos disponibles'))
+                      : IndexedStack(
+                          index: index,
+                          children: [for (final item in items) item.builder()],
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileLayout() {
+    final items = _visibleItems;
+    final index = _safeIndex(items);
+    final current = items.isNotEmpty ? items[index] : null;
+    final quickItems = items.where((item) => item.quickAccess).take(4).toList();
+    final cs = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          current?.title ?? 'EL TATA Manager',
+          style: TextStyle(
+            color: cs.onSurface,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            onPressed: () => _abrirBusqueda(desktop: false),
+            icon: const Icon(Icons.search_rounded),
+            tooltip: 'Búsqueda global',
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: CircleAvatar(
+              radius: 16,
+              backgroundColor: cs.primaryContainer,
+              child: Text(
+                (AuthService.instance.currentUser?.nombre ?? 'A')
+                    .substring(0, 1)
+                    .toUpperCase(),
+                style: TextStyle(
+                  color: cs.onPrimaryContainer,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      drawer: Drawer(
+        backgroundColor: _kSidebarBg,
+        width: 260,
+        child: _SidebarContent(
+          selectedIndex: index,
+          items: items,
+          onTap: (i) {
+            Navigator.of(context).pop();
+            _select(i);
+          },
+          onLogout: _logout,
+        ),
+      ),
+      body: items.isEmpty
+          ? const Center(child: Text('Sin módulos disponibles'))
+          : IndexedStack(
+              index: index,
+              children: [for (final item in items) item.builder()],
+            ),
+      bottomNavigationBar: quickItems.isEmpty
+          ? null
+          : BottomNavigationBar(
+              backgroundColor: cs.surfaceContainerLow,
+              selectedItemColor: cs.primary,
+              unselectedItemColor: cs.onSurfaceVariant,
+              type: BottomNavigationBarType.fixed,
+              currentIndex: quickItems.contains(current) ? quickItems.indexOf(current!) : 0,
+              onTap: (i) => _select(items.indexOf(quickItems[i])),
+              items: quickItems
+                  .map(
+                    (item) => BottomNavigationBarItem(
+                      icon: Icon(item.icon),
+                      label: item.title,
+                    ),
+                  )
+                  .toList(),
+            ),
+    );
+  }
+}
+
+class _Sidebar extends StatelessWidget {
+  final int selectedIndex;
+  final List<_ShellItem> items;
+  final ValueChanged<int> onTap;
+  final VoidCallback onLogout;
+
+  const _Sidebar({
+    required this.selectedIndex,
+    required this.items,
+    required this.onTap,
+    required this.onLogout,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 230,
+      decoration: const BoxDecoration(
+        color: _kSidebarBg,
+        border: Border(right: BorderSide(color: _kSidebarBorder)),
+      ),
+      child: _SidebarContent(
+        selectedIndex: selectedIndex,
+        items: items,
+        onTap: onTap,
+        onLogout: onLogout,
+      ),
+    );
+  }
+}
+
+class _SidebarContent extends StatelessWidget {
+  final int selectedIndex;
+  final List<_ShellItem> items;
+  final ValueChanged<int> onTap;
+  final VoidCallback onLogout;
+
+  const _SidebarContent({
+    required this.selectedIndex,
+    required this.items,
+    required this.onTap,
+    required this.onLogout,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final branding = BrandingService.instance;
+    final logoPath = branding.logoPath;
+
+    return Column(
+      children: [
+        // ── Encabezado (logo + nombre del negocio) ────────────────────────────
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: _kSidebarHeaderBorder)),
+          ),
+          child: Column(
+            children: [
+              if (logoPath.isNotEmpty)
+                CircleAvatar(
+                  radius: 30,
+                  backgroundImage: FileImage(File(logoPath)),
+                )
+              else
+                Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF3B82F6),
+                      width: 1.5,
+                    ),
+                    color: const Color(0xFF1E3A5F),
+                  ),
+                  child: const Icon(
+                    Icons.store_rounded,
+                    color: Color(0xFF93C5FD),
+                    size: 28,
+                  ),
+                ),
+              const SizedBox(height: 8),
+              Text(
+                branding.nombre,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (branding.slogan.isNotEmpty)
+                Text(
+                  branding.slogan,
+                  style: const TextStyle(color: _kSidebarSubtext, fontSize: 11),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+            ],
+          ),
+        ),
+        // ── Ítems de navegación ───────────────────────────────────────────────
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            itemCount: items.length,
+            itemBuilder: (context, index) {
+              final item = items[index];
+              final selected = selectedIndex == index;
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Material(
+                  color: selected ? _kSidebarSelectedBg : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                  child: ListTile(
+                    dense: true,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  leading: Icon(
+                    item.icon,
+                    color: selected ? _kSidebarSelectedIcon : _kSidebarInactiveIcon,
+                    size: 20,
+                  ),
+                  title: Text(
+                    item.title,
+                    style: TextStyle(
+                      color: selected ? _kSidebarSelectedText : _kSidebarInactiveText,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.normal,
+                      fontSize: 14,
+                    ),
+                  ),
+                    onTap: () => onTap(index),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        // ── Usuario logueado ──────────────────────────────────────────────────
+        Container(
+          margin: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: _kSidebarUserBg,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: const Color(0xFF1E3A5F),
+                child: Text(
+                  (AuthService.instance.currentUser?.nombre ?? 'A')
+                      .substring(0, 1)
+                      .toUpperCase(),
+                  style: const TextStyle(
+                    color: Color(0xFF93C5FD),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      AuthService.instance.currentUser?.nombre ?? 'Usuario',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      AuthService.instance.currentUser?.rol ?? '',
+                      style: const TextStyle(color: _kSidebarSubtext, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(
+                  Icons.logout_rounded,
+                  color: _kSidebarInactiveIcon,
+                  size: 20,
+                ),
+                tooltip: 'Cerrar sesión',
+                onPressed: onLogout,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Barra superior de escritorio ─────────────────────────────────────────────
+class _TopBar extends StatelessWidget {
+  final VoidCallback onSearch;
+  final VoidCallback onLogout;
+
+  const _TopBar({required this.onSearch, required this.onLogout});
+
+  @override
+  Widget build(BuildContext context) {
+    final branding = BrandingService.instance;
+    final logoPath = branding.logoPath;
+    final userName = AuthService.instance.currentUser?.nombre ?? 'Usuario';
+    final userInitial = userName.substring(0, 1).toUpperCase();
+
+    return Container(
+  height: 56,
+  padding: const EdgeInsets.symmetric(horizontal: 16),
+  decoration: const BoxDecoration(
+    color: _kSidebarBg,
+    border: Border(
+      bottom: BorderSide(color: _kSidebarBorder),
+    ),
+  ),
+  child: Row(
+        children: [
+          // Logo / nombre del negocio
+          if (logoPath.isNotEmpty)
+            CircleAvatar(
+              radius: 16,
+              backgroundImage: FileImage(File(logoPath)),
+            )
+          else
+            const Icon(Icons.store_rounded, color: Color(0xFF93C5FD), size: 22),
+          const SizedBox(width: 10),
+          Text(
+            branding.nombre,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 15,
+            ),
+          ),
+          const Spacer(),
+          // Buscador global
+          GestureDetector(
+            onTap: onSearch,
+            child: Container(
+              height: 34,
+              width: 220,
+              decoration: BoxDecoration(
+                color: const Color(0xFF1F2937),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _kSidebarHeaderBorder),
+              ),
+              child: const Row(
+                children: [
+                  SizedBox(width: 10),
+                  Icon(Icons.search_rounded, color: _kSidebarInactiveIcon, size: 17),
+                  SizedBox(width: 8),
+                  Text(
+                    'Buscar productos...',
+                    style: TextStyle(color: _kSidebarSubtext, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          // Notificaciones (placeholder)
+          IconButton(
+            icon: const Icon(Icons.notifications_rounded),
+            color: _kSidebarInactiveIcon,
+            tooltip: 'Notificaciones',
+            onPressed: () {},
+          ),
+          const SizedBox(width: 4),
+          // Usuario
+          CircleAvatar(
+            radius: 15,
+            backgroundColor: const Color(0xFF1E3A5F),
+            child: Text(
+              userInitial,
+              style: const TextStyle(
+                color: Color(0xFF93C5FD),
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            userName,
+            style: const TextStyle(color: _kSidebarInactiveText, fontSize: 13),
+          ),
+          const SizedBox(width: 8),
+          // Cerrar sesión
+          IconButton(
+            icon: const Icon(Icons.logout_rounded),
+            color: _kSidebarInactiveIcon,
+            tooltip: 'Cerrar sesión',
+            onPressed: onLogout,
+          ),
+        ],
+      ),
+    );
+  }
+}

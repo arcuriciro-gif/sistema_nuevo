@@ -1,0 +1,165 @@
+import 'dart:convert';
+
+import '../core/events/data_refresh_hub.dart';
+import '../core/sync/firestore_sync_service.dart';
+import '../database/database_helper.dart';
+import '../models/producto.dart';
+import '../repositories/producto_repository.dart';
+import 'auth_service.dart';
+import 'precio_calculador_service.dart';
+
+class ProductoService {
+  final DatabaseHelper _databaseHelper = DatabaseHelper.instance;
+  final PrecioCalculadorService _precioCalculador = PrecioCalculadorService.instance;
+
+  ProductoRepository get _repo => FirestoreSyncService.instance.writeRepository;
+
+  String _snapshot(Producto producto) {
+    return jsonEncode({
+      'id': producto.id,
+      'codigo': producto.codigo,
+      'codigoBarras': producto.codigoBarras,
+      'descripcion': producto.descripcion,
+      'marca': producto.marca,
+      'categoria': producto.categoria,
+      'stock': producto.stock,
+      'costo': producto.costo,
+      'precio': producto.precio,
+      'precio2': producto.precio2,
+      'precio3': producto.precio3,
+    });
+  }
+
+  Future<int> insertar(Producto producto) async {
+    final preparado = await _precioCalculador.aplicarListasDesdeCosto(producto);
+    final id = await _repo.insertar(preparado);
+    final guardado = preparado.copyWith(id: id);
+
+    await AuthService.instance.registrarCambio(
+      'ALTA_PRODUCTO',
+      'productos',
+      'Nuevo producto: ${guardado.descripcion}',
+      valorNuevo: _snapshot(guardado),
+    );
+    DataRefreshHub.instance.notifyProductos();
+
+    return id;
+  }
+
+  Future<void> insertarLista(List<Producto> productos) async {
+    final preparados = <Producto>[];
+    for (final producto in productos) {
+      preparados.add(await _precioCalculador.aplicarListasDesdeCosto(producto));
+    }
+    await _repo.insertarLista(preparados);
+    DataRefreshHub.instance.notifyProductos();
+  }
+
+  Future<List<Producto>> obtenerTodos({int? limit, int? offset}) =>
+      _repo.obtenerTodos(limit: limit, offset: offset);
+
+  Future<Producto?> buscarPorCodigo(String codigo) => _repo.buscarPorCodigo(codigo);
+
+  Future<Producto?> buscarPorCodigoBarras(String codigoBarras) =>
+      _repo.buscarPorCodigoBarras(codigoBarras);
+
+  Future<bool> tieneProductos() => _repo.tieneProductos();
+
+  Future<int> actualizar(Producto producto) async {
+    final db = await _databaseHelper.database;
+    Producto? anteriorProducto;
+
+    if (producto.id != null) {
+      final anterior = await db.query(
+        'productos',
+        where: 'id = ?',
+        whereArgs: [producto.id],
+        limit: 1,
+      );
+      if (anterior.isNotEmpty) {
+        anteriorProducto = Producto.fromMap(anterior.first);
+        final costoCambio = anteriorProducto.costo != producto.costo;
+        var actualizado = producto;
+        if (costoCambio) {
+          actualizado = await _precioCalculador.aplicarListasDesdeCosto(producto);
+        }
+
+        final costoAnterior = anteriorProducto.costo;
+        final precioAnterior = anteriorProducto.precio;
+        final listasModificadas = <String>[];
+        if (precioAnterior != actualizado.precio) listasModificadas.add('Lista 1');
+        if (anteriorProducto.precio2 != actualizado.precio2) {
+          listasModificadas.add('Lista 2');
+        }
+        if (anteriorProducto.precio3 != actualizado.precio3) {
+          listasModificadas.add('Lista 3');
+        }
+
+        if (costoCambio || listasModificadas.isNotEmpty) {
+          final variacion = precioAnterior > 0
+              ? ((actualizado.precio - precioAnterior) / precioAnterior) * 100
+              : 0.0;
+          await db.insert('historial_precios', {
+            'productoId': producto.id,
+            'fecha': DateTime.now().toIso8601String(),
+            'usuario': AuthService.instance.currentUser?.usuario ?? 'sistema',
+            'costoAnterior': costoAnterior,
+            'costoNuevo': actualizado.costo,
+            'precioAnterior': precioAnterior,
+            'precioNuevo': actualizado.precio,
+            'porcentaje': variacion,
+            'listaModificada':
+                listasModificadas.isEmpty ? 'Costo' : listasModificadas.join(', '),
+            'motivo': costoCambio ? 'Cambio de costo' : 'Edición de producto',
+          });
+        }
+
+        final result = await _repo.actualizar(actualizado);
+        await AuthService.instance.registrarCambio(
+          'MODIFICACION_PRODUCTO',
+          'productos',
+          'Producto actualizado: ${actualizado.descripcion}',
+          valorAnterior: _snapshot(anteriorProducto),
+          valorNuevo: _snapshot(actualizado),
+        );
+        DataRefreshHub.instance.notifyProductos();
+        return result;
+      }
+    }
+
+    final result = await _repo.actualizar(producto);
+    await AuthService.instance.registrarCambio(
+      'MODIFICACION_PRODUCTO',
+      'productos',
+      'Producto actualizado: ${producto.descripcion}',
+      valorNuevo: _snapshot(producto),
+    );
+    DataRefreshHub.instance.notifyProductos();
+    return result;
+  }
+
+  Future<int> eliminar(int id) async {
+    final db = await _databaseHelper.database;
+    final anterior = await db.query(
+      'productos',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    final producto = anterior.isNotEmpty ? Producto.fromMap(anterior.first) : null;
+
+    final result = await _repo.eliminar(id);
+
+    if (producto != null) {
+      await AuthService.instance.registrarCambio(
+        'BAJA_PRODUCTO',
+        'productos',
+        'Producto eliminado: ${producto.descripcion}',
+        valorAnterior: _snapshot(producto),
+      );
+    }
+    DataRefreshHub.instance.notifyProductos();
+
+    return result;
+  }
+}

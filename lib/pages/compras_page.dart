@@ -1,0 +1,366 @@
+import 'package:flutter/material.dart';
+
+import '../services/compra_service.dart';
+import '../theme/app_visuals.dart';
+import 'compra_form_page.dart';
+
+class ComprasPage extends StatefulWidget {
+  const ComprasPage({super.key});
+
+  @override
+  State<ComprasPage> createState() => _ComprasPageState();
+}
+
+class _ComprasPageState extends State<ComprasPage> {
+  final CompraService service = CompraService();
+  final TextEditingController buscarController = TextEditingController();
+
+  List<Map<String, dynamic>> compras = [];
+  List<Map<String, dynamic>> comprasOriginales = [];
+  bool cargando = true;
+
+  @override
+  void initState() {
+    super.initState();
+    cargar();
+  }
+
+  @override
+  void dispose() {
+    buscarController.dispose();
+    super.dispose();
+  }
+
+  Future<void> cargar() async {
+    setState(() => cargando = true);
+    comprasOriginales = await service.obtenerTodasConProveedor();
+    _filtrar(buscarController.text, actualizarEstado: false);
+    if (!mounted) return;
+    setState(() => cargando = false);
+  }
+
+  void _filtrar(String texto, {bool actualizarEstado = true}) {
+    final filtro = texto.toLowerCase().trim();
+    compras = comprasOriginales.where((c) {
+      final numero = (c['numero'] ?? '').toString().toLowerCase();
+      final proveedor = (c['proveedorNombre'] ?? '').toString().toLowerCase();
+      return numero.contains(filtro) || proveedor.contains(filtro);
+    }).toList();
+
+    if (actualizarEstado && mounted) {
+      setState(() {});
+    }
+  }
+
+  String formatearFecha(String? texto) {
+    final fecha = DateTime.tryParse(texto ?? '') ?? DateTime.now();
+    return '${fecha.day.toString().padLeft(2, '0')}/${fecha.month.toString().padLeft(2, '0')}/${fecha.year}';
+  }
+
+  Future<void> verItems(Map<String, dynamic> compra) async {
+    final items = await service.obtenerItems(compra['id']);
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.6,
+        builder: (_, ctrl) => Column(
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.outlineVariant,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.shopping_cart_rounded,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Compra ${compra['numero']}',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+            Expanded(
+              child: items.isEmpty
+                  ? const Center(child: Text('Sin ítems'))
+                  : ListView.builder(
+                      controller: ctrl,
+                      itemCount: items.length,
+                      itemBuilder: (_, i) {
+                        final item = items[i];
+                        return ListTile(
+                          title: Text(item['productoDescripcion'] ?? ''),
+                          subtitle: Text(
+                            'Código: ${item['codigo'] ?? '-'}  |  Costo: \$${((item['costo'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+                          ),
+                          trailing: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text('x${item['cantidad']}'),
+                              Text(
+                                '\$${((item['subtotal'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'TOTAL',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  Text(
+                    '\$${((compra['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> confirmarAnular(Map<String, dynamic> compra) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Anular compra'),
+        content: Text(
+          '¿Anular la compra ${compra['numero']}? Se descontará el stock ingresado.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              'Anular',
+              style: TextStyle(
+                color: AppVisuals.danger(Theme.of(context).colorScheme),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await service.anular(compra['id']);
+      await cargar();
+    }
+  }
+
+  Color colorEstado(String estado) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return estado == 'anulada'
+        ? AppVisuals.danger(colorScheme)
+        : AppVisuals.success(colorScheme);
+  }
+
+  Widget estadoChip(String estado) {
+    final color = colorEstado(estado);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .15),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        estado.toUpperCase(),
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.bold,
+          fontSize: 11,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      floatingActionButton: FloatingActionButton.extended(
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('Nueva compra'),
+        onPressed: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const CompraFormPage()),
+          );
+          cargar();
+        },
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: TextField(
+              controller: buscarController,
+              onChanged: _filtrar,
+              decoration: InputDecoration(
+                hintText: 'Buscar compra o proveedor...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+            ),
+          ),
+          Expanded(
+            child: cargando
+                ? const Center(child: CircularProgressIndicator())
+                : compras.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No hay compras registradas.',
+                          style: TextStyle(fontSize: 18),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: compras.length,
+                        itemBuilder: (context, i) {
+                          final compra = compras[i];
+                          final estado =
+                              (compra['estado'] ?? 'confirmada').toString();
+                          return Card(
+                            margin: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () => verItems(compra),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        CircleAvatar(
+                                          backgroundColor: colorEstado(estado)
+                                              .withValues(alpha: .15),
+                                          child: Icon(
+                                            Icons.shopping_cart_rounded,
+                                            color: colorEstado(estado),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                compra['numero'] ?? '',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 16,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                compra['proveedorNombre'] ??
+                                                    'Sin proveedor',
+                                              ),
+                                              Text(
+                                                formatearFecha(
+                                                  compra['fecha']?.toString(),
+                                                ),
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurfaceVariant,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.end,
+                                          children: [
+                                            Text(
+                                              '\$${((compra['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 15,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            estadoChip(estado),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    if (estado != 'anulada') ...[
+                                      const Divider(height: 20),
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.end,
+                                        children: [
+                                          TextButton.icon(
+                                            onPressed: () =>
+                                                confirmarAnular(compra),
+                                            icon: const Icon(
+                                              Icons.block_rounded,
+                                              size: 18,
+                                            ),
+                                            label: const Text('Anular'),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+}

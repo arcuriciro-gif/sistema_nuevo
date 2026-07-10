@@ -24,11 +24,3 @@ plugins {
 }
 
 include(":app")
-
-// Injected plugin includes to ensure plugin Android code is compiled locally.
-// These point at the plugin Android projects in the local pub cache.
-include(":file_picker")
-project(":file_picker").projectDir = file("C:/Users/Matia/AppData/Local/Pub/Cache/hosted/pub.dev/file_picker-11.0.2/android")
-
-include(":flutter_plugin_android_lifecycle")
-project(":flutter_plugin_android_lifecycle").projectDir = file("C:/Users/Matia/AppData/Local/Pub/Cache/hosted/pub.dev/flutter_plugin_android_lifecycle-2.0.35/android")

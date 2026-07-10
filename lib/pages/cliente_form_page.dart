@@ -1,0 +1,243 @@
+import 'package:flutter/material.dart';
+
+import '../models/cliente.dart';
+import '../services/cliente_service.dart';
+
+class ClienteFormPage extends StatefulWidget {
+  final Cliente? cliente;
+
+  const ClienteFormPage({super.key, this.cliente});
+
+  @override
+  State<ClienteFormPage> createState() => _ClienteFormPageState();
+}
+
+class _ClienteFormPageState extends State<ClienteFormPage> {
+  final ClienteService service = ClienteService();
+  final GlobalKey<FormState> formKey = GlobalKey<FormState>();
+
+  late TextEditingController nombreController;
+  late TextEditingController apellidoController;
+  late TextEditingController telefonoController;
+  late TextEditingController whatsappController;
+  late TextEditingController emailController;
+  late TextEditingController direccionController;
+  late TextEditingController localidadController;
+  late TextEditingController provinciaController;
+  late TextEditingController cuitController;
+  late TextEditingController condicionIvaController;
+  late TextEditingController observacionesController;
+  late TextEditingController descuentoController;
+  late TextEditingController saldoController;
+  late TextEditingController limiteCuentaController;
+
+  bool guardando = false;
+
+  bool get esEdicion => widget.cliente != null;
+
+  @override
+  void initState() {
+    super.initState();
+    nombreController = TextEditingController(text: widget.cliente?.nombre ?? '');
+    apellidoController =
+        TextEditingController(text: widget.cliente?.apellido ?? '');
+    telefonoController =
+        TextEditingController(text: widget.cliente?.telefono ?? '');
+    whatsappController =
+        TextEditingController(text: widget.cliente?.whatsapp ?? '');
+    emailController = TextEditingController(text: widget.cliente?.email ?? '');
+    direccionController =
+        TextEditingController(text: widget.cliente?.direccion ?? '');
+    localidadController =
+        TextEditingController(text: widget.cliente?.localidad ?? '');
+    provinciaController =
+        TextEditingController(text: widget.cliente?.provincia ?? '');
+    cuitController = TextEditingController(text: widget.cliente?.cuit ?? '');
+    condicionIvaController =
+        TextEditingController(text: widget.cliente?.condicionIva ?? '');
+    observacionesController =
+        TextEditingController(text: widget.cliente?.observaciones ?? '');
+    descuentoController = TextEditingController(
+      text: (widget.cliente?.descuento ?? 0).toStringAsFixed(1),
+    );
+    saldoController = TextEditingController(
+      text: (widget.cliente?.saldo ?? 0).toStringAsFixed(2),
+    );
+    limiteCuentaController = TextEditingController(
+      text: (widget.cliente?.limiteCuenta ?? 0).toStringAsFixed(2),
+    );
+  }
+
+  @override
+  void dispose() {
+    nombreController.dispose();
+    apellidoController.dispose();
+    telefonoController.dispose();
+    whatsappController.dispose();
+    emailController.dispose();
+    direccionController.dispose();
+    localidadController.dispose();
+    provinciaController.dispose();
+    cuitController.dispose();
+    condicionIvaController.dispose();
+    observacionesController.dispose();
+    descuentoController.dispose();
+    saldoController.dispose();
+    limiteCuentaController.dispose();
+    super.dispose();
+  }
+
+  double _parseDbl(String text) =>
+      double.tryParse(text.replaceAll(',', '.')) ?? 0;
+
+  Future<void> guardar() async {
+    if (!formKey.currentState!.validate()) return;
+
+    setState(() => guardando = true);
+
+    final descuento =
+        _parseDbl(descuentoController.text).clamp(0.0, 100.0).toDouble();
+
+    final cliente = Cliente(
+      id: widget.cliente?.id,
+      nombre: nombreController.text.trim(),
+      apellido: apellidoController.text.trim(),
+      telefono: telefonoController.text.trim(),
+      whatsapp: whatsappController.text.trim(),
+      email: emailController.text.trim(),
+      direccion: direccionController.text.trim(),
+      localidad: localidadController.text.trim(),
+      provincia: provinciaController.text.trim(),
+      cuit: cuitController.text.trim(),
+      condicionIva: condicionIvaController.text.trim(),
+      observaciones: observacionesController.text.trim(),
+      descuento: descuento,
+      saldo: _parseDbl(saldoController.text),
+      limiteCuenta: _parseDbl(limiteCuentaController.text),
+    );
+
+    if (esEdicion) {
+      await service.actualizar(cliente);
+    } else {
+      await service.insertar(cliente);
+    }
+
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
+  Widget _campo(
+    String label,
+    TextEditingController controller, {
+    IconData? icon,
+    TextInputType? keyboardType,
+    int maxLines = 1,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: keyboardType,
+        maxLines: maxLines,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: icon != null ? Icon(icon) : null,
+          border: const OutlineInputBorder(),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(esEdicion ? "Editar cliente" : "Nuevo cliente"),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: formKey,
+          child: Column(
+            children: [
+              TextFormField(
+                controller: nombreController,
+                decoration: const InputDecoration(
+                  labelText: "Nombre *",
+                  prefixIcon: Icon(Icons.person),
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) =>
+                    v == null || v.trim().isEmpty ? "Ingresá el nombre" : null,
+              ),
+              const SizedBox(height: 16),
+              _campo("Apellido", apellidoController, icon: Icons.badge_outlined),
+              _campo("Teléfono", telefonoController,
+                  icon: Icons.phone, keyboardType: TextInputType.phone),
+              _campo("WhatsApp", whatsappController,
+                  icon: Icons.chat, keyboardType: TextInputType.phone),
+              _campo("Email", emailController,
+                  icon: Icons.email_outlined,
+                  keyboardType: TextInputType.emailAddress),
+              _campo("Dirección", direccionController,
+                  icon: Icons.location_on),
+              _campo("Localidad", localidadController,
+                  icon: Icons.location_city_outlined),
+              _campo("Provincia", provinciaController, icon: Icons.map_outlined),
+              _campo("CUIT", cuitController, icon: Icons.badge),
+              _campo("Condición IVA", condicionIvaController,
+                  icon: Icons.receipt_long_outlined),
+              TextFormField(
+                controller: descuentoController,
+                decoration: const InputDecoration(
+                  labelText: "Descuento (%)",
+                  prefixIcon: Icon(Icons.percent),
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                validator: (value) {
+                  final texto = (value ?? '').trim();
+                  if (texto.isEmpty) return null;
+                  final descuento = double.tryParse(texto.replaceAll(',', '.'));
+                  if (descuento == null) return 'Ingresá un número válido';
+                  if (descuento < 0 || descuento > 100) {
+                    return 'El descuento debe estar entre 0 y 100';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              _campo("Saldo de cuenta corriente", saldoController,
+                  icon: Icons.account_balance_wallet_outlined,
+                  keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true, signed: true)),
+              _campo("Límite de cuenta corriente", limiteCuentaController,
+                  icon: Icons.credit_card,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true)),
+              _campo("Observaciones", observacionesController,
+                  icon: Icons.notes, maxLines: 3),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton.icon(
+                  onPressed: guardando ? null : guardar,
+                  icon: guardando
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save),
+                  label: Text(esEdicion ? "ACTUALIZAR" : "GUARDAR"),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

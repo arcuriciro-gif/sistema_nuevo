@@ -1,0 +1,673 @@
+import 'package:flutter/material.dart';
+
+import '../core/events/data_refresh_hub.dart';
+import '../models/lista_precio.dart';
+import '../models/producto.dart';
+import '../services/lista_precio_service.dart';
+import '../services/producto_service.dart';
+import '../theme/app_visuals.dart';
+import 'producto_form_page.dart';
+import 'scanner_page.dart';
+
+class ProductosPage extends StatefulWidget {
+  const ProductosPage({super.key});
+
+  @override
+  State<ProductosPage> createState() => _ProductosPageState();
+}
+
+class _ProductosPageState extends State<ProductosPage> {
+  static const int _stockNivelAlto = 10;
+
+  final ProductoService service = ProductoService();
+  final ListaPrecioService listaPrecioService = ListaPrecioService();
+  final TextEditingController buscarController = TextEditingController();
+
+  List<Producto> productos = [];
+  List<Producto> filtrados = [];
+  List<ListaPrecio> listasActivas = [];
+  bool cargando = true;
+
+  String _filtroBusqueda = '';
+  String? _filtroMarca;
+  String? _filtroProveedor;
+
+  List<String> _marcas = [];
+  List<String> _proveedores = [];
+
+  int get _totalProductos => productos.length;
+  int get _stockTotal => productos.fold(0, (s, p) => s + p.stock);
+  double get _valorStock => productos.fold(0, (s, p) => s + p.precio * p.stock);
+  int get _sinStock => productos.where((p) => p.stock == 0).length;
+
+  @override
+  void initState() {
+    super.initState();
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
+    cargarProductos();
+  }
+
+  void _onDatosActualizados() {
+    if (!mounted) return;
+    cargarProductos();
+  }
+
+  @override
+  void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
+    buscarController.dispose();
+    super.dispose();
+  }
+
+  Future<void> cargarProductos() async {
+    setState(() => cargando = true);
+    productos = await service.obtenerTodos();
+    listasActivas = await listaPrecioService.obtenerActivas();
+    _marcas = productos.map((p) => p.marca).where((m) => m.isNotEmpty).toSet().toList()
+      ..sort();
+    _proveedores = productos
+        .map((p) => p.proveedor)
+        .where((v) => v.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+
+    _aplicarFiltros();
+
+    if (!mounted) return;
+    setState(() => cargando = false);
+  }
+
+  void _aplicarFiltros() {
+    final query = _filtroBusqueda.toLowerCase();
+    filtrados = productos.where((p) {
+      final matchBusqueda = query.isEmpty ||
+          p.descripcion.toLowerCase().contains(query) ||
+          p.codigo.toLowerCase().contains(query) ||
+          p.codigoBarras.toLowerCase().contains(query) ||
+          p.marca.toLowerCase().contains(query) ||
+          p.categoria.toLowerCase().contains(query) ||
+          p.proveedor.toLowerCase().contains(query);
+
+      final matchMarca = _filtroMarca == null || p.marca == _filtroMarca;
+      final matchProveedor = _filtroProveedor == null || p.proveedor == _filtroProveedor;
+
+      return matchBusqueda && matchMarca && matchProveedor;
+    }).toList();
+
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _escanearCodigo() async {
+    final codigo = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const ScannerPage()),
+    );
+    if (codigo == null || codigo.trim().isEmpty || !mounted) return;
+    buscarController.text = codigo;
+    setState(() => _filtroBusqueda = codigo);
+    _aplicarFiltros();
+  }
+
+  Future<void> eliminar(Producto producto) async {
+    if (producto.id == null) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Eliminar producto'),
+        content: Text(
+          '¿Eliminar "${producto.descripcion}"? Esta acción no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    await service.eliminar(producto.id!);
+    await cargarProductos();
+  }
+
+  Color _stockColor(int stock) {
+    final cs = Theme.of(context).colorScheme;
+    if (stock > _stockNivelAlto) return AppVisuals.success(cs);
+    if (stock > 0) return AppVisuals.warning(cs);
+    return AppVisuals.danger(cs);
+  }
+
+  Future<void> _editarProducto(Producto producto) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ProductoFormPage(producto: producto)),
+    );
+    await cargarProductos();
+  }
+
+  Future<void> _nuevoProducto() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ProductoFormPage()),
+    );
+    await cargarProductos();
+  }
+
+  void _limpiarFiltros() {
+    buscarController.clear();
+    setState(() {
+      _filtroBusqueda = '';
+      _filtroMarca = null;
+      _filtroProveedor = null;
+    });
+    _aplicarFiltros();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final dangerColor = AppVisuals.danger(colorScheme);
+
+    return Scaffold(
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _nuevoProducto,
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('Nuevo'),
+      ),
+      body: cargando
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final narrow = constraints.maxWidth < 500;
+                      final cards = [
+                        _KpiCard(
+                          title: 'Productos',
+                          value: '$_totalProductos',
+                          icon: Icons.inventory_2_rounded,
+                          color: const Color(0xFF8B5CF6),
+                        ),
+                        _KpiCard(
+                          title: 'Stock total',
+                          value: '$_stockTotal',
+                          icon: Icons.layers_rounded,
+                          color: const Color(0xFF22C55E),
+                        ),
+                        _KpiCard(
+                          title: 'Valor stock',
+                          value: '\$${_fmtNum(_valorStock)}',
+                          icon: Icons.attach_money_rounded,
+                          color: const Color(0xFF3B82F6),
+                        ),
+                        _KpiCard(
+                          title: 'Sin stock',
+                          value: '$_sinStock',
+                          icon: Icons.warning_amber_rounded,
+                          color: dangerColor,
+                        ),
+                      ];
+                      return narrow
+                          ? GridView.count(
+                              crossAxisCount: 2,
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              mainAxisSpacing: 8,
+                              crossAxisSpacing: 8,
+                              childAspectRatio: 2.3,
+                              children: cards,
+                            )
+                          : Row(
+                              children: cards
+                                  .map(
+                                    (c) => Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(right: 8),
+                                        child: c,
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                            );
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: buscarController,
+                          onChanged: (v) {
+                            _filtroBusqueda = v;
+                            _aplicarFiltros();
+                          },
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.search_rounded),
+                            hintText: 'Buscar por código, nombre, marca...',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            isDense: true,
+                            suffixIcon: (_filtroBusqueda.isNotEmpty ||
+                                    _filtroMarca != null ||
+                                    _filtroProveedor != null)
+                                ? IconButton(
+                                    icon: const Icon(Icons.close_rounded),
+                                    tooltip: 'Limpiar filtros',
+                                    onPressed: _limpiarFiltros,
+                                  )
+                                : IconButton(
+                                    icon: const Icon(Icons.qr_code_scanner_rounded),
+                                    tooltip: 'Escanear código',
+                                    onPressed: _escanearCodigo,
+                                  ),
+                          ),
+                        ),
+                      ),
+                      if (_marcas.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        _FilterChipButton(
+                          label: _filtroMarca ?? 'Marca',
+                          icon: Icons.label_outline_rounded,
+                          active: _filtroMarca != null,
+                          onTap: () => _showFilterSheet(
+                            title: 'Filtrar por marca',
+                            items: _marcas,
+                            selected: _filtroMarca,
+                            onSelect: (v) {
+                              setState(() => _filtroMarca = v);
+                              _aplicarFiltros();
+                            },
+                          ),
+                        ),
+                      ],
+                      if (_proveedores.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        _FilterChipButton(
+                          label: _filtroProveedor ?? 'Proveedor',
+                          icon: Icons.local_shipping_outlined,
+                          active: _filtroProveedor != null,
+                          onTap: () => _showFilterSheet(
+                            title: 'Filtrar por proveedor',
+                            items: _proveedores,
+                            selected: _filtroProveedor,
+                            onSelect: (v) {
+                              setState(() => _filtroProveedor = v);
+                              _aplicarFiltros();
+                            },
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                  child: Text(
+                    '${filtrados.length} producto${filtrados.length != 1 ? 's' : ''}',
+                    style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+                  ),
+                ),
+                Expanded(
+                  child: filtrados.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.inventory_2_outlined,
+                                size: 64,
+                                color: colorScheme.outlineVariant,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Sin resultados',
+                                style: TextStyle(color: colorScheme.onSurfaceVariant),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(10, 0, 10, 80),
+                          itemCount: filtrados.length,
+                          itemBuilder: (context, index) {
+                            final p = filtrados[index];
+                            final stockColor = _stockColor(p.stock);
+                            return _ProductoCard(
+                              producto: p,
+                              stockColor: stockColor,
+                              colorScheme: colorScheme,
+                              listasActivas: listasActivas,
+                              onEdit: () => _editarProducto(p),
+                              onDelete: () => eliminar(p),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  void _showFilterSheet({
+    required String title,
+    required List<String> items,
+    required String? selected,
+    required ValueChanged<String?> onSelect,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ),
+          ListTile(
+            title: const Text('Todos'),
+            leading: const Icon(Icons.clear_all_rounded),
+            selected: selected == null,
+            onTap: () {
+              onSelect(null);
+              Navigator.pop(context);
+            },
+          ),
+          const Divider(height: 1),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              children: items
+                  .map(
+                    (item) => ListTile(
+                      title: Text(item),
+                      selected: selected == item,
+                      trailing: selected == item ? const Icon(Icons.check_rounded) : null,
+                      onTap: () {
+                        onSelect(item);
+                        Navigator.pop(context);
+                      },
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  String _fmtNum(double v) {
+    if (v >= 1000000) return '${(v / 1000000).toStringAsFixed(1)}M';
+    if (v >= 1000) return '${(v / 1000).toStringAsFixed(0)}K';
+    return v.toStringAsFixed(0);
+  }
+}
+
+class _KpiCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  const _KpiCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 16,
+              backgroundColor: color.withValues(alpha: 0.15),
+              child: Icon(icon, color: color, size: 16),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterChipButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _FilterChipButton({
+    required this.label,
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? cs.primaryContainer : cs.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: active ? cs.primary : cs.outlineVariant),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: active ? cs.primary : cs.onSurfaceVariant,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: active ? cs.primary : cs.onSurfaceVariant,
+                fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProductoCard extends StatelessWidget {
+  final Producto producto;
+  final Color stockColor;
+  final ColorScheme colorScheme;
+  final List<ListaPrecio> listasActivas;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _ProductoCard({
+    required this.producto,
+    required this.stockColor,
+    required this.colorScheme,
+    required this.listasActivas,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = producto;
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        p.descripcion,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Cód: ${p.codigo}  •  ${p.marca}',
+                        style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: stockColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Stock: ${p.stock}',
+                    style: TextStyle(
+                      color: stockColor,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                _PriceBadge(label: 'L1', value: p.precio, cs: colorScheme),
+                if (p.precio2 > 0)
+                  _PriceBadge(label: 'L2', value: p.precio2, cs: colorScheme),
+                if (p.precio3 > 0)
+                  _PriceBadge(label: 'L3', value: p.precio3, cs: colorScheme),
+                for (final lista in listasActivas)
+                  _PriceBadge(
+                    label: lista.nombre,
+                    value: lista.calcularPrecio(p.costo),
+                    cs: colorScheme,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_rounded, size: 16),
+                  label: const Text('Editar'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: colorScheme.primary,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                TextButton.icon(
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                  label: const Text('Eliminar'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppVisuals.danger(colorScheme),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PriceBadge extends StatelessWidget {
+  final String label;
+  final double value;
+  final ColorScheme cs;
+
+  const _PriceBadge({
+    required this.label,
+    required this.value,
+    required this.cs,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Text(
+        '$label: \$${value.toStringAsFixed(2)}',
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cs.onSurface),
+      ),
+    );
+  }
+}
