@@ -20,7 +20,6 @@ class PlantillaImpresionPage extends StatefulWidget {
 class _PlantillaImpresionPageState extends State<PlantillaImpresionPage> {
   final _encabezadoCtrl = TextEditingController();
   final _pieCtrl = TextEditingController();
-  final _colorCtrl = TextEditingController();
   final _margenCtrl = TextEditingController();
   final _leyendaCtrl = TextEditingController();
   final _diasVencCtrl = TextEditingController();
@@ -29,6 +28,8 @@ class _PlantillaImpresionPageState extends State<PlantillaImpresionPage> {
   String _firmaPath = '';
   String _selloPath = '';
   String _papelPdf = 'a4';
+  String _colorPdf = 'FF7A00';
+  bool _pdfBlancoNegro = false;
   bool _mostrarFirma = true;
   bool _mostrarSello = true;
   bool _mostrarEstadoPago = true;
@@ -45,7 +46,6 @@ class _PlantillaImpresionPageState extends State<PlantillaImpresionPage> {
   void dispose() {
     _encabezadoCtrl.dispose();
     _pieCtrl.dispose();
-    _colorCtrl.dispose();
     _margenCtrl.dispose();
     _leyendaCtrl.dispose();
     _diasVencCtrl.dispose();
@@ -56,7 +56,6 @@ class _PlantillaImpresionPageState extends State<PlantillaImpresionPage> {
     final b = BrandingService.instance;
     _encabezadoCtrl.text = b.encabezadoPdf;
     _pieCtrl.text = b.piePdf;
-    _colorCtrl.text = b.colorPdf;
     _margenCtrl.text = b.margenPdfMm.toStringAsFixed(0);
     _leyendaCtrl.text = b.leyendaLegal;
     _diasVencCtrl.text = '${b.diasVencimiento}';
@@ -65,10 +64,20 @@ class _PlantillaImpresionPageState extends State<PlantillaImpresionPage> {
       _firmaPath = b.firmaPath;
       _selloPath = b.selloPath;
       _papelPdf = b.papelPdf;
+      _colorPdf = BrandingService.normalizarColorPdf(b.colorPdf);
+      _pdfBlancoNegro = b.pdfBlancoNegro;
       _mostrarFirma = b.mostrarFirma;
       _mostrarSello = b.mostrarSello;
       _mostrarEstadoPago = b.mostrarEstadoPago;
     });
+  }
+
+  Color _parseColorUi(String hex) {
+    try {
+      return Color(int.parse('FF$hex', radix: 16));
+    } catch (_) {
+      return const Color(0xFFFF7A00);
+    }
   }
 
   Future<String?> _elegirYPersistir(String nombreBase) async {
@@ -84,9 +93,8 @@ class _PlantillaImpresionPageState extends State<PlantillaImpresionPage> {
     await BrandingService.instance.guardarPlantilla(
       encabezadoPdf: _encabezadoCtrl.text.trim(),
       piePdf: _pieCtrl.text.trim(),
-      colorPdf: _colorCtrl.text.trim().replaceAll('#', '').isEmpty
-          ? 'FF7A00'
-          : _colorCtrl.text.trim().replaceAll('#', ''),
+      colorPdf: _colorPdf,
+      pdfBlancoNegro: _pdfBlancoNegro,
       papelPdf: _papelPdf,
       margenPdfMm: double.tryParse(_margenCtrl.text.trim()) ?? 10,
       firmaPath: _firmaPath,
@@ -291,13 +299,59 @@ class _PlantillaImpresionPageState extends State<PlantillaImpresionPage> {
             ),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _colorCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Color de encabezado (hex)',
-              border: OutlineInputBorder(),
-              prefixText: '#',
+          Text(
+            'Color de encabezado',
+            style: theme.textTheme.titleSmall
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _pdfBlancoNegro
+                ? 'Modo B/N activo: el encabezado se imprime transparente.'
+                : _colorPdf == BrandingService.colorPdfTransparente
+                    ? 'Encabezado transparente (sin fondo de color).'
+                    : 'Elegí un color de la paleta.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final c in BrandingService.paletaColoresPdf)
+                _ColorSwatch(
+                  color: _parseColorUi(c.hex),
+                  selected: !_pdfBlancoNegro && _colorPdf == c.hex,
+                  tooltip: c.nombre,
+                  onTap: () => setState(() {
+                    _pdfBlancoNegro = false;
+                    _colorPdf = c.hex;
+                  }),
+                ),
+              _ColorSwatch(
+                color: Colors.white,
+                selected: !_pdfBlancoNegro &&
+                    _colorPdf == BrandingService.colorPdfTransparente,
+                tooltip: 'Transparente',
+                transparente: true,
+                onTap: () => setState(() {
+                  _pdfBlancoNegro = false;
+                  _colorPdf = BrandingService.colorPdfTransparente;
+                }),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Impresión / exportación en blanco y negro'),
+            subtitle: const Text(
+              'Encabezado transparente, sin colores de fondo. Ideal para impresoras B/N.',
+            ),
+            value: _pdfBlancoNegro,
+            onChanged: (v) => setState(() => _pdfBlancoNegro = v),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
@@ -409,6 +463,73 @@ class _PlantillaImpresionPageState extends State<PlantillaImpresionPage> {
           ),
           const SizedBox(height: 24),
         ],
+      ),
+    );
+  }
+}
+
+class _ColorSwatch extends StatelessWidget {
+  const _ColorSwatch({
+    required this.color,
+    required this.selected,
+    required this.onTap,
+    required this.tooltip,
+    this.transparente = false,
+  });
+
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+  final String tooltip;
+  final bool transparente;
+
+  @override
+  Widget build(BuildContext context) {
+    final border = selected
+        ? Border.all(color: Theme.of(context).colorScheme.primary, width: 3)
+        : Border.all(color: Colors.black26, width: 1);
+
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: transparente ? Colors.white : color,
+            border: border,
+            gradient: transparente
+                ? const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color(0xFFFFFFFF),
+                      Color(0xFFE0E0E0),
+                      Color(0xFFFFFFFF),
+                      Color(0xFFBDBDBD),
+                    ],
+                    stops: [0, 0.35, 0.35, 1],
+                  )
+                : null,
+          ),
+          child: selected
+              ? Icon(
+                  Icons.check,
+                  size: 18,
+                  color: transparente
+                      ? Colors.black87
+                      : (ThemeData.estimateBrightnessForColor(color) ==
+                              Brightness.dark
+                          ? Colors.white
+                          : Colors.black87),
+                )
+              : (transparente
+                  ? const Icon(Icons.block, size: 16, color: Colors.black54)
+                  : null),
+        ),
       ),
     );
   }

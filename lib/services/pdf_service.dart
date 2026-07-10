@@ -30,17 +30,32 @@ class PdfService {
     return '$moneda${value.toStringAsFixed(2)}';
   }
 
-  PdfColor _colorMarca() {
-    final raw = BrandingService.instance.colorPdf.replaceAll('#', '').trim();
+  PdfColor? _colorMarcaONull() {
+    final branding = BrandingService.instance;
+    if (branding.encabezadoPdfTransparente) return null;
+    final raw = BrandingService.normalizarColorPdf(branding.colorPdf);
+    if (raw == BrandingService.colorPdfTransparente) return null;
     try {
-      if (raw.length == 6) {
-        return PdfColor.fromInt(int.parse('FF$raw', radix: 16));
-      }
-      if (raw.length == 8) {
-        return PdfColor.fromInt(int.parse(raw, radix: 16));
-      }
-    } catch (_) {}
-    return PdfColors.orange;
+      return PdfColor.fromInt(int.parse('FF$raw', radix: 16));
+    } catch (_) {
+      return PdfColors.orange;
+    }
+  }
+
+  PdfColor _colorMarca() => _colorMarcaONull() ?? PdfColors.grey800;
+
+  PdfColor _colorTextoSobreMarca() {
+    return BrandingService.instance.encabezadoPdfTransparente
+        ? PdfColors.black
+        : PdfColors.white;
+  }
+
+  PdfColor _colorAcentoTabla() {
+    if (BrandingService.instance.pdfBlancoNegro ||
+        BrandingService.instance.encabezadoPdfTransparente) {
+      return PdfColors.grey800;
+    }
+    return _colorMarca();
   }
 
   double _resolverPrecio(Map<String, dynamic> item) {
@@ -121,7 +136,9 @@ class PdfService {
     final total = (remito['total'] as num?)?.toDouble() ?? 0;
     final descuento = (remito['descuento'] as num?)?.toDouble() ?? 0;
     final estadoPago = remito['estadoPago']?.toString() ?? 'pendiente';
-    final colorMarca = _colorMarca();
+    final colorMarca = _colorMarcaONull();
+    final colorTexto = _colorTextoSobreMarca();
+    final transparente = branding.encabezadoPdfTransparente;
     final contacto = _lineasContacto(branding);
     final fiscales = _lineasFiscales(branding);
     final esTicket = branding.papelPdf.startsWith('ticket');
@@ -144,6 +161,9 @@ class PdfService {
             padding: const pw.EdgeInsets.all(16),
             decoration: pw.BoxDecoration(
               color: colorMarca,
+              border: transparente
+                  ? pw.Border.all(color: PdfColors.grey400, width: 0.8)
+                  : null,
               borderRadius: pw.BorderRadius.circular(8),
             ),
             child: pw.Row(
@@ -166,31 +186,31 @@ class PdfService {
                         style: pw.TextStyle(
                           fontSize: esTicket ? 14 : 18,
                           fontWeight: pw.FontWeight.bold,
-                          color: PdfColors.white,
+                          color: colorTexto,
                         ),
                       ),
                       if (branding.slogan.isNotEmpty)
                         pw.Text(
                           branding.slogan,
-                          style: const pw.TextStyle(
+                          style: pw.TextStyle(
                             fontSize: 9,
-                            color: PdfColors.white,
+                            color: colorTexto,
                           ),
                         ),
                       if (branding.direccion.isNotEmpty)
                         pw.Text(
                           branding.direccion,
-                          style: const pw.TextStyle(
+                          style: pw.TextStyle(
                             fontSize: 8,
-                            color: PdfColors.white,
+                            color: colorTexto,
                           ),
                         ),
                       if (fiscales.isNotEmpty)
                         pw.Text(
                           fiscales.join(' · '),
-                          style: const pw.TextStyle(
+                          style: pw.TextStyle(
                             fontSize: 8,
-                            color: PdfColors.white,
+                            color: colorTexto,
                           ),
                         ),
                     ],
@@ -204,21 +224,21 @@ class PdfService {
                       style: pw.TextStyle(
                         fontSize: esTicket ? 10 : 12,
                         fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.white,
+                        color: colorTexto,
                       ),
                     ),
                     pw.Text(
                       remito['numero']?.toString() ?? '',
-                      style: const pw.TextStyle(
+                      style: pw.TextStyle(
                         fontSize: 11,
-                        color: PdfColors.white,
+                        color: colorTexto,
                       ),
                     ),
                     pw.Text(
                       _formatearFecha(remito['fecha']?.toString()),
-                      style: const pw.TextStyle(
+                      style: pw.TextStyle(
                         fontSize: 9,
-                        color: PdfColors.white,
+                        color: colorTexto,
                       ),
                     ),
                   ],
@@ -288,7 +308,7 @@ class PdfService {
               color: PdfColors.white,
               fontSize: esTicket ? 8 : 10,
             ),
-            headerDecoration: pw.BoxDecoration(color: colorMarca),
+            headerDecoration: pw.BoxDecoration(color: _colorAcentoTabla()),
             cellStyle: pw.TextStyle(fontSize: esTicket ? 8 : 9),
             cellAlignment: pw.Alignment.centerLeft,
             cellAlignments: esTicket
@@ -385,18 +405,22 @@ class PdfService {
                   padding:
                       const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: pw.BoxDecoration(
-                    color: estadoPago == 'cobrado'
-                        ? PdfColors.green100
-                        : estadoPago == 'parcial'
-                            ? PdfColors.blue100
-                            : PdfColors.orange100,
+                    color: branding.pdfBlancoNegro
+                        ? PdfColors.grey200
+                        : estadoPago == 'cobrado'
+                            ? PdfColors.green100
+                            : estadoPago == 'parcial'
+                                ? PdfColors.blue100
+                                : PdfColors.orange100,
                     borderRadius: pw.BorderRadius.circular(20),
                     border: pw.Border.all(
-                      color: estadoPago == 'cobrado'
-                          ? PdfColors.green
-                          : estadoPago == 'parcial'
-                              ? PdfColors.blue
-                              : colorMarca,
+                      color: branding.pdfBlancoNegro
+                          ? PdfColors.grey700
+                          : estadoPago == 'cobrado'
+                              ? PdfColors.green
+                              : estadoPago == 'parcial'
+                                  ? PdfColors.blue
+                                  : _colorAcentoTabla(),
                     ),
                   ),
                   child: pw.Text(
@@ -404,11 +428,13 @@ class PdfService {
                     style: pw.TextStyle(
                       fontSize: 9,
                       fontWeight: pw.FontWeight.bold,
-                      color: estadoPago == 'cobrado'
-                          ? PdfColors.green900
-                          : estadoPago == 'parcial'
-                              ? PdfColors.blue900
-                              : PdfColors.orange900,
+                      color: branding.pdfBlancoNegro
+                          ? PdfColors.black
+                          : estadoPago == 'cobrado'
+                              ? PdfColors.green900
+                              : estadoPago == 'parcial'
+                                  ? PdfColors.blue900
+                                  : PdfColors.orange900,
                     ),
                   ),
                 ),
@@ -570,6 +596,10 @@ class PdfService {
   }) async {
     final branding = BrandingService.instance;
     final pdf = pw.Document();
+    final colorMarca = _colorMarcaONull();
+    final colorTexto = _colorTextoSobreMarca();
+    final colorTabla = _colorAcentoTabla();
+    final transparente = branding.encabezadoPdfTransparente;
 
     pw.ImageProvider? logoImage;
     if (branding.logoPath.isNotEmpty) {
@@ -587,7 +617,10 @@ class PdfService {
           pw.Container(
             padding: const pw.EdgeInsets.all(16),
             decoration: pw.BoxDecoration(
-              color: PdfColors.orange,
+              color: colorMarca,
+              border: transparente
+                  ? pw.Border.all(color: PdfColors.grey400, width: 0.8)
+                  : null,
               borderRadius: pw.BorderRadius.circular(8),
             ),
             child: pw.Row(
@@ -609,7 +642,7 @@ class PdfService {
                       style: pw.TextStyle(
                         fontSize: 16,
                         fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.white,
+                        color: colorTexto,
                       ),
                     ),
                   ],
@@ -619,7 +652,7 @@ class PdfService {
                   style: pw.TextStyle(
                     fontSize: 16,
                     fontWeight: pw.FontWeight.bold,
-                    color: PdfColors.white,
+                    color: colorTexto,
                   ),
                 ),
               ],
@@ -629,7 +662,7 @@ class PdfService {
           pw.TableHelper.fromTextArray(
             border: null,
             headerDecoration: pw.BoxDecoration(
-              color: PdfColors.orange,
+              color: colorTabla,
               borderRadius: pw.BorderRadius.circular(4),
             ),
             headerStyle: pw.TextStyle(

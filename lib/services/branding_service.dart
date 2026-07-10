@@ -26,6 +26,21 @@ class BrandingService extends ChangeNotifier {
   static const _keyEncabezadoPdf = 'brandEncabezadoPdf';
   static const _keyPiePdf = 'brandPiePdf';
   static const _keyColorPdf = 'brandColorPdf';
+  static const _keyPdfBlancoNegro = 'brandPdfBlancoNegro';
+  static const colorPdfTransparente = 'TRANSPARENT';
+
+  /// Paleta sugerida para encabezado de PDF (hex sin #).
+  static const List<({String hex, String nombre})> paletaColoresPdf = [
+    (hex: 'FF7A00', nombre: 'Naranja'),
+    (hex: 'E53935', nombre: 'Rojo'),
+    (hex: '8E24AA', nombre: 'Violeta'),
+    (hex: '1E88E5', nombre: 'Azul'),
+    (hex: '00897B', nombre: 'Verde agua'),
+    (hex: '43A047', nombre: 'Verde'),
+    (hex: '6D4C41', nombre: 'Marrón'),
+    (hex: '37474F', nombre: 'Grafito'),
+    (hex: '212121', nombre: 'Negro'),
+  ];
   static const _keyPapelPdf = 'brandPapelPdf';
   static const _keyMargenPdf = 'brandMargenPdf';
   static const _keyFirma = 'brandFirmaPath';
@@ -59,8 +74,10 @@ class BrandingService extends ChangeNotifier {
   String direccionFiscal = '';
   String encabezadoPdf = '';
   String piePdf = '';
-  /// Hex sin #, ej. FF7A00
+  /// Hex sin #, ej. FF7A00. Usar [colorPdfTransparente] para sin fondo.
   String colorPdf = 'FF7A00';
+  /// Impresión/exportación en blanco y negro (encabezado transparente).
+  bool pdfBlancoNegro = false;
   /// 'a4' | 'ticket_80' | 'ticket_58'
   String papelPdf = 'a4';
   /// Márgenes en mm
@@ -77,6 +94,25 @@ class BrandingService extends ChangeNotifier {
   /// Imagen preferida para UI: icono si existe, si no logo.
   String get imagenUiPath =>
       iconoPath.isNotEmpty ? iconoPath : logoPath;
+
+  bool get encabezadoPdfTransparente =>
+      pdfBlancoNegro ||
+      colorPdf.toUpperCase() == colorPdfTransparente ||
+      colorPdf.trim().isEmpty;
+
+  static String normalizarColorPdf(String raw) {
+    final limpio = raw.replaceAll('#', '').trim().toUpperCase();
+    if (limpio == colorPdfTransparente || limpio == 'NONE' || limpio == 'NULL') {
+      return colorPdfTransparente;
+    }
+    if (limpio.length == 6 && RegExp(r'^[0-9A-F]{6}$').hasMatch(limpio)) {
+      return limpio;
+    }
+    if (limpio.length == 8 && RegExp(r'^[0-9A-F]{8}$').hasMatch(limpio)) {
+      return limpio.substring(2); // descarta alpha AA RR GG BB → RRGGBB
+    }
+    return 'FF7A00';
+  }
 
   Future<void> cargar() async {
     final prefs = await SharedPreferences.getInstance();
@@ -99,7 +135,8 @@ class BrandingService extends ChangeNotifier {
     direccionFiscal = prefs.getString(_keyDireccionFiscal) ?? '';
     encabezadoPdf = prefs.getString(_keyEncabezadoPdf) ?? '';
     piePdf = prefs.getString(_keyPiePdf) ?? '';
-    colorPdf = prefs.getString(_keyColorPdf) ?? 'FF7A00';
+    colorPdf = normalizarColorPdf(prefs.getString(_keyColorPdf) ?? 'FF7A00');
+    pdfBlancoNegro = prefs.getBool(_keyPdfBlancoNegro) ?? false;
     papelPdf = prefs.getString(_keyPapelPdf) ?? 'a4';
     margenPdfMm = prefs.getDouble(_keyMargenPdf) ?? 10;
     firmaPath = prefs.getString(_keyFirma) ?? '';
@@ -146,6 +183,7 @@ class BrandingService extends ChangeNotifier {
     String? encabezadoPdf,
     String? piePdf,
     String? colorPdf,
+    bool? pdfBlancoNegro,
     String? papelPdf,
     double? margenPdfMm,
     String? firmaPath,
@@ -179,7 +217,14 @@ class BrandingService extends ChangeNotifier {
     await prefs.setString(
         _keyEncabezadoPdf, encabezadoPdf ?? this.encabezadoPdf);
     await prefs.setString(_keyPiePdf, piePdf ?? this.piePdf);
-    await prefs.setString(_keyColorPdf, colorPdf ?? this.colorPdf);
+    await prefs.setString(
+      _keyColorPdf,
+      normalizarColorPdf(colorPdf ?? this.colorPdf),
+    );
+    await prefs.setBool(
+      _keyPdfBlancoNegro,
+      pdfBlancoNegro ?? this.pdfBlancoNegro,
+    );
     await prefs.setString(_keyPapelPdf, papelPdf ?? this.papelPdf);
     await prefs.setDouble(_keyMargenPdf, margenPdfMm ?? this.margenPdfMm);
     await prefs.setString(_keyFirma, firmaPath ?? this.firmaPath);
@@ -211,7 +256,8 @@ class BrandingService extends ChangeNotifier {
     if (direccionFiscal != null) this.direccionFiscal = direccionFiscal;
     if (encabezadoPdf != null) this.encabezadoPdf = encabezadoPdf;
     if (piePdf != null) this.piePdf = piePdf;
-    if (colorPdf != null) this.colorPdf = colorPdf;
+    if (colorPdf != null) this.colorPdf = normalizarColorPdf(colorPdf);
+    if (pdfBlancoNegro != null) this.pdfBlancoNegro = pdfBlancoNegro;
     if (papelPdf != null) this.papelPdf = papelPdf;
     if (margenPdfMm != null) this.margenPdfMm = margenPdfMm;
     if (firmaPath != null) this.firmaPath = firmaPath;
@@ -236,6 +282,7 @@ class BrandingService extends ChangeNotifier {
     required bool mostrarSello,
     required bool mostrarEstadoPago,
     required String leyendaLegal,
+    bool? pdfBlancoNegro,
     String? logoPath,
     int? diasVencimiento,
   }) {
@@ -248,6 +295,7 @@ class BrandingService extends ChangeNotifier {
       encabezadoPdf: encabezadoPdf,
       piePdf: piePdf,
       colorPdf: colorPdf,
+      pdfBlancoNegro: pdfBlancoNegro,
       papelPdf: papelPdf,
       margenPdfMm: margenPdfMm,
       firmaPath: firmaPath,
