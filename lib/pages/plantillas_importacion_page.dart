@@ -5,6 +5,7 @@ import '../theme/module_app_bar.dart';
 import 'importacion_clientes_page.dart';
 import 'importacion_page.dart';
 import 'importacion_proveedores_page.dart';
+import 'comparacion_page.dart';
 
 /// Pantalla para ver el orden de columnas y descargar plantillas Excel.
 class PlantillasImportacionPage extends StatelessWidget {
@@ -73,6 +74,22 @@ class PlantillasImportacionPage extends StatelessWidget {
               MaterialPageRoute(
                 builder: (_) => const ImportacionProveedoresPage(),
               ),
+            ),
+          ),
+          _PlantillaCard(
+            titulo: 'Lista proveedor (rangos de talle)',
+            icon: Icons.straighten_rounded,
+            color: Colors.purple,
+            headers: PlantillaImportacionService.listaProveedorRangosHeaders,
+            obligatorio: 'Articulo',
+            onDescargar: () => _descargar(
+              context,
+              () => PlantillaImportacionService.instance
+                  .generarPlantillaListaProveedorRangos(),
+            ),
+            onImportar: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ComparacionPage()),
             ),
           ),
         ],

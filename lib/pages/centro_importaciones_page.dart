@@ -50,7 +50,9 @@ class CentroImportacionesPage extends StatelessWidget {
       _Accion(
         icon: Icons.compare_arrows_rounded,
         titulo: 'Comparar Costos',
-        subtitulo: 'Cargá una lista de proveedor y compará con la base.',
+        subtitulo:
+            'Lista de proveedor vs tu base.\n'
+            'Soporta rangos de talle (ej. 39 AL 42).',
         color: Colors.orange,
         destino: const ComparacionPage(),
       ),

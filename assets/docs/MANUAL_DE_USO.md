@@ -194,6 +194,17 @@ Así no hace falta regenerar el PDF en el teléfono.
 
 Orden: Nombre, Contacto, Telefono, WhatsApp, Email, Web, CUIT, CondicionesComerciales, TiempoEntrega, Observaciones.
 
+### Comparar costos con rangos de talle
+Si tenés cada talle como producto aparte (`PAPI FEBO BLANCA 41`) y el proveedor manda rangos (`PAPI FEBO BLANCA 39 AL 42 $10000`):
+
+1. **Centro de importaciones** → **Plantillas Excel** → *Lista proveedor (rangos de talle)*.  
+2. Completá: `Articulo` + `Costo` (ej. `PAPI FEBO BLANCA 39 AL 42` / `10000`).  
+3. **Comparar Costos** → cargá el archivo.  
+4. El sistema busca productos cuyo nombre base coincida y cuyo talle esté en el rango, y propone actualizar el **costo**.  
+5. Revisá y tocá **ACTUALIZAR COSTOS**.
+
+Formatos de rango: `39 AL 42`, `39 A 42`, `39-42`.
+
 ---
 
 ## 10. Sincronización multi-dispositivo

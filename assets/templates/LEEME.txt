@@ -49,3 +49,18 @@ PROVEEDORES (plantilla_proveedores.csv / .xlsx)
 
 En la app: Centro de importaciones → Plantillas Excel → Descargar.
 Borrá la fila de ejemplo antes de importar tus datos reales.
+
+LISTA DE PROVEEDOR CON RANGOS DE TALLE
+--------------------------------------
+Archivo: plantilla_lista_proveedor_rangos.csv
+
+Si en tu base tenés cada talle aparte:
+  PAPI FEBO BLANCA 41
+  PAPI FEBO BLANCA 43
+
+y el proveedor manda:
+  PAPI FEBO BLANCA 39 AL 42 ; 10000
+  PAPI FEBO BLANCA 43 AL 45 ; 11000
+
+usá Comparar Costos: el sistema detecta el rango y actualiza
+cada producto cuyo talle cae dentro (41 → 10000, 43 → 11000).

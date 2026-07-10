@@ -175,6 +175,41 @@ class PlantillaImportacionService {
         ],
       );
 
+  static const listaProveedorRangosHeaders = ['Articulo', 'Costo'];
+
+  static const listaProveedorRangosEjemplo = [
+    ['PAPI FEBO BLANCA 39 AL 42', 10000],
+    ['PAPI FEBO BLANCA 43 AL 45', 11000],
+    ['ZAPATILLA MODELO X 35-38', 8500],
+  ];
+
+  /// Lista de proveedor con rangos de talle → Comparar Costos.
+  Future<File> generarPlantillaListaProveedorRangos() => _generarExcel(
+        nombreHoja: 'ListaProveedor',
+        nombreArchivo: 'plantilla_lista_proveedor_rangos.xlsx',
+        headers: listaProveedorRangosHeaders,
+        ejemplo: listaProveedorRangosEjemplo,
+        instrucciones: const [
+          'PARA COMPARAR COSTOS CON RANGOS DE TALLE',
+          '',
+          'En tu sistema cada talle es un producto:',
+          '  PAPI FEBO BLANCA 41',
+          '  PAPI FEBO BLANCA 43',
+          '',
+          'El proveedor manda rangos:',
+          '  PAPI FEBO BLANCA 39 AL 42 → aplica a talles 39,40,41,42',
+          '  PAPI FEBO BLANCA 43 AL 45 → aplica a talles 43,44,45',
+          '',
+          'Columnas:',
+          '1 Articulo — nombre + rango (o talle único)',
+          '2 Costo — precio de costo del proveedor',
+          '',
+          'Formatos de rango aceptados: 39 AL 42 | 39 A 42 | 39-42',
+          'Usá: Centro de importaciones → Comparar Costos',
+          'Borrá las filas de ejemplo antes de cargar tu lista.',
+        ],
+      );
+
   Future<void> compartirArchivo(File file) async {
     await SharePlus.instance.share(
       ShareParams(

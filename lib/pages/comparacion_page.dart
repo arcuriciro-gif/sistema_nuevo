@@ -25,6 +25,7 @@ class _ComparacionPageState extends State<ComparacionPage> {
   int bajas = 0;
   int nuevos = 0;
   int iguales = 0;
+  int sinMatch = 0;
 
   @override
   void initState() {
@@ -47,6 +48,7 @@ class _ComparacionPageState extends State<ComparacionPage> {
     bajas = await comparadorService.cantidadBajas();
     nuevos = await comparadorService.cantidadNuevos();
     iguales = await comparadorService.cantidadIguales();
+    sinMatch = await comparadorService.cantidadSinMatch();
     if (!mounted) return;
     setState(() {
       cargando = false;
@@ -101,6 +103,8 @@ class _ComparacionPageState extends State<ComparacionPage> {
         return AppVisuals.info(colorScheme);
       case "IGUAL":
         return AppVisuals.neutral(colorScheme);
+      case "SIN_MATCH":
+        return colorScheme.tertiary;
       default:
         return colorScheme.onSurfaceVariant;
     }
@@ -116,6 +120,8 @@ class _ComparacionPageState extends State<ComparacionPage> {
         return Icons.new_releases_rounded;
       case "IGUAL":
         return Icons.horizontal_rule_rounded;
+      case "SIN_MATCH":
+        return Icons.link_off_rounded;
       default:
         return Icons.help_outline_rounded;
     }
@@ -150,8 +156,9 @@ class _ComparacionPageState extends State<ComparacionPage> {
       builder: (_) => AlertDialog(
         title: const Text('Actualizar costos'),
         content: Text(
-          '¿Actualizar el costo de ${lista.where((e) => e.estado != "IGUAL").length} productos?\n\n'
-          'Solo se modificará el COSTO. El precio de venta, stock y demás datos no cambiarán.',
+          '¿Actualizar el costo de ${lista.where((e) => e.estado != "IGUAL" && e.estado != "SIN_MATCH").length} productos?\n\n'
+          'Solo se modificará el COSTO. El precio de venta, stock y demás datos no cambiarán.\n'
+          'Los rangos sin coincidencia se ignoran.',
         ),
         actions: [
           TextButton(
@@ -183,6 +190,7 @@ class _ComparacionPageState extends State<ComparacionPage> {
       bajas = 0;
       nuevos = 0;
       iguales = 0;
+      sinMatch = 0;
       cargando = false;
     });
     ScaffoldMessenger.of(context).showSnackBar(
@@ -238,7 +246,7 @@ class _ComparacionPageState extends State<ComparacionPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.upload_file_rounded),
-            tooltip: 'Cargar lista CSV',
+            tooltip: 'Cargar lista CSV/Excel (soporta rangos de talle)',
             onPressed: analizarNuevaLista,
           ),
           IconButton(
@@ -291,6 +299,8 @@ class _ComparacionPageState extends State<ComparacionPage> {
                   _statChip("BAJÓ", bajas, colorEstado("BAJO")),
                   _statChip("NUEVO", nuevos, colorEstado("NUEVO")),
                   _statChip("IGUAL", iguales, colorEstado("IGUAL")),
+                  if (sinMatch > 0)
+                    _statChip("SIN MATCH", sinMatch, colorEstado("SIN_MATCH")),
                 ],
               ),
             ),
@@ -306,6 +316,8 @@ class _ComparacionPageState extends State<ComparacionPage> {
                 botonFiltro("BAJO", colorEstado("BAJO")),
                 botonFiltro("NUEVO", colorEstado("NUEVO")),
                 botonFiltro("IGUAL", colorEstado("IGUAL")),
+                if (sinMatch > 0)
+                  botonFiltro("SIN_MATCH", colorEstado("SIN_MATCH")),
               ],
             ),
           ),
@@ -327,7 +339,9 @@ class _ComparacionPageState extends State<ComparacionPage> {
                             const SizedBox(height: 12),
                             Text(
                               lista.isEmpty
-                                  ? 'Cargá una lista CSV para comparar costos'
+                                  ? 'Cargá una lista CSV/Excel para comparar costos.\n'
+                                      'Si el proveedor manda rangos (ej. PAPI FEBO BLANCA 39 AL 42),\n'
+                                      'el sistema actualiza cada talle que tengas en ese rango.'
                                   : 'No hay diferencias con el filtro seleccionado.',
                               style: theme.textTheme.bodyLarge?.copyWith(
                                 color: theme.colorScheme.onSurface
@@ -341,6 +355,16 @@ class _ComparacionPageState extends State<ComparacionPage> {
                                 onPressed: analizarNuevaLista,
                                 icon: const Icon(Icons.upload_file_rounded),
                                 label: const Text('Cargar lista'),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Formato simple: Articulo;Costo\n'
+                                'Ej: PAPI FEBO BLANCA 39 AL 42;10000',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurface
+                                      .withValues(alpha: .45),
+                                ),
+                                textAlign: TextAlign.center,
                               ),
                             ],
                           ],
