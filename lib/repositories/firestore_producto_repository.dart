@@ -27,12 +27,19 @@ class FirestoreProductoRepository implements ProductoRepository {
 
   @override
   Future<void> insertarLista(List<Producto> productos) async {
-    final batch = _firestore.batch();
-    for (final producto in productos) {
-      final ref = _collection.doc(_docId(producto));
-      batch.set(ref, producto.toFirestore(), SetOptions(merge: true));
+    // Firestore admite máx. 500 ops por batch.
+    const chunkSize = 400;
+    for (var i = 0; i < productos.length; i += chunkSize) {
+      final end =
+          (i + chunkSize < productos.length) ? i + chunkSize : productos.length;
+      final chunk = productos.sublist(i, end);
+      final batch = _firestore.batch();
+      for (final producto in chunk) {
+        final ref = _collection.doc(_docId(producto));
+        batch.set(ref, producto.toFirestore(), SetOptions(merge: true));
+      }
+      await batch.commit();
     }
-    await batch.commit();
   }
 
   @override

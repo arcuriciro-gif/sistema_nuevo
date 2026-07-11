@@ -476,6 +476,19 @@ class FirestoreSyncService {
     }
   }
 
+  /// Sube todo el catálogo local activo a Firestore (por lotes).
+  /// Útil cuando un dispositivo tiene productos que nunca llegaron a la nube.
+  Future<int> subirCatalogoLocalCompleto() async {
+    _requireEscrituraRemota();
+    if (!_puedeEscribirRemoto) {
+      throw StateError('Sin sesión en la nube');
+    }
+    final locales = await _cache.obtenerTodos();
+    if (locales.isEmpty) return 0;
+    await _remote.insertarLista(locales);
+    return locales.length;
+  }
+
   Future<int?> _resolverClienteLocal({
     required Database db,
     String? syncId,
