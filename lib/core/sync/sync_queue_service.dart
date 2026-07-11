@@ -475,7 +475,13 @@ class SyncQueueService extends ChangeNotifier {
           }
           return;
         case 'remito':
-          await sync.subirRemito(int.parse(entityId));
+          if (operation == 'delete') {
+            final numero =
+                _payloadString(payloadJson, 'numero') ?? entityId;
+            await sync.eliminarRemitoRemoto(numero);
+          } else {
+            await sync.subirRemito(int.parse(entityId));
+          }
           return;
         case 'compra':
           await sync.subirCompra(int.parse(entityId));

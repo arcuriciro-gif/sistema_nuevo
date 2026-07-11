@@ -35,9 +35,9 @@ class Pago {
 
   factory Pago.fromMap(Map<String, dynamic> map) {
     return Pago(
-      id: map['id'] as int?,
-      ventaId: map['ventaId'] as int,
-      clienteId: map['clienteId'] as int?,
+      id: (map['id'] as num?)?.toInt(),
+      ventaId: (map['ventaId'] as num?)?.toInt() ?? 0,
+      clienteId: (map['clienteId'] as num?)?.toInt(),
       fecha: DateTime.tryParse(map['fecha']?.toString() ?? '') ?? DateTime.now(),
       monto: (map['monto'] as num?)?.toDouble() ?? 0,
       medioPago: map['medioPago']?.toString() ?? 'efectivo',

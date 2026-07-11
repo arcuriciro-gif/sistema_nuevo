@@ -1,3 +1,17 @@
+## [1.2.2] — 2026-07-11
+
+### Remitos
+- Botón **Eliminar** (papelera) en cada remito: revierte stock, borra cobros asociados y lo saca de la lista (también sync a Firebase).
+- Sigue existiendo **Anular** si solo querés dejarlo anulado sin borrarlo.
+
+### Planilla de pedidos
+- Exportar **PDF** y **Excel** visibles: ícono compartir en la barra, botones por proveedor y por pedido.
+- En Windows usa “Guardar como…”.
+
+### Cierre de caja
+- Corregida la pantalla negra: si falla la carga muestra el error y **Reintentar**.
+- Lectura de pagos más tolerante (filas con `ventaId` raro ya no rompen la pantalla).
+
 ## [1.2.1] — 2026-07-11
 
 ### Acceso tipo Cursor (solicitud + alta)

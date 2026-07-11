@@ -258,7 +258,10 @@ class _RemitosPageState extends State<RemitosPage> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Anular remito'),
-        content: Text('¿Anular el remito ${remito['numero']}?'),
+        content: Text(
+          '¿Anular el remito ${remito['numero']}?\n'
+          'Se revierte el stock y queda marcado como anulado.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -282,12 +285,57 @@ class _RemitosPageState extends State<RemitosPage> {
     }
   }
 
+  Future<void> confirmarEliminar(Map<String, dynamic> remito) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Eliminar remito'),
+        content: Text(
+          '¿Eliminar el remito ${remito['numero']}?\n'
+          'Se revierte el stock, se borran los cobros asociados y '
+          'desaparece de la lista. Esta acción no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppVisuals.danger(Theme.of(context).colorScheme),
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await service.eliminar(remito['id'] as int);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Remito ${remito['numero']} eliminado')),
+      );
+      await cargar();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo eliminar: $e')),
+      );
+    }
+  }
+
   Future<void> _manejarAccionRemito(
     Map<String, dynamic> remito,
     String accion,
   ) async {
     if (accion == 'anular') {
       await confirmarAnular(remito);
+      return;
+    }
+    if (accion == 'eliminar') {
+      await confirmarEliminar(remito);
       return;
     }
 
@@ -513,21 +561,27 @@ class _RemitosPageState extends State<RemitosPage> {
                                                     remito,
                                                     value,
                                                   ),
-                                                  enabled: estado != 'anulado',
-                                                  itemBuilder: (_) => const [
-                                                    PopupMenuItem(
-                                                      value: 'cobrado',
-                                                      child: Text(
-                                                        'Marcar como cobrado',
+                                                  itemBuilder: (_) => [
+                                                    if (estado != 'anulado') ...[
+                                                      const PopupMenuItem(
+                                                        value: 'cobrado',
+                                                        child: Text(
+                                                          'Marcar como cobrado',
+                                                        ),
                                                       ),
-                                                    ),
-                                                    PopupMenuItem(
-                                                      value: 'parcial',
-                                                      child: Text('Pago parcial'),
-                                                    ),
-                                                    PopupMenuItem(
-                                                      value: 'anular',
-                                                      child: Text('Anular'),
+                                                      const PopupMenuItem(
+                                                        value: 'parcial',
+                                                        child:
+                                                            Text('Pago parcial'),
+                                                      ),
+                                                      const PopupMenuItem(
+                                                        value: 'anular',
+                                                        child: Text('Anular'),
+                                                      ),
+                                                    ],
+                                                    const PopupMenuItem(
+                                                      value: 'eliminar',
+                                                      child: Text('Eliminar'),
                                                     ),
                                                   ],
                                                 ),
@@ -551,6 +605,17 @@ class _RemitosPageState extends State<RemitosPage> {
                                     Row(
                                       mainAxisAlignment: MainAxisAlignment.end,
                                       children: [
+                                        IconButton(
+                                          tooltip: 'Eliminar remito',
+                                          onPressed: () =>
+                                              confirmarEliminar(remito),
+                                          icon: Icon(
+                                            Icons.delete_outline_rounded,
+                                            color: AppVisuals.danger(
+                                              Theme.of(context).colorScheme,
+                                            ),
+                                          ),
+                                        ),
                                         IconButton(
                                           tooltip: 'Comentarios internos',
                                           onPressed: () => showComentariosInternos(

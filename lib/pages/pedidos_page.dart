@@ -1,8 +1,14 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../models/pedido_item.dart';
 import '../models/proveedor.dart';
 import '../services/excel_service.dart';
 import '../services/pedido_service.dart';
@@ -160,6 +166,172 @@ class _PedidosPageState extends State<PedidosPage> {
     if (mounted) _cargar(silent: true);
   }
 
+  bool get _esEscritorio =>
+      !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+
+  Future<void> _entregarArchivo(String path, {required String titulo}) async {
+    final nombre = p.basename(path);
+    final origen = File(path);
+    final bytes = await origen.readAsBytes();
+    final ext = p.extension(nombre).replaceFirst('.', '');
+
+    if (_esEscritorio) {
+      final destino = await FilePicker.saveFile(
+        dialogTitle: 'Guardar — $titulo',
+        fileName: nombre,
+        type: FileType.custom,
+        allowedExtensions: ext.isEmpty ? null : [ext],
+        bytes: bytes,
+        lockParentWindow: true,
+      );
+      if (destino == null) return;
+      final out = File(destino);
+      if (!await out.exists() || await out.length() == 0) {
+        await out.writeAsBytes(bytes, flush: true);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Archivo guardado:\n$destino')),
+      );
+      return;
+    }
+
+    await SharePlus.instance.share(
+      ShareParams(files: [XFile(path, name: nombre)], text: titulo),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Listo: $nombre')),
+    );
+  }
+
+  Future<List<List<String>>> _filasDetalle({String? proveedorNombre}) async {
+    final filas = <List<String>>[];
+    for (final row in _pedidos) {
+      final nombre = (row['proveedorNombre'] ?? 'Sin proveedor').toString();
+      if (proveedorNombre != null && nombre != proveedorNombre) continue;
+      final id = row['id'] as int?;
+      if (id == null) continue;
+      final items = await _service.obtenerItems(id);
+      final numero = row['numero']?.toString() ?? '';
+      final fecha = _fmtFecha(row['fecha']);
+      final estado = (row['estado'] ?? 'borrador').toString();
+      if (items.isEmpty) {
+        filas.add([nombre, numero, fecha, estado, '(sin ítems)', '0', '', '']);
+        continue;
+      }
+      for (final PedidoItem i in items) {
+        filas.add([
+          nombre,
+          numero,
+          fecha,
+          estado,
+          i.articulo,
+          '${i.cantidad}',
+          i.color,
+          i.observaciones,
+        ]);
+      }
+    }
+    return filas;
+  }
+
+  Future<void> _exportarPlanilla({
+    required String formato,
+    String? proveedorNombre,
+  }) async {
+    final headers = [
+      'Proveedor',
+      'Número',
+      'Fecha',
+      'Estado',
+      'Artículo',
+      'Cantidad',
+      'Color',
+      'Observaciones',
+    ];
+    try {
+      final filasStr = await _filasDetalle(proveedorNombre: proveedorNombre);
+      if (filasStr.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No hay pedidos para exportar')),
+        );
+        return;
+      }
+      final titulo = proveedorNombre == null
+          ? 'Planilla de pedidos'
+          : 'Planilla — $proveedorNombre';
+      final stamp =
+          '${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}';
+      final slug = (proveedorNombre ?? 'todos')
+          .toLowerCase()
+          .replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+
+      if (formato == 'pdf') {
+        final bytes = await _pdfService.generateListPdf(
+          titulo: titulo,
+          headers: headers,
+          filas: filasStr,
+        );
+        final file = await _pdfService.guardarPdfReporte(
+          bytes,
+          'planilla_pedidos_${slug}_$stamp.pdf',
+        );
+        await _entregarArchivo(file.path, titulo: titulo);
+      } else {
+        final filasDyn = filasStr
+            .map((f) => f.map((v) => v as dynamic).toList())
+            .toList();
+        final file = await _excelService.exportarLibro(
+          nombreHoja: 'Planilla',
+          nombreArchivo: 'planilla_pedidos_${slug}_$stamp.xlsx',
+          headers: headers,
+          filas: filasDyn,
+        );
+        await _entregarArchivo(file.path, titulo: titulo);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo exportar: $e')),
+      );
+    }
+  }
+
+  Future<void> _menuExportarPlanilla() async {
+    final accion = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text(
+                'Exportar planilla',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: Text('Todos los pedidos visibles'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.picture_as_pdf_rounded),
+              title: const Text('Exportar PDF'),
+              onTap: () => Navigator.pop(ctx, 'pdf'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.table_chart_rounded),
+              title: const Text('Exportar Excel'),
+              onTap: () => Navigator.pop(ctx, 'excel'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (accion == null || !mounted) return;
+    await _exportarPlanilla(formato: accion);
+  }
+
   Future<void> _exportarPedido(
     Map<String, dynamic> row, {
     required String formato,
@@ -208,9 +380,7 @@ class _PedidosPageState extends State<PedidosPage> {
             bytes,
             'pedido_${pedido.numero}.pdf',
           );
-          await SharePlus.instance.share(
-            ShareParams(files: [XFile(file.path)], text: titulo),
-          );
+          await _entregarArchivo(file.path, titulo: titulo);
         }
       } else {
         final file = await _excelService.exportarLibro(
@@ -219,9 +389,7 @@ class _PedidosPageState extends State<PedidosPage> {
           headers: headers,
           filas: filasDyn,
         );
-        await SharePlus.instance.share(
-          ShareParams(files: [XFile(file.path)], text: titulo),
-        );
+        await _entregarArchivo(file.path, titulo: titulo);
       }
     } catch (e) {
       if (!mounted) return;
@@ -345,6 +513,11 @@ class _PedidosPageState extends State<PedidosPage> {
         title: 'Pedidos',
         actions: [
           IconButton(
+            tooltip: 'Exportar planilla',
+            icon: const Icon(Icons.ios_share_rounded),
+            onPressed: _menuExportarPlanilla,
+          ),
+          IconButton(
             tooltip: 'Pedido sugerido',
             icon: const Icon(Icons.auto_awesome_rounded),
             onPressed: () {
@@ -374,7 +547,8 @@ class _PedidosPageState extends State<PedidosPage> {
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
                 children: [
                   Text(
-                    'Planilla por proveedor. Podés editar el pedido todo el día.',
+                    'Planilla por proveedor. Tocá el ícono de compartir arriba '
+                    'para exportar PDF o Excel. En cada pedido también hay botones.',
                     style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13),
                   ),
                   const SizedBox(height: 8),
@@ -398,18 +572,41 @@ class _PedidosPageState extends State<PedidosPage> {
                               ? 'Sin pedidos'
                               : '${entry.value.length} pedido(s)',
                         ),
-                        trailing: IconButton(
-                          tooltip: 'Nuevo para ${entry.key}',
-                          icon: const Icon(Icons.add_circle_outline),
-                          onPressed: () => _nuevoPedido(
-                            proveedor: proveedor ??
-                                Proveedor(
-                                  nombre: entry.key,
-                                  telefono: '',
-                                  email: '',
-                                  observaciones: '',
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (entry.value.isNotEmpty) ...[
+                              IconButton(
+                                tooltip: 'Exportar PDF',
+                                icon: const Icon(Icons.picture_as_pdf_rounded),
+                                onPressed: () => _exportarPlanilla(
+                                  formato: 'pdf',
+                                  proveedorNombre: entry.key,
                                 ),
-                          ),
+                              ),
+                              IconButton(
+                                tooltip: 'Exportar Excel',
+                                icon: const Icon(Icons.table_chart_rounded),
+                                onPressed: () => _exportarPlanilla(
+                                  formato: 'excel',
+                                  proveedorNombre: entry.key,
+                                ),
+                              ),
+                            ],
+                            IconButton(
+                              tooltip: 'Nuevo para ${entry.key}',
+                              icon: const Icon(Icons.add_circle_outline),
+                              onPressed: () => _nuevoPedido(
+                                proveedor: proveedor ??
+                                    Proveedor(
+                                      nombre: entry.key,
+                                      telefono: '',
+                                      email: '',
+                                      observaciones: '',
+                                    ),
+                              ),
+                            ),
+                          ],
                         ),
                         children: entry.value.isEmpty
                             ? [
@@ -436,16 +633,48 @@ class _PedidosPageState extends State<PedidosPage> {
                                     '${row['itemsCount']} ítems · '
                                     '${row['cantidadTotal']} u.',
                                   ),
-                                  trailing: Chip(
-                                    label: Text(estado),
-                                    visualDensity: VisualDensity.compact,
-                                    side: BorderSide(
-                                      color: _colorEstado(estado, cs),
-                                    ),
-                                    labelStyle: TextStyle(
-                                      color: _colorEstado(estado, cs),
-                                      fontSize: 12,
-                                    ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Chip(
+                                        label: Text(estado),
+                                        visualDensity: VisualDensity.compact,
+                                        side: BorderSide(
+                                          color: _colorEstado(estado, cs),
+                                        ),
+                                        labelStyle: TextStyle(
+                                          color: _colorEstado(estado, cs),
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'PDF',
+                                        icon: const Icon(
+                                          Icons.picture_as_pdf_rounded,
+                                          size: 20,
+                                        ),
+                                        onPressed: () => _exportarPedido(
+                                          row,
+                                          formato: 'pdf',
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Excel',
+                                        icon: const Icon(
+                                          Icons.table_chart_rounded,
+                                          size: 20,
+                                        ),
+                                        onPressed: () => _exportarPedido(
+                                          row,
+                                          formato: 'excel',
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Más',
+                                        icon: const Icon(Icons.more_vert),
+                                        onPressed: () => _menuPedido(row),
+                                      ),
+                                    ],
                                   ),
                                   onTap: () =>
                                       _abrirForm(pedidoId: row['id'] as int?),

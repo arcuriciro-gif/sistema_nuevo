@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart';
 
 import '../core/events/data_refresh_hub.dart';
@@ -345,6 +347,97 @@ class RemitoService {
       id: id,
       upload: () => FirestoreSyncService.instance.subirRemito(id),
     );
+    DataRefreshHub.instance.notifyTodo();
+  }
+
+  /// Elimina el remito: revierte stock si hace falta, borra ítems/cobros y sync.
+  Future<void> eliminar(int id) async {
+    final db = await dbHelper.database;
+    final rows = await db.query(
+      'remitos',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+
+    final remito = rows.first;
+    final numero = remito['numero']?.toString() ?? '';
+    final yaAnulado = remito['estado']?.toString() == 'anulado';
+
+    await db.transaction((txn) async {
+      if (!yaAnulado) {
+        final items = await txn.query(
+          'remito_items',
+          where: 'remitoId = ?',
+          whereArgs: [id],
+        );
+        for (final item in items) {
+          final productoId = item['productoId'] as int;
+          final cantidad = item['cantidad'] as int? ?? 0;
+          final productoRows = await txn.query(
+            'productos',
+            columns: ['stock'],
+            where: 'id = ?',
+            whereArgs: [productoId],
+            limit: 1,
+          );
+          final stockAnterior =
+              (productoRows.isNotEmpty ? productoRows.first['stock'] as num? : 0)
+                      ?.toInt() ??
+                  0;
+          final stockNuevo = stockAnterior + cantidad;
+          await txn.rawUpdate(
+            'UPDATE productos SET stock = stock + ? WHERE id = ?',
+            [cantidad, productoId],
+          );
+          final movimiento = MovimientoStock(
+            productoId: productoId,
+            tipo: 'reversion',
+            cantidad: cantidad,
+            fecha: DateTime.now(),
+            remitoId: id.toString(),
+            motivo: 'Eliminación de remito $numero',
+            usuario: AuthService.instance.currentUser?.usuario ?? 'sistema',
+            stockAnterior: stockAnterior,
+            stockNuevo: stockNuevo,
+          );
+          await txn.insert(
+            'movimientos_stock',
+            movimiento.toMap()..remove('id'),
+          );
+        }
+      }
+
+      if (numero.isNotEmpty) {
+        await txn.delete(
+          'pagos',
+          where: "ventaId = 0 AND observaciones LIKE ?",
+          whereArgs: ['Remito $numero%'],
+        );
+      }
+      await txn.delete(
+        'remito_items',
+        where: 'remitoId = ?',
+        whereArgs: [id],
+      );
+      await txn.delete(
+        'remitos',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
+
+    if (numero.isNotEmpty) {
+      await SyncQueueService.instance.pushOrEnqueue(
+        entityType: 'remito',
+        entityId: '$id',
+        operation: 'delete',
+        payloadJson: jsonEncode({'numero': numero}),
+        upload: () =>
+            FirestoreSyncService.instance.eliminarRemitoRemoto(numero),
+      );
+    }
     DataRefreshHub.instance.notifyTodo();
   }
 

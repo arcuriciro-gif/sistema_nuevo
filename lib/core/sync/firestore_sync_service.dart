@@ -429,6 +429,16 @@ class FirestoreSyncService {
     }
   }
 
+  Future<void> eliminarRemitoRemoto(String numero) async {
+    _requireEscrituraRemota();
+    if (!_puedeEscribirRemoto || numero.trim().isEmpty) return;
+    try {
+      await _remitosCol.doc(numero).delete();
+    } catch (e) {
+      _onOutboundError(e, 'Firestore eliminar remito');
+    }
+  }
+
   Future<void> subirDocumento(DocumentoCliente doc) async {
     _requireEscrituraRemota();
     if (!_puedeEscribirRemoto || doc.id.isEmpty) return;
