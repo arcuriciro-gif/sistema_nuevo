@@ -13,7 +13,10 @@ import 'plantilla_impresion_page.dart';
 import 'documentos_config_page.dart';
 import '../theme/module_app_bar.dart';
 import '../services/app_icon_build_service.dart';
+import '../services/auth_service.dart';
 import '../services/menu_preferencias_service.dart';
+import '../services/system_restart_service.dart';
+import '../theme/app_visuals.dart';
 
 class ConfiguracionPage extends StatefulWidget {
   const ConfiguracionPage({super.key});
@@ -24,6 +27,7 @@ class ConfiguracionPage extends StatefulWidget {
 
 class _ConfiguracionPageState extends State<ConfiguracionPage> {
   bool _mostrarImagenes = true;
+  bool _reiniciando = false;
 
   // Branding
   final _nombreCtrl = TextEditingController();
@@ -170,6 +174,59 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     setState(() {
       _mostrarImagenes = value;
     });
+  }
+
+  Future<void> _reiniciarSistema() async {
+    if (!AuthService.instance.esAdministrador()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Solo el administrador puede reiniciar el sistema.'),
+        ),
+      );
+      return;
+    }
+    final cs = Theme.of(context).colorScheme;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Reiniciar sistema'),
+        content: const Text(
+          'Se van a reiniciar solo los servicios internos:\n'
+          '• Sincronización (cola y nube)\n'
+          '• Comunicaciones / notificaciones\n'
+          '• Backup automático\n\n'
+          'NO se borran productos, ventas, clientes ni ningún dato.\n'
+          'NO se cierra la sesión.\n\n'
+          '¿Continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppVisuals.warning(cs),
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Reiniciar servicios'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _reiniciando = true);
+    final resultado =
+        await SystemRestartService.instance.reiniciarServicios();
+    if (!mounted) return;
+    setState(() => _reiniciando = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(resultado.mensaje),
+        backgroundColor: resultado.ok ? null : cs.error,
+      ),
+    );
   }
 
   @override
@@ -809,6 +866,51 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                 ),
               ),
             ),
+            const SizedBox(height: 16),
+            if (AuthService.instance.esAdministrador())
+              Card(
+                elevation: 3,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'MANTENIMIENTO',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Reinicia sync, chat y timers si algo quedó trabado. '
+                        'No elimina información.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: _reiniciando ? null : _reiniciarSistema,
+                        icon: _reiniciando
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.restart_alt_rounded),
+                        label: Text(
+                          _reiniciando
+                              ? 'Reiniciando…'
+                              : 'Reiniciar sistema',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             const SizedBox(height: 16),
           ],
         ),

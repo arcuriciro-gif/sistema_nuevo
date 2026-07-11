@@ -22,6 +22,7 @@ Todos los cambios relevantes del proyecto se documentan aquí.
 - **Planilla de pedidos a proveedores**: módulo Pedidos (Varios, JK, Cuero Sur, Profeta, Parkegon), editable todo el día, líneas con artículo/cantidad/color/obs, sync offline, export PDF/Excel/impresión.
 - **Pedido sugerido inteligente**: analiza ventas entre fechas (remitos + facturas), filtros por proveedor/categoría/marca/modelo/color/talle; sugiere cantidad = vendido + stock mín − stock; envía a la planilla por proveedor.
 - **Usuarios (solo admin)**: menú Usuarios/Permisos solo administrador; cambios de permisos auditados (`MODIFICAR_PERMISOS`); activar/desactivar y restablecer contraseña con registro en auditoría; protege al único admin.
+- **Reiniciar sistema**: en Configuración (solo admin), reinicia sync/comunicaciones/auto-backup con confirmación; no borra datos ni cierra sesión; queda en auditoría.
 
 ### Sync — cobertura ampliada
 - Categorías y listas de precios: sync bidireccional + cola offline.

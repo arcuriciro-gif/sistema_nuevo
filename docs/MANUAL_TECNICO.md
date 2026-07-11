@@ -125,6 +125,13 @@ Página: `lib/pages/sync_historial_page.dart`
 - Menú: ítems `usuarios` y `permisos` visibles solo si `esAdministrador()`.
 - Restablecer contraseña: hash local + `debeCambiarPassword`; si hay email real, intenta email de reset Firebase.
 
+## Reiniciar sistema
+
+- Servicio: `SystemRestartService.reiniciarServicios()` — solo admin.
+- Secuencia: stop SyncQueue → FirestoreSync → Comunicaciones → AutoBackup → start en el mismo orden.
+- UI: Configuración → Mantención → **Reiniciar sistema** (diálogo de confirmación).
+- No toca SQLite, backups ni sesión. Auditoría: `REINICIAR_SISTEMA` / `REINICIAR_SISTEMA_ERROR`.
+
 ## Reglas de evolución
 
 1. No cambiar arquitectura general ni reemplazar tecnologías.
@@ -139,8 +146,8 @@ Página: `lib/pages/sync_historial_page.dart`
 2. ~~Dashboard (accesos rápidos + KPIs)~~
 3. ~~Planilla de pedidos a proveedores~~
 4. ~~Pedido sugerido inteligente~~
-5. ~~Administración de usuarios (solo admin + auditoría)~~ ← actual
-6. Reiniciar sistema (servicios, sin borrar datos)
+5. ~~Administración de usuarios (solo admin + auditoría)~~
+6. ~~Reiniciar sistema (servicios, sin borrar datos)~~ ← actual
 7. Historial de producto ampliado
 8. Estadísticas
 9. Inventario (barcode / cámara)
