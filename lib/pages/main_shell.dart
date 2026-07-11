@@ -32,6 +32,7 @@ import 'dashboard_page.dart';
 import 'etiquetas_page.dart';
 import 'inicio_page.dart';
 import 'importacion_page.dart';
+import 'estadisticas_page.dart';
 import 'inteligencia_comercial_page.dart';
 import 'listas_precio_page.dart';
 import 'login_page.dart';
@@ -369,6 +370,13 @@ class _MainShellState extends State<MainShell> {
           title: 'Reportes',
           modulo: 'reportes',
           builder: () => const ReportesPage(),
+        ),
+        _ShellItem(
+          id: 'estadisticas',
+          icon: Icons.analytics_rounded,
+          title: 'Estadísticas',
+          modulo: 'reportes',
+          builder: () => const EstadisticasPage(),
         ),
         _ShellItem(
           id: 'inteligencia',

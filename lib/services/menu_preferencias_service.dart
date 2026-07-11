@@ -44,6 +44,7 @@ class MenuPreferenciasService extends ChangeNotifier {
     (id: 'proveedores', titulo: 'Proveedores', grupo: 'Compras'),
     (id: 'listas_precios', titulo: 'Listas de Precios', grupo: 'Precios'),
     (id: 'reportes', titulo: 'Reportes', grupo: 'Análisis'),
+    (id: 'estadisticas', titulo: 'Estadísticas', grupo: 'Análisis'),
     (id: 'inteligencia', titulo: 'Inteligencia Comercial', grupo: 'Análisis'),
     (id: 'etiquetas', titulo: 'Etiquetas', grupo: 'Utilidades'),
     (id: 'auditoria', titulo: 'Auditoría', grupo: 'Admin'),

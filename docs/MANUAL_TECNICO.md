@@ -161,7 +161,19 @@ Página: `lib/pages/sync_historial_page.dart`
 4. ~~Pedido sugerido inteligente~~
 5. ~~Administración de usuarios (solo admin + auditoría)~~
 6. ~~Reiniciar sistema (servicios, sin borrar datos)~~
-7. ~~Historial de producto ampliado~~ ← actual
-8. Estadísticas
+7. ~~Historial de producto ampliado~~
+8. ~~Estadísticas~~ ← actual
 9. Inventario (barcode / cámara)
 10. Alertas automáticas
+
+## Clientes — lista y foto
+
+- Lista: `Row` + `maxLines: 1` / ellipsis; avatar `imageProviderDesdePath(foto)` o inicial.
+- Acciones (editar, CC, historial, notas, chat, eliminar) en bottom sheet para no comprimir el nombre en Android.
+- Campo `clientes.foto` (migración v26). Formulario permite agregar/cambiar/quitar foto.
+
+## Estadísticas
+
+- Página `EstadisticasPage` (menú Análisis, permiso `reportes`).
+- Reutiliza `AnalyticsService` (ventas, ganancia, top/bottom productos con filtro de fechas) + consultas de rentabilidad / sin movimiento / stock crítico.
+- Gráficos de evolución ventas y compras por mes (`fl_chart`).

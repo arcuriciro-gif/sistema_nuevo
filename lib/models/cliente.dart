@@ -13,6 +13,7 @@ class Cliente {
   String cuit;
   String condicionIva;
   String observaciones;
+  String foto;
   double descuento;
   double saldo;
   double limiteCuenta;
@@ -31,6 +32,7 @@ class Cliente {
     this.cuit = '',
     this.condicionIva = '',
     required this.observaciones,
+    this.foto = '',
     this.descuento = 0.0,
     this.saldo = 0.0,
     this.limiteCuenta = 0.0,
@@ -38,22 +40,23 @@ class Cliente {
 
   Map<String, dynamic> toMap() {
     return {
-      "id": id,
-      "syncId": syncId,
-      "nombre": nombre,
-      "apellido": apellido,
-      "telefono": telefono,
-      "whatsapp": whatsapp,
-      "email": email,
-      "direccion": direccion,
-      "localidad": localidad,
-      "provincia": provincia,
-      "cuit": cuit,
-      "condicionIva": condicionIva,
-      "observaciones": observaciones,
-      "descuento": descuento,
-      "saldo": saldo,
-      "limiteCuenta": limiteCuenta,
+      'id': id,
+      'syncId': syncId,
+      'nombre': nombre,
+      'apellido': apellido,
+      'telefono': telefono,
+      'whatsapp': whatsapp,
+      'email': email,
+      'direccion': direccion,
+      'localidad': localidad,
+      'provincia': provincia,
+      'cuit': cuit,
+      'condicionIva': condicionIva,
+      'observaciones': observaciones,
+      'foto': foto,
+      'descuento': descuento,
+      'saldo': saldo,
+      'limiteCuenta': limiteCuenta,
     };
   }
 
@@ -65,22 +68,23 @@ class Cliente {
 
   factory Cliente.fromMap(Map<String, dynamic> map) {
     return Cliente(
-      id: map["id"],
-      syncId: map["syncId"]?.toString() ?? '',
-      nombre: map["nombre"] ?? "",
-      apellido: map["apellido"] ?? "",
-      telefono: map["telefono"] ?? "",
-      whatsapp: map["whatsapp"] ?? "",
-      email: map["email"] ?? "",
-      direccion: map["direccion"] ?? "",
-      localidad: map["localidad"] ?? "",
-      provincia: map["provincia"] ?? "",
-      cuit: map["cuit"] ?? "",
-      condicionIva: map["condicionIva"] ?? "",
-      observaciones: map["observaciones"] ?? "",
-      descuento: (map["descuento"] ?? 0).toDouble(),
-      saldo: (map["saldo"] ?? 0).toDouble(),
-      limiteCuenta: (map["limiteCuenta"] ?? 0).toDouble(),
+      id: map['id'],
+      syncId: map['syncId']?.toString() ?? '',
+      nombre: map['nombre'] ?? '',
+      apellido: map['apellido'] ?? '',
+      telefono: map['telefono'] ?? '',
+      whatsapp: map['whatsapp'] ?? '',
+      email: map['email'] ?? '',
+      direccion: map['direccion'] ?? '',
+      localidad: map['localidad'] ?? '',
+      provincia: map['provincia'] ?? '',
+      cuit: map['cuit'] ?? '',
+      condicionIva: map['condicionIva'] ?? '',
+      observaciones: map['observaciones'] ?? '',
+      foto: map['foto']?.toString() ?? '',
+      descuento: (map['descuento'] ?? 0).toDouble(),
+      saldo: (map['saldo'] ?? 0).toDouble(),
+      limiteCuenta: (map['limiteCuenta'] ?? 0).toDouble(),
     );
   }
 
@@ -101,6 +105,7 @@ class Cliente {
     String? cuit,
     String? condicionIva,
     String? observaciones,
+    String? foto,
     double? descuento,
     double? saldo,
     double? limiteCuenta,
@@ -119,6 +124,7 @@ class Cliente {
       cuit: cuit ?? this.cuit,
       condicionIva: condicionIva ?? this.condicionIva,
       observaciones: observaciones ?? this.observaciones,
+      foto: foto ?? this.foto,
       descuento: descuento ?? this.descuento,
       saldo: saldo ?? this.saldo,
       limiteCuenta: limiteCuenta ?? this.limiteCuenta,

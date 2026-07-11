@@ -25,6 +25,9 @@ Todos los cambios relevantes del proyecto se documentan aquí.
 - **Reiniciar sistema**: en Configuración (solo admin), reinicia sync/comunicaciones/auto-backup con confirmación; no borra datos ni cierra sesión; queda en auditoría.
 - **Historial de producto**: precios + stock + auditoría (tabs), con usuario y fecha/hora; acceso desde lista de productos.
 - **Borrado con clave**: eliminar cliente / producto definitivo y vaciar productos, vaciar clientes o **sistema virgen** (Configuración) exigen contraseña del admin; se conservan usuarios/permisos.
+- **Clientes (APK)**: lista con nombre en una sola línea horizontal (sin wrap vertical), avatar con foto o inicial, y acciones en menú “⋯” para no apretar el título.
+- Foto de cliente en alta/edición (galería/cámara); columna `clientes.foto` (DB v26).
+- **Estadísticas**: módulo en Análisis con período (30/90 días, 6 meses, 1 año): ventas, ganancia real, margen, evolución ventas/compras, más/menos vendidos, rentabilidad, sin movimiento y stock crítico.
 
 ### Sync — cobertura ampliada
 - Categorías y listas de precios: sync bidireccional + cola offline.

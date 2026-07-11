@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
+import '../core/utils/media_path.dart';
 import '../models/cliente.dart';
+import '../services/branding_service.dart';
 import '../services/cliente_service.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/comentarios_internos_sheet.dart';
@@ -35,6 +38,7 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
   late TextEditingController limiteCuentaController;
 
   bool guardando = false;
+  String foto = '';
 
   bool get esEdicion => widget.cliente != null;
 
@@ -69,6 +73,7 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
     limiteCuentaController = TextEditingController(
       text: (widget.cliente?.limiteCuenta ?? 0).toStringAsFixed(2),
     );
+    foto = widget.cliente?.foto ?? '';
   }
 
   @override
@@ -93,6 +98,51 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
   double _parseDbl(String text) =>
       double.tryParse(text.replaceAll(',', '.')) ?? 0;
 
+  Future<void> _mostrarOpcionesFoto() async {
+    final accion = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Galería'),
+              onTap: () => Navigator.pop(ctx, 'gallery'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Cámara'),
+              onTap: () => Navigator.pop(ctx, 'camera'),
+            ),
+            if (foto.trim().isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text('Quitar foto'),
+                onTap: () => Navigator.pop(ctx, 'remove'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || accion == null) return;
+    if (accion == 'remove') {
+      setState(() => foto = '');
+      return;
+    }
+    final picker = ImagePicker();
+    final img = await picker.pickImage(
+      source: accion == 'camera' ? ImageSource.camera : ImageSource.gallery,
+      imageQuality: 80,
+      maxWidth: 1024,
+    );
+    if (img == null || !mounted) return;
+    final base = 'cliente_${widget.cliente?.id ?? DateTime.now().millisecondsSinceEpoch}';
+    final path = await BrandingService.instance.persistirImagen(img.path, base);
+    if (!mounted) return;
+    setState(() => foto = path);
+  }
+
   Future<void> guardar() async {
     if (!formKey.currentState!.validate()) return;
 
@@ -103,6 +153,7 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
 
     final cliente = Cliente(
       id: widget.cliente?.id,
+      syncId: widget.cliente?.syncId ?? '',
       nombre: nombreController.text.trim(),
       apellido: apellidoController.text.trim(),
       telefono: telefonoController.text.trim(),
@@ -114,6 +165,7 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
       cuit: cuitController.text.trim(),
       condicionIva: condicionIvaController.text.trim(),
       observaciones: observacionesController.text.trim(),
+      foto: foto,
       descuento: descuento,
       saldo: _parseDbl(saldoController.text),
       limiteCuenta: _parseDbl(limiteCuentaController.text),
@@ -177,8 +229,47 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
           key: formKey,
           child: Column(
             children: [
+              Builder(
+                builder: (context) {
+                  final cs = Theme.of(context).colorScheme;
+                  final provider = imageProviderDesdePath(foto);
+                  final nombre = nombreController.text.trim();
+                  final inicial = nombre.isEmpty ? '?' : nombre[0].toUpperCase();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 20),
+                    child: Column(
+                      children: [
+                        CircleAvatar(
+                          radius: 44,
+                          backgroundColor: cs.primaryContainer,
+                          backgroundImage: provider,
+                          child: provider == null
+                              ? Text(
+                                  inicial,
+                                  style: TextStyle(
+                                    fontSize: 32,
+                                    fontWeight: FontWeight.w700,
+                                    color: cs.onPrimaryContainer,
+                                  ),
+                                )
+                              : null,
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton.icon(
+                          onPressed: guardando ? null : _mostrarOpcionesFoto,
+                          icon: const Icon(Icons.photo_camera_outlined),
+                          label: Text(
+                            foto.trim().isEmpty ? 'Agregar foto' : 'Cambiar foto',
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
               TextFormField(
                 controller: nombreController,
+                onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
                   labelText: "Nombre *",
                   prefixIcon: Icon(Icons.person),

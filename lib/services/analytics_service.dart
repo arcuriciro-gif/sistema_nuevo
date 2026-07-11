@@ -78,8 +78,29 @@ class AnalyticsService {
     return (rows.first['total'] as num?)?.toDouble() ?? 0;
   }
 
-  Future<List<Map<String, dynamic>>> topProductos({int limite = 5}) async {
+  Future<List<Map<String, dynamic>>> topProductos({
+    int limite = 5,
+    DateTime? desde,
+    DateTime? hasta,
+    bool ascendente = false,
+  }) async {
     final db = await _dbHelper.database;
+    final filtrosR = <String>["r.estado != 'anulado'"];
+    final filtrosV = <String>["v.estado != 'anulada'", "v.tipo NOT IN ('presupuesto')"];
+    final args = <Object?>[];
+    if (desde != null) {
+      filtrosR.add('r.fecha >= ?');
+      filtrosV.add('v.fecha >= ?');
+      args.add(desde.toIso8601String());
+    }
+    if (hasta != null) {
+      filtrosR.add('r.fecha <= ?');
+      filtrosV.add('v.fecha <= ?');
+      args.add(hasta.toIso8601String());
+    }
+    final whereR = filtrosR.join(' AND ');
+    final whereV = filtrosV.join(' AND ');
+    final orden = ascendente ? 'ASC' : 'DESC';
     return db.rawQuery('''
       SELECT
         productoId,
@@ -98,7 +119,7 @@ class AnalyticsService {
         FROM remito_items ri
         JOIN productos p ON p.id = ri.productoId
         JOIN remitos r ON r.id = ri.remitoId
-        WHERE r.estado != 'anulado'
+        WHERE $whereR
           AND (p.deleted_at IS NULL OR p.deleted_at = '')
         UNION ALL
         SELECT
@@ -111,13 +132,25 @@ class AnalyticsService {
         FROM ventas_items vi
         LEFT JOIN productos p ON p.id = vi.productoId
         JOIN ventas v ON v.id = vi.ventaId
-        WHERE v.estado != 'anulada'
-          AND v.tipo NOT IN ('presupuesto')
+        WHERE $whereV
       )
       GROUP BY productoId
-      ORDER BY totalVendido DESC
+      ORDER BY totalVendido $orden
       LIMIT ?
-    ''', [limite]);
+    ''', [...args, ...args, limite]);
+  }
+
+  Future<List<Map<String, dynamic>>> bottomProductos({
+    int limite = 5,
+    DateTime? desde,
+    DateTime? hasta,
+  }) {
+    return topProductos(
+      limite: limite,
+      desde: desde,
+      hasta: hasta,
+      ascendente: true,
+    );
   }
 
   Future<List<Map<String, dynamic>>> topClientes({int limite = 5}) async {

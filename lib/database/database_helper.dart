@@ -22,7 +22,7 @@ class DatabaseHelper {
 
     return openDatabase(
       path,
-      version: 25,
+      version: 26,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -100,7 +100,8 @@ CREATE TABLE clientes(
   provincia TEXT DEFAULT '',
   whatsapp TEXT DEFAULT '',
   saldo REAL DEFAULT 0,
-  limiteCuenta REAL DEFAULT 0
+  limiteCuenta REAL DEFAULT 0,
+  foto TEXT DEFAULT ''
 )
 ''');
 
@@ -954,6 +955,11 @@ CREATE TABLE IF NOT EXISTS ventas_items(
           conflictAlgorithm: ConflictAlgorithm.ignore,
         );
       }
+    }
+    if (oldVersion < 26) {
+      await _agregarColumnas(db, 'clientes', {
+        'foto': "TEXT DEFAULT ''",
+      });
     }
   }
 
