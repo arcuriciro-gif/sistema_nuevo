@@ -30,12 +30,15 @@ class FirebaseAuthUsuarioService {
         case 'wrong-password':
         case 'invalid-credential':
         case 'INVALID_LOGIN_CREDENTIALS':
-          return 'La contraseña no coincide con la de la nube. '
-              'Usá la misma clave en PC y celular.';
+          return 'Contraseña incorrecta para la cuenta de la nube. '
+              'En Firebase Console → Authentication → Users, restablecé la clave '
+              'de admin@tata-stock.tatastock.app y usá esa misma acá.';
         case 'user-not-found':
           return 'No existe esa cuenta en Firebase Auth.';
         case 'email-already-in-use':
-          return 'La cuenta ya existe en la nube. Usá la contraseña definida en el otro dispositivo.';
+          return 'La cuenta ya existe en la nube, pero la contraseña no coincide. '
+              'En Firebase → Authentication → Users, restablecé la clave '
+              'y volvé a conectar con esa misma.';
         case 'weak-password':
           return 'La contraseña debe tener al menos 6 caracteres.';
         case 'invalid-email':

@@ -192,11 +192,23 @@ class AuthService {
         } catch (createError) {
           debugPrint('Firebase crearCuenta falló: $createError');
           lastFirebaseError =
-              FirebaseAuthUsuarioService.mensajeError(createError);
-          final msgSignIn =
               FirebaseAuthUsuarioService.mensajeError(signInError);
-          if (lastFirebaseError!.contains('ya existe')) {
-            lastFirebaseError = msgSignIn;
+          final msgCreate =
+              FirebaseAuthUsuarioService.mensajeError(createError);
+          // Si el alta dice "ya existe", el problema real es la clave del signIn.
+          if (msgCreate.contains('ya existe') ||
+              msgCreate.contains('no coincide')) {
+            lastFirebaseError = FirebaseAuthUsuarioService.mensajeError(
+              signInError,
+            );
+            // Si signIn no fue "wrong password", preferir el mensaje de create.
+            if (!lastFirebaseError!.contains('Contraseña') &&
+                !lastFirebaseError!.contains('incorrecta') &&
+                !lastFirebaseError!.contains('no coincide')) {
+              lastFirebaseError = msgCreate;
+            }
+          } else {
+            lastFirebaseError = msgCreate;
           }
         }
       }
