@@ -1,6 +1,9 @@
 # Cómo generar APK y EXE (Tata.Manager)
 
 Versión del proyecto: ver `pubspec.yaml` (`version: x.y.z+build`).  
+En la pantalla de **login** debe verse abajo: **`Tata.Manager v1.1.4 (14)`** (o la versión actual).  
+Si no aparece ese texto, estás abriendo una carpeta/EXE **vieja**.
+
 Package Android: `com.eltatamanager.app`.
 
 ---
