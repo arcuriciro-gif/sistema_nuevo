@@ -22,7 +22,7 @@ class DatabaseHelper {
 
     return openDatabase(
       path,
-      version: 26,
+      version: 27,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -341,8 +341,10 @@ CREATE TABLE IF NOT EXISTS usuarios(
   rol TEXT DEFAULT 'empleado',
   activo INTEGER DEFAULT 1,
   debe_cambiar_password INTEGER DEFAULT 0,
+  pendiente_alta INTEGER DEFAULT 0,
   email TEXT DEFAULT '',
   foto TEXT DEFAULT '',
+  origen_alta TEXT DEFAULT 'admin',
   fechaCreacion TEXT,
   ultimoAcceso TEXT
 )
@@ -959,6 +961,12 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 26) {
       await _agregarColumnas(db, 'clientes', {
         'foto': "TEXT DEFAULT ''",
+      });
+    }
+    if (oldVersion < 27) {
+      await _agregarColumnas(db, 'usuarios', {
+        'pendiente_alta': 'INTEGER DEFAULT 0',
+        'origen_alta': "TEXT DEFAULT 'admin'",
       });
     }
   }

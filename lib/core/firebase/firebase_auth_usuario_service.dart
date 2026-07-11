@@ -172,6 +172,26 @@ class FirebaseAuthUsuarioService {
     return user;
   }
 
+  Future<String> registrarConEmailPassword(String email, String password) async {
+    final mail = email.trim().toLowerCase();
+    try {
+      final cred = await _auth.createUserWithEmailAndPassword(
+        email: mail,
+        password: password,
+      );
+      return cred.user!.uid;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'email-already-in-use') {
+        final cred = await _auth.signInWithEmailAndPassword(
+          email: mail,
+          password: password,
+        );
+        return cred.user!.uid;
+      }
+      throw StateError(mensajeError(e));
+    }
+  }
+
   Future<String> asegurarCuenta(String usuario, String password) async {
     final authEmail = authEmailPara(usuario);
     final nombreApp =

@@ -1,3 +1,12 @@
+## [1.2.1] — 2026-07-11
+
+### Acceso tipo Cursor (solicitud + alta)
+- Ellos entran con **Google** o **correo** y piden acceso.
+- Quedan **PENDIENTE ALTA**; el admin aprueba y asigna rol en Usuarios.
+- No hace falta crearles usuario/clave de antemano.
+- Teléfono: próximamente.
+- Guía: `docs/GOOGLE_LOGIN.md`.
+
 ## [1.2.0] — 2026-07-11
 
 ### Login con Google

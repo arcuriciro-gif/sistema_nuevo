@@ -194,14 +194,12 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
                 decoration: _decoracion(
-                  'Gmail (para Entrar con Google)',
+                  'Email (opcional si lo creás vos)',
                   Icons.email_outlined,
                 ),
                 validator: (value) {
                   final v = (value ?? '').trim();
-                  if (v.isEmpty) {
-                    return 'Cargá el Gmail de la persona (login con Google)';
-                  }
+                  if (v.isEmpty) return null;
                   if (!v.contains('@') || !v.contains('.')) {
                     return 'Email inválido';
                   }

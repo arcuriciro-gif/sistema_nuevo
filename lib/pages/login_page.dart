@@ -103,6 +103,94 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _loginCorreo() async {
+    final nombreCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final passCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Entrar / solicitar con correo'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Si es la primera vez, se envía una solicitud al administrador. '
+                'Cuando te den el alta, entrá de nuevo con el mismo correo.',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nombreCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Tu nombre',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Correo (Gmail u otro)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: passCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Contraseña (mín. 6)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Continuar'),
+          ),
+        ],
+      ),
+    );
+    final nombre = nombreCtrl.text;
+    final email = emailCtrl.text;
+    final pass = passCtrl.text;
+    nombreCtrl.dispose();
+    emailCtrl.dispose();
+    passCtrl.dispose();
+    if (ok != true) return;
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await AuthService.instance.loginORegistrarConEmail(
+        email: email,
+        password: pass,
+        nombre: nombre,
+      );
+      if (!mounted) return;
+      setState(() => _loading = false);
+      await _irTrasLogin(forzarCambioClave: false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.toString().replaceFirst('StateError: ', '');
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final branding = BrandingService.instance;
@@ -172,13 +260,13 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Empleados: preferí Google con el Gmail que te cargó el admin.',
+                          'Pedí acceso con Google o correo. El administrador te da el alta.',
                           style: textTheme.bodySmall?.copyWith(
                             color: cs.onSurfaceVariant,
                           ),
                         ),
+                        const SizedBox(height: 16),
                         if (_googleDisponible) ...[
-                          const SizedBox(height: 16),
                           SizedBox(
                             width: double.infinity,
                             height: 48,
@@ -187,29 +275,49 @@ class _LoginPageState extends State<LoginPage> {
                               icon: const Icon(Icons.g_mobiledata_rounded,
                                   size: 28),
                               label: const Text(
-                                'Entrar con Google',
+                                'Continuar con Google',
                                 style: TextStyle(fontWeight: FontWeight.w700),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              const Expanded(child: Divider()),
-                              Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 8),
-                                child: Text(
-                                  'o con usuario',
-                                  style: textTheme.labelSmall?.copyWith(
-                                    color: cs.onSurfaceVariant,
-                                  ),
+                          const SizedBox(height: 10),
+                        ],
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: OutlinedButton.icon(
+                            onPressed: _loading ? null : _loginCorreo,
+                            icon: const Icon(Icons.email_outlined),
+                            label: const Text(
+                              'Continuar con correo',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Teléfono: próximamente. Por ahora usá Google o correo.',
+                          style: textTheme.labelSmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            const Expanded(child: Divider()),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 8),
+                              child: Text(
+                                'admin / usuario local',
+                                style: textTheme.labelSmall?.copyWith(
+                                  color: cs.onSurfaceVariant,
                                 ),
                               ),
-                              const Expanded(child: Divider()),
-                            ],
-                          ),
-                        ],
+                            ),
+                            const Expanded(child: Divider()),
+                          ],
+                        ),
                         const SizedBox(height: 16),
                         TextField(
                           controller: _usuarioCtrl,

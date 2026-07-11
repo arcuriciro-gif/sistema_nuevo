@@ -205,26 +205,72 @@ class UsuarioService {
     _requiereAdministrador();
     final usuarios = await _repoLocal.obtenerTodos();
     final usuario = usuarios.firstWhere((u) => u.id == id);
-    final resultado =
-        await _repoLocal.actualizar(usuario.copyWith(activo: true));
+    final actualizado = usuario.copyWith(
+      activo: true,
+      pendienteAlta: false,
+    );
+    final resultado = await _repoLocal.actualizar(actualizado);
 
     if (BackendConfigService.instance.firebaseEnabled &&
-        (usuario.firebaseUid?.isNotEmpty ?? false)) {
+        (actualizado.firebaseUid?.isNotEmpty ?? false)) {
       try {
-        await FirestoreUsuarioRepository()
-            .actualizar(usuario.copyWith(activo: true));
+        await FirestoreUsuarioRepository().actualizar(actualizado);
       } catch (_) {}
     }
 
     await AuthService.instance.registrarCambio(
       'ACTIVAR_USUARIO',
       'usuarios',
-      'Reactivación de usuario ${usuario.usuario}',
-      valorAnterior: jsonEncode({'activo': false}),
-      valorNuevo: jsonEncode({'activo': true}),
+      'Alta/reactivación de usuario ${usuario.usuario}',
+      valorAnterior: jsonEncode({
+        'activo': usuario.activo,
+        'pendienteAlta': usuario.pendienteAlta,
+      }),
+      valorNuevo: jsonEncode({'activo': true, 'pendienteAlta': false}),
     );
 
     return resultado;
+  }
+
+  /// Aprueba una solicitud de acceso (Google/email) y asigna rol.
+  Future<void> aprobarAlta(Usuario usuario, {String? rol}) async {
+    _requiereAdministrador();
+    if (usuario.id == null) {
+      throw StateError('Usuario sin id local.');
+    }
+    final rolOk = RolUtil.normalizar(rol ?? usuario.rol);
+    final actualizado = usuario.copyWith(
+      activo: true,
+      pendienteAlta: false,
+      rol: rolOk,
+    );
+    await _repoLocal.actualizar(actualizado);
+    if (BackendConfigService.instance.firebaseEnabled &&
+        (actualizado.firebaseUid?.isNotEmpty ?? false)) {
+      try {
+        await FirestoreUsuarioRepository().actualizar(actualizado);
+      } catch (_) {}
+    }
+    await AuthService.instance.registrarCambio(
+      'APROBAR_ALTA',
+      'usuarios',
+      'Alta aprobada para ${usuario.usuario} ($rolOk)',
+      valorAnterior: jsonEncode({
+        'pendienteAlta': true,
+        'activo': false,
+      }),
+      valorNuevo: jsonEncode({
+        'pendienteAlta': false,
+        'activo': true,
+        'rol': rolOk,
+      }),
+    );
+  }
+
+  Future<List<Usuario>> obtenerPendientesAlta() async {
+    _requiereAdministrador();
+    final todos = await _repoLocal.obtenerTodos();
+    return todos.where((u) => u.pendienteAlta).toList();
   }
 
   Future<int> desactivar(int id) async {

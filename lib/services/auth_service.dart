@@ -317,7 +317,7 @@ class AuthService {
     return currentUser;
   }
 
-  /// Login con Google: el Gmail debe coincidir con el email de un usuario dado de alta.
+  /// Login con Google. Si no existe usuario, crea solicitud pendiente de alta.
   Future<Usuario> loginConGoogle() async {
     lastFirebaseError = null;
     final firebase = FirebaseAuthUsuarioService.instance;
@@ -328,42 +328,126 @@ class AuthService {
     final googleUser = await firebase.iniciarSesionConGoogle();
     final email = (googleUser.email ?? '').trim().toLowerCase();
     final uid = googleUser.uid;
+    final displayName = (googleUser.displayName ?? '').trim();
     if (email.isEmpty) {
       await firebase.cerrarSesion();
       throw StateError('Google no devolvió un email.');
     }
 
-    final sqlite = SqliteUsuarioRepository();
-    var localUser = await sqlite.buscarPorEmail(email);
+    return _completarAccesoExterno(
+      email: email,
+      firebaseUid: uid,
+      nombreSugerido: displayName.isEmpty ? email.split('@').first : displayName,
+      origen: 'google',
+    );
+  }
 
+  /// Autoregistro / login con correo y clave. Si es nuevo → pendiente de alta.
+  Future<Usuario> loginORegistrarConEmail({
+    required String email,
+    required String password,
+    String? nombre,
+  }) async {
+    lastFirebaseError = null;
+    final firebase = FirebaseAuthUsuarioService.instance;
+    if (!firebase.disponible) {
+      throw StateError('Firebase no está listo en este dispositivo.');
+    }
+    final mail = email.trim().toLowerCase();
+    if (!UsuarioAuthEmail.esEmailReal(mail)) {
+      throw StateError('Ingresá un email válido (ej. tu Gmail).');
+    }
+    if (password.trim().length < 6) {
+      throw StateError('La contraseña debe tener al menos 6 caracteres.');
+    }
+
+    final uid = await firebase.registrarConEmailPassword(mail, password.trim());
+    final nombreOk = (nombre ?? '').trim().isEmpty
+        ? mail.split('@').first
+        : nombre!.trim();
+
+    return _completarAccesoExterno(
+      email: mail,
+      firebaseUid: uid,
+      nombreSugerido: nombreOk,
+      origen: 'email',
+      passwordPlano: password.trim(),
+    );
+  }
+
+  Future<Usuario> _completarAccesoExterno({
+    required String email,
+    required String firebaseUid,
+    required String nombreSugerido,
+    required String origen,
+    String? passwordPlano,
+  }) async {
+    final firebase = FirebaseAuthUsuarioService.instance;
+    final sqlite = SqliteUsuarioRepository();
+
+    var localUser = await sqlite.buscarPorEmail(email);
     if (localUser == null && BackendConfigService.instance.firebaseEnabled) {
       try {
         localUser = await FirestoreUsuarioRepository().buscarPorEmail(email);
       } catch (e) {
-        debugPrint('Buscar usuario por email (Google): $e');
+        debugPrint('Buscar usuario por email: $e');
       }
     }
 
-    if (localUser == null || !localUser.activo) {
+    if (localUser == null) {
+      final baseUser = await _usuarioLibreDesdeEmail(email);
+      final ahora = DateTime.now();
+      final pendiente = Usuario(
+        firebaseUid: firebaseUid,
+        nombre: nombreSugerido,
+        usuario: baseUser,
+        password: _hash(passwordPlano ?? _hash(email + firebaseUid)),
+        rol: 'empleado',
+        activo: false,
+        pendienteAlta: true,
+        debeCambiarPassword: false,
+        email: email,
+        origenAlta: origen,
+        fechaCreacion: ahora,
+      );
+      final id = await sqlite.insertar(pendiente);
+      localUser = pendiente.copyWith(id: id);
+      if (BackendConfigService.instance.firebaseEnabled) {
+        try {
+          await FirestoreUsuarioRepository().insertar(localUser);
+        } catch (e) {
+          debugPrint('Firestore solicitud alta: $e');
+        }
+      }
       try {
         await firebase.cerrarSesion();
       } catch (_) {}
       throw StateError(
-        'El Gmail $email no está dado de alta en Tata.Manager.\n\n'
-        'Pedile al administrador que cree tu usuario y ponga exactamente '
-        'ese email en el campo Email.',
+        'Solicitud enviada con $email.\n\n'
+        'El administrador debe darte el alta en Usuarios → Pendientes.\n'
+        'Cuando te aprueben, volvé a entrar con Google o tu correo.',
+      );
+    }
+
+    if (localUser.pendienteAlta || !localUser.activo) {
+      try {
+        await firebase.cerrarSesion();
+      } catch (_) {}
+      if (localUser.pendienteAlta) {
+        throw StateError(
+          'Tu acceso todavía está pendiente de aprobación.\n'
+          'Pedile al administrador que te dé el alta ($email).',
+        );
+      }
+      throw StateError(
+        'Tu usuario está desactivado. Pedile al administrador que lo reactive.',
       );
     }
 
     if (localUser.id == null) {
       final existente = await sqlite.buscarPorUsuario(localUser.usuario);
       if (existente != null) {
-        localUser = localUser.copyWith(
-          id: existente.id,
-          password: existente.password.isNotEmpty
-              ? existente.password
-              : localUser.password,
-        );
+        localUser = localUser.copyWith(id: existente.id);
         await sqlite.actualizar(localUser);
       } else {
         final id = await sqlite.insertar(localUser);
@@ -373,23 +457,24 @@ class AuthService {
 
     final ahora = DateTime.now();
     final sesion = localUser.copyWith(
-      firebaseUid: uid,
+      firebaseUid: firebaseUid,
       email: email,
       debeCambiarPassword: false,
+      pendienteAlta: false,
       ultimoAcceso: ahora,
       nombre: localUser.nombre.trim().isEmpty
-          ? (googleUser.displayName ?? localUser.usuario)
+          ? nombreSugerido
           : localUser.nombre,
     );
     await sqlite.actualizar(sesion);
     currentUser = sesion;
-    _ultimaPasswordIngresada = null;
+    _ultimaPasswordIngresada = passwordPlano;
 
     if (BackendConfigService.instance.firebaseEnabled) {
       try {
         await FirestoreUsuarioRepository().actualizar(sesion);
       } catch (e) {
-        debugPrint('Firestore usuario Google login: $e');
+        debugPrint('Firestore usuario login externo: $e');
       }
     }
 
@@ -398,8 +483,8 @@ class AuthService {
     SyncQueueService.instance.clearAuthError();
 
     await _registrarAudit(
-      'LOGIN_GOOGLE',
-      'Inicio de sesión con Google',
+      origen == 'google' ? 'LOGIN_GOOGLE' : 'LOGIN_EMAIL',
+      'Inicio de sesión ($origen)',
       tablaAfectada: 'usuarios',
       valorNuevo: jsonEncode({
         'usuario': sesion.usuario,
@@ -409,6 +494,27 @@ class AuthService {
     );
 
     return sesion;
+  }
+
+  Future<String> _usuarioLibreDesdeEmail(String email) async {
+    final sqlite = SqliteUsuarioRepository();
+    var base = email
+        .split('@')
+        .first
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9._-]'), '');
+    if (base.isEmpty) base = 'user';
+    var candidato = base;
+    var i = 1;
+    while (await sqlite.existeUsuario(candidato)) {
+      candidato = '$base$i';
+      i++;
+      if (i > 99) {
+        candidato = '$base${DateTime.now().millisecondsSinceEpoch}';
+        break;
+      }
+    }
+    return candidato;
   }
 
   Future<void> logout() async {

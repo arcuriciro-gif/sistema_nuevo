@@ -1,66 +1,34 @@
-# Login con Google (Tata.Manager)
+# Acceso tipo Cursor: ellos piden, vos das el alta
 
-Versión con botón **Entrar con Google**: `1.2.0+`.
+## Flujo
 
-## Cómo funciona en la app
+1. La persona abre la app → **Continuar con Google** o **Continuar con correo**.
+2. Si es la primera vez → se crea una **solicitud pendiente** (no entra al sistema).
+3. Vos (admin) entrás con `admin` → **Usuarios**.
+4. Ves **PENDIENTE ALTA** → ícono de aprobar → elegís rol → **Aprobar**.
+5. La persona vuelve a entrar con Google/correo → ya trabaja.
 
-1. El **admin** crea el usuario y carga su **Gmail exacto**.
-2. En el celular, la persona toca **Entrar con Google** y elige esa cuenta.
-3. Si el Gmail coincide con un usuario activo → entra y sincroniza.
-4. Si no está dado de alta → mensaje pidiendo al admin que lo cree con ese email.
-5. En la PC el admin puede seguir entrando con `admin` / clave.
+No hace falta que vos les armes usuario y clave de antemano.
 
-## Configuración obligatoria en Firebase (una vez)
+## Métodos
 
-Sin esto, Google Sign-In falla (tu `google-services.json` hoy tiene `oauth_client: []`).
+| Método | Estado |
+|--------|--------|
+| Google | Listo (requiere config Firebase, ver abajo) |
+| Correo + clave | Listo |
+| Teléfono | Próximamente |
 
-### 1) Activar proveedor Google
-Firebase Console → **Authentication** → **Sign-in method** → **Google** → Activar → Guardar.
+## Config Google (una vez)
 
-### 2) SHA-1 de Android
-En la PC de desarrollo:
+Ver también `docs/GOOGLE_LOGIN.md`:
 
-```bat
-cd A:\PROYECTOS\sistema_nuevo_git\android
-gradlew signingReport
-```
+1. Firebase → Authentication → **Google** ON + **Correo/contraseña** ON  
+2. SHA-1 de Android en la app  
+3. Nuevo `google-services.json`  
+4. `googleWebClientId` en `lib/firebase_options.dart`
 
-O con keytool (debug):
+## Admin
 
-```bat
-keytool -list -v -keystore %USERPROFILE%\.android\debug.keystore -alias androiddebugkey -storepass android -keypass android
-```
-
-Copiá el **SHA-1** (y SHA-256 si pide).
-
-Firebase Console → Project settings → Tu app Android `com.eltatamanager.app` → **Add fingerprint** → pegá SHA-1.
-
-Si firmás release con `android/key.properties`, también agregá el SHA-1 del keystore de release.
-
-### 3) Descargar de nuevo `google-services.json`
-Project settings → tu app Android → **Download google-services.json**  
-Reemplazá `android/app/google-services.json`.
-
-### 4) Web client ID
-Authentication → Google → **Web client ID** (termina en `.apps.googleusercontent.com`).
-
-Pegalo en `lib/firebase_options.dart`:
-
-```dart
-static const String googleWebClientId =
-    'TU-ID.apps.googleusercontent.com';
-```
-
-### 5) Rebuild
-
-```bat
-flutter pub get
-flutter build apk --release
-flutter build windows --release
-```
-
-## Prueba rápida
-
-1. Admin crea usuario `juan` con email `juan@gmail.com` y una clave cualquiera.
-2. En el APK: **Entrar con Google** → cuenta `juan@gmail.com`.
-3. Debe entrar al sistema con el rol que le asignaste.
+- Seguí entrando con usuario/clave (`admin`).
+- Podés seguir creando usuarios a mano si querés.
+- Rechazar = **Eliminar** la solicitud pendiente.

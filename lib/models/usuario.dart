@@ -7,8 +7,12 @@ class Usuario {
   String rol;
   bool activo;
   bool debeCambiarPassword;
+  /// Solicitud de acceso: el usuario se registró solo y espera el alta del admin.
+  bool pendienteAlta;
   String email;
   String foto;
+  /// admin | google | email | telefono
+  String origenAlta;
   DateTime? fechaCreacion;
   DateTime? ultimoAcceso;
 
@@ -21,8 +25,10 @@ class Usuario {
     this.rol = 'empleado',
     this.activo = true,
     this.debeCambiarPassword = false,
+    this.pendienteAlta = false,
     this.email = '',
     this.foto = '',
+    this.origenAlta = 'admin',
     DateTime? fechaCreacion,
     this.ultimoAcceso,
   }) : fechaCreacion = fechaCreacion;
@@ -45,15 +51,19 @@ class Usuario {
       usuario: map['usuario'] ?? '',
       password: map['password']?.toString() ?? '',
       rol: map['rol'] ?? 'empleado',
-      // Firestore manda bool; SQLite manda 0/1. Antes `true == 1` daba false
-      // y el login en Android fallaba siempre para usuarios traídos de la nube.
       activo: _asBool(map['activo'], defaultValue: true),
       debeCambiarPassword: _asBool(
         map['debe_cambiar_password'] ?? map['debeCambiarPassword'],
         defaultValue: false,
       ),
+      pendienteAlta: _asBool(
+        map['pendiente_alta'] ?? map['pendienteAlta'],
+        defaultValue: false,
+      ),
       email: map['email'] ?? '',
       foto: map['foto']?.toString() ?? '',
+      origenAlta: (map['origen_alta'] ?? map['origenAlta'] ?? 'admin')
+          .toString(),
       fechaCreacion: map['fechaCreacion'] != null
           ? DateTime.tryParse(map['fechaCreacion'].toString())
           : null,
@@ -73,8 +83,10 @@ class Usuario {
       'rol': rol,
       'activo': activo ? 1 : 0,
       'debe_cambiar_password': debeCambiarPassword ? 1 : 0,
+      'pendiente_alta': pendienteAlta ? 1 : 0,
       'email': email,
       'foto': foto,
+      'origen_alta': origenAlta,
       'fechaCreacion': fechaCreacion?.toIso8601String(),
       'ultimoAcceso': ultimoAcceso?.toIso8601String(),
     };
@@ -86,13 +98,14 @@ class Usuario {
       'nombre': nombre,
       'usuario': usuario,
       'usuarioLower': usuario.trim().toLowerCase(),
-      // Hash local (SHA-256) para que Android/PC validen la misma clave.
       'password': password,
       'rol': rol,
       'activo': activo,
       'debeCambiarPassword': debeCambiarPassword,
+      'pendienteAlta': pendienteAlta,
       'email': email,
       'foto': foto,
+      'origenAlta': origenAlta,
       'fechaCreacion': fechaCreacion?.toIso8601String(),
       'ultimoAcceso': ultimoAcceso?.toIso8601String(),
       'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
@@ -114,8 +127,10 @@ class Usuario {
     String? rol,
     bool? activo,
     bool? debeCambiarPassword,
+    bool? pendienteAlta,
     String? email,
     String? foto,
+    String? origenAlta,
     DateTime? fechaCreacion,
     DateTime? ultimoAcceso,
   }) {
@@ -128,8 +143,10 @@ class Usuario {
       rol: rol ?? this.rol,
       activo: activo ?? this.activo,
       debeCambiarPassword: debeCambiarPassword ?? this.debeCambiarPassword,
+      pendienteAlta: pendienteAlta ?? this.pendienteAlta,
       email: email ?? this.email,
       foto: foto ?? this.foto,
+      origenAlta: origenAlta ?? this.origenAlta,
       fechaCreacion: fechaCreacion ?? this.fechaCreacion,
       ultimoAcceso: ultimoAcceso ?? this.ultimoAcceso,
     );

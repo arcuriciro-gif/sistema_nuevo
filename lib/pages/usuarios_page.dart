@@ -56,8 +56,15 @@ class _UsuariosPageState extends State<UsuariosPage> {
     _filtrados = _usuarios.where((usuario) {
       return usuario.nombre.toLowerCase().contains(query) ||
           usuario.usuario.toLowerCase().contains(query) ||
-          usuario.rol.toLowerCase().contains(query);
-    }).toList();
+          usuario.rol.toLowerCase().contains(query) ||
+          usuario.email.toLowerCase().contains(query);
+    }).toList()
+      ..sort((a, b) {
+        if (a.pendienteAlta != b.pendienteAlta) {
+          return a.pendienteAlta ? -1 : 1;
+        }
+        return a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase());
+      });
     if (refrescar && mounted) setState(() {});
   }
 
@@ -96,6 +103,77 @@ class _UsuariosPageState extends State<UsuariosPage> {
         if (ok != true) return;
         await _service.desactivar(usuario.id!);
       }
+      await _cargar();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')),
+      );
+    }
+  }
+
+  Future<void> _aprobarAlta(Usuario usuario) async {
+    String rol = RolUtil.normalizar(usuario.rol);
+    if (rol == RolUtil.administrador) rol = RolUtil.empleado;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return AlertDialog(
+              title: const Text('Dar de alta'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${usuario.nombre}\n${usuario.email}'),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: rol,
+                    decoration: const InputDecoration(
+                      labelText: 'Rol',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: RolUtil.rolesAsignables
+                        .map(
+                          (r) => DropdownMenuItem(
+                            value: r,
+                            child: Text(RolUtil.etiqueta(r)),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) setLocal(() => rol = v);
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Aprobar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (ok != true) return;
+    try {
+      await _service.aprobarAlta(usuario, rol: rol);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${usuario.email} aprobado como ${RolUtil.etiqueta(rol)}.',
+          ),
+        ),
+      );
       await _cargar();
     } catch (e) {
       if (!mounted) return;
@@ -254,7 +332,7 @@ class _UsuariosPageState extends State<UsuariosPage> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Solo administrador: alta, edición, activar/desactivar, eliminar y restablecer contraseña. Todo queda en Auditoría.',
+                  'Solicitudes de Google/correo aparecen como PENDIENTE. Aprobá el alta y asigná el rol. También podés crear usuarios manualmente.',
                   style: TextStyle(fontSize: 12),
                 ),
               ),
@@ -346,18 +424,26 @@ class _UsuariosPageState extends State<UsuariosPage> {
                                           vertical: 4,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: (usuario.activo
-                                                  ? AppVisuals.success(cs)
-                                                  : AppVisuals.danger(cs))
+                                          color: (usuario.pendienteAlta
+                                                  ? AppVisuals.warning(cs)
+                                                  : usuario.activo
+                                                      ? AppVisuals.success(cs)
+                                                      : AppVisuals.danger(cs))
                                               .withValues(alpha: .15),
                                           borderRadius: BorderRadius.circular(12),
                                         ),
                                         child: Text(
-                                          usuario.activo ? 'ACTIVO' : 'INACTIVO',
+                                          usuario.pendienteAlta
+                                              ? 'PENDIENTE ALTA'
+                                              : usuario.activo
+                                                  ? 'ACTIVO'
+                                                  : 'INACTIVO',
                                           style: TextStyle(
-                                            color: usuario.activo
-                                                ? AppVisuals.success(cs)
-                                                : AppVisuals.danger(cs),
+                                            color: usuario.pendienteAlta
+                                                ? AppVisuals.warning(cs)
+                                                : usuario.activo
+                                                    ? AppVisuals.success(cs)
+                                                    : AppVisuals.danger(cs),
                                             fontSize: 11,
                                             fontWeight: FontWeight.bold,
                                           ),
@@ -378,6 +464,15 @@ class _UsuariosPageState extends State<UsuariosPage> {
                               trailing: Wrap(
                                 spacing: 0,
                                 children: [
+                                  if (usuario.pendienteAlta)
+                                    IconButton(
+                                      onPressed: () => _aprobarAlta(usuario),
+                                      icon: Icon(
+                                        Icons.how_to_reg_rounded,
+                                        color: AppVisuals.success(cs),
+                                      ),
+                                      tooltip: 'Dar de alta',
+                                    ),
                                   IconButton(
                                     onPressed: () =>
                                         _abrirFormulario(usuario: usuario),
@@ -390,17 +485,18 @@ class _UsuariosPageState extends State<UsuariosPage> {
                                     icon: const Icon(Icons.lock_reset_rounded),
                                     tooltip: 'Restablecer contraseña',
                                   ),
-                                  IconButton(
-                                    onPressed: () => _toggleActivo(usuario),
-                                    icon: Icon(
-                                      usuario.activo
-                                          ? Icons.toggle_on_rounded
-                                          : Icons.toggle_off_rounded,
+                                  if (!usuario.pendienteAlta)
+                                    IconButton(
+                                      onPressed: () => _toggleActivo(usuario),
+                                      icon: Icon(
+                                        usuario.activo
+                                            ? Icons.toggle_on_rounded
+                                            : Icons.toggle_off_rounded,
+                                      ),
+                                      tooltip: usuario.activo
+                                          ? 'Desactivar'
+                                          : 'Activar',
                                     ),
-                                    tooltip: usuario.activo
-                                        ? 'Desactivar'
-                                        : 'Activar',
-                                  ),
                                   IconButton(
                                     onPressed:
                                         usuario.id ==
