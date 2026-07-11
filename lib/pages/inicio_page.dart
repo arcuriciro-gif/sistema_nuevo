@@ -15,6 +15,7 @@ import '../theme/module_app_bar.dart';
 import 'clientes_deudores_page.dart';
 import 'clientes_page.dart';
 import 'compras_page.dart';
+import 'pedidos_page.dart';
 import 'productos_page.dart';
 import 'remitos_page.dart';
 import 'stock_page.dart';
@@ -302,6 +303,13 @@ class _InicioPageState extends State<InicioPage> {
                               icon: Icons.shopping_cart_rounded,
                               color: const Color(0xFF7C3AED),
                               onTap: () => _abrir(const ComprasPage()),
+                            ),
+                            _KpiCard(
+                              title: 'Pedidos',
+                              value: 'Planilla',
+                              icon: Icons.assignment_rounded,
+                              color: const Color(0xFFEA580C),
+                              onTap: () => _abrir(const PedidosPage()),
                             ),
                           ],
                         );

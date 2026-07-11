@@ -38,6 +38,7 @@ class FirestoreSyncService {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _clientesSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _proveedoresSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _comprasSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _pedidosSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _documentosSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _comentariosSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _categoriasSub;
@@ -49,6 +50,7 @@ class FirestoreSyncService {
   bool _sincronizandoClientes = false;
   bool _sincronizandoProveedores = false;
   bool _sincronizandoCompras = false;
+  bool _sincronizandoPedidos = false;
   bool _sincronizandoDocumentos = false;
   bool _sincronizandoComentarios = false;
   bool _sincronizandoCategorias = false;
@@ -90,6 +92,7 @@ class FirestoreSyncService {
   CollectionReference<Map<String, dynamic>> get _proveedoresCol =>
       _col('proveedores');
   CollectionReference<Map<String, dynamic>> get _comprasCol => _col('compras');
+  CollectionReference<Map<String, dynamic>> get _pedidosCol => _col('pedidos');
   CollectionReference<Map<String, dynamic>> get _documentosCol =>
       _col('documentos');
   CollectionReference<Map<String, dynamic>> get _comentariosCol =>
@@ -139,6 +142,10 @@ class FirestoreSyncService {
       _aplicarComprasRemotas,
       onError: (Object error) => debugPrint('Sync compras: $error'),
     );
+    _pedidosSub = _pedidosCol.snapshots().listen(
+      _aplicarPedidosRemotos,
+      onError: (Object error) => debugPrint('Sync pedidos: $error'),
+    );
     _documentosSub = _documentosCol.snapshots().listen(
       _aplicarDocumentosRemotos,
       onError: (Object error) => debugPrint('Sync documentos: $error'),
@@ -164,6 +171,7 @@ class FirestoreSyncService {
     await _clientesSub?.cancel();
     await _proveedoresSub?.cancel();
     await _comprasSub?.cancel();
+    await _pedidosSub?.cancel();
     await _documentosSub?.cancel();
     await _comentariosSub?.cancel();
     await _categoriasSub?.cancel();
@@ -174,6 +182,7 @@ class FirestoreSyncService {
     _clientesSub = null;
     _proveedoresSub = null;
     _comprasSub = null;
+    _pedidosSub = null;
     _documentosSub = null;
     _comentariosSub = null;
     _categoriasSub = null;
@@ -356,6 +365,57 @@ class FirestoreSyncService {
       }
     } catch (e) {
       _onOutboundError(e, 'Firestore subir compra');
+    }
+  }
+
+  Future<void> subirPedido(int pedidoId) async {
+    _requireEscrituraRemota();
+    if (!_puedeEscribirRemoto) return;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      final rows = await db.query(
+        'pedidos',
+        where: 'id = ?',
+        whereArgs: [pedidoId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return;
+      final pedido = rows.first;
+      final items = await db.rawQuery('''
+        SELECT pi.*, p.codigo AS productoCodigo
+        FROM pedido_items pi
+        LEFT JOIN productos p ON p.id = pi.productoId
+        WHERE pi.pedidoId = ?
+        ORDER BY pi.orden ASC, pi.id ASC
+      ''', [pedidoId]);
+
+      String? proveedorSyncId;
+      final proveedorId = (pedido['proveedorId'] as num?)?.toInt();
+      if (proveedorId != null) {
+        proveedorSyncId = await asegurarSyncIdProveedor(proveedorId);
+        await subirProveedor(proveedorId);
+      }
+
+      final numero = pedido['numero']?.toString() ?? 'P_$pedidoId';
+      await _pedidosCol.doc(numero).set({
+        ...Map<String, dynamic>.from(pedido)..remove('id'),
+        'localId': pedidoId,
+        'proveedorSyncId': proveedorSyncId,
+        'items': items,
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      _onOutboundError(e, 'Firestore subir pedido');
+    }
+  }
+
+  Future<void> eliminarPedidoRemoto(String numero) async {
+    _requireEscrituraRemota();
+    if (!_puedeEscribirRemoto || numero.trim().isEmpty) return;
+    try {
+      await _pedidosCol.doc(numero).delete();
+    } catch (e) {
+      _onOutboundError(e, 'Firestore eliminar pedido');
     }
   }
 
@@ -1126,6 +1186,104 @@ class FirestoreSyncService {
       debugPrint('Aplicar compras remotas: $e');
     } finally {
       _sincronizandoCompras = false;
+    }
+  }
+
+  Future<void> _aplicarPedidosRemotos(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (_sincronizandoPedidos) return;
+    _sincronizandoPedidos = true;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final numero = data['numero']?.toString() ?? doc.id;
+        final existentes = await db.query(
+          'pedidos',
+          where: 'numero = ?',
+          whereArgs: [numero],
+          limit: 1,
+        );
+
+        int? proveedorId = (data['proveedorId'] as num?)?.toInt();
+        final proveedorSyncId = data['proveedorSyncId']?.toString();
+        if (proveedorSyncId != null && proveedorSyncId.isNotEmpty) {
+          final prov = await db.query(
+            'proveedores',
+            where: 'syncId = ?',
+            whereArgs: [proveedorSyncId],
+            limit: 1,
+          );
+          if (prov.isNotEmpty) proveedorId = prov.first['id'] as int?;
+        }
+
+        final pedidoMap = <String, dynamic>{
+          'proveedorId': proveedorId,
+          'proveedorNombre': data['proveedorNombre'] ?? '',
+          'numero': numero,
+          'fecha': data['fecha'] ?? DateTime.now().toIso8601String(),
+          'observaciones': data['observaciones'] ?? '',
+          'estado': data['estado'] ?? 'borrador',
+          'fechaCreacion':
+              data['fechaCreacion'] ?? DateTime.now().toIso8601String(),
+          'fechaActualizacion': data['fechaActualizacion'] ??
+              data['actualizadoEn'] ??
+              DateTime.now().toIso8601String(),
+        };
+
+        final int pedidoId;
+        if (existentes.isEmpty) {
+          pedidoId = await db.insert('pedidos', pedidoMap);
+        } else {
+          pedidoId = existentes.first['id'] as int;
+          await db.update(
+            'pedidos',
+            pedidoMap,
+            where: 'id = ?',
+            whereArgs: [pedidoId],
+          );
+          await db.delete(
+            'pedido_items',
+            where: 'pedidoId = ?',
+            whereArgs: [pedidoId],
+          );
+        }
+
+        final items = (data['items'] as List?) ?? const [];
+        for (var i = 0; i < items.length; i++) {
+          final raw = items[i];
+          final item = Map<String, dynamic>.from(raw as Map);
+          int? productoId = (item['productoId'] as num?)?.toInt();
+          final codigo = item['productoCodigo']?.toString();
+          if (codigo != null && codigo.isNotEmpty) {
+            final prod = await db.query(
+              'productos',
+              columns: ['id'],
+              where: 'codigo = ?',
+              whereArgs: [codigo],
+              limit: 1,
+            );
+            if (prod.isNotEmpty) productoId = prod.first['id'] as int?;
+          }
+          final articulo = item['articulo']?.toString() ?? '';
+          if (articulo.trim().isEmpty) continue;
+          await db.insert('pedido_items', {
+            'pedidoId': pedidoId,
+            'productoId': productoId,
+            'articulo': articulo,
+            'cantidad': item['cantidad'] ?? 1,
+            'color': item['color'] ?? '',
+            'observaciones': item['observaciones'] ?? '',
+            'orden': item['orden'] ?? i,
+          });
+        }
+      }
+      DataRefreshHub.instance.notifyTodo();
+    } catch (e) {
+      debugPrint('Aplicar pedidos remotos: $e');
+    } finally {
+      _sincronizandoPedidos = false;
     }
   }
 

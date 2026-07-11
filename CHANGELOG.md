@@ -19,6 +19,7 @@ Todos los cambios relevantes del proyecto se documentan aquí.
 - Fotos de producto: se persisten y suben a la nube; la lista muestra la foto (o inicial si no hay).
 - **Botón Inicio** en todas las pantallas (ícono casa en el AppBar): un toque cierra el stack y vuelve al inicio.
 - **Actualización automática** de Inicio y listas al llegar cambios (sync/local), sin timer de 1s ni parpadeo de loading. Cola de subida cada 4s.
+- **Planilla de pedidos a proveedores**: módulo Pedidos (Varios, JK, Cuero Sur, Profeta, Parkegon), editable todo el día, líneas con artículo/cantidad/color/obs, sync offline, export PDF/Excel/impresión.
 
 ### Sync — cobertura ampliada
 - Categorías y listas de precios: sync bidireccional + cola offline.

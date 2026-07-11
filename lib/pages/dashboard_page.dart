@@ -16,6 +16,7 @@ import 'clientes_deudores_page.dart';
 import 'clientes_page.dart';
 import 'compras_page.dart';
 import 'inteligencia_comercial_page.dart';
+import 'pedidos_page.dart';
 import 'productos_page.dart';
 import 'proveedores_page.dart';
 import 'remitos_page.dart';
@@ -567,6 +568,13 @@ class _DashboardPageState extends State<DashboardPage> {
                               icono: Icons.shopping_cart_rounded,
                               color: stockColor,
                               onTap: () => _abrir(const ComprasPage()),
+                            ),
+                            _statCard(
+                              titulo: 'Pedidos',
+                              valor: 'Planilla',
+                              icono: Icons.assignment_rounded,
+                              color: AppVisuals.warning(colorScheme),
+                              onTap: () => _abrir(const PedidosPage()),
                             ),
                             _statCard(
                               titulo: 'Críticos',

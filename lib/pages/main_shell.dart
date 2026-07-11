@@ -38,6 +38,7 @@ import 'login_page.dart';
 import 'manual_usuario_page.dart';
 import 'notificaciones_page.dart';
 import 'papelera_productos_page.dart';
+import 'pedidos_page.dart';
 import 'perfil_usuario_page.dart';
 import 'permisos_page.dart';
 import 'productos_page.dart';
@@ -300,6 +301,13 @@ class _MainShellState extends State<MainShell> {
           title: 'Compras',
           modulo: 'compras',
           builder: () => const ComprasPage(),
+        ),
+        _ShellItem(
+          id: 'pedidos',
+          icon: Icons.assignment_rounded,
+          title: 'Pedidos',
+          modulo: 'pedidos',
+          builder: () => const PedidosPage(),
         ),
         _ShellItem(
           id: 'remitos',

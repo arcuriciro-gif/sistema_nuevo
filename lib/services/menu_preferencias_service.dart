@@ -35,6 +35,7 @@ class MenuPreferenciasService extends ChangeNotifier {
     (id: 'importar_productos', titulo: 'Importar Productos', grupo: 'Importación'),
     (id: 'stock', titulo: 'Stock', grupo: 'Operaciones'),
     (id: 'compras', titulo: 'Compras', grupo: 'Operaciones'),
+    (id: 'pedidos', titulo: 'Pedidos', grupo: 'Operaciones'),
     (id: 'remitos', titulo: 'Remitos', grupo: 'Operaciones'),
     (id: 'clientes', titulo: 'Clientes', grupo: 'Clientes'),
     (id: 'archivo_pdf', titulo: 'Archivo PDF', grupo: 'Clientes'),
@@ -66,6 +67,7 @@ class MenuPreferenciasService extends ChangeNotifier {
     'cuenta_corriente',
     'stock',
     'compras',
+    'pedidos',
     'mi_perfil',
     'configuracion',
   };

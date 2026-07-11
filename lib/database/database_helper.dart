@@ -22,7 +22,7 @@ class DatabaseHelper {
 
     return openDatabase(
       path,
-      version: 24,
+      version: 25,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -165,7 +165,47 @@ CREATE TABLE comparacion(
     await _crearTablaComentariosInternos(db);
     await _migrarSyncCompletoV21(db);
     await _crearTablasSyncQueue(db);
+    await _crearTablasPedidos(db);
     await _crearIndices(db);
+  }
+
+  Future<void> _crearTablasPedidos(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS pedidos(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  proveedorId INTEGER,
+  proveedorNombre TEXT NOT NULL,
+  numero TEXT NOT NULL UNIQUE,
+  fecha TEXT NOT NULL,
+  observaciones TEXT DEFAULT '',
+  estado TEXT DEFAULT 'borrador',
+  fechaCreacion TEXT,
+  fechaActualizacion TEXT,
+  FOREIGN KEY (proveedorId) REFERENCES proveedores(id)
+)
+''');
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS pedido_items(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pedidoId INTEGER NOT NULL,
+  productoId INTEGER,
+  articulo TEXT NOT NULL,
+  cantidad INTEGER NOT NULL DEFAULT 1,
+  color TEXT DEFAULT '',
+  observaciones TEXT DEFAULT '',
+  orden INTEGER DEFAULT 0,
+  FOREIGN KEY (pedidoId) REFERENCES pedidos(id) ON DELETE CASCADE
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_pedidos_proveedor ON pedidos(proveedorId)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_pedidos_fecha ON pedidos(fecha)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_pedido_items_pedido ON pedido_items(pedidoId)',
+    );
   }
 
   Future<void> _crearTablasCompras(Database db) async {
@@ -390,6 +430,7 @@ CREATE TABLE IF NOT EXISTS permisos(
       'configuracion',
       'usuarios',
       'comunicaciones',
+      'pedidos',
     ];
 
     for (final rol in roles) {
@@ -407,6 +448,7 @@ CREATE TABLE IF NOT EXISTS permisos(
           crearVal = [
             'remitos',
             'compras',
+            'pedidos',
             'clientes',
             'proveedores',
             'productos',
@@ -417,6 +459,7 @@ CREATE TABLE IF NOT EXISTS permisos(
           editarVal = [
             'remitos',
             'compras',
+            'pedidos',
             'clientes',
             'proveedores',
             'productos',
@@ -431,8 +474,10 @@ CREATE TABLE IF NOT EXISTS permisos(
             verVal = 0;
           }
         } else if (rol == 'empleado') {
-          crearVal = ['remitos', 'comunicaciones'].contains(modulo) ? 1 : 0;
-          editarVal = ['comunicaciones'].contains(modulo) ? 1 : 0;
+          crearVal = ['remitos', 'comunicaciones', 'pedidos'].contains(modulo)
+              ? 1
+              : 0;
+          editarVal = ['comunicaciones', 'pedidos'].contains(modulo) ? 1 : 0;
           if ([
             'auditoria',
             'backup',
@@ -875,6 +920,40 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     }
     if (oldVersion < 24) {
       await _migrarRemitosSaldoV24(db);
+    }
+    if (oldVersion < 25) {
+      await _crearTablasPedidos(db);
+      final roles = ['admin', 'supervisor', 'empleado', 'solo_lectura'];
+      for (final rol in roles) {
+        int ver = 1;
+        int crear = 0;
+        int editar = 0;
+        int eliminar = 0;
+        if (rol == 'admin') {
+          crear = 1;
+          editar = 1;
+          eliminar = 1;
+        } else if (rol == 'supervisor') {
+          crear = 1;
+          editar = 1;
+          eliminar = 0;
+        } else if (rol == 'empleado') {
+          crear = 1;
+          editar = 1;
+        }
+        await db.insert(
+          'permisos',
+          {
+            'rol': rol,
+            'modulo': 'pedidos',
+            'puede_ver': ver,
+            'puede_crear': crear,
+            'puede_editar': editar,
+            'puede_eliminar': eliminar,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
     }
   }
 

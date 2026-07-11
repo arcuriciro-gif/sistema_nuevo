@@ -80,6 +80,7 @@ Página: `lib/pages/sync_historial_page.dart`
 - `DocumentoClienteService`
 - `CategoriaService`, `ListaPrecioService`
 - `ComentarioInternoService`
+- `PedidoService`
 - `_DualProductoRepository` (productos)
 
 ### Colecciones Firestore adicionales (v1.1.2)
@@ -90,6 +91,7 @@ Página: `lib/pages/sync_historial_page.dart`
 | `listas_precios` | nombre normalizado | definiciones de listas |
 | `remitos.pagos` | embebido | historial cobros remito |
 | `comentarios` | hash tipo+entidad+usuario+fecha+texto | vía cola |
+| `pedidos` | `numero` (P-#####) | items embebidos; sin impacto en stock |
 
 ### Aún local-only (próximos)
 
@@ -97,6 +99,15 @@ Página: `lib/pages/sync_historial_page.dart`
 - Branding / numeración de documentos (SharedPreferences)
 - Roster completo de usuarios + permisos
 - AFIP config
+
+## Planilla de pedidos (v25)
+
+- Tablas: `pedidos`, `pedido_items` (artículo, cantidad, color, observaciones).
+- Servicio: `PedidoService` — CRUD + cola sync `entityType: pedido`.
+- UI: `PedidosPage` (agrupado por proveedor) + `PedidoFormPage`.
+- Proveedores iniciales de planilla: Varios, JK, Cuero Sur, Profeta, Parkegon (`asegurarProveedoresPlanilla`).
+- Export: PDF / Excel / impresión (Printing).
+- No modifica stock (a diferencia de Compras).
 
 ## Reglas de evolución
 
@@ -108,9 +119,9 @@ Página: `lib/pages/sync_historial_page.dart`
 
 ## Próximos módulos (orden)
 
-1. ~~Cola sync + indicador + historial~~ ← actual
-2. Dashboard (accesos rápidos + KPIs)
-3. Planilla de pedidos a proveedores
+1. ~~Cola sync + indicador + historial~~
+2. ~~Dashboard (accesos rápidos + KPIs)~~
+3. ~~Planilla de pedidos a proveedores~~ ← actual
 4. Pedido sugerido inteligente
 5. Administración de usuarios (solo admin + auditoría)
 6. Reiniciar sistema (servicios, sin borrar datos)
