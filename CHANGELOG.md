@@ -8,6 +8,7 @@ Todos los cambios relevantes del proyecto se documentan aquí.
 - KPIs más compactos: iconos chicos, más columnas en pantallas anchas, menos scroll.
 - Sidebar más densa (logo y filas más chicas) para menos movimiento de mouse.
 - **Valor del stock a costo** además del valor a precio de venta (Inicio, Dashboard y Productos).
+- **Todos los KPIs son clickeables** y abren la página correspondiente (APK y EXE).
 
 ### Sync — cobertura ampliada
 - Categorías y listas de precios: sync bidireccional + cola offline.

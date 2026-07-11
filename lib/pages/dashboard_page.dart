@@ -13,7 +13,14 @@ import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
 import 'clientes_deudores_page.dart';
+import 'clientes_page.dart';
+import 'compras_page.dart';
+import 'inteligencia_comercial_page.dart';
 import 'productos_page.dart';
+import 'proveedores_page.dart';
+import 'remitos_page.dart';
+import 'stock_page.dart';
+import 'ventas_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -71,6 +78,14 @@ class _DashboardPageState extends State<DashboardPage> {
   void dispose() {
     DataRefreshHub.instance.removeListener(_onDatosActualizados);
     super.dispose();
+  }
+
+  Future<void> _abrir(Widget page) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => page),
+    );
+    if (mounted) cargar();
   }
 
   Future<void> cargar() async {
@@ -501,102 +516,98 @@ class _DashboardPageState extends State<DashboardPage> {
                               valor: '$totalProductos',
                               icono: Icons.inventory_2_rounded,
                               color: productosColor,
+                              onTap: () => _abrir(const ProductosPage()),
                             ),
                             _statCard(
                               titulo: 'Clientes',
                               valor: '$totalClientes',
                               icono: Icons.groups_rounded,
                               color: clientesColor,
+                              onTap: () => _abrir(const ClientesPage()),
                             ),
                             _statCard(
                               titulo: 'Remitos',
                               valor: '$totalRemitos',
                               icono: Icons.description_rounded,
                               color: remitosColor,
+                              onTap: () => _abrir(const RemitosPage()),
                             ),
                             _statCard(
                               titulo: 'Proveedores',
                               valor: '$totalProveedores',
                               icono: Icons.local_shipping_rounded,
                               color: AppVisuals.info(colorScheme),
+                              onTap: () => _abrir(const ProveedoresPage()),
                             ),
                             _statCard(
                               titulo: 'Ventas del día',
                               valor: '\$${ventasHoy.toStringAsFixed(0)}',
                               icono: Icons.today_rounded,
                               color: ventasColor,
+                              onTap: () => _abrir(const VentasPage()),
                             ),
                             _statCard(
                               titulo: 'Ventas del mes',
                               valor: '\$${ventasMes.toStringAsFixed(0)}',
                               icono: Icons.calendar_month_rounded,
                               color: ventasColor,
+                              onTap: () => _abrir(const VentasPage()),
                             ),
                             _statCard(
                               titulo: 'Compras del mes',
                               valor: '\$${comprasMes.toStringAsFixed(0)}',
                               icono: Icons.shopping_cart_rounded,
                               color: stockColor,
+                              onTap: () => _abrir(const ComprasPage()),
                             ),
                             _statCard(
                               titulo: 'Críticos',
                               valor: '$productosCriticos',
                               icono: Icons.warning_amber_rounded,
                               color: sinStockColor,
-                              onTap: productosCriticos == 0
-                                  ? null
-                                  : () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => const ProductosPage(
-                                            soloStockBajoInicial: true,
-                                          ),
-                                        ),
-                                      ).then((_) => cargar());
-                                    },
+                              onTap: () => _abrir(
+                                const ProductosPage(soloStockBajoInicial: true),
+                              ),
                             ),
                             _statCard(
                               titulo: 'Sin stock',
                               valor: '$productosSinStock',
                               icono: Icons.remove_shopping_cart_rounded,
                               color: sinStockColor,
-                              onTap: productosSinStock == 0
-                                  ? null
-                                  : () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => const ProductosPage(
-                                            soloSinStockInicial: true,
-                                          ),
-                                        ),
-                                      ).then((_) => cargar());
-                                    },
+                              onTap: () => _abrir(
+                                const ProductosPage(soloSinStockInicial: true),
+                              ),
                             ),
                             _statCard(
                               titulo: 'Ganancia mes',
                               valor: '\$${gananciaMes.toStringAsFixed(0)}',
                               icono: Icons.trending_up_rounded,
                               color: AppVisuals.success(colorScheme),
+                              onTap: () =>
+                                  _abrir(const InteligenciaComercialPage()),
                             ),
                             _statCard(
                               titulo: 'Ganancia total',
                               valor: '\$${gananciaTotal.toStringAsFixed(0)}',
                               icono: Icons.savings_rounded,
                               color: AppVisuals.success(colorScheme),
+                              onTap: () =>
+                                  _abrir(const InteligenciaComercialPage()),
                             ),
                             _statCard(
                               titulo: 'Bajo margen',
                               valor: '$productosBajoMargen',
                               icono: Icons.percent_rounded,
                               color: AppVisuals.warning(colorScheme),
+                              onTap: () =>
+                                  _abrir(const InteligenciaComercialPage()),
                             ),
                             _statCard(
                               titulo: 'Total ventas',
                               valor: '\$${totalVentas.toStringAsFixed(0)}',
                               icono: Icons.payments_rounded,
                               color: ventasColor,
+                              onTap: () => _abrir(const VentasPage()),
                             ),
                           ],
                         );
@@ -605,60 +616,69 @@ class _DashboardPageState extends State<DashboardPage> {
                     const SizedBox(height: 10),
                     Card(
                       margin: EdgeInsets.zero,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.warehouse_rounded,
-                                color: stockColor, size: 20),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                      child: InkWell(
+                        onTap: () => _abrir(const StockPage()),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.warehouse_rounded,
+                                  color: stockColor, size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Valor del stock',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Venta \$${valorStock.toStringAsFixed(0)}'
+                                      '  ·  '
+                                      'Costo \$${valorStockCosto.toStringAsFixed(0)}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
-                                  const Text(
-                                    'Valor del stock',
+                                  Text(
+                                    '\$${valorStock.toStringAsFixed(0)}',
                                     style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                      color: stockColor,
                                     ),
                                   ),
                                   Text(
-                                    'Venta \$${valorStock.toStringAsFixed(0)}'
-                                    '  ·  '
-                                    'Costo \$${valorStockCosto.toStringAsFixed(0)}',
+                                    'costo \$${valorStockCosto.toStringAsFixed(0)}',
                                     style: TextStyle(
-                                      fontSize: 12,
+                                      fontSize: 11,
                                       color: colorScheme.onSurfaceVariant,
                                     ),
                                   ),
                                 ],
                               ),
-                            ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  '\$${valorStock.toStringAsFixed(0)}',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15,
-                                    color: stockColor,
-                                  ),
-                                ),
-                                Text(
-                                  'costo \$${valorStockCosto.toStringAsFixed(0)}',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                              Icon(
+                                Icons.chevron_right_rounded,
+                                color: colorScheme.onSurfaceVariant,
+                                size: 18,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),

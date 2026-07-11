@@ -12,7 +12,12 @@ import '../services/producto_service.dart';
 import '../services/remito_service.dart';
 import '../theme/module_app_bar.dart';
 import 'clientes_deudores_page.dart';
+import 'clientes_page.dart';
+import 'compras_page.dart';
 import 'productos_page.dart';
+import 'remitos_page.dart';
+import 'stock_page.dart';
+import 'ventas_page.dart';
 
 class InicioPage extends StatefulWidget {
   const InicioPage({super.key});
@@ -45,6 +50,14 @@ class _InicioPageState extends State<InicioPage> {
   void initState() {
     super.initState();
     _cargar();
+  }
+
+  Future<void> _abrir(Widget page) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => page),
+    );
+    if (mounted) _cargar();
   }
 
   Future<void> _cargar() async {
@@ -208,66 +221,65 @@ class _InicioPageState extends State<InicioPage> {
                               value: _fmt(_totalProductos),
                               icon: Icons.inventory_2_rounded,
                               color: const Color(0xFF8B5CF6),
+                              onTap: () => _abrir(const ProductosPage()),
                             ),
                             _KpiCard(
                               title: 'Stock total',
                               value: _fmt(_stockTotal),
                               icon: Icons.layers_rounded,
                               color: const Color(0xFF22C55E),
+                              onTap: () => _abrir(const StockPage()),
                             ),
                             _KpiCard(
                               title: 'Stock a venta',
                               value: '\$${_fmt(_valorStock)}',
                               icon: Icons.attach_money_rounded,
                               color: const Color(0xFF3B82F6),
+                              onTap: () => _abrir(const ProductosPage()),
                             ),
                             _KpiCard(
                               title: 'Stock a costo',
                               value: '\$${_fmt(_valorStockCosto)}',
                               icon: Icons.price_change_rounded,
                               color: const Color(0xFF0EA5E9),
+                              onTap: () => _abrir(const ProductosPage()),
                             ),
                             _KpiCard(
                               title: 'Sin stock',
                               value: _fmt(_sinStock),
                               icon: Icons.warning_amber_rounded,
                               color: const Color(0xFFEF4444),
-                              onTap: _sinStock == 0
-                                  ? null
-                                  : () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => const ProductosPage(
-                                            soloSinStockInicial: true,
-                                          ),
-                                        ),
-                                      ).then((_) => _cargar());
-                                    },
+                              onTap: () => _abrir(
+                                const ProductosPage(soloSinStockInicial: true),
+                              ),
                             ),
                             _KpiCard(
                               title: 'Clientes',
                               value: _fmt(_totalClientes),
                               icon: Icons.groups_rounded,
                               color: const Color(0xFF0891B2),
+                              onTap: () => _abrir(const ClientesPage()),
                             ),
                             _KpiCard(
                               title: 'Remitos',
                               value: _fmt(_totalRemitos),
                               icon: Icons.description_rounded,
                               color: const Color(0xFFF59E0B),
+                              onTap: () => _abrir(const RemitosPage()),
                             ),
                             _KpiCard(
                               title: 'Ventas del mes',
                               value: '\$${_fmt(_ventasMes)}',
                               icon: Icons.payments_rounded,
                               color: const Color(0xFF16A34A),
+                              onTap: () => _abrir(const VentasPage()),
                             ),
                             _KpiCard(
                               title: 'Compras del mes',
                               value: '\$${_fmt(_comprasMes)}',
                               icon: Icons.shopping_cart_rounded,
                               color: const Color(0xFF7C3AED),
+                              onTap: () => _abrir(const ComprasPage()),
                             ),
                           ],
                         );
