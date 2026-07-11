@@ -101,9 +101,9 @@ class SyncQueueService extends ChangeNotifier {
       return 'Firebase no inicializó en este dispositivo. Revisá internet y reiniciá la app.';
     }
     if (FirebaseAuthUsuarioService.instance.uidActual == null) {
-      return 'Entraste solo en modo local. Cerrá sesión y volvé a entrar; '
-          'si pide cambiar contraseña, usá la MISMA en PC y celular '
-          '(mínimo 6 caracteres). En Firebase Console debe estar activo '
+      if (lastError?.isNotEmpty == true) return lastError!;
+      return 'Entraste solo en modo local. Tocá "Conectar a la nube" e ingresá '
+          'tu contraseña. En Firebase Console debe estar activo '
           'Authentication → Correo/contraseña.';
     }
     if (lastError?.isNotEmpty == true) return lastError!;

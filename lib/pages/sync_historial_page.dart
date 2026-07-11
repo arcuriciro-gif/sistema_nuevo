@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/sync/sync_queue_service.dart';
+import '../services/auth_service.dart';
 
 /// Historial técnico de sincronización + cola pendiente.
 class SyncHistorialPage extends StatefulWidget {
@@ -16,6 +18,7 @@ class _SyncHistorialPageState extends State<SyncHistorialPage>
   List<Map<String, dynamic>> _cola = [];
   List<Map<String, dynamic>> _historial = [];
   bool _loading = true;
+  bool _conectando = false;
 
   @override
   void initState() {
@@ -47,10 +50,74 @@ class _SyncHistorialPageState extends State<SyncHistorialPage>
     });
   }
 
+  Future<void> _conectarNube() async {
+    final passCtrl = TextEditingController();
+    final pass = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Conectar a la nube'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Ingresá la contraseña de este usuario (la misma en PC y celular).',
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: passCtrl,
+                obscureText: true,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Contraseña',
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (v) => Navigator.pop(ctx, v),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, passCtrl.text),
+              child: const Text('Conectar'),
+            ),
+          ],
+        );
+      },
+    );
+    passCtrl.dispose();
+    if (pass == null || pass.trim().isEmpty || !mounted) return;
+
+    setState(() => _conectando = true);
+    final ok = await AuthService.instance.reconectarNube(password: pass.trim());
+    if (!mounted) return;
+    setState(() => _conectando = false);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Conectado a la nube. Ya podés sincronizar.'
+              : (AuthService.instance.lastFirebaseError ??
+                  'No se pudo conectar.'),
+        ),
+        duration: const Duration(seconds: 5),
+      ),
+    );
+    await _cargar();
+  }
+
   @override
   Widget build(BuildContext context) {
     final sync = SyncQueueService.instance;
     final cs = Theme.of(context).colorScheme;
+    final sinNube = FirebaseAuthUsuarioService.instance.uidActual == null &&
+        FirebaseAuthUsuarioService.instance.disponible;
 
     return Scaffold(
       appBar: AppBar(
@@ -63,6 +130,18 @@ class _SyncHistorialPageState extends State<SyncHistorialPage>
           ],
         ),
         actions: [
+          if (sinNube)
+            TextButton.icon(
+              onPressed: _conectando ? null : _conectarNube,
+              icon: _conectando
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.cloud_sync_rounded),
+              label: const Text('Conectar'),
+            ),
           IconButton(
             tooltip: 'Reintentar fallidos',
             onPressed: () async {
@@ -86,6 +165,12 @@ class _SyncHistorialPageState extends State<SyncHistorialPage>
                     ),
                     title: Text(sync.uiLabel),
                     subtitle: Text(sync.uiDetalle),
+                    trailing: sinNube
+                        ? FilledButton(
+                            onPressed: _conectando ? null : _conectarNube,
+                            child: const Text('Conectar a la nube'),
+                          )
+                        : null,
                   ),
                 ),
                 Expanded(
@@ -127,9 +212,8 @@ class _SyncHistorialPageState extends State<SyncHistorialPage>
         final op = r['operation']?.toString() ?? '';
         final id = r['entityId']?.toString() ?? '';
         final status = r['status']?.toString() ?? '';
-        final error = r['error']?.toString() ??
-            r['lastError']?.toString() ??
-            '';
+        final error =
+            r['error']?.toString() ?? r['lastError']?.toString() ?? '';
         final when = isQueue
             ? (r['updatedAt']?.toString() ?? r['createdAt']?.toString() ?? '')
             : (r['finishedAt']?.toString() ?? '');

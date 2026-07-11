@@ -17,12 +17,47 @@ class FirebaseAuthUsuarioService {
 
   FirebaseAuth get _auth => FirebaseAuth.instance;
 
+  /// Email que se usa en Firebase Auth para este usuario.
+  String emailPara(String usuario, {String? email}) =>
+      UsuarioAuthEmail.paraUsuario(usuario, emailReal: email);
+
+  /// Mensaje legible de errores de Firebase Auth.
+  static String mensajeError(Object error) {
+    if (error is FirebaseAuthException) {
+      switch (error.code) {
+        case 'operation-not-allowed':
+          return 'En Firebase Console activá Authentication → Correo/contraseña.';
+        case 'wrong-password':
+        case 'invalid-credential':
+        case 'INVALID_LOGIN_CREDENTIALS':
+          return 'La contraseña no coincide con la de la nube. '
+              'Usá la misma clave en PC y celular.';
+        case 'user-not-found':
+          return 'No existe esa cuenta en Firebase Auth.';
+        case 'email-already-in-use':
+          return 'La cuenta ya existe en la nube. Usá la contraseña definida en el otro dispositivo.';
+        case 'weak-password':
+          return 'La contraseña debe tener al menos 6 caracteres.';
+        case 'invalid-email':
+          return 'Email de Auth inválido: ${error.message ?? error.code}';
+        case 'network-request-failed':
+          return 'Sin internet para conectar con Firebase.';
+        case 'too-many-requests':
+          return 'Demasiados intentos. Esperá un momento y reintentá.';
+        default:
+          return 'Firebase Auth (${error.code}): ${error.message ?? error}';
+      }
+    }
+    return error.toString();
+  }
+
   Future<UserCredential> iniciarSesion(
     String usuario,
     String password, {
     String? email,
   }) {
-    final authEmail = UsuarioAuthEmail.paraUsuario(usuario, emailReal: email);
+    final authEmail = emailPara(usuario, email: email);
+    debugPrint('Firebase signIn email=$authEmail');
     return _auth.signInWithEmailAndPassword(
       email: authEmail,
       password: password,

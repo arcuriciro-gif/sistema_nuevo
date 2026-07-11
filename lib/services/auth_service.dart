@@ -20,8 +20,56 @@ class AuthService {
 
   Usuario? currentUser;
   String? _ultimaPasswordIngresada;
+  String? lastFirebaseError;
 
   bool get isLoggedIn => currentUser != null;
+
+  /// Reintenta vincular la sesión actual con Firebase Auth.
+  Future<bool> reconectarNube({String? password}) async {
+    final usuario = currentUser;
+    final pass = (password ?? _ultimaPasswordIngresada ?? '').trim();
+    if (usuario == null) {
+      lastFirebaseError = 'No hay sesión local.';
+      return false;
+    }
+    if (pass.isEmpty) {
+      lastFirebaseError = 'Necesito la contraseña para conectar la nube.';
+      return false;
+    }
+    if (!FirebaseAuthUsuarioService.instance.disponible) {
+      lastFirebaseError =
+          'Firebase no está listo en este dispositivo. Revisá internet y reiniciá.';
+      SyncQueueService.instance.lastError = lastFirebaseError;
+      SyncQueueService.instance.notifyListeners();
+      return false;
+    }
+
+    lastFirebaseError = null;
+    final vinculado = await _vincularFirebaseAuth(
+      usuario: usuario,
+      passwordPreferida: pass,
+    );
+    if (vinculado != null &&
+        FirebaseAuthUsuarioService.instance.uidActual != null) {
+      currentUser = vinculado;
+      _ultimaPasswordIngresada = pass;
+      try {
+        await FirestoreUsuarioRepository().actualizar(vinculado);
+      } catch (_) {}
+      await FirestoreSyncService.instance.start();
+      await SyncQueueService.instance.start();
+      SyncQueueService.instance.lastError = null;
+      SyncQueueService.instance.notifyListeners();
+      return true;
+    }
+
+    lastFirebaseError ??=
+        'No se pudo conectar a la nube. Activá Authentication → Correo/contraseña '
+        'y usá la misma clave en ambos dispositivos.';
+    SyncQueueService.instance.lastError = lastFirebaseError;
+    SyncQueueService.instance.notifyListeners();
+    return false;
+  }
 
   static String hashPassword(String password) => _hash(password);
 
@@ -115,6 +163,7 @@ class AuthService {
 
     // Vincular / asegurar sesión Firebase si aún no hay uid activo.
     if (firebase.disponible && firebase.uidActual == null) {
+      lastFirebaseError = null;
       try {
         final cred = await firebase.iniciarSesion(
           nombreUsuario,
@@ -145,6 +194,13 @@ class AuthService {
           await sqlite.actualizar(usuarioActualizado);
         } catch (createError) {
           debugPrint('Firebase crearCuenta falló: $createError');
+          lastFirebaseError =
+              FirebaseAuthUsuarioService.mensajeError(createError);
+          // Si el alta falló porque ya existe, el error de signIn es más útil.
+          if (lastFirebaseError!.contains('ya existe')) {
+            lastFirebaseError =
+                FirebaseAuthUsuarioService.mensajeError(signInError);
+          }
         }
       }
     } else if (firebase.disponible &&
@@ -180,6 +236,10 @@ class AuthService {
         'Login local OK, pero sin Firebase Auth. '
         'Revisá Authentication > Correo/contraseña en Firebase.',
       );
+      lastFirebaseError ??=
+          'Sin sesión en la nube. Activá Authentication → Correo/contraseña '
+          'en Firebase Console y tocá el indicador para reconectar.';
+      SyncQueueService.instance.lastError = lastFirebaseError;
       await SyncQueueService.instance.start();
     }
 
@@ -293,14 +353,19 @@ class AuthService {
     final firebase = FirebaseAuthUsuarioService.instance;
     if (!firebase.disponible) return null;
     final sqlite = SqliteUsuarioRepository();
+    Object? ultimoError;
 
     Future<Usuario?> okConUid(String uid) async {
-      final conUid = usuario.copyWith(firebaseUid: uid);
+      final conUid = usuario.copyWith(
+        firebaseUid: uid,
+        password: _hash(passwordPreferida),
+        debeCambiarPassword: false,
+      );
       await sqlite.actualizar(conUid);
+      lastFirebaseError = null;
       return conUid;
     }
 
-    // 1) Si ya hay sesión, listo.
     final uidActual = firebase.uidActual;
     if (uidActual != null) {
       if (usuario.firebaseUid != uidActual) {
@@ -309,7 +374,6 @@ class AuthService {
       return usuario;
     }
 
-    // 2) Probar sign-in con la clave nueva (la que el usuario acaba de elegir).
     try {
       final cred = await firebase.iniciarSesion(
         usuario.usuario,
@@ -319,10 +383,10 @@ class AuthService {
       final uid = cred.user?.uid;
       if (uid != null) return okConUid(uid);
     } catch (e) {
+      ultimoError = e;
       debugPrint('Firebase signIn (preferida): $e');
     }
 
-    // 3) Probar sign-in con la clave anterior (por si la nube aún no se actualizó).
     if (passwordAlternativa != null &&
         passwordAlternativa.isNotEmpty &&
         passwordAlternativa != passwordPreferida) {
@@ -342,18 +406,17 @@ class AuthService {
           return okConUid(uid);
         }
       } catch (e) {
+        ultimoError = e;
         debugPrint('Firebase signIn (alternativa): $e');
       }
     }
 
-    // 4) Crear cuenta nueva.
     try {
       final uid = await firebase.crearCuenta(
         usuario.usuario,
         passwordPreferida,
         email: usuario.email,
       );
-      // crearCuenta sin sesión previa ya deja al usuario logueado.
       if (firebase.uidActual == null) {
         await firebase.iniciarSesion(
           usuario.usuario,
@@ -363,9 +426,13 @@ class AuthService {
       }
       return okConUid(uid);
     } catch (e) {
+      ultimoError = e;
       debugPrint('Firebase crearCuenta: $e');
     }
 
+    if (ultimoError != null) {
+      lastFirebaseError = FirebaseAuthUsuarioService.mensajeError(ultimoError);
+    }
     return null;
   }
 
