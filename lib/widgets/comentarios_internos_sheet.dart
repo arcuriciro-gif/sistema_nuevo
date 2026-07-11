@@ -15,6 +15,7 @@ Future<void> showComentariosInternos(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
+    useSafeArea: true,
     builder: (ctx) => ComentariosInternosSheet(
       entidadTipo: entidadTipo,
       entidadId: entidadId,
@@ -86,6 +87,7 @@ class _ComentariosInternosSheetState extends State<ComentariosInternosSheet> {
   final _svc = ComentarioInternoService.instance;
   final _ctrl = TextEditingController();
   final _scrollCtrl = ScrollController();
+  final _focus = FocusNode();
   List<ComentarioInterno> _items = [];
   bool _cargando = true;
   bool _enviando = false;
@@ -100,6 +102,7 @@ class _ComentariosInternosSheetState extends State<ComentariosInternosSheet> {
   void dispose() {
     _ctrl.dispose();
     _scrollCtrl.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
@@ -125,16 +128,19 @@ class _ComentariosInternosSheetState extends State<ComentariosInternosSheet> {
     final texto = _ctrl.text.trim();
     if (texto.isEmpty || _enviando) return;
     setState(() => _enviando = true);
+    _ctrl.clear();
+    _focus.unfocus();
     try {
       await _svc.agregar(
         entidadTipo: widget.entidadTipo,
         entidadId: widget.entidadId,
         texto: texto,
       );
-      _ctrl.clear();
       await _cargar();
     } catch (e) {
       if (!mounted) return;
+      // Si falló, devolver el texto para reintentar.
+      _ctrl.text = texto;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$e')),
       );
@@ -174,9 +180,13 @@ class _ComentariosInternosSheetState extends State<ComentariosInternosSheet> {
     }
   }
 
-  String _fmt(DateTime f) =>
-      '${f.day.toString().padLeft(2, '0')}/${f.month.toString().padLeft(2, '0')}/${f.year} '
-      '${f.hour.toString().padLeft(2, '0')}:${f.minute.toString().padLeft(2, '0')}';
+  String _fmt(DateTime f) {
+    final local = f.toLocal();
+    return '${local.day.toString().padLeft(2, '0')}/'
+        '${local.month.toString().padLeft(2, '0')}/${local.year} '
+        '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}';
+  }
 
   bool _puedeBorrar(ComentarioInterno c) {
     final yo = AuthService.instance.currentUser?.usuario;
@@ -189,11 +199,10 @@ class _ComentariosInternosSheetState extends State<ComentariosInternosSheet> {
     final titulo = widget.titulo?.trim().isNotEmpty == true
         ? widget.titulo!
         : 'Comentarios internos';
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
 
     return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.viewInsetsOf(context).bottom,
-      ),
+      padding: EdgeInsets.only(bottom: keyboard),
       child: SizedBox(
         height: MediaQuery.sizeOf(context).height * 0.72,
         child: Column(
@@ -243,7 +252,8 @@ class _ComentariosInternosSheetState extends State<ComentariosInternosSheet> {
                             return Card(
                               margin: const EdgeInsets.only(bottom: 8),
                               child: Padding(
-                                padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+                                padding:
+                                    const EdgeInsets.fromLTRB(12, 10, 8, 10),
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -307,31 +317,49 @@ class _ComentariosInternosSheetState extends State<ComentariosInternosSheet> {
                         ),
             ),
             const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _ctrl,
-                      minLines: 1,
-                      maxLines: 4,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _enviar(),
-                      decoration: const InputDecoration(
-                        hintText: 'Agregar comentario...',
-                        border: OutlineInputBorder(),
-                        isDense: true,
+            // Misma idea que FormSaveBar: SafeArea para no pisar gestos Android.
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _ctrl,
+                        focusNode: _focus,
+                        minLines: 1,
+                        maxLines: 4,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) {
+                          if (!_enviando) _enviar();
+                        },
+                        decoration: const InputDecoration(
+                          hintText: 'Agregar comentario...',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    onPressed: _enviando ? null : _enviar,
-                    icon: const Icon(Icons.send_rounded),
-                    tooltip: 'Agregar comentario',
-                  ),
-                ],
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      height: 48,
+                      width: 48,
+                      child: IconButton.filled(
+                        onPressed: _enviando ? null : _enviar,
+                        icon: _enviando
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.send_rounded),
+                        tooltip: 'Agregar comentario',
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],

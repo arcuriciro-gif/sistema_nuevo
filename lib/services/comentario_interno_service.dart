@@ -59,14 +59,14 @@ class ComentarioInternoService {
       usuario: user.usuario,
       nombre: user.nombre,
       texto: limpio,
-      fecha: DateTime.now(),
+      // UTC para que el match con Firestore no duplique al volver el snapshot.
+      fecha: DateTime.now().toUtc(),
     );
 
     final db = await DatabaseHelper.instance.database;
-    final id = await db.insert(
-      'comentarios_internos',
-      comentario.toMap()..remove('id'),
-    );
+    final map = comentario.toMap()..remove('id');
+    map['fecha'] = comentario.fecha.toUtc().toIso8601String();
+    final id = await db.insert('comentarios_internos', map);
 
     await AuthService.instance.registrarCambio(
       'COMENTARIO_INTERNO',

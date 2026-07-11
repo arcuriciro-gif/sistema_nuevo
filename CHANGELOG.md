@@ -15,6 +15,8 @@ Todos los cambios relevantes del proyecto se documentan aquí.
 - Botón Guardar fijo arriba de la barra de sistema Android (no se pisa con gestos).
 - Badge de Notificaciones solo cuenta notificaciones reales (no mensajes de chat).
 - **Menú lateral personalizable** por dispositivo (Android/Windows): Configuración → Personalizar menú. Perfiles “móvil” y “completo”.
+- Notas internas: input con SafeArea (no se pisa con Android); sin duplicados al sincronizar.
+- Fotos de producto: se persisten y suben a la nube; la lista muestra la foto (o inicial si no hay).
 
 ### Sync — cobertura ampliada
 - Categorías y listas de precios: sync bidireccional + cola offline.

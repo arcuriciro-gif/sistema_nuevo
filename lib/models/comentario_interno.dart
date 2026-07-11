@@ -27,7 +27,7 @@ class ComentarioInterno {
         'usuario': usuario,
         'nombre': nombre,
         'texto': texto,
-        'fecha': fecha.toIso8601String(),
+        'fecha': fecha.toUtc().toIso8601String(),
         'activo': activo ? 1 : 0,
       };
 

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../config/backend_config_service.dart';
@@ -72,6 +73,35 @@ class MediaSyncService {
       }
     }
     return resultado;
+  }
+
+  /// Copia una foto de producto a almacenamiento permanente de la app.
+  /// Evita que Android borre el cache del image_picker antes de subir.
+  Future<String> persistirFotoProducto({
+    required String sourcePath,
+    required String codigo,
+  }) async {
+    if (sourcePath.isEmpty || esUrlRemota(sourcePath)) return sourcePath;
+    final source = File(sourcePath);
+    if (!source.existsSync()) return sourcePath;
+
+    final dir = await getApplicationDocumentsDirectory();
+    final fotosDir = Directory(p.join(dir.path, 'productos_fotos'));
+    if (!await fotosDir.exists()) {
+      await fotosDir.create(recursive: true);
+    }
+    // Si ya está en nuestra carpeta, reutilizar.
+    if (p.isWithin(fotosDir.path, sourcePath)) return sourcePath;
+
+    final ext =
+        p.extension(sourcePath).isNotEmpty ? p.extension(sourcePath) : '.jpg';
+    final safe = codigo.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    final dest = p.join(
+      fotosDir.path,
+      '${safe.isEmpty ? 'prod' : safe}_${DateTime.now().millisecondsSinceEpoch}$ext',
+    );
+    await source.copy(dest);
+    return dest;
   }
 
   Future<String?> subirFotoUsuario({

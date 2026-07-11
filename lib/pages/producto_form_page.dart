@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../core/sync/media_sync_service.dart';
 import '../core/utils/media_path.dart';
 import '../models/lista_precio.dart';
 import '../models/producto.dart';
@@ -109,9 +110,18 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
     final imagen = await picker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 70,
+      maxWidth: 1200,
     );
     if (imagen == null) return;
-    setState(() => foto = imagen.path);
+    final codigo = codigoController.text.trim().isNotEmpty
+        ? codigoController.text.trim()
+        : (widget.producto?.codigo ?? 'nuevo');
+    final persistida = await MediaSyncService.instance.persistirFotoProducto(
+      sourcePath: imagen.path,
+      codigo: codigo,
+    );
+    if (!mounted) return;
+    setState(() => foto = persistida);
   }
 
   double _parseDbl(String text) => double.tryParse(text.replaceAll(',', '.')) ?? 0;
@@ -181,8 +191,8 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
       precio3: valores[2],
       observaciones: observacionesController.text.trim(),
       foto: foto,
-      fotos: widget.producto?.todasLasFotos ??
-          (foto.isEmpty ? const [] : [foto]),
+      // La foto elegida es la principal (no reutilizar la lista vieja).
+      fotos: foto.isEmpty ? const [] : [foto],
       preciosListas: precios,
       favorito: widget.producto?.favorito ?? false,
     );

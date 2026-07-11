@@ -614,21 +614,25 @@ class _ProductoCard extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CircleAvatar(
-                    radius: 24,
-                    backgroundColor: colorScheme.primaryContainer,
-                    backgroundImage: foto,
-                    child: foto == null
-                        ? Text(
-                            p.descripcion.isNotEmpty
-                                ? p.descripcion[0].toUpperCase()
-                                : '?',
-                            style: TextStyle(
-                              color: colorScheme.onPrimaryContainer,
-                              fontWeight: FontWeight.bold,
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: SizedBox(
+                      width: 64,
+                      height: 64,
+                      child: foto != null
+                          ? Image(
+                              image: foto,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, error, stack) => _InicialProducto(
+                                texto: p.descripcion,
+                                colorScheme: colorScheme,
+                              ),
+                            )
+                          : _InicialProducto(
+                              texto: p.descripcion,
+                              colorScheme: colorScheme,
                             ),
-                          )
-                        : null,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -752,6 +756,33 @@ class _ProductoCard extends StatelessWidget {
                 ],
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InicialProducto extends StatelessWidget {
+  final String texto;
+  final ColorScheme colorScheme;
+
+  const _InicialProducto({
+    required this.texto,
+    required this.colorScheme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: colorScheme.primaryContainer,
+      child: Center(
+        child: Text(
+          texto.isNotEmpty ? texto[0].toUpperCase() : '?',
+          style: TextStyle(
+            color: colorScheme.onPrimaryContainer,
+            fontWeight: FontWeight.bold,
+            fontSize: 22,
           ),
         ),
       ),

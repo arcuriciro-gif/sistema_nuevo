@@ -594,11 +594,28 @@ class FirestoreSyncService {
         final existentes = await db.query(
           'comentarios_internos',
           where:
-              'entidadTipo = ? AND entidadId = ? AND usuario = ? AND texto = ? AND fecha = ?',
-          whereArgs: [entidadTipo, entidadId, usuario, texto, fecha],
-          limit: 1,
+              'entidadTipo = ? AND entidadId = ? AND usuario = ? AND texto = ? AND activo = 1',
+          whereArgs: [entidadTipo, entidadId, usuario, texto],
+          orderBy: 'id DESC',
+          limit: 8,
         );
-        if (existentes.isEmpty) {
+        // Evitar duplicados: misma nota local vs remota (fecha local ≠ UTC).
+        final fechaRemota = DateTime.tryParse(fecha)?.toUtc();
+        var yaExiste = false;
+        for (final row in existentes) {
+          final fechaLocal =
+              DateTime.tryParse(row['fecha']?.toString() ?? '')?.toUtc();
+          if (fechaLocal == null || fechaRemota == null) {
+            yaExiste = true;
+            break;
+          }
+          final diff = fechaLocal.difference(fechaRemota).inSeconds.abs();
+          if (diff <= 120) {
+            yaExiste = true;
+            break;
+          }
+        }
+        if (!yaExiste) {
           if (!activo) continue;
           await db.insert('comentarios_internos', {
             'entidadTipo': entidadTipo,
@@ -606,7 +623,7 @@ class FirestoreSyncService {
             'usuario': usuario,
             'nombre': data['nombre']?.toString() ?? usuario,
             'texto': texto,
-            'fecha': fecha,
+            'fecha': fechaRemota?.toIso8601String() ?? fecha,
             'activo': 1,
           });
         } else if (!activo) {

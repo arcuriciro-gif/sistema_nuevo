@@ -34,11 +34,26 @@ class ProductoService {
   }
 
   Future<Producto> _conFotosEnNube(Producto producto) async {
+    // Persistir rutas temporales del picker antes de subir.
+    final persistidas = <String>[];
+    for (final ruta in producto.todasLasFotos) {
+      if (ruta.isEmpty) continue;
+      persistidas.add(
+        await MediaSyncService.instance.persistirFotoProducto(
+          sourcePath: ruta,
+          codigo: producto.codigo,
+        ),
+      );
+    }
     final fotos = await MediaSyncService.instance.sincronizarFotosProducto(
       producto.codigo,
-      producto.todasLasFotos,
+      persistidas,
     );
-    if (fotos.isEmpty) return producto;
+    if (fotos.isEmpty) {
+      return persistidas.isEmpty
+          ? producto
+          : producto.copyWith(foto: persistidas.first, fotos: persistidas);
+    }
     return producto.copyWith(
       foto: fotos.first,
       fotos: fotos,
