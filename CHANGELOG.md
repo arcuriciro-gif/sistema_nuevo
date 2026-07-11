@@ -1,3 +1,9 @@
+## [1.1.11] — 2026-07-11
+
+### Usuarios
+- Botón **Eliminar** (papelera) en Usuarios: borra de SQLite y Firestore.
+- Pide contraseña del admin. No permite autoeliminarse ni borrar el único admin.
+
 ## [1.1.10] — 2026-07-11
 
 ### Login multi-dispositivo (crítico)

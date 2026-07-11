@@ -81,11 +81,20 @@ class FirestoreUsuarioRepository implements UsuarioRepository {
     return 0;
   }
 
+  @override
+  Future<int> eliminar(int id) async {
+    return 0;
+  }
+
   Future<void> desactivarPorUid(String uid) async {
     await _collection.doc(uid).set(
       {'activo': false, 'actualizadoEn': DateTime.now().toUtc().toIso8601String()},
       SetOptions(merge: true),
     );
+  }
+
+  Future<void> eliminarPorUid(String uid) async {
+    await _collection.doc(uid).delete();
   }
 
   @override

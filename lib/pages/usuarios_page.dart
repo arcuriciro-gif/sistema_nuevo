@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import '../services/usuario_service.dart';
 import '../theme/app_visuals.dart';
 import '../core/utils/media_path.dart';
+import '../widgets/password_confirm_dialog.dart';
 import 'usuario_form_page.dart';
 import '../theme/module_app_bar.dart';
 
@@ -95,6 +96,33 @@ class _UsuariosPageState extends State<UsuariosPage> {
         if (ok != true) return;
         await _service.desactivar(usuario.id!);
       }
+      await _cargar();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')),
+      );
+    }
+  }
+
+  Future<void> _eliminarUsuario(Usuario usuario) async {
+    final ok = await confirmarConClave(
+      context,
+      titulo: 'Eliminar usuario',
+      mensaje:
+          'Vas a eliminar a ${usuario.nombre} (@${usuario.usuario}).\n'
+          'No podrá iniciar sesión en ningún dispositivo.\n\n'
+          'Ingresá tu contraseña de administrador para confirmar.',
+      confirmarLabel: 'Eliminar',
+    );
+    if (!ok || !mounted) return;
+
+    try {
+      await _service.eliminar(usuario.id!);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Usuario ${usuario.usuario} eliminado.')),
+      );
       await _cargar();
     } catch (e) {
       if (!mounted) return;
@@ -226,7 +254,7 @@ class _UsuariosPageState extends State<UsuariosPage> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Solo administrador: alta, edición, desactivar y restablecer contraseña. Todo queda en Auditoría.',
+                  'Solo administrador: alta, edición, activar/desactivar, eliminar y restablecer contraseña. Todo queda en Auditoría.',
                   style: TextStyle(fontSize: 12),
                 ),
               ),
@@ -348,15 +376,17 @@ class _UsuariosPageState extends State<UsuariosPage> {
                                 ],
                               ),
                               trailing: Wrap(
-                                spacing: 4,
+                                spacing: 0,
                                 children: [
                                   IconButton(
-                                    onPressed: () => _abrirFormulario(usuario: usuario),
+                                    onPressed: () =>
+                                        _abrirFormulario(usuario: usuario),
                                     icon: const Icon(Icons.edit_rounded),
                                     tooltip: 'Editar',
                                   ),
                                   IconButton(
-                                    onPressed: () => _restablecerPassword(usuario),
+                                    onPressed: () =>
+                                        _restablecerPassword(usuario),
                                     icon: const Icon(Icons.lock_reset_rounded),
                                     tooltip: 'Restablecer contraseña',
                                   ),
@@ -370,6 +400,23 @@ class _UsuariosPageState extends State<UsuariosPage> {
                                     tooltip: usuario.activo
                                         ? 'Desactivar'
                                         : 'Activar',
+                                  ),
+                                  IconButton(
+                                    onPressed:
+                                        usuario.id ==
+                                                AuthService
+                                                    .instance.currentUser?.id
+                                            ? null
+                                            : () => _eliminarUsuario(usuario),
+                                    icon: Icon(
+                                      Icons.delete_forever_rounded,
+                                      color: usuario.id ==
+                                              AuthService
+                                                  .instance.currentUser?.id
+                                          ? cs.onSurfaceVariant
+                                          : AppVisuals.danger(cs),
+                                    ),
+                                    tooltip: 'Eliminar',
                                   ),
                                 ],
                               ),

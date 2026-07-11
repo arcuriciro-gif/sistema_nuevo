@@ -7,6 +7,7 @@ abstract class UsuarioRepository {
   Future<int> insertar(Usuario usuario);
   Future<int> actualizar(Usuario usuario);
   Future<int> desactivar(int id);
+  Future<int> eliminar(int id);
   Future<bool> existeUsuario(String usuario);
   Stream<List<Usuario>> watchTodos();
 }

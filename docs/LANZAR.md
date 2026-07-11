@@ -1,7 +1,7 @@
 # Cómo generar APK y EXE (Tata.Manager)
 
-Versión actual: **`1.1.10+20`**  
-En la pantalla de **login** debe verse abajo: **`Tata.Manager v1.1.10 (20)`**.  
+Versión actual: **`1.1.11+21`**  
+En la pantalla de **login** debe verse abajo: **`Tata.Manager v1.1.11 (21)`**.  
 Si no aparece ese texto, estás usando una carpeta/EXE/APK **vieja**.
 
 Package Android: `com.eltatamanager.app`  
@@ -13,7 +13,7 @@ Rama con todo lo nuevo: `cursor/sync-queue-offline-6144`
 
 1. **Siempre** `git pull` en esa rama antes de compilar.
 2. **Borrá** el instalador/APK viejo antes de copiar el nuevo.
-3. En login verificá **`v1.1.10 (20)`**. Si no está, no es este build.
+3. En login verificá **`v1.1.11 (21)`**. Si no está, no es este build.
 
 ---
 
@@ -38,7 +38,7 @@ build\app\outputs\flutter-apk\app-release.apk
 ### Instalar en el celular
 1. Desinstalá la app anterior (si era `com.example…` o un build viejo).
 2. Copiá **ese** `app-release.apk` al teléfono e instalá.
-3. Login → debe decir **`Tata.Manager v1.1.10 (20)`**.
+3. Login → debe decir **`Tata.Manager v1.1.11 (21)`**.
 
 Con cable:
 ```bat
@@ -76,7 +76,7 @@ Instalador_Windows\
 1. Cerrá Tata.Manager si está abierto.
 2. **Borrá** cualquier `Instalador_Windows` vieja (pendrive, Escritorio, etc.).
 3. Copiá **toda** la carpeta nueva `Instalador_Windows` (no solo el `.exe`).
-4. Abrí y verificá login: **`v1.1.10 (20)`**.
+4. Abrí y verificá login: **`v1.1.11 (21)`**.
 
 ### Acceso directo en Windows
 Creá el acceso directo sobre:
@@ -101,7 +101,7 @@ Importante: el `.exe` debe quedarse dentro de esa carpeta (con las DLL y `data`)
 
 | Check | OK si… |
 |-------|--------|
-| Login | `Tata.Manager v1.1.10 (20)` |
+| Login | `Tata.Manager v1.1.11 (21)` |
 | Configuración | Arriba: tarjeta **BORRAR TODO** |
 | Reportes | PDF/CSV/Excel abre **Guardar como…** en Windows |
 | Menú | Inventario, Estadísticas, Cierre de caja (si no los ocultaste) |

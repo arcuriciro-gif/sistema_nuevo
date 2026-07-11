@@ -269,6 +269,65 @@ class UsuarioService {
     return resultado;
   }
 
+  /// Elimina el usuario de SQLite y de Firestore. No borra la cuenta de
+  /// Firebase Authentication (hace falta consola o Admin SDK).
+  Future<void> eliminar(int id) async {
+    _requiereAdministrador();
+    final usuarios = await _repoLocal.obtenerTodos();
+    final usuario = usuarios.firstWhere((u) => u.id == id);
+
+    if (usuario.id == AuthService.instance.currentUser?.id) {
+      throw StateError('No podés eliminar tu propio usuario.');
+    }
+
+    if (RolUtil.esAdministrador(usuario.rol)) {
+      final otrosAdmins = usuarios
+          .where(
+            (u) =>
+                u.id != id && u.activo && RolUtil.esAdministrador(u.rol),
+          )
+          .length;
+      if (otrosAdmins == 0) {
+        throw StateError('No podés eliminar el único administrador activo.');
+      }
+    }
+
+    var uid = usuario.firebaseUid;
+    if ((uid == null || uid.isEmpty) &&
+        BackendConfigService.instance.firebaseEnabled) {
+      try {
+        final remoto =
+            await FirestoreUsuarioRepository().buscarPorUsuario(usuario.usuario);
+        uid = remoto?.firebaseUid;
+      } catch (_) {}
+    }
+
+    await _repoLocal.eliminar(id);
+
+    if (BackendConfigService.instance.firebaseEnabled &&
+        uid != null &&
+        uid.isNotEmpty) {
+      try {
+        await FirestoreUsuarioRepository().eliminarPorUid(uid);
+      } catch (e) {
+        debugPrint('Eliminar usuario Firestore: $e');
+      }
+    }
+
+    await AuthService.instance.registrarCambio(
+      'ELIMINAR_USUARIO',
+      'usuarios',
+      'Eliminación de usuario ${usuario.usuario}',
+      valorAnterior: jsonEncode({
+        'usuario': usuario.usuario,
+        'rol': usuario.rol,
+        'nombre': usuario.nombre,
+        'email': usuario.email,
+        'activo': usuario.activo,
+      }),
+    );
+  }
+
   /// Restablece contraseña local. No manda reset de Firebase (eso desfasaba la clave).
   Future<String?> restablecerPassword(
     Usuario usuario,
