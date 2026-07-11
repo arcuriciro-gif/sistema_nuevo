@@ -1,7 +1,7 @@
 # Cómo generar APK y EXE (Tata.Manager)
 
-Versión actual: **`1.1.6+16`**  
-En la pantalla de **login** debe verse abajo: **`Tata.Manager v1.1.6 (16)`**.  
+Versión actual: **`1.1.7+17`**  
+En la pantalla de **login** debe verse abajo: **`Tata.Manager v1.1.7 (17)`**.  
 Si no aparece ese texto, estás usando una carpeta/EXE/APK **vieja**.
 
 Package Android: `com.eltatamanager.app`  
@@ -13,7 +13,7 @@ Rama con todo lo nuevo: `cursor/sync-queue-offline-6144`
 
 1. **Siempre** `git pull` en esa rama antes de compilar.
 2. **Borrá** el instalador/APK viejo antes de copiar el nuevo.
-3. En login verificá **`v1.1.6 (16)`**. Si no está, no es este build.
+3. En login verificá **`v1.1.7 (17)`**. Si no está, no es este build.
 
 ---
 
@@ -38,7 +38,7 @@ build\app\outputs\flutter-apk\app-release.apk
 ### Instalar en el celular
 1. Desinstalá la app anterior (si era `com.example…` o un build viejo).
 2. Copiá **ese** `app-release.apk` al teléfono e instalá.
-3. Login → debe decir **`Tata.Manager v1.1.6 (16)`**.
+3. Login → debe decir **`Tata.Manager v1.1.7 (17)`**.
 
 Con cable:
 ```bat
@@ -76,29 +76,34 @@ Instalador_Windows\
 1. Cerrá Tata.Manager si está abierto.
 2. **Borrá** cualquier `Instalador_Windows` vieja (pendrive, Escritorio, etc.).
 3. Copiá **toda** la carpeta nueva `Instalador_Windows` (no solo el `.exe`).
-4. Abrí y verificá login: **`v1.1.6 (16)`**.
+4. Abrí y verificá login: **`v1.1.7 (17)`**.
 
 ### Acceso directo en Windows
 Creá el acceso directo sobre:
 
 **`Instalador_Windows\sistema_nuevo.exe`**
 
-No sobre el `.bat` (también funciona, pero el correcto es el `.exe`).
-
-Importante:
-- El acceso directo debe apuntar al `.exe` **dentro** de `Instalador_Windows`.
-- No copies el `.exe` solo al Escritorio: necesita las DLL y la carpeta `data` al lado.
-- Si Windows pregunta “Iniciar en”, dejá la carpeta `Instalador_Windows`.
+Importante: el `.exe` debe quedarse dentro de esa carpeta (con las DLL y `data`).
 
 ---
 
-## C) Checklist “¿tengo la versión nueva?”
+## C) Borrar todo / sistema virgen
+
+1. Login con usuario **Administrador** (por defecto suele ser `admin`).
+2. Menú → **Configuración**.
+3. Arriba del todo: tarjeta roja **BORRAR TODO**.
+4. Ahí se ve tu usuario, rol y versión. Si el rol no es Administrador, no aparecen los botones.
+5. Botón rojo: **Borrar todo (sistema virgen)** → pide tu contraseña.
+
+---
+
+## D) Checklist “¿tengo la versión nueva?”
 
 | Check | OK si… |
 |-------|--------|
-| Login | `Tata.Manager v1.1.6 (16)` |
+| Login | `Tata.Manager v1.1.7 (17)` |
+| Configuración | Arriba: tarjeta **BORRAR TODO** |
 | Reportes | PDF/CSV/Excel abre **Guardar como…** en Windows |
-| Configuración (admin) | Arriba: **MANTENIMIENTO Y DATOS** |
 | Menú | Inventario, Estadísticas, Cierre de caja (si no los ocultaste) |
 
 ---
