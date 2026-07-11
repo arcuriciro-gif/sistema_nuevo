@@ -113,6 +113,16 @@ class SyncQueueService extends ChangeNotifier {
     return 'Conectado a la nube. Los cambios se comparten entre dispositivos.';
   }
 
+  void reportAuthError(String? message) {
+    lastError = message;
+    notifyListeners();
+  }
+
+  void clearAuthError() {
+    lastError = null;
+    notifyListeners();
+  }
+
   Future<void> start() async {
     _running = true;
     await refreshCounts();

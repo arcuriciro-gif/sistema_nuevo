@@ -39,8 +39,7 @@ class AuthService {
     if (!FirebaseAuthUsuarioService.instance.disponible) {
       lastFirebaseError =
           'Firebase no está listo en este dispositivo. Revisá internet y reiniciá.';
-      SyncQueueService.instance.lastError = lastFirebaseError;
-      SyncQueueService.instance.notifyListeners();
+      SyncQueueService.instance.reportAuthError(lastFirebaseError);
       return false;
     }
 
@@ -58,16 +57,14 @@ class AuthService {
       } catch (_) {}
       await FirestoreSyncService.instance.start();
       await SyncQueueService.instance.start();
-      SyncQueueService.instance.lastError = null;
-      SyncQueueService.instance.notifyListeners();
+      SyncQueueService.instance.clearAuthError();
       return true;
     }
 
     lastFirebaseError ??=
         'No se pudo conectar a la nube. Activá Authentication → Correo/contraseña '
         'y usá la misma clave en ambos dispositivos.';
-    SyncQueueService.instance.lastError = lastFirebaseError;
-    SyncQueueService.instance.notifyListeners();
+    SyncQueueService.instance.reportAuthError(lastFirebaseError);
     return false;
   }
 
@@ -196,10 +193,10 @@ class AuthService {
           debugPrint('Firebase crearCuenta falló: $createError');
           lastFirebaseError =
               FirebaseAuthUsuarioService.mensajeError(createError);
-          // Si el alta falló porque ya existe, el error de signIn es más útil.
+          final msgSignIn =
+              FirebaseAuthUsuarioService.mensajeError(signInError);
           if (lastFirebaseError!.contains('ya existe')) {
-            lastFirebaseError =
-                FirebaseAuthUsuarioService.mensajeError(signInError);
+            lastFirebaseError = msgSignIn;
           }
         }
       }
@@ -239,7 +236,7 @@ class AuthService {
       lastFirebaseError ??=
           'Sin sesión en la nube. Activá Authentication → Correo/contraseña '
           'en Firebase Console y tocá el indicador para reconectar.';
-      SyncQueueService.instance.lastError = lastFirebaseError;
+      SyncQueueService.instance.reportAuthError(lastFirebaseError);
       await SyncQueueService.instance.start();
     }
 
@@ -430,9 +427,9 @@ class AuthService {
       debugPrint('Firebase crearCuenta: $e');
     }
 
-    if (ultimoError != null) {
-      lastFirebaseError = FirebaseAuthUsuarioService.mensajeError(ultimoError);
-    }
+    lastFirebaseError = FirebaseAuthUsuarioService.mensajeError(
+      ultimoError ?? 'No se pudo vincular con Firebase Auth',
+    );
     return null;
   }
 
