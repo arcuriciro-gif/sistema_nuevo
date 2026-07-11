@@ -1,3 +1,11 @@
+## [1.2.6] — 2026-07-11
+
+### Huella en Android
+- Tras el primer login, la app ofrece **activar huella**.
+- También en **Mi perfil** → switch “Entrar con huella”.
+- En el login: botón **Entrar con huella** (y prompt al abrir si ya está activa).
+- Al cerrar sesión podés elegir olvidar la huella o dejarla para el próximo uso.
+
 ## [1.2.5] — 2026-07-11
 
 ### Alta aprobada llega al celular al instante

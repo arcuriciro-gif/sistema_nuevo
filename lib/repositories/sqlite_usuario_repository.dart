@@ -52,6 +52,18 @@ class SqliteUsuarioRepository implements UsuarioRepository {
     return Usuario.fromMap(rows.first);
   }
 
+  Future<Usuario?> buscarPorId(int id) async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      'usuarios',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Usuario.fromMap(rows.first);
+  }
+
   @override
   Future<int> insertar(Usuario usuario) async {
     final db = await _dbHelper.database;

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../app_version.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../services/auth_service.dart';
+import '../services/biometric_auth_service.dart';
 import '../services/branding_service.dart';
 import 'cambiar_password_obligatorio_page.dart';
 import 'main_shell.dart';
@@ -24,9 +25,36 @@ class _LoginPageState extends State<LoginPage> {
   bool _loading = false;
   bool _obscure = true;
   String? _error;
+  bool _huellaDisponible = false;
+  bool _huellaActivada = false;
 
   bool get _googleDisponible =>
       !kIsWeb && (Platform.isAndroid || Platform.isWindows || Platform.isLinux);
+
+  bool get _esAndroid => !kIsWeb && Platform.isAndroid;
+
+  @override
+  void initState() {
+    super.initState();
+    _prepararHuella();
+  }
+
+  Future<void> _prepararHuella() async {
+    if (!_esAndroid) return;
+    final bio = BiometricAuthService.instance;
+    final soporta = await bio.dispositivoSoporta();
+    final activada = soporta && await bio.estaActivada();
+    if (!mounted) return;
+    setState(() {
+      _huellaDisponible = soporta;
+      _huellaActivada = activada;
+    });
+    if (activada) {
+      // Ofrecer desbloqueo automático al abrir.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      if (mounted && !_loading) await _loginHuella(auto: true);
+    }
+  }
 
   @override
   void dispose() {
@@ -35,7 +63,10 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  Future<void> _irTrasLogin({required bool forzarCambioClave}) async {
+  Future<void> _irTrasLogin({
+    required bool forzarCambioClave,
+    bool ofrecerHuella = true,
+  }) async {
     if (!mounted) return;
     if (forzarCambioClave) {
       Navigator.of(context).pushReplacement(
@@ -45,9 +76,67 @@ class _LoginPageState extends State<LoginPage> {
       );
       return;
     }
+    if (ofrecerHuella && _esAndroid && _huellaDisponible) {
+      final ya = await BiometricAuthService.instance.estaActivada();
+      if (!ya && mounted) {
+        final activar = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('¿Entrar con huella?'),
+            content: const Text(
+              'La próxima vez podés desbloquear Tata.Manager con la huella '
+              'del celular, sin tipear usuario ni Google.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Ahora no'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Activar'),
+              ),
+            ],
+          ),
+        );
+        if (activar == true) {
+          try {
+            await AuthService.instance.activarDesbloqueoHuella();
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('$e')),
+              );
+            }
+          }
+        }
+      }
+    }
+    if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const MainShell()),
     );
+  }
+
+  Future<void> _loginHuella({bool auto = false}) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await AuthService.instance.loginConHuella();
+      if (!mounted) return;
+      setState(() => _loading = false);
+      await _irTrasLogin(forzarCambioClave: false, ofrecerHuella: false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        if (!auto) {
+          _error = e.toString().replaceFirst('StateError: ', '');
+        }
+      });
+    }
   }
 
   Future<void> _login() async {
@@ -266,6 +355,21 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
                         const SizedBox(height: 16),
+                        if (_huellaActivada) ...[
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: FilledButton.icon(
+                              onPressed: _loading ? null : () => _loginHuella(),
+                              icon: const Icon(Icons.fingerprint_rounded),
+                              label: const Text(
+                                'Entrar con huella',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                         if (_googleDisponible) ...[
                           SizedBox(
                             width: double.infinity,

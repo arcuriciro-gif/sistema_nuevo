@@ -1,11 +1,13 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../core/sync/media_sync_service.dart';
 import '../core/utils/media_path.dart';
 import '../services/auth_service.dart';
+import '../services/biometric_auth_service.dart';
 import '../theme/module_app_bar.dart';
 
 /// Perfil del usuario logueado: foto, nombre, usuario y contraseña.
@@ -30,6 +32,11 @@ class _PerfilUsuarioPageState extends State<PerfilUsuarioPage> {
   bool _obscureActual = true;
   bool _obscureNueva = true;
   bool _obscureConfirm = true;
+  bool _huellaSoportada = false;
+  bool _huellaActivada = false;
+  bool _huellaCambiando = false;
+
+  bool get _esAndroid => !kIsWeb && Platform.isAndroid;
 
   @override
   void initState() {
@@ -39,6 +46,43 @@ class _PerfilUsuarioPageState extends State<PerfilUsuarioPage> {
     _usuarioCtrl.text = u?.usuario ?? '';
     _emailCtrl.text = u?.email ?? '';
     _foto = u?.foto ?? '';
+    _cargarHuella();
+  }
+
+  Future<void> _cargarHuella() async {
+    if (!_esAndroid) return;
+    final bio = BiometricAuthService.instance;
+    final soporta = await bio.dispositivoSoporta();
+    final on = soporta && await bio.estaActivada();
+    if (!mounted) return;
+    setState(() {
+      _huellaSoportada = soporta;
+      _huellaActivada = on;
+    });
+  }
+
+  Future<void> _toggleHuella(bool value) async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _huellaCambiando = true);
+    try {
+      if (value) {
+        await AuthService.instance.activarDesbloqueoHuella();
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Huella activada para entrar')),
+        );
+      } else {
+        await BiometricAuthService.instance.desactivar();
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Huella desactivada')),
+        );
+      }
+      await _cargarHuella();
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('$e')));
+      await _cargarHuella();
+    } finally {
+      if (mounted) setState(() => _huellaCambiando = false);
+    }
   }
 
   @override
@@ -216,6 +260,19 @@ class _PerfilUsuarioPageState extends State<PerfilUsuarioPage> {
             ),
           ),
           const SizedBox(height: 16),
+          if (_huellaSoportada) ...[
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.fingerprint_rounded),
+              title: const Text('Entrar con huella'),
+              subtitle: const Text(
+                'Desbloqueá la app en este celular sin tipear cada vez',
+              ),
+              value: _huellaActivada,
+              onChanged: _huellaCambiando ? null : _toggleHuella,
+            ),
+            const SizedBox(height: 8),
+          ],
           SizedBox(
             width: double.infinity,
             height: 48,

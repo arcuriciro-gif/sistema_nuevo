@@ -13,6 +13,7 @@ import '../database/database_helper.dart';
 import '../models/usuario.dart';
 import '../repositories/firestore_usuario_repository.dart';
 import '../repositories/sqlite_usuario_repository.dart';
+import 'biometric_auth_service.dart';
 import 'comunicaciones_service.dart';
 
 class AuthService {
@@ -582,7 +583,7 @@ class AuthService {
     return candidato;
   }
 
-  Future<void> logout() async {
+  Future<void> logout({bool olvidarHuella = false}) async {
     await _registrarAudit(
       'LOGOUT',
       'Cierre de sesión',
@@ -593,11 +594,94 @@ class AuthService {
     _ultimaPasswordIngresada = null;
     await SyncQueueService.instance.stop();
     await FirestoreSyncService.instance.stop();
+    if (olvidarHuella) {
+      await BiometricAuthService.instance.desactivar();
+    }
     if (FirebaseAuthUsuarioService.instance.disponible) {
       try {
         await FirebaseAuthUsuarioService.instance.cerrarSesion();
       } catch (_) {}
     }
+  }
+
+  /// Restaura la sesión local tras huella (el usuario ya se había logueado antes).
+  Future<Usuario> loginConHuella() async {
+    lastFirebaseError = null;
+    final bio = BiometricAuthService.instance;
+    if (!await bio.estaActivada()) {
+      throw StateError('La huella no está activada. Entrá con usuario o Google y activala en Mi perfil.');
+    }
+    final ok = await bio.autenticar(motivo: 'Entrar a Tata.Manager');
+    if (!ok) {
+      throw StateError('No se pudo verificar la huella.');
+    }
+    final userId = await bio.usuarioIdGuardado();
+    if (userId == null) {
+      throw StateError('No hay usuario guardado para huella.');
+    }
+    final sqlite = SqliteUsuarioRepository();
+    final user = await sqlite.buscarPorId(userId);
+    if (user == null) {
+      await bio.desactivar();
+      throw StateError('El usuario de la huella ya no existe. Entrá de nuevo.');
+    }
+    if (user.pendienteAlta || !user.activo) {
+      throw StateError('Tu usuario no está activo. Pedile el alta al administrador.');
+    }
+
+    final ahora = DateTime.now();
+    final sesion = user.copyWith(ultimoAcceso: ahora);
+    await sqlite.actualizar(sesion);
+    currentUser = sesion;
+
+    final uidActual = FirebaseAuthUsuarioService.instance.uidActual;
+    if (uidActual != null) {
+      await FirestoreSyncService.instance.start();
+      await SyncQueueService.instance.start();
+      SyncQueueService.instance.clearAuthError();
+    } else {
+      lastFirebaseError =
+          'Entraste con huella en este dispositivo. '
+          'Si la nube no sincroniza, volvé a entrar una vez con Google o usuario/clave.';
+      SyncQueueService.instance.reportAuthError(lastFirebaseError!);
+      await SyncQueueService.instance.start();
+    }
+
+    await _registrarAudit(
+      'LOGIN_HUELLA',
+      'Inicio de sesión con biometría',
+      tablaAfectada: 'usuarios',
+      valorNuevo: jsonEncode({
+        'usuario': currentUser?.usuario,
+        'rol': currentUser?.rol,
+      }),
+    );
+    return sesion;
+  }
+
+  /// Ofrece guardar el usuario actual para desbloqueo con huella.
+  Future<void> activarDesbloqueoHuella() async {
+    final u = currentUser;
+    if (u?.id == null) {
+      throw StateError('Tenés que estar logueado.');
+    }
+    final bio = BiometricAuthService.instance;
+    if (!await bio.dispositivoSoporta()) {
+      throw StateError('Este dispositivo no soporta huella / biometría.');
+    }
+    if (!await bio.tieneHuellaOBiometria()) {
+      throw StateError(
+        'No hay huella configurada en el celular. '
+        'Configurala en Ajustes del sistema y reintentá.',
+      );
+    }
+    final ok = await bio.autenticar(
+      motivo: 'Confirmá tu huella para activar el desbloqueo',
+    );
+    if (!ok) {
+      throw StateError('No se confirmó la huella.');
+    }
+    await bio.activarParaUsuario(u!.id!);
   }
 
   Future<void> completarCambioPasswordObligatorio(String passwordNueva) async {

@@ -495,8 +495,28 @@ class _MainShellState extends State<MainShell> {
   }
 
   Future<void> _logout() async {
+    final olvidar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cerrar sesión'),
+        content: const Text(
+          '¿También querés desactivar el desbloqueo con huella en este celular?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Solo salir'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Salir y olvidar huella'),
+          ),
+        ],
+      ),
+    );
+    if (olvidar == null) return;
     await ComunicacionesService.instance.detener();
-    await AuthService.instance.logout();
+    await AuthService.instance.logout(olvidarHuella: olvidar);
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginPage()),
