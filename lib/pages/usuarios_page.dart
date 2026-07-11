@@ -126,7 +126,8 @@ class _UsuariosPageState extends State<UsuariosPage> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Deberá cambiarla al ingresar. Si tiene email, también se intenta enviar reset de Firebase.',
+              'El usuario debe entrar con esta clave temporal. '
+              'No se envía mail de reset (evita desfasar la clave de la nube).',
               style: TextStyle(fontSize: 12),
             ),
           ],
@@ -143,7 +144,14 @@ class _UsuariosPageState extends State<UsuariosPage> {
         ],
       ),
     );
-    if (confirmar != true || ctrl.text.trim().length < 4) {
+    if (confirmar != true || ctrl.text.trim().length < 6) {
+      if (confirmar == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('La contraseña debe tener al menos 6 caracteres.'),
+          ),
+        );
+      }
       ctrl.dispose();
       return;
     }

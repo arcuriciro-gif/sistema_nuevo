@@ -27,6 +27,18 @@ class SqliteUsuarioRepository implements UsuarioRepository {
     return Usuario.fromMap(rows.first);
   }
 
+  Future<Usuario?> buscarPorEmail(String email) async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      'usuarios',
+      where: 'LOWER(email) = ?',
+      whereArgs: [email.trim().toLowerCase()],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Usuario.fromMap(rows.first);
+  }
+
   @override
   Future<Usuario?> buscarPorFirebaseUid(String uid) async {
     final db = await _dbHelper.database;

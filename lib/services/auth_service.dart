@@ -91,7 +91,29 @@ class AuthService {
 
     final sqlite = SqliteUsuarioRepository();
     final firebase = FirebaseAuthUsuarioService.instance;
+    lastFirebaseError = null;
+
     var localUser = await sqlite.buscarPorUsuario(nombreUsuario);
+    if (localUser == null && nombreUsuario.contains('@')) {
+      localUser = await sqlite.buscarPorEmail(nombreUsuario);
+    }
+
+    // Si no hay ficha local (ej. otro dispositivo), intentar perfil en Firestore.
+    if (localUser == null &&
+        BackendConfigService.instance.firebaseEnabled &&
+        firebase.disponible) {
+      try {
+        final remoto =
+            await FirestoreUsuarioRepository().buscarPorUsuario(nombreUsuario);
+        if (remoto != null) {
+          localUser = remoto;
+        }
+      } catch (e) {
+        debugPrint('Buscar usuario remoto previo al login: $e');
+      }
+    }
+
+    final loginName = (localUser?.usuario ?? nombreUsuario).trim();
 
     // Si la clave local no coincide (o no hay usuario local), probar Firebase Auth.
     // Así PC y celular pueden usar la misma clave de la nube aunque el hash local difiera.
@@ -101,31 +123,31 @@ class AuthService {
     if (!localOk && firebase.disponible) {
       try {
         final cred = await firebase.iniciarSesion(
-          nombreUsuario,
+          loginName,
           password,
           email: localUser?.email,
         );
         final uid = cred.user?.uid;
         if (uid != null) {
-          if (localUser == null || !localUser.activo) {
+          if (localUser == null || !localUser.activo || localUser.id == null) {
             // Traer perfil de Firestore o crear ficha local mínima.
             Usuario? remoto;
             try {
               remoto = await FirestoreUsuarioRepository().buscarPorFirebaseUid(uid);
               remoto ??=
-                  await FirestoreUsuarioRepository().buscarPorUsuario(nombreUsuario);
+                  await FirestoreUsuarioRepository().buscarPorUsuario(loginName);
             } catch (e) {
               debugPrint('Buscar usuario remoto en login: $e');
             }
             final ahora = DateTime.now();
             final nuevo = (remoto ??
                     Usuario(
-                      nombre: nombreUsuario,
-                      usuario: nombreUsuario,
+                      nombre: loginName,
+                      usuario: loginName,
                       password: _hash(password),
-                      rol: 'admin',
+                      rol: 'empleado',
                       email: cred.user?.email ??
-                          UsuarioAuthEmail.paraUsuario(nombreUsuario),
+                          UsuarioAuthEmail.paraUsuario(loginName),
                       activo: true,
                     ))
                 .copyWith(
@@ -136,11 +158,12 @@ class AuthService {
               ultimoAcceso: ahora,
               fechaCreacion: remoto?.fechaCreacion ?? ahora,
             );
-            if (localUser == null) {
+            final existente = await sqlite.buscarPorUsuario(nuevo.usuario);
+            if (existente == null) {
               final id = await sqlite.insertar(nuevo);
               localUser = nuevo.copyWith(id: id);
             } else {
-              localUser = nuevo.copyWith(id: localUser.id);
+              localUser = nuevo.copyWith(id: existente.id);
               await sqlite.actualizar(localUser);
             }
           } else {
@@ -156,6 +179,7 @@ class AuthService {
         }
       } catch (e) {
         debugPrint('Firebase login (clave nube): $e');
+        lastFirebaseError = FirebaseAuthUsuarioService.mensajeError(e);
       }
     }
 
@@ -171,7 +195,7 @@ class AuthService {
       lastFirebaseError = null;
       try {
         final cred = await firebase.iniciarSesion(
-          nombreUsuario,
+          usuarioActualizado.usuario,
           password,
           email: usuarioActualizado.email,
         );
@@ -184,13 +208,13 @@ class AuthService {
         debugPrint('Firebase signIn falló, creando cuenta: $signInError');
         try {
           final uid = await firebase.crearCuenta(
-            nombreUsuario,
+            usuarioActualizado.usuario,
             password,
             email: usuarioActualizado.email,
           );
           if (firebase.uidActual == null) {
             await firebase.iniciarSesion(
-              nombreUsuario,
+              usuarioActualizado.usuario,
               password,
               email: usuarioActualizado.email,
             );
@@ -447,7 +471,9 @@ class AuthService {
       debugPrint('Firebase crearCuenta: $e');
     }
 
-    lastFirebaseError = FirebaseAuthUsuarioService.mensajeError(ultimoError!);
+    lastFirebaseError = FirebaseAuthUsuarioService.mensajeError(
+      ultimoError ?? 'Error desconocido de Firebase Auth',
+    );
     return null;
   }
 

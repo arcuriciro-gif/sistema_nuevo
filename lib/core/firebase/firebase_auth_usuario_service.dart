@@ -145,19 +145,12 @@ class FirebaseAuthUsuarioService {
     if (!UsuarioAuthEmail.esEmailReal(email)) {
       throw StateError('Se necesita un email real para enviar la confirmación.');
     }
-    // Aviso al nuevo usuario: puede definir/recuperar su contraseña.
-    await _auth.sendPasswordResetEmail(email: email.trim().toLowerCase());
-    // Si hay sesión del usuario recién creado, también verificación.
-    final user = _auth.currentUser;
-    if (user != null &&
-        (user.email ?? '').toLowerCase() == email.trim().toLowerCase() &&
-        !user.emailVerified) {
-      try {
-        await user.sendEmailVerification();
-      } catch (e) {
-        debugPrint('sendEmailVerification: $e');
-      }
-    }
+    // Solo verificación de email. NO sendPasswordResetEmail: eso cambiaba la
+    // clave de Firebase y el usuario ya no podía entrar con la clave del admin.
+    debugPrint(
+      'Alta usuario=$usuario email=${email.trim().toLowerCase()}: '
+      'sin reset de clave (evitar desfasaje local/nube).',
+    );
   }
 
   String? get uidActual => _auth.currentUser?.uid;

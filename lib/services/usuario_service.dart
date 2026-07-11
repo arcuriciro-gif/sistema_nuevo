@@ -62,24 +62,17 @@ class UsuarioService {
       await FirestoreUsuarioRepository().insertar(nuevo);
 
       if (UsuarioAuthEmail.esEmailReal(emailReal)) {
-        try {
-          await firebase.enviarConfirmacionAlta(
-            usuario: usuario.usuario,
-            email: emailReal,
-          );
-          emailEnviado = true;
-          aviso =
-              'Se envió un email de confirmación a $emailReal '
-              '(verificación y enlace para definir/recuperar contraseña).';
-        } catch (e) {
-          debugPrint('Email confirmación alta: $e');
-          aviso =
-              'Usuario creado, pero no se pudo enviar el email. '
-              'Revisá Authentication > Templates en Firebase y que el email sea válido.';
-        }
+        // NO enviar reset de Firebase: eso cambia la clave de la nube y
+        // desincroniza la que el admin acaba de asignar.
+        emailEnviado = false;
+        aviso =
+            'Usuario creado. Debe entrar con el usuario "${usuario.usuario}" '
+            'y la clave que le asignaste (no uses el email como usuario). '
+            'Al primer ingreso la app le pedirá cambiar la clave.';
       } else {
         aviso =
-            'Usuario creado. Para enviar confirmación por mail, cargá un email real.';
+            'Usuario creado. Entregá usuario y clave. '
+            'Si cargás un email real, queda asociado a la cuenta de la nube.';
       }
     } else {
       aviso = 'Usuario creado en este dispositivo (Firebase no disponible).';
@@ -276,19 +269,22 @@ class UsuarioService {
     return resultado;
   }
 
-  /// Restablece contraseña local y, si hay email real, envía reset de Firebase.
+  /// Restablece contraseña local. No manda reset de Firebase (eso desfasaba la clave).
   Future<String?> restablecerPassword(
     Usuario usuario,
     String nuevaPassword, {
-    bool enviarEmailFirebase = true,
+    bool enviarEmailFirebase = false,
   }) async {
     _requiereAdministrador();
-    if (nuevaPassword.trim().length < 4) {
-      throw StateError('La contraseña debe tener al menos 4 caracteres.');
+    if (nuevaPassword.trim().length < 6) {
+      throw StateError(
+        'La contraseña debe tener al menos 6 caracteres (requisito de Firebase).',
+      );
     }
 
+    final clave = nuevaPassword.trim();
     final actualizado = usuario.copyWith(
-      password: AuthService.hashPassword(nuevaPassword.trim()),
+      password: AuthService.hashPassword(clave),
       debeCambiarPassword: true,
     );
     await _repoLocal.actualizar(actualizado);
@@ -300,7 +296,11 @@ class UsuarioService {
       } catch (_) {}
     }
 
-    String? aviso;
+    String? aviso =
+        'Clave temporal lista para ${usuario.usuario}: usá esa misma en el login. '
+        'Si no entra por la nube, en Firebase Console → Authentication → Users '
+        'reseteá la clave de su email a la misma temporal.';
+
     final email = usuario.email.trim();
     if (enviarEmailFirebase &&
         FirebaseAuthUsuarioService.instance.disponible &&
@@ -311,11 +311,13 @@ class UsuarioService {
           email: email,
         );
         aviso =
-            'Contraseña local restablecida. También se envió email de reset a $email.';
+            'Clave local restablecida. Se envió mail a $email: '
+            'en el enlace debe poner EXACTAMENTE la misma clave temporal.';
       } catch (e) {
         debugPrint('Email reset password: $e');
         aviso =
-            'Contraseña local restablecida. No se pudo enviar el email de Firebase.';
+            'Clave local restablecida. No se pudo enviar el email de Firebase. '
+            'El usuario debe entrar con la clave temporal en este equipo.';
       }
     }
 
@@ -325,7 +327,8 @@ class UsuarioService {
       'Restablecimiento de contraseña para ${usuario.usuario}',
       valorNuevo: jsonEncode({
         'usuario': usuario.usuario,
-        'emailEnviado': aviso?.contains('envió email') == true,
+        'emailEnviado': enviarEmailFirebase &&
+            aviso.contains('Se envió mail'),
         'fecha': DateTime.now().toIso8601String(),
       }),
     );

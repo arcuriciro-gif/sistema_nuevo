@@ -1,3 +1,10 @@
+## [1.1.9] — 2026-07-11
+
+### Usuarios / login
+- Al crear usuario **ya no se envía mail de reset** (eso cambiaba la clave de Firebase y no podías entrar).
+- Restablecer contraseña (admin): solo clave temporal local; instrucciones claras.
+- Login: mejores mensajes de error; busca también por email; alinea clave local/nube.
+
 ## [1.1.8] — 2026-07-11
 
 ### Windows build (VS 18.6+)
