@@ -12,7 +12,12 @@
           "package_name": "com.eltatamanager.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "932698618413-hp847sk8q70ofqimjqifsojs3fii2f30.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDIO601iRMJgk_pCERXJj3aalP5sUMRNgE"
@@ -20,7 +25,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "932698618413-hp847sk8q70ofqimjqifsojs3fii2f30.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     },
@@ -31,7 +41,12 @@
           "package_name": "com.example.sistema_nuevo"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "932698618413-hp847sk8q70ofqimjqifsojs3fii2f30.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDIO601iRMJgk_pCERXJj3aalP5sUMRNgE"
@@ -39,7 +54,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "932698618413-hp847sk8q70ofqimjqifsojs3fii2f30.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
