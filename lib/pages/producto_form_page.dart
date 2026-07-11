@@ -71,7 +71,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
         margen3Controller.text = ((p.precio3 / p.costo - 1) * 100).toStringAsFixed(1);
       }
       observacionesController.text = p.observaciones;
-      foto = p.foto;
+      foto = p.fotoPrincipal;
     }
 
     _cargarListasPrecio();
@@ -115,6 +115,15 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
 
   double _parseDbl(String text) => double.tryParse(text.replaceAll(',', '.')) ?? 0;
 
+  String _labelLista(int index) {
+    final ordenadas = [...listasActivas]
+      ..sort((a, b) => a.orden.compareTo(b.orden));
+    if (index < ordenadas.length) {
+      return 'Precio ${ordenadas[index].nombre}';
+    }
+    return 'Precio Lista ${index + 1}';
+  }
+
   void _recalcularPrecio(int lista) {
     final costo = _parseDbl(costoController.text);
     if (costo <= 0) return;
@@ -138,6 +147,23 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
   }
 
   Future<void> guardar() async {
+    final ordenadas = [...listasActivas]
+      ..sort((a, b) => a.orden.compareTo(b.orden));
+    final precios = Map<String, double>.from(
+      widget.producto?.preciosListas ?? const {},
+    );
+    final valores = [
+      _parseDbl(precioController.text),
+      _parseDbl(precio2Controller.text),
+      _parseDbl(precio3Controller.text),
+    ];
+    for (var i = 0; i < ordenadas.length && i < valores.length; i++) {
+      final id = ordenadas[i].id?.toString();
+      if (id != null && id.isNotEmpty) {
+        precios[id] = valores[i];
+      }
+    }
+
     final producto = Producto(
       id: widget.producto?.id,
       codigo: codigoController.text.trim(),
@@ -149,11 +175,14 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
       ubicacion: widget.producto?.ubicacion ?? '',
       stock: int.tryParse(stockController.text) ?? 0,
       costo: _parseDbl(costoController.text),
-      precio: _parseDbl(precioController.text),
-      precio2: _parseDbl(precio2Controller.text),
-      precio3: _parseDbl(precio3Controller.text),
+      precio: valores[0],
+      precio2: valores[1],
+      precio3: valores[2],
       observaciones: observacionesController.text.trim(),
       foto: foto,
+      fotos: widget.producto?.todasLasFotos ??
+          (foto.isEmpty ? const [] : [foto]),
+      preciosListas: precios,
       favorito: widget.producto?.favorito ?? false,
     );
 
@@ -269,13 +298,34 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
           children: [
             GestureDetector(
               onTap: elegirFoto,
-              child: CircleAvatar(
-                radius: 60,
-                backgroundImage: imageProviderDesdePath(foto),
-                child: foto.isEmpty ? const Icon(Icons.camera_alt, size: 40) : null,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  width: 120,
+                  height: 120,
+                  child: imageProviderDesdePath(foto) != null
+                      ? Image(
+                          image: imageProviderDesdePath(foto)!,
+                          fit: BoxFit.cover,
+                        )
+                      : Container(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          child: const Icon(Icons.camera_alt, size: 40),
+                        ),
+                ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 8),
+            Text(
+              foto.isEmpty ? 'Tocá para agregar foto' : 'Tocá para cambiar foto',
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
             _campo('Código', codigoController),
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -328,79 +378,78 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
             const Padding(
               padding: EdgeInsets.only(bottom: 8),
               child: Text(
-                'Ingresá el % de ganancia para calcular el precio automáticamente, o escribí el precio directamente.',
+                'Usá el % de ganancia o escribí el precio. Los nombres salen de Listas de precios.',
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
             ),
             _campoConMargen(
-              labelPrecio: 'Precio Lista 1',
+              labelPrecio: _labelLista(0),
               labelMargen: 'Ganancia',
               precioCtrl: precioController,
               margenCtrl: margen1Controller,
               lista: 1,
             ),
             _campoConMargen(
-              labelPrecio: 'Precio Lista 2',
+              labelPrecio: _labelLista(1),
               labelMargen: 'Ganancia',
               precioCtrl: precio2Controller,
               margenCtrl: margen2Controller,
               lista: 2,
             ),
             _campoConMargen(
-              labelPrecio: 'Precio Lista 3',
+              labelPrecio: _labelLista(2),
               labelMargen: 'Ganancia',
               precioCtrl: precio3Controller,
               margenCtrl: margen3Controller,
               lista: 3,
             ),
-            const Divider(),
-            if (listasActivas.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              const Text(
-                'Listas de precios dinámicas',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Calculadas automáticamente según el costo y el % configurado en Listas de Precios.',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
+            if (listasActivas.length > 3) ...[
               const SizedBox(height: 8),
               AnimatedBuilder(
                 animation: costoController,
-                builder: (context, _) => Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: listasActivas.map((lista) {
-                    final costo = _parseDbl(costoController.text);
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade300),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            lista.nombre,
-                            style: const TextStyle(fontSize: 12, color: Colors.grey),
-                          ),
-                          Text(
-                            '\$${lista.calcularPrecio(costo).toStringAsFixed(2)}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
+                builder: (context, _) {
+                  final costo = _parseDbl(costoController.text);
+                  final extras = listasActivas.toList()
+                    ..sort((a, b) => a.orden.compareTo(b.orden));
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: extras.skip(3).map((lista) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              lista.nombre,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ),
+                            Text(
+                              '\$${lista.calcularPrecio(costo).toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  );
+                },
               ),
-              const Divider(),
             ],
+            const Divider(),
             const SizedBox(height: 8),
             _campo('Observaciones', observacionesController),
             const SizedBox(height: 15),

@@ -21,7 +21,10 @@ class ListaPrecioService {
     return id;
   }
 
-  Future<int> actualizar(ListaPrecio lista) async {
+  Future<int> actualizar(
+    ListaPrecio lista, {
+    String? nombreAnterior,
+  }) async {
     final db = await dbHelper.database;
     final result = await db.update(
       'listas_precios',
@@ -30,6 +33,18 @@ class ListaPrecioService {
       whereArgs: [lista.id],
     );
     if (lista.id != null) {
+      if (nombreAnterior != null &&
+          nombreAnterior.trim().isNotEmpty &&
+          nombreAnterior != lista.nombre) {
+        await SyncQueueService.instance.pushOrEnqueue(
+          entityType: 'lista_precio',
+          entityId: nombreAnterior,
+          operation: 'delete',
+          payloadJson: jsonEncode({'nombre': nombreAnterior}),
+          upload: () => FirestoreSyncService.instance
+              .eliminarListaPrecioRemota(nombreAnterior),
+        );
+      }
       await SyncQueueService.instance.pushOrEnqueueUpsert(
         entityType: 'lista_precio',
         id: lista.id!,

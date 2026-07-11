@@ -37,20 +37,34 @@ class _ListasPrecioPageState extends State<ListasPrecioPage> {
       text: (lista?.porcentaje ?? 0).toStringAsFixed(1),
     );
     bool activa = lista?.activa ?? true;
+    final nombreAnterior = lista?.nombre ?? '';
 
     final resultado = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: Text(lista == null ? 'Nueva lista de precios' : 'Editar lista'),
+          title: Text(
+            lista == null ? 'Nueva lista de precios' : 'Editar lista',
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Text(
+                lista == null
+                    ? 'Definí el nombre (ej. Lista 1, Mayorista) y el % de ganancia.'
+                    : 'Podés cambiar el nombre y el porcentaje.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: nombreCtrl,
                 autofocus: true,
                 decoration: const InputDecoration(
-                  labelText: 'Nombre',
+                  labelText: 'Nombre de la lista',
+                  hintText: 'Ej: Lista 1, Mayorista, Minorista',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -107,6 +121,7 @@ class _ListasPrecioPageState extends State<ListasPrecioPage> {
     } else {
       await service.actualizar(
         lista.copyWith(nombre: nombre, porcentaje: porcentaje, activa: activa),
+        nombreAnterior: nombreAnterior != nombre ? nombreAnterior : null,
       );
     }
 
@@ -166,7 +181,8 @@ class _ListasPrecioPageState extends State<ListasPrecioPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'El precio se calcula como: costo × (1 + porcentaje / 100)',
+                    'Podés renombrar cada lista (ej. Lista 1 → Mayorista) y cambiar el %. '
+                    'El precio se calcula: costo × (1 + porcentaje / 100).',
                     style: TextStyle(color: colorScheme.onSurfaceVariant),
                   ),
                   const SizedBox(height: 12),
@@ -196,7 +212,7 @@ class _ListasPrecioPageState extends State<ListasPrecioPage> {
                                         fontWeight: FontWeight.bold),
                                   ),
                                   subtitle: Text(
-                                    'Ganancia: ${lista.porcentaje.toStringAsFixed(1)}%',
+                                    'Ganancia: ${lista.porcentaje.toStringAsFixed(1)}% · tocá el lápiz para renombrar',
                                   ),
                                   trailing: Row(
                                     mainAxisSize: MainAxisSize.min,
@@ -206,6 +222,7 @@ class _ListasPrecioPageState extends State<ListasPrecioPage> {
                                         onChanged: (_) => _toggleActiva(lista),
                                       ),
                                       IconButton(
+                                        tooltip: 'Renombrar / editar %',
                                         icon: const Icon(Icons.edit_rounded),
                                         onPressed: () =>
                                             _editarLista(lista: lista),

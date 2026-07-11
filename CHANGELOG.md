@@ -9,6 +9,9 @@ Todos los cambios relevantes del proyecto se documentan aquí.
 - Sidebar más densa (logo y filas más chicas) para menos movimiento de mouse.
 - **Valor del stock a costo** además del valor a precio de venta (Inicio, Dashboard y Productos).
 - **Todos los KPIs son clickeables** y abren la página correspondiente (APK y EXE).
+- Productos sin barra KPI: layout tipo Clientes (buscador + actualizar + volver).
+- En la lista de productos: foto del artículo y solo precios de listas activas (con su nombre).
+- Listas de precios: renombrar + editar % (más claro en la UI).
 
 ### Sync — cobertura ampliada
 - Categorías y listas de precios: sync bidireccional + cola offline.
