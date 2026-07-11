@@ -88,7 +88,7 @@ class _MenuLateralConfigPageState extends State<MenuLateralConfigPage> {
                       OutlinedButton.icon(
                         onPressed: () async {
                           await _svc.aplicarPerfilMovil();
-                          if (!mounted) return;
+                          if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text(
@@ -103,7 +103,7 @@ class _MenuLateralConfigPageState extends State<MenuLateralConfigPage> {
                       OutlinedButton.icon(
                         onPressed: () async {
                           await _svc.mostrarTodos();
-                          if (!mounted) return;
+                          if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text('Perfil completo: todos visibles'),

@@ -135,6 +135,7 @@ class _InicioPageState extends State<InicioPage> {
       appBar: buildModuleAppBar(
         context,
         title: 'Inicio',
+        showHome: false,
         actions: [
           IconButton(
             tooltip: 'Actualizar',

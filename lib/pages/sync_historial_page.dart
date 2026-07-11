@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../core/firebase/firebase_auth_usuario_service.dart';
+import '../core/navigation/app_navigation.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/sync_queue_service.dart';
 import '../services/auth_service.dart';
@@ -184,6 +185,11 @@ class _SyncHistorialPageState extends State<SyncHistorialPage>
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Inicio',
+            icon: const Icon(Icons.home_rounded),
+            onPressed: () => AppNavigation.irAlInicio(context),
+          ),
           if (sinNube)
             TextButton.icon(
               onPressed: _conectando ? null : _conectarNube,

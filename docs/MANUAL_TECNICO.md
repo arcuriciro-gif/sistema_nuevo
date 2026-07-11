@@ -59,6 +59,12 @@ Inbound (otros dispositivos → este): listeners de `FirestoreSyncService` sin c
 Widget: `lib/widgets/sync_status_chip.dart`  
 Página: `lib/pages/sync_historial_page.dart`
 
+## Navegación — botón Inicio
+
+- `lib/core/navigation/app_navigation.dart`: `AppNavigation.irAlInicio` hace `popUntil(isFirst)` y selecciona el módulo `inicio` vía callback registrado por `MainShell`.
+- `buildModuleAppBar` muestra el ícono casa por defecto (`showHome: true`); Inicio lo oculta.
+- En móvil, la AppBar del shell también muestra Inicio cuando el módulo actual no es Inicio.
+
 ## Servicios que encolan
 
 - `ClienteService`, `ProveedorService`

@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
+import '../core/navigation/app_navigation.dart';
+import '../core/sync/sync_queue_service.dart';
+import '../core/utils/media_path.dart';
 import '../services/auth_service.dart';
 import '../services/auto_backup_service.dart';
 import '../services/branding_service.dart';
@@ -12,7 +15,6 @@ import '../services/cuenta_corriente_service.dart';
 import '../services/menu_preferencias_service.dart';
 import '../services/permisos_service.dart';
 import '../theme/layout_constants.dart';
-import '../core/sync/sync_queue_service.dart';
 import '../widgets/sync_status_chip.dart';
 import 'archivo_pdfs_page.dart';
 import 'auditoria_page.dart';
@@ -47,7 +49,6 @@ import 'stock_page.dart';
 import 'usuarios_page.dart';
 import 'ventas_page.dart';
 import 'venta_rapida_page.dart';
-import '../core/utils/media_path.dart';
 
 // ── Paleta fija para la barra lateral oscura ──────────────────────────────────
 const Color _kSidebarBg = Color(0xFF111827);
@@ -109,7 +110,19 @@ class _MainShellState extends State<MainShell> {
     MenuPreferenciasService.instance.addListener(_onMenuPrefsChanged);
     ComunicacionesService.instance.iniciar();
     MenuPreferenciasService.instance.cargar();
+    AppNavigation.irAModuloInicio = _irAInicio;
     WidgetsBinding.instance.addPostFrameCallback((_) => _mostrarRecordatorioCc());
+  }
+
+  void _irAInicio() {
+    if (!mounted) return;
+    final items = _visibleItems;
+    final idx = items.indexWhere((i) => i.id == 'inicio');
+    if (idx >= 0) {
+      _select(idx);
+    } else if (items.isNotEmpty) {
+      _select(0);
+    }
   }
 
   void _onMenuPrefsChanged() {
@@ -135,6 +148,9 @@ class _MainShellState extends State<MainShell> {
 
   @override
   void dispose() {
+    if (AppNavigation.irAModuloInicio == _irAInicio) {
+      AppNavigation.irAModuloInicio = null;
+    }
     BrandingService.instance.removeListener(_onBrandingChanged);
     ComunicacionesService.instance.removeListener(_onCommsChanged);
     SyncQueueService.instance.removeListener(_onSyncChanged);
@@ -626,6 +642,12 @@ class _MainShellState extends State<MainShell> {
         ),
         centerTitle: true,
         actions: [
+          if (current?.id != 'inicio')
+            IconButton(
+              tooltip: 'Inicio',
+              icon: const Icon(Icons.home_rounded),
+              onPressed: _irAInicio,
+            ),
           const Padding(
             padding: EdgeInsets.only(right: 4),
             child: SyncStatusChip(dense: true),

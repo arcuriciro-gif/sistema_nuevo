@@ -17,6 +17,7 @@ Todos los cambios relevantes del proyecto se documentan aquí.
 - **Menú lateral personalizable** por dispositivo (Android/Windows): Configuración → Personalizar menú. Perfiles “móvil” y “completo”.
 - Notas internas: input con SafeArea (no se pisa con Android); sin duplicados al sincronizar.
 - Fotos de producto: se persisten y suben a la nube; la lista muestra la foto (o inicial si no hay).
+- **Botón Inicio** en todas las pantallas (ícono casa en el AppBar): un toque cierra el stack y vuelve al inicio.
 
 ### Sync — cobertura ampliada
 - Categorías y listas de precios: sync bidireccional + cola offline.
