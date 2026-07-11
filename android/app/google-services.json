@@ -7,9 +7,28 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:932698618413:android:79f6dd8275b301f21896a4",
+        "mobilesdk_app_id": "1:932698618413:android:e75d03f6d2a6d3f51896a4",
         "android_client_info": {
           "package_name": "com.eltatamanager.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDIO601iRMJgk_pCERXJj3aalP5sUMRNgE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:932698618413:android:79f6dd8275b301f21896a4",
+        "android_client_info": {
+          "package_name": "com.example.sistema_nuevo"
         }
       },
       "oauth_client": [],
