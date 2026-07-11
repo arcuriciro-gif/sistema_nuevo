@@ -86,9 +86,13 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _selectedIndex = 0;
   bool _recordatorioMostrado = false;
+  final Map<String, Widget> _pageCache = {};
 
   void _onBrandingChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -104,7 +108,10 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _onCommsChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   void _onSyncChanged() {
@@ -120,6 +127,20 @@ class _MainShellState extends State<MainShell> {
     ComunicacionesService.instance.removeListener(_onCommsChanged);
     SyncQueueService.instance.removeListener(_onSyncChanged);
     super.dispose();
+  }
+
+  String _pageKey(_ShellItem item) => '${item.modulo}::${item.title}';
+
+  Widget _pageFor(_ShellItem item) {
+    // Cachear páginas: recrearlas en cada setState (sync/branding) rompía
+    // IndexedStack con el assert _dependents.isEmpty.
+    return _pageCache.putIfAbsent(_pageKey(item), item.builder);
+  }
+
+  List<Widget> _pagesFor(List<_ShellItem> items) {
+    final keys = items.map(_pageKey).toSet();
+    _pageCache.removeWhere((key, _) => !keys.contains(key));
+    return [for (final item in items) _pageFor(item)];
   }
 
   List<_ShellItem> get _items => [
@@ -529,7 +550,7 @@ class _MainShellState extends State<MainShell> {
                       ? const Center(child: Text('Sin módulos disponibles'))
                       : IndexedStack(
                           index: index,
-                          children: [for (final item in items) item.builder()],
+                          children: _pagesFor(items),
                         ),
                 ),
               ],
@@ -630,7 +651,7 @@ class _MainShellState extends State<MainShell> {
           ? const Center(child: Text('Sin módulos disponibles'))
           : IndexedStack(
               index: index,
-              children: [for (final item in items) item.builder()],
+              children: _pagesFor(items),
             ),
       bottomNavigationBar: quickItems.isEmpty
           ? null

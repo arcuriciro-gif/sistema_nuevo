@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../core/events/data_refresh_hub.dart';
 import '../models/chat_mensaje.dart';
@@ -69,7 +70,9 @@ class _ProductosPageState extends State<ProductosPage> {
 
   void _onDatosActualizados() {
     if (!mounted) return;
-    cargarProductos();
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) cargarProductos();
+    });
   }
 
   @override
