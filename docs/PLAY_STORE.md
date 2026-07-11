@@ -1,57 +1,136 @@
-# Google Play — checklist Tata.Manager
+# Google Play y confianza — Tata.Manager
 
 Package ID: **`com.eltatamanager.app`**  
-Versión en `pubspec.yaml` (versionName / versionCode).
+Versión: la de `pubspec.yaml` (hoy `1.2.4+27`).
 
-## Antes de subir el AAB
+---
 
-1. **Firebase Console**
-   - Agregar app Android con package `com.eltatamanager.app`.
-   - Descargar el nuevo `google-services.json` y reemplazar `android/app/google-services.json`.
-   - (El archivo del repo ya apunta a ese package; si el proyecto Firebase no tiene esa app, Auth/Firestore fallarán hasta registrarla.)
+## 1. Por qué Android dice “app no segura”
 
-2. **Firma de release**
-   - Generar keystore de upload.
-   - Copiar `android/key.properties.example` → `android/key.properties` y completar.
-   - No commitear `key.properties` ni el `.jks`.
+Eso aparece cuando instalás el **APK a mano** (WhatsApp, Drive, cable).  
+Play Protect no conoce esa instalación → aviso de “origen desconocido / puede ser dañina”.
 
-3. **Build**
-   ```bash
-   flutter build appbundle --release
-   ```
-   Salida: `build/app/outputs/bundle/release/app-release.aab`
+| Forma de instalar | Confianza |
+|-------------------|-----------|
+| APK por fuera (ahora) | Aviso casi siempre |
+| APK firmado release (keystore propio) | Un poco mejor, **sigue el aviso** |
+| **Google Play** (o pista interna de Play) | De confianza: sin ese cartel |
 
-4. **Play Console**
-   - Política de privacidad: publicar `docs/PRIVACY_POLICY.md` en una URL HTTPS pública y pegarla en la ficha.
-   - Completar **Data safety** (ver sección abajo).
-   - Content rating, público objetivo, países.
-   - Declarar que **no** se usa Advertising ID.
-   - Permisos: Cámara (escáner/fotos), Bluetooth (impresora térmica, sin ubicación).
+**Conclusión:** para que sea “de confianza” de verdad, hay que publicarla en **Play Console** (aunque sea solo para tu equipo al principio).
 
-## Data Safety (resumen)
+---
+
+## 2. Firma de release (obligatoria para Play)
+
+En tu PC (una sola vez; **guardá el keystore en un lugar seguro**):
+
+```bat
+cd A:\PROYECTOS\sistema_nuevo_git\android
+mkdir keystore
+keytool -genkey -v -keystore keystore\upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+```
+
+Copiá y completá:
+
+```bat
+copy key.properties.example key.properties
+```
+
+Ejemplo `android/key.properties`:
+
+```
+storePassword=TU_CLAVE
+keyPassword=TU_CLAVE
+keyAlias=upload
+storeFile=../keystore/upload-keystore.jks
+```
+
+**No subas** `key.properties` ni el `.jks` a Git.
+
+Build para Play:
+
+```bat
+flutter build appbundle --release
+```
+
+Archivo: `build\app\outputs\bundle\release\app-release.aab`
+
+---
+
+## 3. Subir a Play Store (pasos)
+
+1. Creá cuenta en [Google Play Console](https://play.google.com/console) (pago único de registro).
+2. Crear app → nombre **Tata.Manager** → app de negocios / productividad.
+3. Completá ficha: ícono, capturas, descripción corta/larga.
+4. **Política de privacidad:** publicá `docs/PRIVACY_POLICY.md` en una URL HTTPS (GitHub Pages, tu web, Notion público, etc.) y pegá el link.
+5. **Data safety:** usar la tabla de abajo.
+6. Content rating, público (18+ / empresas), países.
+7. Subí el **AAB** a:
+   - **Prueba interna** (hasta 100 emails) → sin revisión larga; ideal para vos y empleados.
+   - Luego **cerrada / abierta / producción**.
+8. En Firebase Console → app Android → agregá el **SHA-1** de la firma de Play (App signing key certificate) además del de upload.
+
+### Data Safety (resumen)
 
 | Dato | Recolecta | Comparte | Finalidad |
 |------|-----------|----------|-----------|
-| Info de cuenta (usuario/rol) | Sí (local + Firebase Auth) | No (salvo sync propio) | Funcionalidad app |
-| Datos financieros/comerciales | Sí | Sync Firebase del negocio | Gestión |
-| Fotos / archivos | Sí (opcionales) | Storage del tenant | Catálogo / docs |
+| Cuenta (usuario/rol) | Sí | Sync propio (Firebase) | Login |
+| Datos comerciales | Sí | Firebase del negocio | Gestión |
+| Fotos / archivos | Opcional | Storage del tenant | Catálogo |
 | Advertising ID | **No** | — | — |
 | Ubicación | **No** | — | — |
 
-Cifrado en tránsito: sí (HTTPS/Firebase).  
-Eliminación: vía administrador de la app / desinstalación (local).
+---
 
-## Cambios técnicos ya hechos en el repo
+## 4. Muy importante: “cualquier usuario” sin usar TUS datos
 
-- `applicationId` / `namespace` → `com.eltatamanager.app` (ya no `com.example.*`).
-- Manifest: Bluetooth sin ubicación, cámara opcional, sin cleartext, backup rules, AD_ID remove.
-- R8/minify release + `proguard-rules.pro`.
-- Firma release si existe `android/key.properties`.
-- Política en `docs/PRIVACY_POLICY.md` + pantalla en Configuración.
+Hoy la app apunta a **tu proyecto Firebase** y al tenant por defecto `tata_stock`.
 
-## Impresión térmica
+Si publicás el mismo APK en Play **tal cual**:
 
-- Configuración → **Impresora térmica Bluetooth**.
-- Emparejar la impresora en Ajustes del celular, luego elegirla en la app.
-- Remitos / ventas: acción **Térmica** (además de PDF).
-- Ancho 58/80 mm según plantilla de impresión (`papelPdf`).
+- Cualquiera que la instale podría terminar en **tu misma nube** → **ve/mezcla tus datos**.  
+  **No hagas producción pública así.**
+
+### Opciones reales
+
+#### A) Solo tu negocio (recomendado ahora)
+- Play en **prueba interna / cerrada** (emails de tu equipo).
+- O APK firmado solo para tus celulares.
+- Un solo Firebase = tus datos. Correcto.
+
+#### B) Varios comercios / “cualquiera” en Play (SaaS)
+Hay que separar negocios:
+
+1. **Alta de negocio** al primer uso (nombre del local).
+2. Se crea un **`tenantId` único** (ej. `negocio_abc123`).
+3. Todos los datos van a `tenants/{tenantId}/…` — **nunca** al tenant de otro.
+4. Idealmente: cada cliente con su propio proyecto Firebase, **o** un backend multi-tenant con reglas que solo lean su tenant.
+
+Eso es un desarrollo aparte (onboarding + reglas Firestore + posiblemente billing).  
+Hasta que exista, **no publiques en producción abierta**.
+
+#### C) Venta “caja cerrada”
+- Les instalás vos el APK/EXE y configurás **su** Firebase / su tenant.
+- No hace falta Play pública.
+
+---
+
+## 5. Checklist corto
+
+- [ ] Keystore de upload creado y respaldado  
+- [ ] `key.properties` local (no en Git)  
+- [ ] `flutter build appbundle --release`  
+- [ ] Política de privacidad en URL pública  
+- [ ] Play Console → prueba interna primero  
+- [ ] SHA-1 de Play en Firebase  
+- [ ] **No** producción abierta mientras el tenant sea el tuyo fijo  
+
+---
+
+## 6. Cambios técnicos ya en el repo
+
+- `applicationId` = `com.eltatamanager.app`
+- Manifest endurecido (sin cleartext, sin AD_ID, Bluetooth sin ubicación)
+- R8/minify en release
+- Firma release si existe `android/key.properties`
+- Política: `docs/PRIVACY_POLICY.md`

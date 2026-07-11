@@ -1,11 +1,11 @@
 # Cómo generar APK y EXE (Tata.Manager)
 
-Versión actual: **`1.2.1+24`**  
-En la pantalla de **login** debe verse abajo: **`Tata.Manager v1.2.1 (24)`**.  
+Versión actual: **`1.2.4+27`**  
+En la pantalla de **login** debe verse abajo: **`Tata.Manager v1.2.4 (27)`**.  
 Si no aparece ese texto, estás usando una carpeta/EXE/APK **vieja**.
 
 Package Android: `com.eltatamanager.app`  
-Rama con todo lo nuevo: `cursor/sync-queue-offline-6144`
+Rama con todo lo nuevo: `cursor/remitos-planilla-caja-6144`
 
 ---
 
@@ -13,7 +13,8 @@ Rama con todo lo nuevo: `cursor/sync-queue-offline-6144`
 
 1. **Siempre** `git pull` en esa rama antes de compilar.
 2. **Borrá** el instalador/APK viejo antes de copiar el nuevo.
-3. En login verificá **`v1.2.1 (24)`**. Si no está, no es este build.
+3. En login verificá **`v1.2.4 (27)`**. Si no está, no es este build.
+4. Play Store / aviso “app no segura”: ver `docs/PLAY_STORE.md`.
 
 ---
 
