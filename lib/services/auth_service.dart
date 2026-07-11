@@ -427,9 +427,7 @@ class AuthService {
       debugPrint('Firebase crearCuenta: $e');
     }
 
-    lastFirebaseError = FirebaseAuthUsuarioService.mensajeError(
-      ultimoError ?? 'No se pudo vincular con Firebase Auth',
-    );
+    lastFirebaseError = FirebaseAuthUsuarioService.mensajeError(ultimoError!);
     return null;
   }
 
