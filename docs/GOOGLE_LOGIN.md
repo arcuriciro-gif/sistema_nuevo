@@ -30,6 +30,8 @@ No hace falta que vos les armes usuario y clave de antemano.
 ## Admin
 
 - Seguí entrando con usuario/clave (`admin`) para gestionar altas.
+- **Importante:** el admin en la PC debe tener **sync/nube conectada** (indicador arriba). Si no, no ve las solicitudes del celular.
+- En Usuarios hay botón de nube para traer solicitudes.
 - Podés filtrar **Solo pendientes** en Usuarios.
 - Rechazar = **Eliminar** la solicitud pendiente.
 - También podés crear usuarios a mano si preferís.

@@ -13,6 +13,7 @@ import '../database/database_helper.dart';
 import '../models/usuario.dart';
 import '../repositories/firestore_usuario_repository.dart';
 import '../repositories/sqlite_usuario_repository.dart';
+import 'comunicaciones_service.dart';
 
 class AuthService {
   static final AuthService instance = AuthService._();
@@ -415,8 +416,32 @@ class AuthService {
       if (BackendConfigService.instance.firebaseEnabled) {
         try {
           await FirestoreUsuarioRepository().insertar(localUser);
+          try {
+            await ComunicacionesService.instance.crearNotificacion(
+              usuarioDestino: 'admin',
+              tipo: 'solicitud_alta',
+              titulo: 'Solicitud de acceso',
+              cuerpo:
+                  '$nombreSugerido ($email) pidió acceso con $origen. '
+                  'Aprobalo en Usuarios.',
+              entidadTipo: 'usuario',
+              entidadId: firebaseUid,
+            );
+          } catch (e) {
+            debugPrint('Notif solicitud alta: $e');
+          }
         } catch (e) {
           debugPrint('Firestore solicitud alta: $e');
+          try {
+            await firebase.cerrarSesion();
+          } catch (_) {}
+          throw StateError(
+            'No se pudo enviar la solicitud a la nube.\n'
+            'Sin eso el administrador en la PC no la ve.\n\n'
+            'Detalle: $e\n\n'
+            'Revisá internet y que Firestore permita escribir en '
+            'tenants/.../usuarios.',
+          );
         }
       }
       try {

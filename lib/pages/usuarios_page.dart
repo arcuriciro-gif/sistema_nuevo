@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../core/auth/rol_util.dart';
+import '../core/events/data_refresh_hub.dart';
+import '../core/firebase/firebase_auth_usuario_service.dart';
+import '../core/utils/media_path.dart';
 import '../models/usuario.dart';
 import '../services/auth_service.dart';
 import '../services/usuario_service.dart';
 import '../theme/app_visuals.dart';
-import '../core/utils/media_path.dart';
+import '../theme/module_app_bar.dart';
 import '../widgets/password_confirm_dialog.dart';
 import 'usuario_form_page.dart';
-import '../theme/module_app_bar.dart';
 
 class UsuariosPage extends StatefulWidget {
   const UsuariosPage({super.key});
@@ -26,6 +28,8 @@ class _UsuariosPageState extends State<UsuariosPage> {
   bool _cargando = true;
   bool _sinPermiso = false;
   bool _soloPendientes = false;
+  String? _avisoNube;
+  bool _refrescando = false;
 
   @override
   void initState() {
@@ -35,21 +39,69 @@ class _UsuariosPageState extends State<UsuariosPage> {
       _cargando = false;
       return;
     }
+    DataRefreshHub.instance.addListener(_onDatos);
     _cargar();
+  }
+
+  void _onDatos() {
+    if (mounted && !_refrescando) _cargar(silent: true);
   }
 
   @override
   void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatos);
     _buscarController.dispose();
     super.dispose();
   }
 
-  Future<void> _cargar() async {
+  Future<void> _cargar({bool silent = false}) async {
+    if (_refrescando) return;
+    _refrescando = true;
+    if (!silent && mounted) setState(() => _cargando = true);
+    try {
+      final sync = await _service.sincronizarDesdeNube(silencioso: true);
+      _usuarios = await _service.obtenerTodosLocal();
+      _filtrar(_buscarController.text, refrescar: false);
+      if (!mounted) return;
+      setState(() {
+        _cargando = false;
+        _avisoNube = sync.aviso ??
+            (FirebaseAuthUsuarioService.instance.uidActual == null
+                ? 'Sin sesión en la nube: las solicitudes del celular no aparecen. '
+                    'Tocá sync arriba e ingresá de nuevo la clave del admin.'
+                : null);
+      });
+    } finally {
+      _refrescando = false;
+    }
+  }
+
+  Future<void> _forzarSyncNube() async {
+    if (_refrescando) return;
+    _refrescando = true;
     setState(() => _cargando = true);
-    _usuarios = await _service.obtenerTodos();
-    _filtrar(_buscarController.text, refrescar: false);
-    if (!mounted) return;
-    setState(() => _cargando = false);
+    try {
+      final sync = await _service.sincronizarDesdeNube(silencioso: false);
+      _usuarios = await _service.obtenerTodosLocal();
+      _filtrar(_buscarController.text, refrescar: false);
+      if (!mounted) return;
+      setState(() {
+        _cargando = false;
+        _avisoNube = sync.aviso;
+      });
+      final pendientes = _usuarios.where((u) => u.pendienteAlta).length;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            sync.aviso ??
+                'Nube OK: ${sync.remotos} usuario(s) remotos. '
+                'Pendientes locales: $pendientes.',
+          ),
+        ),
+      );
+    } finally {
+      _refrescando = false;
+    }
   }
 
   void _filtrar(String texto, {bool refrescar = true}) {
@@ -319,7 +371,22 @@ class _UsuariosPageState extends State<UsuariosPage> {
       );
     }
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: 'Usuarios'),
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Usuarios',
+        actions: [
+          IconButton(
+            tooltip: 'Traer solicitudes de la nube',
+            icon: const Icon(Icons.cloud_download_rounded),
+            onPressed: _cargando ? null : _forzarSyncNube,
+          ),
+          IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _cargando ? null : () => _cargar(),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab_usuarios',
         onPressed: () => _abrirFormulario(),
@@ -328,6 +395,34 @@ class _UsuariosPageState extends State<UsuariosPage> {
       ),
       body: Column(
         children: [
+          if (_avisoNube != null)
+            Material(
+              color: cs.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.cloud_off_rounded, color: cs.onErrorContainer),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _avisoNube!,
+                        style: TextStyle(
+                          color: cs.onErrorContainer,
+                          fontSize: 12,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _forzarSyncNube,
+                      child: const Text('Reintentar'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           Material(
             color: AppVisuals.warning(cs).withValues(alpha: 0.12),
             child: Padding(
@@ -347,7 +442,8 @@ class _UsuariosPageState extends State<UsuariosPage> {
                     '1) La persona pide acceso con Google o correo.\n'
                     '2) Aparece acá con badge PENDIENTE ALTA (arriba de la lista).\n'
                     '3) Tocá el ícono de persona con tilde → elegí rol → Aprobar.\n'
-                    '4) Ella vuelve a entrar con el mismo Google/correo.',
+                    '4) Ella vuelve a entrar con el mismo Google/correo.\n'
+                    '5) Si no aparece: nube (ícono nube) o conectá sync del admin.',
                     style: TextStyle(fontSize: 12, height: 1.35),
                   ),
                 ],

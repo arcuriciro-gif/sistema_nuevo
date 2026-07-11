@@ -1,3 +1,10 @@
+## [1.2.4] — 2026-07-11
+
+### Sync de solicitudes de alta (crítico)
+- Las solicitudes creadas en el celular (Google/correo) ahora se sincronizan a la PC del admin.
+- Usuarios: botón nube para **traer solicitudes**; aviso si el admin no tiene sesión Firebase.
+- Si la solicitud no se pudo subir a la nube, el celular lo dice (antes fallaba en silencio).
+
 ## [1.2.3] — 2026-07-11
 
 ### Alta de usuarios (más claro)

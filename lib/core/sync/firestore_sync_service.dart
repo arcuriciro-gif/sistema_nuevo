@@ -16,6 +16,7 @@ import '../../models/comentario_interno.dart';
 import '../../models/documento_cliente.dart';
 import '../../models/producto.dart';
 import '../../models/proveedor.dart';
+import '../../models/usuario.dart';
 import '../../models/venta.dart';
 import '../../repositories/firestore_producto_repository.dart';
 import '../../repositories/producto_repository.dart';
@@ -43,6 +44,7 @@ class FirestoreSyncService {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _comentariosSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _categoriasSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _listasPreciosSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _usuariosSub;
 
   bool _sincronizando = false;
   bool _sincronizandoVentas = false;
@@ -55,6 +57,7 @@ class FirestoreSyncService {
   bool _sincronizandoComentarios = false;
   bool _sincronizandoCategorias = false;
   bool _sincronizandoListasPrecios = false;
+  bool _sincronizandoUsuarios = false;
 
   /// Cuando es true, los `subir*`/`eliminar*` remotos relanzan errores
   /// (usado por [SyncQueueService] para reintentos). Callers normales no cambian.
@@ -101,6 +104,8 @@ class FirestoreSyncService {
       _col('categorias');
   CollectionReference<Map<String, dynamic>> get _listasPreciosCol =>
       _col('listas_precios');
+  CollectionReference<Map<String, dynamic>> get _usuariosCol =>
+      _col('usuarios');
 
   String _docIdPorNombre(String nombre) {
     final n = nombre.trim().toLowerCase();
@@ -162,6 +167,10 @@ class FirestoreSyncService {
       _aplicarListasPreciosRemotas,
       onError: (Object error) => debugPrint('Sync listas_precios: $error'),
     );
+    _usuariosSub = _usuariosCol.snapshots().listen(
+      _aplicarUsuariosRemotos,
+      onError: (Object error) => debugPrint('Sync usuarios: $error'),
+    );
   }
 
   Future<void> stop() async {
@@ -176,6 +185,7 @@ class FirestoreSyncService {
     await _comentariosSub?.cancel();
     await _categoriasSub?.cancel();
     await _listasPreciosSub?.cancel();
+    await _usuariosSub?.cancel();
     _productosSub = null;
     _ventasSub = null;
     _remitosSub = null;
@@ -187,6 +197,7 @@ class FirestoreSyncService {
     _comentariosSub = null;
     _categoriasSub = null;
     _listasPreciosSub = null;
+    _usuariosSub = null;
   }
 
   ProductoRepository get writeRepository {
@@ -1045,6 +1056,118 @@ class FirestoreSyncService {
       debugPrint('Aplicar clientes remotos: $e');
     } finally {
       _sincronizandoClientes = false;
+    }
+  }
+
+  /// Trae usuarios de Firestore una vez (p. ej. al abrir Usuarios).
+  Future<int> sincronizarUsuariosAhora() async {
+    if (!BackendConfigService.instance.firebaseEnabled ||
+        !FirebaseBootstrap.isReady ||
+        FirebaseAuthUsuarioService.instance.uidActual == null) {
+      return 0;
+    }
+    try {
+      final snap = await _usuariosCol.get();
+      await _aplicarUsuariosRemotos(snap);
+      return snap.docs.length;
+    } catch (e) {
+      debugPrint('sincronizarUsuariosAhora: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _aplicarUsuariosRemotos(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (_sincronizandoUsuarios) return;
+    _sincronizandoUsuarios = true;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      var huboCambios = false;
+
+      for (final doc in snap.docs) {
+        final remoto = Usuario.fromFirestore(doc.data(), docId: doc.id);
+        if (remoto.usuario.trim().isEmpty) continue;
+
+        Map<String, dynamic>? existente;
+        final uid = remoto.firebaseUid?.trim() ?? '';
+        if (uid.isNotEmpty) {
+          final byUid = await db.query(
+            'usuarios',
+            where: 'firebase_uid = ?',
+            whereArgs: [uid],
+            limit: 1,
+          );
+          if (byUid.isNotEmpty) existente = byUid.first;
+        }
+        if (existente == null && remoto.email.trim().isNotEmpty) {
+          final byEmail = await db.query(
+            'usuarios',
+            where: 'LOWER(email) = ?',
+            whereArgs: [remoto.email.trim().toLowerCase()],
+            limit: 1,
+          );
+          if (byEmail.isNotEmpty) existente = byEmail.first;
+        }
+        if (existente == null) {
+          final byUser = await db.query(
+            'usuarios',
+            where: 'LOWER(usuario) = ?',
+            whereArgs: [remoto.usuario.trim().toLowerCase()],
+            limit: 1,
+          );
+          if (byUser.isNotEmpty) existente = byUser.first;
+        }
+
+        final map = remoto.toMap()..remove('id');
+        if (existente == null) {
+          await db.insert('usuarios', map);
+          huboCambios = true;
+          continue;
+        }
+
+        // No pisar hash local si el remoto viene vacío.
+        final passRemoto = map['password']?.toString() ?? '';
+        if (passRemoto.isEmpty) {
+          map['password'] = existente['password'];
+        }
+        // Preservar foto local si la remota viene vacía.
+        final fotoRemota = map['foto']?.toString() ?? '';
+        if (fotoRemota.isEmpty &&
+            (existente['foto']?.toString().isNotEmpty ?? false)) {
+          map['foto'] = existente['foto'];
+        }
+
+        final localId = existente['id'] as int;
+        final before = Usuario.fromMap(existente);
+        final after = Usuario.fromMap({...map, 'id': localId});
+        final cambio = before.pendienteAlta != after.pendienteAlta ||
+            before.activo != after.activo ||
+            before.rol != after.rol ||
+            before.nombre != after.nombre ||
+            before.email != after.email ||
+            before.firebaseUid != after.firebaseUid ||
+            before.origenAlta != after.origenAlta ||
+            before.foto != after.foto ||
+            before.password != after.password;
+        if (!cambio) continue;
+
+        await db.update(
+          'usuarios',
+          map,
+          where: 'id = ?',
+          whereArgs: [localId],
+        );
+        huboCambios = true;
+      }
+
+      if (huboCambios) {
+        DataRefreshHub.instance.notifyTodo();
+      }
+    } catch (e) {
+      debugPrint('Aplicar usuarios remotos: $e');
+    } finally {
+      _sincronizandoUsuarios = false;
     }
   }
 

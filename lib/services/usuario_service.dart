@@ -6,6 +6,7 @@ import '../core/auth/rol_util.dart';
 import '../core/auth/usuario_auth_email.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../models/usuario.dart';
 import '../repositories/firestore_usuario_repository.dart';
 import '../repositories/sqlite_usuario_repository.dart';
@@ -25,9 +26,51 @@ class UsuarioService {
     }
   }
 
+  /// Mezcla usuarios de Firestore → SQLite y devuelve la lista local.
   Future<List<Usuario>> obtenerTodos() async {
     _requiereAdministrador();
+    await sincronizarDesdeNube(silencioso: true);
     return _repoLocal.obtenerTodos();
+  }
+
+  Future<List<Usuario>> obtenerTodosLocal() async {
+    _requiereAdministrador();
+    return _repoLocal.obtenerTodos();
+  }
+
+  /// Trae solicitudes/altas creadas en otros dispositivos.
+  Future<({int remotos, String? aviso})> sincronizarDesdeNube({
+    bool silencioso = false,
+  }) async {
+    if (!BackendConfigService.instance.firebaseEnabled) {
+      return (
+        remotos: 0,
+        aviso: silencioso
+            ? null
+            : 'Firebase está desactivado en este dispositivo.',
+      );
+    }
+    if (FirebaseAuthUsuarioService.instance.uidActual == null) {
+      return (
+        remotos: 0,
+        aviso: silencioso
+            ? null
+            : 'Sin sesión en la nube. Tocá el indicador de sync '
+                'e ingresá de nuevo la clave del admin para conectar Firebase.',
+      );
+    }
+    try {
+      final n = await FirestoreSyncService.instance.sincronizarUsuariosAhora();
+      return (remotos: n, aviso: null);
+    } catch (e) {
+      debugPrint('UsuarioService.sincronizarDesdeNube: $e');
+      return (
+        remotos: 0,
+        aviso: silencioso
+            ? null
+            : 'No se pudieron traer usuarios de la nube:\n$e',
+      );
+    }
   }
 
   /// Resultado del alta: id local + si se envió email de confirmación.
@@ -269,6 +312,7 @@ class UsuarioService {
 
   Future<List<Usuario>> obtenerPendientesAlta() async {
     _requiereAdministrador();
+    await sincronizarDesdeNube(silencioso: true);
     final todos = await _repoLocal.obtenerTodos();
     return todos.where((u) => u.pendienteAlta).toList();
   }
