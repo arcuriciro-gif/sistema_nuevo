@@ -90,8 +90,8 @@ class FirestoreSyncService {
       return;
     }
     await stop();
-    // Catálogo completo: un tope bajo (2000) dejaba productos fuera entre dispositivos.
-    _productosSub = _remote.watchTodos(limit: 50000).listen(
+    // Catálogo completo sin tope artificial (antes 2000 cortaba productos).
+    _productosSub = _remote.watchTodos(limit: 0).listen(
       _aplicarProductosRemotos,
       onError: (Object error) => debugPrint('Sync productos: $error'),
     );

@@ -108,11 +108,11 @@ class FirestoreProductoRepository implements ProductoRepository {
 
   @override
   Stream<List<Producto>> watchTodos({int limit = 200}) {
-    return _collection
-        .orderBy('descripcion')
-        .limit(limit)
-        .snapshots()
-        .map(
+    // limit <= 0 => sin tope (catálogo completo para sync multi-dispositivo).
+    final query = limit <= 0
+        ? _collection.orderBy('descripcion')
+        : _collection.orderBy('descripcion').limit(limit);
+    return query.snapshots().map(
           (snap) => snap.docs
               .map((doc) => Producto.fromFirestore(doc.data(), docId: doc.id))
               .toList(),
