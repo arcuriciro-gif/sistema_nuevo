@@ -117,6 +117,14 @@ Página: `lib/pages/sync_historial_page.dart`
 - UI: `PedidoSugeridoPage` → envía selección a borradores de `Pedidos` por proveedor.
 - Menú: `pedido_sugerido` (permiso módulo `pedidos`).
 
+## Administración de usuarios (solo admin)
+
+- UI + servicio: `UsuariosPage` / `UsuarioService` exigen `AuthService.esAdministrador()`.
+- Acciones auditadas en `audit_log`: `CREAR_USUARIO`, `MODIFICAR_USUARIO`, `ACTIVAR_USUARIO`, `DESACTIVAR_USUARIO`, `RESTABLECER_PASSWORD`, `MODIFICAR_PERMISOS`.
+- `PermisosPage` / `PermisosService.guardarLoteConAuditoria`: solo admin; el rol `admin` conserva módulos críticos.
+- Menú: ítems `usuarios` y `permisos` visibles solo si `esAdministrador()`.
+- Restablecer contraseña: hash local + `debeCambiarPassword`; si hay email real, intenta email de reset Firebase.
+
 ## Reglas de evolución
 
 1. No cambiar arquitectura general ni reemplazar tecnologías.
@@ -130,8 +138,8 @@ Página: `lib/pages/sync_historial_page.dart`
 1. ~~Cola sync + indicador + historial~~
 2. ~~Dashboard (accesos rápidos + KPIs)~~
 3. ~~Planilla de pedidos a proveedores~~
-4. ~~Pedido sugerido inteligente~~ ← actual
-5. Administración de usuarios (solo admin + auditoría)
+4. ~~Pedido sugerido inteligente~~
+5. ~~Administración de usuarios (solo admin + auditoría)~~ ← actual
 6. Reiniciar sistema (servicios, sin borrar datos)
 7. Historial de producto ampliado
 8. Estadísticas

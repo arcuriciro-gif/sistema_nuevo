@@ -69,12 +69,39 @@ class _UsuariosPageState extends State<UsuariosPage> {
   }
 
   Future<void> _toggleActivo(Usuario usuario) async {
-    if (!usuario.activo) {
-      await _service.actualizar(usuario.copyWith(activo: true));
-    } else {
-      await _service.desactivar(usuario.id!);
+    try {
+      if (!usuario.activo) {
+        await _service.activar(usuario.id!);
+      } else {
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Desactivar usuario'),
+            content: Text(
+              '¿Desactivar a ${usuario.nombre}? No podrá iniciar sesión.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Desactivar'),
+              ),
+            ],
+          ),
+        );
+        if (ok != true) return;
+        await _service.desactivar(usuario.id!);
+      }
+      await _cargar();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')),
+      );
     }
-    await _cargar();
   }
 
   Future<void> _restablecerPassword(Usuario usuario) async {
@@ -83,13 +110,26 @@ class _UsuariosPageState extends State<UsuariosPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Restablecer contraseña'),
-        content: TextField(
-          controller: ctrl,
-          obscureText: true,
-          decoration: const InputDecoration(
-            labelText: 'Nueva contraseña temporal',
-            border: OutlineInputBorder(),
-          ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Usuario: ${usuario.usuario}'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Nueva contraseña temporal',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Deberá cambiarla al ingresar. Si tiene email, también se intenta enviar reset de Firebase.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -103,15 +143,20 @@ class _UsuariosPageState extends State<UsuariosPage> {
         ],
       ),
     );
-    if (confirmar != true || ctrl.text.trim().length < 4) return;
+    if (confirmar != true || ctrl.text.trim().length < 4) {
+      ctrl.dispose();
+      return;
+    }
 
     try {
-      await _service.restablecerPassword(usuario, ctrl.text.trim());
+      final aviso =
+          await _service.restablecerPassword(usuario, ctrl.text.trim());
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Contraseña restablecida para ${usuario.usuario}. Deberá cambiarla al ingresar.',
+            aviso ??
+                'Contraseña restablecida para ${usuario.usuario}. Deberá cambiarla al ingresar.',
           ),
         ),
       );
@@ -166,6 +211,19 @@ class _UsuariosPageState extends State<UsuariosPage> {
       ),
       body: Column(
         children: [
+          Material(
+            color: cs.surfaceContainerLow,
+            child: const Padding(
+              padding: EdgeInsets.fromLTRB(12, 8, 12, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Solo administrador: alta, edición, desactivar y restablecer contraseña. Todo queda en Auditoría.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.all(12),
             child: TextField(

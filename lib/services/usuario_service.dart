@@ -126,9 +126,40 @@ class UsuarioService {
   Future<int> actualizar(Usuario usuario, {String? nuevaPassword}) async {
     _requiereAdministrador();
     final rol = RolUtil.normalizar(usuario.rol);
-    var actualizado = usuario.copyWith(rol: rol);
+    final actuales = await _repoLocal.obtenerTodos();
+    final anterior = actuales.cast<Usuario?>().firstWhere(
+          (u) => u?.id == usuario.id,
+          orElse: () => null,
+        );
 
-    if (nuevaPassword != null && nuevaPassword.trim().isNotEmpty) {
+    if (anterior != null &&
+        RolUtil.esAdministrador(anterior.rol) &&
+        !RolUtil.esAdministrador(rol)) {
+      final otrosAdmins = actuales
+          .where(
+            (u) =>
+                u.id != usuario.id &&
+                u.activo &&
+                RolUtil.esAdministrador(u.rol),
+          )
+          .length;
+      if (otrosAdmins == 0) {
+        throw StateError(
+          'No podés quitar el rol administrador del único admin activo.',
+        );
+      }
+    }
+
+    if (usuario.id == AuthService.instance.currentUser?.id &&
+        !RolUtil.esAdministrador(rol)) {
+      throw StateError('No podés quitarte el rol de administrador.');
+    }
+
+    var actualizado = usuario.copyWith(rol: rol);
+    final cambiaPassword =
+        nuevaPassword != null && nuevaPassword.trim().isNotEmpty;
+
+    if (cambiaPassword) {
       actualizado = actualizado.copyWith(
         password: AuthService.hashPassword(nuevaPassword.trim()),
         debeCambiarPassword: true,
@@ -148,11 +179,57 @@ class UsuarioService {
       'MODIFICAR_USUARIO',
       'usuarios',
       'Modificación de usuario ${actualizado.usuario}',
-      valorAnterior:
-          jsonEncode({'usuario': usuario.usuario, 'rol': usuario.rol}),
-      valorNuevo: jsonEncode(
-        {'usuario': actualizado.usuario, 'rol': actualizado.rol},
-      ),
+      valorAnterior: jsonEncode({
+        'usuario': anterior?.usuario ?? usuario.usuario,
+        'rol': anterior?.rol ?? usuario.rol,
+        'activo': anterior?.activo ?? usuario.activo,
+        'nombre': anterior?.nombre ?? usuario.nombre,
+      }),
+      valorNuevo: jsonEncode({
+        'usuario': actualizado.usuario,
+        'rol': actualizado.rol,
+        'activo': actualizado.activo,
+        'nombre': actualizado.nombre,
+        if (cambiaPassword) 'passwordRestablecida': true,
+      }),
+    );
+
+    if (cambiaPassword) {
+      await AuthService.instance.registrarCambio(
+        'RESTABLECER_PASSWORD',
+        'usuarios',
+        'Contraseña cambiada al editar usuario ${actualizado.usuario}',
+        valorNuevo: jsonEncode({
+          'usuario': actualizado.usuario,
+          'fecha': DateTime.now().toIso8601String(),
+        }),
+      );
+    }
+
+    return resultado;
+  }
+
+  Future<int> activar(int id) async {
+    _requiereAdministrador();
+    final usuarios = await _repoLocal.obtenerTodos();
+    final usuario = usuarios.firstWhere((u) => u.id == id);
+    final resultado =
+        await _repoLocal.actualizar(usuario.copyWith(activo: true));
+
+    if (BackendConfigService.instance.firebaseEnabled &&
+        (usuario.firebaseUid?.isNotEmpty ?? false)) {
+      try {
+        await FirestoreUsuarioRepository()
+            .actualizar(usuario.copyWith(activo: true));
+      } catch (_) {}
+    }
+
+    await AuthService.instance.registrarCambio(
+      'ACTIVAR_USUARIO',
+      'usuarios',
+      'Reactivación de usuario ${usuario.usuario}',
+      valorAnterior: jsonEncode({'activo': false}),
+      valorNuevo: jsonEncode({'activo': true}),
     );
 
     return resultado;
@@ -165,6 +242,18 @@ class UsuarioService {
 
     if (usuario.id == AuthService.instance.currentUser?.id) {
       throw StateError('No podés desactivar tu propio usuario.');
+    }
+
+    if (RolUtil.esAdministrador(usuario.rol)) {
+      final otrosAdmins = usuarios
+          .where(
+            (u) =>
+                u.id != id && u.activo && RolUtil.esAdministrador(u.rol),
+          )
+          .length;
+      if (otrosAdmins == 0) {
+        throw StateError('No podés desactivar el único administrador activo.');
+      }
     }
 
     final resultado = await _repoLocal.desactivar(id);
@@ -187,7 +276,12 @@ class UsuarioService {
     return resultado;
   }
 
-  Future<void> restablecerPassword(Usuario usuario, String nuevaPassword) async {
+  /// Restablece contraseña local y, si hay email real, envía reset de Firebase.
+  Future<String?> restablecerPassword(
+    Usuario usuario,
+    String nuevaPassword, {
+    bool enviarEmailFirebase = true,
+  }) async {
     _requiereAdministrador();
     if (nuevaPassword.trim().length < 4) {
       throw StateError('La contraseña debe tener al menos 4 caracteres.');
@@ -206,18 +300,41 @@ class UsuarioService {
       } catch (_) {}
     }
 
+    String? aviso;
+    final email = usuario.email.trim();
+    if (enviarEmailFirebase &&
+        FirebaseAuthUsuarioService.instance.disponible &&
+        UsuarioAuthEmail.esEmailReal(email)) {
+      try {
+        await FirebaseAuthUsuarioService.instance.enviarRestablecimiento(
+          usuario.usuario,
+          email: email,
+        );
+        aviso =
+            'Contraseña local restablecida. También se envió email de reset a $email.';
+      } catch (e) {
+        debugPrint('Email reset password: $e');
+        aviso =
+            'Contraseña local restablecida. No se pudo enviar el email de Firebase.';
+      }
+    }
+
     await AuthService.instance.registrarCambio(
       'RESTABLECER_PASSWORD',
       'usuarios',
       'Restablecimiento de contraseña para ${usuario.usuario}',
       valorNuevo: jsonEncode({
         'usuario': usuario.usuario,
+        'emailEnviado': aviso?.contains('envió email') == true,
         'fecha': DateTime.now().toIso8601String(),
       }),
     );
+
+    return aviso;
   }
 
   Future<bool> existeUsuario(String usuario) async {
+    _requiereAdministrador();
     return _repoLocal.existeUsuario(usuario);
   }
 }

@@ -439,8 +439,15 @@ class _MainShellState extends State<MainShell> {
   List<_ShellItem> get _visibleItems {
     final rol = AuthService.instance.currentUser?.rol ?? 'empleado';
     final menu = MenuPreferenciasService.instance;
+    final esAdmin = AuthService.instance.esAdministrador();
     return _items
-        .where((item) => PermisosService.instance.puedeVer(rol, item.modulo))
+        .where((item) {
+          // Usuarios y permisos: solo administrador (además del módulo).
+          if (item.id == 'usuarios' || item.id == 'permisos') {
+            return esAdmin;
+          }
+          return PermisosService.instance.puedeVer(rol, item.modulo);
+        })
         .where((item) => menu.estaVisible(item.id))
         .toList();
   }

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../models/permiso.dart';
+import '../services/auth_service.dart';
 import '../services/permisos_service.dart';
+import '../models/permiso.dart';
 import '../theme/module_app_bar.dart';
 
 class PermisosPage extends StatefulWidget {
@@ -23,10 +24,16 @@ class _PermisosPageState extends State<PermisosPage> {
   final Map<String, List<Permiso>> _permisos = {};
   bool _cargando = true;
   bool _guardando = false;
+  bool _sinPermiso = false;
 
   @override
   void initState() {
     super.initState();
+    if (!AuthService.instance.esAdministrador()) {
+      _sinPermiso = true;
+      _cargando = false;
+      return;
+    }
     _cargar();
   }
 
@@ -42,16 +49,18 @@ class _PermisosPageState extends State<PermisosPage> {
   Future<void> _guardar() async {
     setState(() => _guardando = true);
     try {
-      for (final rol in _roles) {
-        for (final permiso in _permisos[rol] ?? const <Permiso>[]) {
-          await _service.actualizar(permiso);
-        }
-      }
-      await _service.cargar();
+      final n = await _service.guardarLoteConAuditoria(_permisos);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Permisos actualizados correctamente.')),
+        SnackBar(
+          content: Text(
+            n == 0
+                ? 'Sin cambios para guardar.'
+                : 'Permisos actualizados ($n cambio(s)). Registrado en auditoría.',
+          ),
+        ),
       );
+      await _cargar();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -75,6 +84,19 @@ class _PermisosPageState extends State<PermisosPage> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    if (_sinPermiso) {
+      return Scaffold(
+        appBar: buildModuleAppBar(context, title: 'Permisos por rol'),
+        body: Center(
+          child: Text(
+            'Solo el administrador puede cambiar permisos.',
+            style: TextStyle(color: cs.onSurfaceVariant),
+          ),
+        ),
+      );
+    }
+
     return DefaultTabController(
       length: _roles.length,
       child: Scaffold(
@@ -105,111 +127,143 @@ class _PermisosPageState extends State<PermisosPage> {
         ),
         body: _cargando
             ? const Center(child: CircularProgressIndicator())
-            : TabBarView(
-                children: _roles.map((rol) {
-                  final permisos = _permisos[rol] ?? const <Permiso>[];
-                  return permisos.isEmpty
-                      ? const Center(child: Text('Sin permisos cargados.'))
-                      : SingleChildScrollView(
-                          padding: const EdgeInsets.all(12),
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: DataTable(
-                              columns: const [
-                                DataColumn(label: Text('Módulo')),
-                                DataColumn(label: Text('Ver')),
-                                DataColumn(label: Text('Crear')),
-                                DataColumn(label: Text('Editar')),
-                                DataColumn(label: Text('Eliminar')),
-                              ],
-                              rows: List.generate(permisos.length, (index) {
-                                final permiso = permisos[index];
-                                return DataRow(
-                                  cells: [
-                                    DataCell(
-                                      Text(
-                                        permiso.modulo.replaceAll('_', ' '),
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Checkbox(
-                                        value: permiso.puedeVer,
-                                        onChanged: (value) => _actualizarPermiso(
-                                          rol,
-                                          index,
-                                          (actual) => Permiso(
-                                            id: actual.id,
-                                            rol: actual.rol,
-                                            modulo: actual.modulo,
-                                            puedeVer: value ?? false,
-                                            puedeCrear: actual.puedeCrear,
-                                            puedeEditar: actual.puedeEditar,
-                                            puedeEliminar: actual.puedeEliminar,
+            : Column(
+                children: [
+                  Material(
+                    color: cs.surfaceContainerLow,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                      child: Text(
+                        'Solo administradores. Los cambios quedan en Auditoría. '
+                        'El rol admin conserva acceso a módulos críticos.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      children: _roles.map((rol) {
+                        final permisos = _permisos[rol] ?? const <Permiso>[];
+                        return permisos.isEmpty
+                            ? const Center(child: Text('Sin permisos cargados.'))
+                            : SingleChildScrollView(
+                                padding: const EdgeInsets.all(12),
+                                child: SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: DataTable(
+                                    columns: const [
+                                      DataColumn(label: Text('Módulo')),
+                                      DataColumn(label: Text('Ver')),
+                                      DataColumn(label: Text('Crear')),
+                                      DataColumn(label: Text('Editar')),
+                                      DataColumn(label: Text('Eliminar')),
+                                    ],
+                                    rows: List.generate(permisos.length, (index) {
+                                      final permiso = permisos[index];
+                                      return DataRow(
+                                        cells: [
+                                          DataCell(
+                                            Text(
+                                              permiso.modulo
+                                                  .replaceAll('_', ' '),
+                                            ),
                                           ),
-                                        ),
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Checkbox(
-                                        value: permiso.puedeCrear,
-                                        onChanged: (value) => _actualizarPermiso(
-                                          rol,
-                                          index,
-                                          (actual) => Permiso(
-                                            id: actual.id,
-                                            rol: actual.rol,
-                                            modulo: actual.modulo,
-                                            puedeVer: actual.puedeVer,
-                                            puedeCrear: value ?? false,
-                                            puedeEditar: actual.puedeEditar,
-                                            puedeEliminar: actual.puedeEliminar,
+                                          DataCell(
+                                            Checkbox(
+                                              value: permiso.puedeVer,
+                                              onChanged: (value) =>
+                                                  _actualizarPermiso(
+                                                rol,
+                                                index,
+                                                (actual) => Permiso(
+                                                  id: actual.id,
+                                                  rol: actual.rol,
+                                                  modulo: actual.modulo,
+                                                  puedeVer: value ?? false,
+                                                  puedeCrear: actual.puedeCrear,
+                                                  puedeEditar:
+                                                      actual.puedeEditar,
+                                                  puedeEliminar:
+                                                      actual.puedeEliminar,
+                                                ),
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Checkbox(
-                                        value: permiso.puedeEditar,
-                                        onChanged: (value) => _actualizarPermiso(
-                                          rol,
-                                          index,
-                                          (actual) => Permiso(
-                                            id: actual.id,
-                                            rol: actual.rol,
-                                            modulo: actual.modulo,
-                                            puedeVer: actual.puedeVer,
-                                            puedeCrear: actual.puedeCrear,
-                                            puedeEditar: value ?? false,
-                                            puedeEliminar: actual.puedeEliminar,
+                                          DataCell(
+                                            Checkbox(
+                                              value: permiso.puedeCrear,
+                                              onChanged: (value) =>
+                                                  _actualizarPermiso(
+                                                rol,
+                                                index,
+                                                (actual) => Permiso(
+                                                  id: actual.id,
+                                                  rol: actual.rol,
+                                                  modulo: actual.modulo,
+                                                  puedeVer: actual.puedeVer,
+                                                  puedeCrear: value ?? false,
+                                                  puedeEditar:
+                                                      actual.puedeEditar,
+                                                  puedeEliminar:
+                                                      actual.puedeEliminar,
+                                                ),
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Checkbox(
-                                        value: permiso.puedeEliminar,
-                                        onChanged: (value) => _actualizarPermiso(
-                                          rol,
-                                          index,
-                                          (actual) => Permiso(
-                                            id: actual.id,
-                                            rol: actual.rol,
-                                            modulo: actual.modulo,
-                                            puedeVer: actual.puedeVer,
-                                            puedeCrear: actual.puedeCrear,
-                                            puedeEditar: actual.puedeEditar,
-                                            puedeEliminar: value ?? false,
+                                          DataCell(
+                                            Checkbox(
+                                              value: permiso.puedeEditar,
+                                              onChanged: (value) =>
+                                                  _actualizarPermiso(
+                                                rol,
+                                                index,
+                                                (actual) => Permiso(
+                                                  id: actual.id,
+                                                  rol: actual.rol,
+                                                  modulo: actual.modulo,
+                                                  puedeVer: actual.puedeVer,
+                                                  puedeCrear: actual.puedeCrear,
+                                                  puedeEditar: value ?? false,
+                                                  puedeEliminar:
+                                                      actual.puedeEliminar,
+                                                ),
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              }),
-                            ),
-                          ),
-                        );
-                }).toList(),
+                                          DataCell(
+                                            Checkbox(
+                                              value: permiso.puedeEliminar,
+                                              onChanged: (value) =>
+                                                  _actualizarPermiso(
+                                                rol,
+                                                index,
+                                                (actual) => Permiso(
+                                                  id: actual.id,
+                                                  rol: actual.rol,
+                                                  modulo: actual.modulo,
+                                                  puedeVer: actual.puedeVer,
+                                                  puedeCrear: actual.puedeCrear,
+                                                  puedeEditar:
+                                                      actual.puedeEditar,
+                                                  puedeEliminar:
+                                                      value ?? false,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    }),
+                                  ),
+                                ),
+                              );
+                      }).toList(),
+                    ),
+                  ),
+                ],
               ),
       ),
     );
