@@ -52,11 +52,13 @@ class _LineaPedido {
 class PedidoFormPage extends StatefulWidget {
   final int? pedidoId;
   final Proveedor? proveedorInicial;
+  final List<PedidoItem>? lineasIniciales;
 
   const PedidoFormPage({
     super.key,
     this.pedidoId,
     this.proveedorInicial,
+    this.lineasIniciales,
   });
 
   @override
@@ -137,6 +139,25 @@ class _PedidoFormPageState extends State<PedidoFormPage> {
                 proveedor!.nombre.trim().toLowerCase(),
             orElse: () => proveedor,
           );
+    }
+
+    if (_lineas.isEmpty &&
+        widget.lineasIniciales != null &&
+        widget.lineasIniciales!.isNotEmpty) {
+      _lineas = widget.lineasIniciales!
+          .map(
+            (i) => _LineaPedido(
+              articulo: i.articulo,
+              cantidad: i.cantidad,
+              color: i.color,
+              observaciones: i.observaciones,
+              productoId: i.productoId,
+            ),
+          )
+          .toList();
+      if (_obsCtrl.text.trim().isEmpty) {
+        _obsCtrl.text = 'Generado desde pedido sugerido';
+      }
     }
 
     if (_lineas.isEmpty) {

@@ -11,6 +11,7 @@ import '../services/proveedor_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
 import 'pedido_form_page.dart';
+import 'pedido_sugerido_page.dart';
 
 /// Planilla de pedidos a proveedores, agrupada por proveedor.
 class PedidosPage extends StatefulWidget {
@@ -343,6 +344,16 @@ class _PedidosPageState extends State<PedidosPage> {
         context,
         title: 'Pedidos',
         actions: [
+          IconButton(
+            tooltip: 'Pedido sugerido',
+            icon: const Icon(Icons.auto_awesome_rounded),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PedidoSugeridoPage()),
+              );
+            },
+          ),
           IconButton(
             tooltip: 'Actualizar',
             icon: const Icon(Icons.refresh_rounded),

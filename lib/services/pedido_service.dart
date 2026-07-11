@@ -235,4 +235,81 @@ class PedidoService {
     }
     DataRefreshHub.instance.notifyTodo();
   }
+
+  /// Agrega (o suma) ítems al borrador del día del proveedor.
+  /// Si no hay borrador, crea uno nuevo.
+  Future<int> agregarSugeridosAProveedor({
+    required String proveedorNombre,
+    int? proveedorId,
+    required List<PedidoItem> nuevos,
+    String observacionPedido = 'Generado desde pedido sugerido',
+  }) async {
+    await asegurarProveedoresPlanilla();
+    var idProv = proveedorId;
+    var nombre = proveedorNombre.trim();
+    if (nombre.isEmpty) nombre = 'Varios';
+
+    if (idProv == null) {
+      final todos = await _proveedorService.obtenerTodos();
+      Proveedor? match;
+      for (final p in todos) {
+        if (p.nombre.trim().toLowerCase() == nombre.toLowerCase()) {
+          match = p;
+          break;
+        }
+      }
+      if (match == null) {
+        idProv = await _proveedorService.insertar(
+          Proveedor(
+            nombre: nombre,
+            telefono: '',
+            email: '',
+            observaciones: 'Proveedor de planilla de pedidos',
+          ),
+        );
+      } else {
+        idProv = match.id;
+        nombre = match.nombre;
+      }
+    }
+
+    Pedido? pedido = idProv != null ? await borradorDelDia(idProv) : null;
+    final items = <PedidoItem>[];
+    if (pedido?.id != null) {
+      items.addAll(await obtenerItems(pedido!.id!));
+    }
+
+    for (final n in nuevos) {
+      if (n.articulo.trim().isEmpty || n.cantidad <= 0) continue;
+      final idx = items.indexWhere(
+        (e) =>
+            (n.productoId != null && e.productoId == n.productoId) ||
+            (n.productoId == null &&
+                e.articulo.trim().toLowerCase() ==
+                    n.articulo.trim().toLowerCase() &&
+                e.color.trim().toLowerCase() == n.color.trim().toLowerCase()),
+      );
+      if (idx >= 0) {
+        final prev = items[idx];
+        items[idx] = prev.copyWith(cantidad: prev.cantidad + n.cantidad);
+      } else {
+        items.add(n);
+      }
+    }
+
+    pedido ??= Pedido(
+      proveedorId: idProv,
+      proveedorNombre: nombre,
+      numero: '',
+      fecha: DateTime.now(),
+      observaciones: observacionPedido,
+      estado: 'borrador',
+    );
+
+    if ((pedido.observaciones).trim().isEmpty) {
+      pedido = pedido.copyWith(observaciones: observacionPedido);
+    }
+
+    return guardar(pedido, items);
+  }
 }

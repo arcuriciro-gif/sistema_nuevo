@@ -36,6 +36,7 @@ class MenuPreferenciasService extends ChangeNotifier {
     (id: 'stock', titulo: 'Stock', grupo: 'Operaciones'),
     (id: 'compras', titulo: 'Compras', grupo: 'Operaciones'),
     (id: 'pedidos', titulo: 'Pedidos', grupo: 'Operaciones'),
+    (id: 'pedido_sugerido', titulo: 'Pedido sugerido', grupo: 'Operaciones'),
     (id: 'remitos', titulo: 'Remitos', grupo: 'Operaciones'),
     (id: 'clientes', titulo: 'Clientes', grupo: 'Clientes'),
     (id: 'archivo_pdf', titulo: 'Archivo PDF', grupo: 'Clientes'),

@@ -39,6 +39,7 @@ import 'manual_usuario_page.dart';
 import 'notificaciones_page.dart';
 import 'papelera_productos_page.dart';
 import 'pedidos_page.dart';
+import 'pedido_sugerido_page.dart';
 import 'perfil_usuario_page.dart';
 import 'permisos_page.dart';
 import 'productos_page.dart';
@@ -308,6 +309,13 @@ class _MainShellState extends State<MainShell> {
           title: 'Pedidos',
           modulo: 'pedidos',
           builder: () => const PedidosPage(),
+        ),
+        _ShellItem(
+          id: 'pedido_sugerido',
+          icon: Icons.auto_awesome_rounded,
+          title: 'Pedido sugerido',
+          modulo: 'pedidos',
+          builder: () => const PedidoSugeridoPage(),
         ),
         _ShellItem(
           id: 'remitos',

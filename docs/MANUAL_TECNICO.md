@@ -109,6 +109,14 @@ Página: `lib/pages/sync_historial_page.dart`
 - Export: PDF / Excel / impresión (Printing).
 - No modifica stock (a diferencia de Compras).
 
+## Pedido sugerido inteligente
+
+- Servicio: `PedidoSugeridoService` — ventas (remitos + ventas) entre fechas + stock.
+- Fórmula: `sugerido = max(0, vendido + stockMinimo - stockActual)`.
+- Filtros: proveedor, categoría, marca, modelo, color, talle.
+- UI: `PedidoSugeridoPage` → envía selección a borradores de `Pedidos` por proveedor.
+- Menú: `pedido_sugerido` (permiso módulo `pedidos`).
+
 ## Reglas de evolución
 
 1. No cambiar arquitectura general ni reemplazar tecnologías.
@@ -121,8 +129,8 @@ Página: `lib/pages/sync_historial_page.dart`
 
 1. ~~Cola sync + indicador + historial~~
 2. ~~Dashboard (accesos rápidos + KPIs)~~
-3. ~~Planilla de pedidos a proveedores~~ ← actual
-4. Pedido sugerido inteligente
+3. ~~Planilla de pedidos a proveedores~~
+4. ~~Pedido sugerido inteligente~~ ← actual
 5. Administración de usuarios (solo admin + auditoría)
 6. Reiniciar sistema (servicios, sin borrar datos)
 7. Historial de producto ampliado
