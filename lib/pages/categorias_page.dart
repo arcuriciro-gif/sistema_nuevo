@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/categoria.dart';
 import '../services/categoria_service.dart';
 import '../theme/app_visuals.dart';
@@ -23,17 +24,24 @@ class _CategoriasPageState extends State<CategoriasPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
     _cargar();
+  }
+
+  void _onDatosActualizados() {
+    if (!mounted) return;
+    _cargar(silent: true);
   }
 
   @override
   void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
     _buscarCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _cargar() async {
-    setState(() => _cargando = true);
+  Future<void> _cargar({bool silent = false}) async {
+    if (!silent && mounted) setState(() => _cargando = true);
     _todas = await _service.obtenerTodas();
     _aplicarFiltro(_buscarCtrl.text);
     if (!mounted) return;

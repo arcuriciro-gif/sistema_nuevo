@@ -38,7 +38,7 @@ class _RemitosPageState extends State<RemitosPage> {
 
   void _onDatosActualizados() {
     if (!mounted) return;
-    cargar();
+    cargar(silent: true);
   }
 
   @override
@@ -48,8 +48,8 @@ class _RemitosPageState extends State<RemitosPage> {
     super.dispose();
   }
 
-  Future<void> cargar() async {
-    setState(() => cargando = true);
+  Future<void> cargar({bool silent = false}) async {
+    if (!silent && mounted) setState(() => cargando = true);
     remitosOriginales = await service.obtenerTodosConCliente();
     _filtrarRemitos(buscarController.text, actualizarEstado: false);
     if (!mounted) return;

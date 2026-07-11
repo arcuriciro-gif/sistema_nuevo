@@ -34,7 +34,7 @@ class _StockPageState extends State<StockPage> {
 
   void _onDatosActualizados() {
     if (!mounted) return;
-    cargar();
+    cargar(silent: true);
   }
 
   @override
@@ -44,8 +44,8 @@ class _StockPageState extends State<StockPage> {
     super.dispose();
   }
 
-  Future<void> cargar() async {
-    setState(() => cargando = true);
+  Future<void> cargar({bool silent = false}) async {
+    if (!silent && mounted) setState(() => cargando = true);
     movimientos = await stockService.obtenerMovimientos();
     productos = await productoService.obtenerTodos();
     alertas = await stockService.obtenerProductosConStockBajo();

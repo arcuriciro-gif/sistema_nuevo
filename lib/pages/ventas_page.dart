@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/chat_mensaje.dart';
 import '../models/venta.dart';
 import '../services/venta_service.dart';
@@ -50,17 +51,24 @@ class _VentasPageState extends State<VentasPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
     _cargar();
+  }
+
+  void _onDatosActualizados() {
+    if (!mounted) return;
+    _cargar(silent: true);
   }
 
   @override
   void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
     _buscarCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _cargar() async {
-    setState(() => _cargando = true);
+  Future<void> _cargar({bool silent = false}) async {
+    if (!silent && mounted) setState(() => _cargando = true);
     final todas = await _service.obtenerTodas();
     final permitidos = _tipos.keys.toSet();
     _todas = todas.where((v) => permitidos.contains(v.tipo)).toList();

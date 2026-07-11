@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/producto.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
@@ -45,11 +46,24 @@ class _InicioPageState extends State<InicioPage> {
   ResumenCuentasCobrar? _resumenCc;
   List<Producto> _ultimosProductos = [];
   bool _cargando = true;
+  bool _refrescando = false;
 
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
     _cargar();
+  }
+
+  void _onDatosActualizados() {
+    if (!mounted) return;
+    _cargar(silent: true);
+  }
+
+  @override
+  void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
+    super.dispose();
   }
 
   Future<void> _abrir(Widget page) async {
@@ -57,39 +71,46 @@ class _InicioPageState extends State<InicioPage> {
       context,
       MaterialPageRoute(builder: (_) => page),
     );
-    if (mounted) _cargar();
+    if (mounted) _cargar(silent: true);
   }
 
-  Future<void> _cargar() async {
-    setState(() => _cargando = true);
-    final productos = await _productoService.obtenerTodos();
-    final clientes = await _clienteService.obtenerTodos();
-    final remitos = await _remitoService.cantidad();
-    final ahora = DateTime.now();
-    final inicioMes = DateTime(ahora.year, ahora.month, 1);
-    final ventasMes =
-        await _remitoService.totalVentasPorPeriodo(inicioMes, ahora);
-    final comprasMes =
-        await _compraService.totalComprasPorPeriodo(inicioMes, ahora);
-    final resumenCc = await _ccService.resumenDashboard();
+  Future<void> _cargar({bool silent = false}) async {
+    if (_refrescando) return;
+    _refrescando = true;
+    if (!silent && mounted) setState(() => _cargando = true);
+    try {
+      final productos = await _productoService.obtenerTodos();
+      final clientes = await _clienteService.obtenerTodos();
+      final remitos = await _remitoService.cantidad();
+      final ahora = DateTime.now();
+      final inicioMes = DateTime(ahora.year, ahora.month, 1);
+      final ventasMes =
+          await _remitoService.totalVentasPorPeriodo(inicioMes, ahora);
+      final comprasMes =
+          await _compraService.totalComprasPorPeriodo(inicioMes, ahora);
+      final resumenCc = await _ccService.resumenDashboard();
 
-    if (!mounted) return;
-    final sorted = [...productos]
-      ..sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
-    setState(() {
-      _totalProductos = productos.length;
-      _stockTotal = productos.fold(0, (s, p) => s + p.stock);
-      _sinStock = productos.where((p) => p.stock == 0).length;
-      _valorStock = productos.fold(0.0, (s, p) => s + p.precio * p.stock);
-      _valorStockCosto = productos.fold(0.0, (s, p) => s + p.costo * p.stock);
-      _totalClientes = clientes.length;
-      _totalRemitos = remitos;
-      _ventasMes = ventasMes;
-      _comprasMes = comprasMes;
-      _resumenCc = resumenCc;
-      _ultimosProductos = sorted.take(5).toList();
-      _cargando = false;
-    });
+      if (!mounted) return;
+      final sorted = [...productos]
+        ..sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+      setState(() {
+        _totalProductos = productos.length;
+        _stockTotal = productos.fold(0, (s, p) => s + p.stock);
+        _sinStock = productos.where((p) => p.stock == 0).length;
+        _valorStock = productos.fold(0.0, (s, p) => s + p.precio * p.stock);
+        _valorStockCosto =
+            productos.fold(0.0, (s, p) => s + p.costo * p.stock);
+        _totalClientes = clientes.length;
+        _totalRemitos = remitos;
+        _ventasMes = ventasMes;
+        _comprasMes = comprasMes;
+        _resumenCc = resumenCc;
+        _ultimosProductos = sorted.take(5).toList();
+        _cargando = false;
+      });
+    } finally {
+      _refrescando = false;
+    }
   }
 
   static String _fmt(num v) {

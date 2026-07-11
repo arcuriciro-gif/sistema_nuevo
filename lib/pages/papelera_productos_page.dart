@@ -26,7 +26,7 @@ class _PapeleraProductosPageState extends State<PapeleraProductosPage> {
   }
 
   void _onRefresh() {
-    if (mounted) _cargar();
+    if (mounted) _cargar(silent: true);
   }
 
   @override
@@ -35,8 +35,8 @@ class _PapeleraProductosPageState extends State<PapeleraProductosPage> {
     super.dispose();
   }
 
-  Future<void> _cargar() async {
-    setState(() => _cargando = true);
+  Future<void> _cargar({bool silent = false}) async {
+    if (!silent && mounted) setState(() => _cargando = true);
     final items = await _service.obtenerEliminados();
     if (!mounted) return;
     setState(() {

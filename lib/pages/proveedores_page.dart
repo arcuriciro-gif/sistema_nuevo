@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/proveedor.dart';
 import '../services/proveedor_service.dart';
 import '../theme/app_visuals.dart';
@@ -27,13 +28,35 @@ class _ProveedoresPageState extends State<ProveedoresPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
     cargarProveedores();
   }
 
-  Future<void> cargarProveedores() async {
-    proveedores = await service.obtenerTodos();
+  void _onDatosActualizados() {
+    if (!mounted) return;
+    cargarProveedores(silent: true);
+  }
 
-    filtrados = proveedores;
+  @override
+  void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
+    buscarController.dispose();
+    super.dispose();
+  }
+
+  Future<void> cargarProveedores({bool silent = false}) async {
+    proveedores = await service.obtenerTodos();
+    final q = buscarController.text;
+    if (q.isEmpty) {
+      filtrados = proveedores;
+    } else {
+      final texto = q.toLowerCase();
+      filtrados = proveedores.where((p) {
+        return p.nombre.toLowerCase().contains(texto) ||
+            p.email.toLowerCase().contains(texto) ||
+            p.telefono.toLowerCase().contains(texto);
+      }).toList();
+    }
 
     if (!mounted) return;
 

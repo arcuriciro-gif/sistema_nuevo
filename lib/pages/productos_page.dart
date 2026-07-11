@@ -67,7 +67,7 @@ class _ProductosPageState extends State<ProductosPage> {
   void _onDatosActualizados() {
     if (!mounted) return;
     SchedulerBinding.instance.addPostFrameCallback((_) {
-      if (mounted) cargarProductos();
+      if (mounted) cargarProductos(silent: true);
     });
   }
 
@@ -78,8 +78,8 @@ class _ProductosPageState extends State<ProductosPage> {
     super.dispose();
   }
 
-  Future<void> cargarProductos() async {
-    setState(() => cargando = true);
+  Future<void> cargarProductos({bool silent = false}) async {
+    if (!silent && mounted) setState(() => cargando = true);
     productos = await service.obtenerTodos();
     listasActivas = await listaPrecioService.obtenerActivas();
     _marcas = productos

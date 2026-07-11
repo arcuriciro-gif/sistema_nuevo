@@ -141,7 +141,7 @@ class SyncQueueService extends ChangeNotifier {
     _running = true;
     await refreshCounts();
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 8), (_) {
+    _timer = Timer.periodic(const Duration(seconds: 4), (_) {
       unawaited(processQueue());
     });
     unawaited(processQueue());

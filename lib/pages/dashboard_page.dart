@@ -69,9 +69,11 @@ class _DashboardPageState extends State<DashboardPage> {
     cargar();
   }
 
+  bool _refrescando = false;
+
   void _onDatosActualizados() {
     if (!mounted) return;
-    cargar();
+    cargar(silent: true);
   }
 
   @override
@@ -85,12 +87,15 @@ class _DashboardPageState extends State<DashboardPage> {
       context,
       MaterialPageRoute(builder: (_) => page),
     );
-    if (mounted) cargar();
+    if (mounted) cargar(silent: true);
   }
 
-  Future<void> cargar() async {
-    setState(() => cargando = true);
+  Future<void> cargar({bool silent = false}) async {
+    if (_refrescando) return;
+    _refrescando = true;
+    if (!silent && mounted) setState(() => cargando = true);
 
+    try {
     final productos = await productoService.obtenerTodos();
     final clientes = await clienteService.obtenerTodos();
     final remitos = await remitoService.cantidad();
@@ -152,6 +157,9 @@ class _DashboardPageState extends State<DashboardPage> {
       resumenCc = resumen;
       cargando = false;
     });
+    } finally {
+      _refrescando = false;
+    }
   }
 
   Widget _cuentasPorCobrarCard(

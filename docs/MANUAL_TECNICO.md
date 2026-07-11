@@ -35,7 +35,7 @@ pushOrEnqueue / DualProductoRepository
         └─ sin red / error → sync_queue (pending)
                 │
                 ▼
-        SyncQueueService (timer 8s)
+        SyncQueueService (timer 4s)
                 │
                 ▼
         runOutboundStrict → subir*/eliminar*
@@ -64,6 +64,13 @@ Página: `lib/pages/sync_historial_page.dart`
 - `lib/core/navigation/app_navigation.dart`: `AppNavigation.irAlInicio` hace `popUntil(isFirst)` y selecciona el módulo `inicio` vía callback registrado por `MainShell`.
 - `buildModuleAppBar` muestra el ícono casa por defecto (`showHome: true`); Inicio lo oculta.
 - En móvil, la AppBar del shell también muestra Inicio cuando el módulo actual no es Inicio.
+
+## Refresco de pantallas (`DataRefreshHub`)
+
+- Al guardar local o al aplicar inbound de Firestore se llama `notifyTodo` / `notifyProductos` / etc.
+- Debounce ~450 ms para no recargar N veces por un lote de sync.
+- Inicio, Dashboard y listas principales escuchan el hub y recargan en silencio (sin spinner).
+- No hay polling de 1 s: Firestore ya empuja cambios en tiempo real.
 
 ## Servicios que encolan
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/chat_mensaje.dart';
 import '../models/cliente.dart';
 import '../services/cliente_service.dart';
@@ -30,13 +31,36 @@ class _ClientesPageState extends State<ClientesPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
     cargar();
   }
 
-  Future<void> cargar() async {
-    setState(() => cargando = true);
+  void _onDatosActualizados() {
+    if (!mounted) return;
+    cargar(silent: true);
+  }
+
+  @override
+  void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
+    buscarController.dispose();
+    super.dispose();
+  }
+
+  Future<void> cargar({bool silent = false}) async {
+    if (!silent && mounted) setState(() => cargando = true);
     clientes = await service.obtenerTodos();
-    filtrados = clientes;
+    final q = buscarController.text;
+    if (q.isEmpty) {
+      filtrados = clientes;
+    } else {
+      final texto = q.toLowerCase();
+      filtrados = clientes.where((c) {
+        return c.nombre.toLowerCase().contains(texto) ||
+            c.telefono.toLowerCase().contains(texto) ||
+            c.direccion.toLowerCase().contains(texto);
+      }).toList();
+    }
     if (!mounted) return;
     setState(() => cargando = false);
   }

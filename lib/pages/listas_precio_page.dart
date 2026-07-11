@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/lista_precio.dart';
 import '../services/lista_precio_service.dart';
 import '../theme/app_visuals.dart';
@@ -21,11 +22,23 @@ class _ListasPrecioPageState extends State<ListasPrecioPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
     _cargar();
   }
 
-  Future<void> _cargar() async {
-    setState(() => cargando = true);
+  void _onDatosActualizados() {
+    if (!mounted) return;
+    _cargar(silent: true);
+  }
+
+  @override
+  void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
+    super.dispose();
+  }
+
+  Future<void> _cargar({bool silent = false}) async {
+    if (!silent && mounted) setState(() => cargando = true);
     listas = await service.obtenerTodas();
     if (!mounted) return;
     setState(() => cargando = false);

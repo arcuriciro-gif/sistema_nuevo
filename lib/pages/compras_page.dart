@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/chat_mensaje.dart';
 import '../services/compra_service.dart';
 import '../theme/app_visuals.dart';
@@ -26,17 +27,24 @@ class _ComprasPageState extends State<ComprasPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
     cargar();
+  }
+
+  void _onDatosActualizados() {
+    if (!mounted) return;
+    cargar(silent: true);
   }
 
   @override
   void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
     buscarController.dispose();
     super.dispose();
   }
 
-  Future<void> cargar() async {
-    setState(() => cargando = true);
+  Future<void> cargar({bool silent = false}) async {
+    if (!silent && mounted) setState(() => cargando = true);
     comprasOriginales = await service.obtenerTodasConProveedor();
     _filtrar(buscarController.text, actualizarEstado: false);
     if (!mounted) return;
