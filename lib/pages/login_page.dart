@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../app_version.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
@@ -246,6 +247,15 @@ class _LoginPageState extends State<LoginPage> {
                   'Inicio de sesión, primeros pasos y uso recomendado del sistema.',
                   style: textTheme.bodySmall?.copyWith(
                     color: cs.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Tata.Manager $kAppVersionLabel',
+                  style: textTheme.labelSmall?.copyWith(
+                    color: cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
                   ),
                   textAlign: TextAlign.center,
                 ),

@@ -1,3 +1,9 @@
+## [1.1.4] — 2026-07-11
+
+### Versión visible + sync
+- Login muestra `Tata.Manager v1.1.4 (14)` para confirmar que no es un EXE/APK viejo.
+- Indicador de sync con tooltip y labels más claros; appId Android actualizado.
+
 # Changelog
 
 Todos los cambios relevantes del proyecto se documentan aquí.
