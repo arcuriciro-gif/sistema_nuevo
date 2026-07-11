@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../app_version.dart';
 import '../services/branding_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_provider.dart';
@@ -117,21 +118,29 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
 
   Future<void> _elegirLogo() async {
     final picker = ImagePicker();
-    final img =
-        await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    final img = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
     if (img == null) return;
-    final path =
-        await BrandingService.instance.persistirImagen(img.path, 'logo');
+    final path = await BrandingService.instance.persistirImagen(
+      img.path,
+      'logo',
+    );
     setState(() => _logoPath = path);
   }
 
   Future<void> _elegirIcono() async {
     final picker = ImagePicker();
-    final img =
-        await picker.pickImage(source: ImageSource.gallery, imageQuality: 90);
+    final img = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 90,
+    );
     if (img == null) return;
-    final path =
-        await BrandingService.instance.persistirImagen(img.path, 'icono_app');
+    final path = await BrandingService.instance.persistirImagen(
+      img.path,
+      'icono_app',
+    );
     setState(() => _iconoPath = path);
   }
 
@@ -223,8 +232,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     if (ok != true || !mounted) return;
 
     setState(() => _reiniciando = true);
-    final resultado =
-        await SystemRestartService.instance.reiniciarServicios();
+    final resultado = await SystemRestartService.instance.reiniciarServicios();
     if (!mounted) return;
     setState(() => _reiniciando = false);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -265,6 +273,172 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     );
   }
 
+  Widget _tarjetaBorrarTodo(ThemeData theme, ColorScheme colorScheme) {
+    final user = AuthService.instance.currentUser;
+    final esAdmin = AuthService.instance.esAdministrador();
+    final usuarioLabel = (user?.usuario ?? '(sin sesión)').trim();
+    final rolLabel = RolUtil.etiqueta(user?.rol ?? '');
+
+    return Card(
+      elevation: 4,
+      color: colorScheme.errorContainer.withValues(alpha: 0.35),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: AppVisuals.danger(colorScheme), width: 1.5),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.delete_forever_rounded,
+                  color: AppVisuals.danger(colorScheme),
+                  size: 28,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'BORRAR TODO',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.6,
+                      color: AppVisuals.danger(colorScheme),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Sesión: $usuarioLabel · Rol: $rolLabel · App $kAppVersionLabel',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (!esAdmin) ...[
+              Text(
+                'Esta opción solo funciona si entrás con un usuario '
+                'Administrador (rol admin).\n\n'
+                'Cerrá sesión e ingresá con el usuario administrador '
+                '(por defecto suele ser "admin").\n\n'
+                'Tu rol actual ($rolLabel) no puede borrar datos.',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: colorScheme.onSurface,
+                  height: 1.35,
+                ),
+              ),
+            ] else ...[
+              Text(
+                'Reiniciar no borra datos. '
+                'Vaciar / Borrar todo son irreversibles y piden tu contraseña. '
+                'Se conservan usuarios, permisos y branding.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _reiniciando || _vaciando ? null : _reiniciarSistema,
+                icon: _reiniciando
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.restart_alt_rounded),
+                label: Text(
+                  _reiniciando
+                      ? 'Reiniciando…'
+                      : 'Reiniciar sistema (sin borrar datos)',
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Divider(),
+              const SizedBox(height: 8),
+              Text(
+                'DATOS (IRREVERSIBLE)',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: AppVisuals.danger(colorScheme),
+                ),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _vaciando
+                    ? null
+                    : () => _accionWipe(
+                        titulo: 'Vaciar productos',
+                        mensaje:
+                            'Se eliminarán TODOS los productos y movimientos relacionados '
+                            '(local y nube).\n\nIngresá tu contraseña.',
+                        accion: () =>
+                            DataWipeService.instance.vaciarProductos(),
+                      ),
+                icon: const Icon(Icons.inventory_2_outlined),
+                label: const Text('Vaciar productos'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _vaciando
+                    ? null
+                    : () => _accionWipe(
+                        titulo: 'Vaciar clientes',
+                        mensaje:
+                            'Se eliminarán TODOS los clientes y cuentas relacionadas '
+                            '(local y nube).\n\nIngresá tu contraseña.',
+                        accion: () => DataWipeService.instance.vaciarClientes(),
+                      ),
+                icon: const Icon(Icons.people_outline_rounded),
+                label: const Text('Vaciar clientes'),
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppVisuals.danger(colorScheme),
+                  foregroundColor: colorScheme.onError,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: _vaciando
+                    ? null
+                    : () => _accionWipe(
+                        titulo: 'Borrar todo (sistema virgen)',
+                        mensaje:
+                            'Se borrarán productos, clientes, ventas, remitos, compras, '
+                            'pedidos y demás datos operativos (local y nube).\n\n'
+                            'Se CONSERVAN usuarios, permisos y branding.\n\n'
+                            'Ingresá tu contraseña de administrador.',
+                        accion: () => DataWipeService.instance.sistemaVirgen(),
+                      ),
+                icon: _vaciando
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: colorScheme.onError,
+                        ),
+                      )
+                    : const Icon(Icons.delete_forever_rounded),
+                label: Text(
+                  _vaciando ? 'Borrando…' : 'Borrar todo (sistema virgen)',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -276,136 +450,8 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // ── Mantenimiento / datos (admin, arriba para que se vea) ──
-            if (AuthService.instance.esAdministrador())
-              Card(
-                elevation: 3,
-                color: Theme.of(context).colorScheme.errorContainer.withValues(alpha: .25),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        'MANTENIMIENTO Y DATOS',
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.4,
-                          color: AppVisuals.danger(colorScheme),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Solo administrador. Reiniciar no borra datos. '
-                        'Vaciar / sistema virgen son irreversibles y piden tu contraseña. '
-                        'Se conservan usuarios, permisos y branding.',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: _reiniciando || _vaciando
-                            ? null
-                            : _reiniciarSistema,
-                        icon: _reiniciando
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.restart_alt_rounded),
-                        label: Text(
-                          _reiniciando
-                              ? 'Reiniciando…'
-                              : 'Reiniciar sistema (sin borrar datos)',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      const Divider(),
-                      const SizedBox(height: 8),
-                      Text(
-                        'DATOS (IRREVERSIBLE)',
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: AppVisuals.danger(colorScheme),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      OutlinedButton.icon(
-                        onPressed: _vaciando
-                            ? null
-                            : () => _accionWipe(
-                                  titulo: 'Vaciar productos',
-                                  mensaje:
-                                      'Se eliminarán TODOS los productos y movimientos relacionados '
-                                      '(local y nube).\n\nIngresá tu contraseña.',
-                                  accion: () => DataWipeService.instance
-                                      .vaciarProductos(),
-                                ),
-                        icon: const Icon(Icons.inventory_2_outlined),
-                        label: const Text('Vaciar productos'),
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: _vaciando
-                            ? null
-                            : () => _accionWipe(
-                                  titulo: 'Vaciar clientes',
-                                  mensaje:
-                                      'Se eliminarán TODOS los clientes y cuentas relacionadas '
-                                      '(local y nube).\n\nIngresá tu contraseña.',
-                                  accion: () =>
-                                      DataWipeService.instance.vaciarClientes(),
-                                ),
-                        icon: const Icon(Icons.people_outline_rounded),
-                        label: const Text('Vaciar clientes'),
-                      ),
-                      const SizedBox(height: 8),
-                      FilledButton.tonalIcon(
-                        style: FilledButton.styleFrom(
-                          foregroundColor: AppVisuals.danger(colorScheme),
-                        ),
-                        onPressed: _vaciando
-                            ? null
-                            : () => _accionWipe(
-                                  titulo: 'Sistema virgen',
-                                  mensaje:
-                                      'Se borrarán productos, clientes, ventas, remitos, compras, '
-                                      'pedidos y demás datos operativos (local y nube).\n\n'
-                                      'Se CONSERVAN usuarios, permisos y branding.\n\n'
-                                      'Ingresá tu contraseña de administrador.',
-                                  accion: () =>
-                                      DataWipeService.instance.sistemaVirgen(),
-                                ),
-                        icon: _vaciando
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.delete_forever_rounded),
-                        label: Text(
-                          _vaciando ? 'Borrando…' : 'Dejar sistema virgen',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else
-              Card(
-                child: ListTile(
-                  leading: Icon(Icons.lock_outline_rounded,
-                      color: colorScheme.onSurfaceVariant),
-                  title: const Text('Mantenimiento y datos'),
-                  subtitle: Text(
-                    'Solo visible para Administrador. '
-                    'Tu rol: ${RolUtil.etiqueta(AuthService.instance.currentUser?.rol ?? '')}.',
-                  ),
-                ),
-              ),
+            // Siempre arriba: BORRAR TODO (botones solo si es admin).
+            _tarjetaBorrarTodo(theme, colorScheme),
             const SizedBox(height: 16),
             // ── Branding ──────────────────────────────
             Card(
@@ -439,14 +485,17 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                                 children: [
                                   CircleAvatar(
                                     radius: 44,
-                                    backgroundColor: colorScheme.primaryContainer,
+                                    backgroundColor:
+                                        colorScheme.primaryContainer,
                                     backgroundImage: _logoPath.isNotEmpty
                                         ? FileImage(File(_logoPath))
                                         : null,
                                     child: _logoPath.isEmpty
-                                        ? Icon(Icons.store,
+                                        ? Icon(
+                                            Icons.store,
                                             size: 36,
-                                            color: colorScheme.primary)
+                                            color: colorScheme.primary,
+                                          )
                                         : null,
                                   ),
                                   Positioned(
@@ -455,8 +504,11 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                                     child: CircleAvatar(
                                       radius: 12,
                                       backgroundColor: colorScheme.primary,
-                                      child: const Icon(Icons.edit,
-                                          size: 14, color: Colors.white),
+                                      child: const Icon(
+                                        Icons.edit,
+                                        size: 14,
+                                        color: Colors.white,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -465,8 +517,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                             const SizedBox(height: 6),
                             Text(
                               'Logo',
-                              style: theme.textTheme.bodySmall
-                                  ?.copyWith(color: Colors.grey),
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: Colors.grey,
+                              ),
                             ),
                           ],
                         ),
@@ -484,9 +537,11 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                                         ? FileImage(File(_iconoPath))
                                         : null,
                                     child: _iconoPath.isEmpty
-                                        ? Icon(Icons.apps_rounded,
+                                        ? Icon(
+                                            Icons.apps_rounded,
                                             size: 36,
-                                            color: colorScheme.secondary)
+                                            color: colorScheme.secondary,
+                                          )
                                         : null,
                                   ),
                                   Positioned(
@@ -495,8 +550,11 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                                     child: CircleAvatar(
                                       radius: 12,
                                       backgroundColor: colorScheme.secondary,
-                                      child: const Icon(Icons.edit,
-                                          size: 14, color: Colors.white),
+                                      child: const Icon(
+                                        Icons.edit,
+                                        size: 14,
+                                        color: Colors.white,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -505,8 +563,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                             const SizedBox(height: 6),
                             Text(
                               'Icono de la app',
-                              style: theme.textTheme.bodySmall
-                                  ?.copyWith(color: Colors.grey),
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: Colors.grey,
+                              ),
                             ),
                           ],
                         ),
@@ -516,8 +575,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     Text(
                       'El icono se ve en login y menú al instante. '
                       'El icono del escritorio/Android se actualiza al generar una nueva versión.',
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: colorScheme.onSurfaceVariant),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                     if (_iconoPath.isNotEmpty)
@@ -646,8 +706,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 8),
                     Text(
                       'Preferencias generales',
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w600),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Row(
@@ -679,8 +740,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 16),
                     Text(
                       'Datos fiscales',
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w600),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -721,8 +783,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 16),
                     Text(
                       'Plantillas de impresión / PDF',
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w600),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     const Text(
@@ -787,8 +850,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Icon(Icons.save),
                         label: const Text('GUARDAR DATOS DEL NEGOCIO'),
@@ -809,8 +873,10 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.view_sidebar_rounded,
-                            color: colorScheme.primary),
+                        Icon(
+                          Icons.view_sidebar_rounded,
+                          color: colorScheme.primary,
+                        ),
                         const SizedBox(width: 10),
                         Text(
                           'MENÚ LATERAL',
@@ -858,8 +924,10 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.privacy_tip_outlined,
-                            color: colorScheme.primary),
+                        Icon(
+                          Icons.privacy_tip_outlined,
+                          color: colorScheme.primary,
+                        ),
                         const SizedBox(width: 10),
                         Text(
                           'PRIVACIDAD Y PLAY STORE',
@@ -1041,8 +1109,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                             ][index];
                             themeProvider.setMode(mode);
                           },
-                          direction:
-                              isNarrow ? Axis.vertical : Axis.horizontal,
+                          direction: isNarrow ? Axis.vertical : Axis.horizontal,
                           children: const [
                             Padding(
                               padding: EdgeInsets.symmetric(horizontal: 16),
@@ -1075,8 +1142,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       value: _mostrarImagenes,
                       onChanged: _setMostrarImagenes,
                       title: const Text('Mostrar imágenes'),
-                      subtitle:
-                          const Text('Guardado localmente en el dispositivo'),
+                      subtitle: const Text(
+                        'Guardado localmente en el dispositivo',
+                      ),
                     ),
                     const ListTile(
                       contentPadding: EdgeInsets.zero,

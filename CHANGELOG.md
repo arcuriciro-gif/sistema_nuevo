@@ -1,3 +1,11 @@
+## [1.1.7] — 2026-07-11
+
+### Configuración — Borrar todo
+- Tarjeta **BORRAR TODO** siempre arriba en Configuración (borde rojo).
+- Muestra usuario, rol y versión de la app.
+- Si no sos admin: explica que hay que entrar con usuario Administrador.
+- Si sos admin: botón rojo **Borrar todo (sistema virgen)** + vaciar productos/clientes.
+
 ## [1.1.6] — 2026-07-11
 
 ### Reportes — exportación
