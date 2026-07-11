@@ -222,6 +222,14 @@ Página: `lib/pages/sync_historial_page.dart`
 - Ancho según `BrandingService.papelPdf` (`ticket_58` / `ticket_80`).
 - Hooks: remito form (post-guardado), lista remitos, venta/factura.
 
+## Reportes (exportación)
+
+- Página `ReportesPage`: PDF / CSV / Excel por lista (productos, clientes, deudores, etc.).
+- **Escritorio (Windows/Linux/macOS):** `FilePicker.saveFile` (“Guardar como…”) + SnackBar con ruta/Abrir. No usar solo `SharePlus` (falla en EXE unpackaged).
+- **Android:** `SharePlus` con `mimeType` + `text`; manifest con queries `SEND`/`VIEW`.
+- CSV: BOM UTF-8 (`CsvService.exportarCsv`) para Excel.
+- Generación completa (consulta DB + archivo) dentro de `_ejecutar` (spinner + SnackBar de error).
+
 ## Google Play / Android
 
 - `applicationId`: `com.eltatamanager.app`.
