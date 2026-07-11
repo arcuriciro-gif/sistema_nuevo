@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/pago.dart';
 import '../models/venta.dart';
 import '../services/cuenta_corriente_service.dart';
+import '../services/remito_service.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/cobrar_dialog.dart';
 import 'venta_factura_page.dart';
@@ -25,15 +26,17 @@ class CuentaCorrienteClientePage extends StatefulWidget {
 class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
     with SingleTickerProviderStateMixin {
   final _service = CuentaCorrienteService();
+  final _remitoService = RemitoService();
   late final TabController _tabs;
   List<Venta> _ventas = [];
+  List<Map<String, dynamic>> _remitos = [];
   List<Pago> _pagos = [];
   bool _cargando = true;
 
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this);
+    _tabs = TabController(length: 3, vsync: this);
     _cargar();
   }
 
@@ -46,18 +49,29 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
   Future<void> _cargar() async {
     setState(() => _cargando = true);
     final ventas = await _service.ventasDeCliente(widget.clienteId);
+    final remitos = await _service.remitosDeCliente(widget.clienteId);
     final pagos = await _service.pagosDeCliente(widget.clienteId);
     if (!mounted) return;
     setState(() {
       _ventas = ventas;
+      _remitos = remitos;
       _pagos = pagos;
       _cargando = false;
     });
   }
 
-  double get _saldoActual => _ventas
+  double get _saldoVentas => _ventas
       .where((v) => v.estado != 'anulada')
       .fold<double>(0, (s, v) => s + v.saldoPendiente);
+
+  double get _saldoRemitos => _remitos.fold<double>(0, (s, r) {
+        final estado = r['estado']?.toString() ?? '';
+        final estadoPago = (r['estadoPago']?.toString() ?? 'pendiente');
+        if (estado == 'anulado' || estadoPago == 'cobrado') return s;
+        return s + ((r['total'] as num?)?.toDouble() ?? 0);
+      });
+
+  double get _saldoActual => _saldoVentas + _saldoRemitos;
 
   String _fmtFecha(DateTime f) =>
       '${f.day.toString().padLeft(2, '0')}/'
@@ -69,18 +83,57 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
     if (ok) await _cargar();
   }
 
+  Future<void> _marcarRemitoCobrado(int remitoId) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Marcar remito cobrado'),
+        content: const Text(
+          '¿Confirmás que este remito ya está cobrado? '
+          'Se descontará de la deuda del cliente.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Cobrado'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _remitoService.actualizarEstadoPago(remitoId, 'cobrado');
+    await _cargar();
+  }
+
   Future<void> _cobrarCualquiera() async {
     final conSaldo =
         _ventas.where((v) => v.saldoPendiente > 0.009 && v.id != null).toList();
-    if (conSaldo.isEmpty) {
+    final remitosPend = _remitos.where((r) {
+      final estadoPago = (r['estadoPago']?.toString() ?? 'pendiente');
+      return estadoPago != 'cobrado' &&
+          ((r['total'] as num?)?.toDouble() ?? 0) > 0.009;
+    }).toList();
+
+    if (conSaldo.isEmpty && remitosPend.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No hay saldos pendientes')),
       );
       return;
     }
-    // Cobrar la más antigua primero
-    conSaldo.sort((a, b) => a.fecha.compareTo(b.fecha));
-    await _cobrarVenta(conSaldo.first);
+
+    if (conSaldo.isNotEmpty) {
+      conSaldo.sort((a, b) => a.fecha.compareTo(b.fecha));
+      await _cobrarVenta(conSaldo.first);
+      return;
+    }
+
+    final r = remitosPend.first;
+    final id = r['id'] as int?;
+    if (id != null) await _marcarRemitoCobrado(id);
   }
 
   @override
@@ -93,9 +146,10 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
         title: 'Cuenta corriente',
         bottom: TabBar(
           controller: _tabs,
-          tabs: const [
-            Tab(text: 'Compras'),
-            Tab(text: 'Pagos'),
+          tabs: [
+            Tab(text: 'Ventas (${_ventas.length})'),
+            Tab(text: 'Remitos (${_remitos.length})'),
+            Tab(text: 'Pagos (${_pagos.length})'),
           ],
         ),
         actions: [
@@ -143,7 +197,15 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
                               : colorEstadoPago('cobrado', cs),
                         ),
                       ),
-                      Text('Total adeudado: \$${_saldoActual.toStringAsFixed(2)}'),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Ventas: \$${_saldoVentas.toStringAsFixed(2)} · '
+                        'Remitos: \$${_saldoRemitos.toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -152,6 +214,7 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
                     controller: _tabs,
                     children: [
                       _listaVentas(cs),
+                      _listaRemitos(cs),
                       _listaPagos(cs),
                     ],
                   ),
@@ -163,7 +226,7 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
 
   Widget _listaVentas(ColorScheme cs) {
     if (_ventas.isEmpty) {
-      return const Center(child: Text('Sin compras registradas'));
+      return const Center(child: Text('Sin ventas registradas'));
     }
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -248,6 +311,55 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
     );
   }
 
+  Widget _listaRemitos(ColorScheme cs) {
+    if (_remitos.isEmpty) {
+      return const Center(child: Text('Sin remitos registrados'));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      itemCount: _remitos.length,
+      itemBuilder: (_, i) {
+        final r = _remitos[i];
+        final id = r['id'] as int?;
+        final numero = r['numero']?.toString() ?? '';
+        final total = (r['total'] as num?)?.toDouble() ?? 0;
+        final estadoPago = (r['estadoPago']?.toString() ?? 'pendiente');
+        final fecha =
+            DateTime.tryParse(r['fecha']?.toString() ?? '') ?? DateTime.now();
+        final pendiente = estadoPago != 'cobrado' && total > 0.009;
+
+        return Card(
+          child: ListTile(
+            title: Text(
+              'Remito $numero',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              '${_fmtFecha(fecha)}\nTotal \$${total.toStringAsFixed(2)}',
+            ),
+            isThreeLine: true,
+            trailing: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                chipEstadoPago(estadoPago, cs),
+                if (pendiente && id != null)
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    onPressed: () => _marcarRemitoCobrado(id),
+                    child: const Text('Cobrar'),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _listaPagos(ColorScheme cs) {
     if (_pagos.isEmpty) {
       return const Center(child: Text('Sin pagos registrados'));
@@ -260,7 +372,8 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
         return Card(
           child: ListTile(
             leading: CircleAvatar(
-              backgroundColor: colorEstadoPago('cobrado', cs).withValues(alpha: .15),
+              backgroundColor:
+                  colorEstadoPago('cobrado', cs).withValues(alpha: .15),
               child: Icon(
                 Icons.payments_rounded,
                 color: colorEstadoPago('cobrado', cs),

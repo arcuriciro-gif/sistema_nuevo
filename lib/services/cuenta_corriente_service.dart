@@ -213,6 +213,42 @@ class CuentaCorrienteService {
     return rows.map(Venta.fromMap).toList();
   }
 
+  /// Remitos del cliente (para cuenta corriente; los no cobrados suman deuda).
+  Future<List<Map<String, dynamic>>> remitosDeCliente(int clienteId) async {
+    final db = await _db.database;
+    return db.rawQuery('''
+      SELECT
+        r.id,
+        r.numero,
+        r.clienteId,
+        r.fecha,
+        r.total,
+        r.descuento,
+        r.estado,
+        r.estadoPago,
+        r.observaciones,
+        c.nombre AS clienteNombre
+      FROM remitos r
+      LEFT JOIN clientes c ON c.id = r.clienteId
+      WHERE r.clienteId = ?
+        AND r.estado != 'anulado'
+      ORDER BY datetime(r.fecha) DESC, r.id DESC
+    ''', [clienteId]);
+  }
+
+  Future<double> saldoRemitosPendientesCliente(int clienteId) async {
+    final db = await _db.database;
+    final rows = await db.rawQuery('''
+      SELECT COALESCE(SUM(total), 0) AS total
+      FROM remitos
+      WHERE clienteId = ?
+        AND estado != 'anulado'
+        AND COALESCE(estadoPago, 'pendiente') != 'cobrado'
+        AND COALESCE(total, 0) > 0.009
+    ''', [clienteId]);
+    return (rows.first['total'] as num?)?.toDouble() ?? 0;
+  }
+
   Future<List<Venta>> ventasConSaldo({int? clienteId}) async {
     final db = await _db.database;
     final rows = await db.rawQuery('''
