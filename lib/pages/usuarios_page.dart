@@ -25,6 +25,7 @@ class _UsuariosPageState extends State<UsuariosPage> {
   List<Usuario> _filtrados = [];
   bool _cargando = true;
   bool _sinPermiso = false;
+  bool _soloPendientes = false;
 
   @override
   void initState() {
@@ -54,10 +55,12 @@ class _UsuariosPageState extends State<UsuariosPage> {
   void _filtrar(String texto, {bool refrescar = true}) {
     final query = texto.trim().toLowerCase();
     _filtrados = _usuarios.where((usuario) {
+      if (_soloPendientes && !usuario.pendienteAlta) return false;
       return usuario.nombre.toLowerCase().contains(query) ||
           usuario.usuario.toLowerCase().contains(query) ||
           usuario.rol.toLowerCase().contains(query) ||
-          usuario.email.toLowerCase().contains(query);
+          usuario.email.toLowerCase().contains(query) ||
+          (usuario.pendienteAlta && 'pendiente'.contains(query));
     }).toList()
       ..sort((a, b) {
         if (a.pendienteAlta != b.pendienteAlta) {
@@ -326,15 +329,45 @@ class _UsuariosPageState extends State<UsuariosPage> {
       body: Column(
         children: [
           Material(
-            color: cs.surfaceContainerLow,
-            child: const Padding(
-              padding: EdgeInsets.fromLTRB(12, 8, 12, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Solicitudes de Google/correo aparecen como PENDIENTE. Aprobá el alta y asigná el rol. También podés crear usuarios manualmente.',
-                  style: TextStyle(fontSize: 12),
+            color: AppVisuals.warning(cs).withValues(alpha: 0.12),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Cómo dar el alta',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: AppVisuals.warning(cs),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    '1) La persona pide acceso con Google o correo.\n'
+                    '2) Aparece acá con badge PENDIENTE ALTA (arriba de la lista).\n'
+                    '3) Tocá el ícono de persona con tilde → elegí rol → Aprobar.\n'
+                    '4) Ella vuelve a entrar con el mismo Google/correo.',
+                    style: TextStyle(fontSize: 12, height: 1.35),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FilterChip(
+                selected: _soloPendientes,
+                label: Text(
+                  'Solo pendientes '
+                  '(${_usuarios.where((u) => u.pendienteAlta).length})',
                 ),
+                onSelected: (v) {
+                  setState(() => _soloPendientes = v);
+                  _filtrar(_buscarController.text);
+                },
               ),
             ),
           ),
@@ -344,7 +377,7 @@ class _UsuariosPageState extends State<UsuariosPage> {
               controller: _buscarController,
               onChanged: _filtrar,
               decoration: InputDecoration(
-                hintText: 'Buscar por nombre, usuario o rol...',
+                hintText: 'Buscar por nombre, email, usuario o rol...',
                 prefixIcon: const Icon(Icons.search_rounded),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
@@ -356,7 +389,13 @@ class _UsuariosPageState extends State<UsuariosPage> {
             child: _cargando
                 ? const Center(child: CircularProgressIndicator())
                 : _filtrados.isEmpty
-                    ? const Center(child: Text('No hay usuarios registrados.'))
+                    ? Center(
+                        child: Text(
+                          _soloPendientes
+                              ? 'No hay solicitudes pendientes.'
+                              : 'No hay usuarios registrados.',
+                        ),
+                      )
                     : ListView.builder(
                         padding: const EdgeInsets.fromLTRB(12, 0, 12, 80),
                         itemCount: _filtrados.length,
@@ -365,6 +404,9 @@ class _UsuariosPageState extends State<UsuariosPage> {
                           final colorRol = _colorRol(usuario.rol);
                           return Card(
                             margin: const EdgeInsets.only(bottom: 8),
+                            color: usuario.pendienteAlta
+                                ? AppVisuals.warning(cs).withValues(alpha: 0.08)
+                                : null,
                             child: ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: colorRol.withValues(alpha: .15),

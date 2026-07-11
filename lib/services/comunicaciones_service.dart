@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -11,6 +10,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_bootstrap.dart';
+import '../core/sync/media_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/chat_conversacion.dart';
 import '../models/chat_mensaje.dart';
@@ -325,17 +325,24 @@ class ComunicacionesService extends ChangeNotifier {
     await archivo.copy(dest.path);
     var pathGuardado = dest.path;
 
+    // Con Firebase activo, la foto DEBE subir a Storage. Si queda solo el
+    // path local, el otro celular/PC ve el mensaje pero no puede abrirla.
     if (_firebaseOk) {
-      try {
-        final tenant = BackendConfigService.instance.tenantId;
-        final ref = FirebaseStorage.instance.ref().child(
-              'tenants/$tenant/chats/$conversacionId/${p.basename(dest.path)}',
-            );
-        await ref.putFile(dest);
-        pathGuardado = await ref.getDownloadURL();
-      } catch (e) {
-        debugPrint('upload storage: $e');
+      final tenant = BackendConfigService.instance.tenantId;
+      final url = await MediaSyncService.instance.subirArchivo(
+        storagePath:
+            'tenants/$tenant/chats/$conversacionId/${p.basename(dest.path)}',
+        file: dest,
+        contentType: mime,
+      );
+      if (url == null || url.isEmpty) {
+        throw StateError(
+          'No se pudo subir el archivo a la nube. '
+          'Sin eso el otro dispositivo no puede verlo. Reintentá '
+          '(revisá conexión y que Storage esté habilitado en Firebase).',
+        );
       }
+      pathGuardado = url;
     }
 
     return _enviar(

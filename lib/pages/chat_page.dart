@@ -4,7 +4,9 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../core/utils/media_path.dart';
 import '../models/chat_conversacion.dart';
 import '../models/chat_mensaje.dart';
 import '../services/auth_service.dart';
@@ -310,18 +312,27 @@ class _Burbuja extends StatelessWidget {
                   mensaje.archivoPath != null)
                 _ImagenAdjunto(path: mensaje.archivoPath!),
               if (mensaje.tipo == ChatMensajeTipo.archivo)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.insert_drive_file_rounded, color: fg, size: 20),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        mensaje.archivoNombre ?? 'Archivo',
-                        style: TextStyle(color: fg, fontWeight: FontWeight.w600),
+                InkWell(
+                  onTap: () => _abrirAdjunto(context, mensaje),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.insert_drive_file_rounded, color: fg, size: 20),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          mensaje.archivoNombre ?? 'Archivo',
+                          style: TextStyle(
+                            color: fg,
+                            fontWeight: FontWeight.w600,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 4),
+                      Icon(Icons.open_in_new_rounded, color: fg, size: 16),
+                    ],
+                  ),
                 ),
               if (mensaje.tipo == ChatMensajeTipo.compartido &&
                   mensaje.compartido != null)
@@ -351,19 +362,140 @@ class _ImagenAdjunto extends StatelessWidget {
   final String path;
   const _ImagenAdjunto({required this.path});
 
+  Future<void> _abrirGrande(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(12),
+        child: InteractiveViewer(
+          child: esUrlRemota(path)
+              ? Image.network(
+                  path,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, error, stack) => const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text('No se pudo cargar la imagen'),
+                  ),
+                )
+              : File(path).existsSync()
+                  ? Image.file(File(path), fit: BoxFit.contain)
+                  : const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        'Imagen no disponible en este dispositivo',
+                      ),
+                    ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isUrl = path.startsWith('http');
+    final isUrl = esUrlRemota(path);
+    final localOk = !isUrl && File(path).existsSync();
+
+    Widget child;
+    if (isUrl) {
+      child = Image.network(
+        path,
+        height: 180,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, widget, progress) {
+          if (progress == null) return widget;
+          return const SizedBox(
+            height: 120,
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        },
+        errorBuilder: (_, error, stack) => _placeholder(
+          'No se pudo cargar la imagen',
+        ),
+      );
+    } else if (localOk) {
+      child = Image.file(
+        File(path),
+        height: 180,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (_, error, stack) => _placeholder('Imagen dañada'),
+      );
+    } else {
+      child = _placeholder(
+        'Imagen no disponible aquí\n(se envió sin subir a la nube)',
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: isUrl
-            ? Image.network(path, height: 160, fit: BoxFit.cover,
-                errorBuilder: (_, error, stack) => const Icon(Icons.broken_image))
-            : Image.file(File(path), height: 160, fit: BoxFit.cover,
-                errorBuilder: (_, error, stack) => const Icon(Icons.broken_image)),
+      child: GestureDetector(
+        onTap: (isUrl || localOk) ? () => _abrirGrande(context) : null,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: child,
+        ),
       ),
+    );
+  }
+
+  Widget _placeholder(String texto) {
+    return Container(
+      height: 120,
+      width: double.infinity,
+      color: Colors.black12,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(12),
+      child: Text(
+        texto,
+        textAlign: TextAlign.center,
+        style: const TextStyle(fontSize: 12),
+      ),
+    );
+  }
+}
+
+Future<void> _abrirAdjunto(BuildContext context, ChatMensaje mensaje) async {
+  final path = mensaje.archivoPath;
+  if (path == null || path.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Archivo sin ruta')),
+    );
+    return;
+  }
+  try {
+    if (esUrlRemota(path)) {
+      await SharePlus.instance.share(
+        ShareParams(
+          uri: Uri.parse(path),
+          text: mensaje.archivoNombre ?? 'Archivo',
+        ),
+      );
+      return;
+    }
+    final file = File(path);
+    if (!file.existsSync()) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'El archivo no está en este dispositivo. '
+            'Pedile que lo reenvíe (versión nueva sube a la nube).',
+          ),
+        ),
+      );
+      return;
+    }
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(path, name: mensaje.archivoNombre)],
+        text: mensaje.archivoNombre ?? 'Archivo',
+      ),
+    );
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('No se pudo abrir: $e')),
     );
   }
 }

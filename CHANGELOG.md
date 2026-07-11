@@ -1,3 +1,20 @@
+## [1.2.3] — 2026-07-11
+
+### Alta de usuarios (más claro)
+- Al entrar como admin, si hay solicitudes Google/correo aparece un aviso **Ir a Usuarios**.
+- En **Usuarios**: instrucciones + filtro **Solo pendientes** + filas pendientes resaltadas.
+- Mensajes de login actualizados: *Menú → Usuarios (PENDIENTE ALTA)*.
+
+### Comunicaciones (fotos/archivos)
+- Las fotos/archivos **deben subir a Firebase Storage** antes de enviarse. Así el otro celular/PC puede verlos.
+- Si la subida falla, avisa (antes se enviaba un path local ilegible en el otro dispositivo).
+- Imágenes: carga visible, mensaje si no están disponibles, toque para ampliar.
+- Archivos: toque para abrir/compartir.
+
+### Fotos de productos
+- MIME correcto según extensión (PNG/WebP/etc.).
+- Ya no deja paths locales en sync cuando la subida falla.
+
 ## [1.2.2] — 2026-07-11
 
 ### Remitos

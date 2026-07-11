@@ -424,7 +424,8 @@ class AuthService {
       } catch (_) {}
       throw StateError(
         'Solicitud enviada con $email.\n\n'
-        'El administrador debe darte el alta en Usuarios → Pendientes.\n'
+        'El administrador debe darte el alta en Menú → Usuarios '
+        '(badge naranja PENDIENTE ALTA).\n'
         'Cuando te aprueben, volvé a entrar con Google o tu correo.',
       );
     }
@@ -436,7 +437,7 @@ class AuthService {
       if (localUser.pendienteAlta) {
         throw StateError(
           'Tu acceso todavía está pendiente de aprobación.\n'
-          'Pedile al administrador que te dé el alta ($email).',
+          'Pedile al administrador que te dé el alta en Menú → Usuarios ($email).',
         );
       }
       throw StateError(

@@ -63,16 +63,32 @@ class MediaSyncService {
         storagePath:
             'tenants/$_tenant/productos/$safeCodigo/foto_${i}_${const Uuid().v4()}$ext',
         file: file,
-        contentType: 'image/jpeg',
+        contentType: _contentTypeDeExt(ext),
       );
       if (url != null) {
         resultado.add(url);
         i++;
       } else {
-        resultado.add(ruta); // fallback local
+        // No dejar path local en sync: el otro dispositivo no lo puede leer.
+        debugPrint('MediaSync: no se pudo subir foto de producto $codigo');
       }
     }
     return resultado;
+  }
+
+  static String _contentTypeDeExt(String ext) {
+    switch (ext.toLowerCase()) {
+      case '.png':
+        return 'image/png';
+      case '.webp':
+        return 'image/webp';
+      case '.gif':
+        return 'image/gif';
+      case '.pdf':
+        return 'application/pdf';
+      default:
+        return 'image/jpeg';
+    }
   }
 
   /// Copia una foto de producto a almacenamiento permanente de la app.

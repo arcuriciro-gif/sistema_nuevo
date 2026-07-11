@@ -16,6 +16,7 @@ import '../services/comunicaciones_service.dart';
 import '../services/cuenta_corriente_service.dart';
 import '../services/menu_preferencias_service.dart';
 import '../services/permisos_service.dart';
+import '../services/usuario_service.dart';
 import '../theme/layout_constants.dart';
 import '../widgets/sync_status_chip.dart';
 import 'archivo_pdfs_page.dart';
@@ -119,6 +120,7 @@ class _MainShellState extends State<MainShell> {
     MenuPreferenciasService.instance.cargar();
     AppNavigation.irAModuloInicio = _irAInicio;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _mostrarRecordatorioPendientesAlta();
       _mostrarRecordatorioCc();
       AlertasStockService.instance.evaluarYNotificar();
       AlertasCuentaCorrienteService.instance.evaluarYNotificar();
@@ -539,6 +541,49 @@ class _MainShellState extends State<MainShell> {
     final items = _visibleItems;
     final idx = items.indexWhere((e) => e.title == title);
     if (idx >= 0) _select(idx);
+  }
+
+  Future<void> _mostrarRecordatorioPendientesAlta() async {
+    if (!mounted || !AuthService.instance.esAdministrador()) return;
+    try {
+      final pendientes =
+          await UsuarioService.instance.obtenerPendientesAlta();
+      if (!mounted || pendientes.isEmpty) return;
+      final nombres = pendientes
+          .take(5)
+          .map((u) => u.email.isNotEmpty ? u.email : u.nombre)
+          .join('\n• ');
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.how_to_reg_rounded),
+              SizedBox(width: 8),
+              Expanded(child: Text('Solicitudes de acceso')),
+            ],
+          ),
+          content: Text(
+            'Hay ${pendientes.length} persona(s) esperando el alta '
+            '(Google o correo):\n\n• $nombres\n\n'
+            'Andá a Menú → Usuarios y tocá el ícono de aprobar.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Después'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _irAModulo('Usuarios');
+              },
+              child: const Text('Ir a Usuarios'),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {}
   }
 
   Future<void> _mostrarRecordatorioCc() async {
