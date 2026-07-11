@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../app_version.dart';
@@ -24,11 +25,29 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscure = true;
   String? _error;
 
+  bool get _googleDisponible =>
+      !kIsWeb && (Platform.isAndroid || Platform.isWindows || Platform.isLinux);
+
   @override
   void dispose() {
     _usuarioCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _irTrasLogin({required bool forzarCambioClave}) async {
+    if (!mounted) return;
+    if (forzarCambioClave) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => const CambiarPasswordObligatorioPage(),
+        ),
+      );
+      return;
+    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const MainShell()),
+    );
   }
 
   Future<void> _login() async {
@@ -49,8 +68,7 @@ class _LoginPageState extends State<LoginPage> {
       setState(() {
         _error =
             'Usuario o contraseña incorrectos.\n'
-            'Usá el nombre de usuario (ej. maco), no el email.\n'
-            'Si no entra: en la PC, admin → Usuarios → Restablecer contraseña.';
+            'También podés usar “Entrar con Google” si el admin cargó tu Gmail.';
       });
       return;
     }
@@ -60,18 +78,29 @@ class _LoginPageState extends State<LoginPage> {
         FirebaseAuthUsuarioService.instance.uidActual == null;
     final passwordCorta = _passwordCtrl.text.length < 6;
 
-    // Solo forzar pantalla de clave si el sistema lo exige o la clave es corta
-    // para Firebase. Si solo falta Auth pero la clave ya es válida, entrar igual.
-    if (user.debeCambiarPassword || (faltaFirebaseAuth && passwordCorta)) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const CambiarPasswordObligatorioPage()),
-      );
-      return;
-    }
-
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const MainShell()),
+    await _irTrasLogin(
+      forzarCambioClave:
+          user.debeCambiarPassword || (faltaFirebaseAuth && passwordCorta),
     );
+  }
+
+  Future<void> _loginGoogle() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await AuthService.instance.loginConGoogle();
+      if (!mounted) return;
+      setState(() => _loading = false);
+      await _irTrasLogin(forzarCambioClave: false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.toString().replaceFirst('StateError: ', '');
+      });
+    }
   }
 
   @override
@@ -90,7 +119,6 @@ class _LoginPageState extends State<LoginPage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Logo / branding
                 if (logoPath.isNotEmpty)
                   CircleAvatar(
                     radius: 48,
@@ -102,10 +130,7 @@ class _LoginPageState extends State<LoginPage> {
                     height: 96,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: cs.primary,
-                        width: 1.5,
-                      ),
+                      border: Border.all(color: cs.primary, width: 1.5),
                     ),
                     child: Center(
                       child: Icon(
@@ -133,7 +158,6 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ],
                 const SizedBox(height: 40),
-                // Login card
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
@@ -146,12 +170,52 @@ class _LoginPageState extends State<LoginPage> {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Empleados: preferí Google con el Gmail que te cargó el admin.',
+                          style: textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                        if (_googleDisponible) ...[
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: OutlinedButton.icon(
+                              onPressed: _loading ? null : _loginGoogle,
+                              icon: const Icon(Icons.g_mobiledata_rounded,
+                                  size: 28),
+                              label: const Text(
+                                'Entrar con Google',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              const Expanded(child: Divider()),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8),
+                                child: Text(
+                                  'o con usuario',
+                                  style: textTheme.labelSmall?.copyWith(
+                                    color: cs.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                              const Expanded(child: Divider()),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 16),
                         TextField(
                           controller: _usuarioCtrl,
-                          decoration: InputDecoration(
+                          decoration: const InputDecoration(
                             labelText: 'Usuario',
-                            prefixIcon: const Icon(Icons.person_outline_rounded),
+                            prefixIcon: Icon(Icons.person_outline_rounded),
                           ),
                           textInputAction: TextInputAction.next,
                           onSubmitted: (_) =>
@@ -163,7 +227,8 @@ class _LoginPageState extends State<LoginPage> {
                           obscureText: _obscure,
                           decoration: InputDecoration(
                             labelText: 'Contraseña',
-                            prefixIcon: const Icon(Icons.lock_outline_rounded),
+                            prefixIcon:
+                                const Icon(Icons.lock_outline_rounded),
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _obscure
@@ -180,6 +245,7 @@ class _LoginPageState extends State<LoginPage> {
                         if (_error != null) ...[
                           const SizedBox(height: 12),
                           Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Icon(
                                 Icons.error_outline,
@@ -241,7 +307,8 @@ class _LoginPageState extends State<LoginPage> {
                       );
                     },
                     icon: const Icon(Icons.picture_as_pdf_rounded),
-                    label: const Text('Instrucciones / PDF (sin iniciar sesión)'),
+                    label: const Text(
+                        'Instrucciones / PDF (sin iniciar sesión)'),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(48),
                     ),
@@ -271,5 +338,4 @@ class _LoginPageState extends State<LoginPage> {
       ),
     );
   }
-
 }

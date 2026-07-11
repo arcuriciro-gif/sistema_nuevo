@@ -1,3 +1,11 @@
+## [1.2.0] — 2026-07-11
+
+### Login con Google
+- Botón **Entrar con Google** en el login (Android; Windows intenta provider).
+- El admin da de alta el usuario con su **Gmail**; esa cuenta es la que autoriza el acceso.
+- Sigue existiendo login con usuario/clave (admin / fallback).
+- Guía de configuración Firebase (SHA-1, OAuth, Web client ID): `docs/GOOGLE_LOGIN.md`.
+
 ## [1.1.12] — 2026-07-11
 
 ### Login usuarios (definitivo)

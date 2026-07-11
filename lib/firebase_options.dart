@@ -43,4 +43,11 @@ class DefaultFirebaseOptions {
     authDomain: 'tata-stock-8631e.firebaseapp.com',
     storageBucket: 'tata-stock-8631e.firebasestorage.app',
   );
+
+  /// Web client ID (OAuth) para Google Sign-In + Firebase.
+  /// Firebase Console → Authentication → Sign-in method → Google
+  /// → "Web client ID" (termina en .apps.googleusercontent.com).
+  /// También aparece en google-services.json → oauth_client (client_type: 3).
+  /// Dejar vacío hasta configurarlo; el login con Google lo va a pedir.
+  static const String googleWebClientId = '';
 }

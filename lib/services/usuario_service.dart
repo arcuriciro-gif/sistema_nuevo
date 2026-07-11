@@ -38,7 +38,7 @@ class UsuarioService {
     final ahora = DateTime.now();
     final rol = RolUtil.normalizar(usuario.rol);
     final passwordPlano = usuario.password;
-    final emailReal = usuario.email.trim();
+    final emailReal = usuario.email.trim().toLowerCase();
     var nuevo = usuario.copyWith(
       rol: rol,
       // Contacto opcional; Auth usa siempre email sintético del usuario.

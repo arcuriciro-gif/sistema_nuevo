@@ -49,6 +49,24 @@ class FirestoreUsuarioRepository implements UsuarioRepository {
     return Usuario.fromFirestore(doc.data(), docId: doc.id);
   }
 
+  Future<Usuario?> buscarPorEmail(String email) async {
+    final needle = email.trim().toLowerCase();
+    if (needle.isEmpty) return null;
+    final snap =
+        await _collection.where('email', isEqualTo: needle).limit(1).get();
+    if (snap.docs.isNotEmpty) {
+      final doc = snap.docs.first;
+      return Usuario.fromFirestore(doc.data(), docId: doc.id);
+    }
+    // Fallback por si el email se guardó con mayúsculas.
+    final todos = await obtenerTodos();
+    try {
+      return todos.firstWhere((u) => u.email.trim().toLowerCase() == needle);
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Future<Usuario?> buscarPorFirebaseUid(String uid) async {
     final doc = await _collection.doc(uid).get();
