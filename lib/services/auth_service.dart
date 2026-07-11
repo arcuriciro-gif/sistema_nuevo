@@ -385,13 +385,51 @@ class AuthService {
   }) async {
     final firebase = FirebaseAuthUsuarioService.instance;
     final sqlite = SqliteUsuarioRepository();
+    final firestoreUsuarios = FirestoreUsuarioRepository();
 
     var localUser = await sqlite.buscarPorEmail(email);
-    if (localUser == null && BackendConfigService.instance.firebaseEnabled) {
+    localUser ??= await sqlite.buscarPorFirebaseUid(firebaseUid);
+
+    // Siempre refrescar desde la nube: si el admin ya aprobó en la PC,
+    // el celular no debe quedarse con pendienteAlta viejo en SQLite.
+    if (BackendConfigService.instance.firebaseEnabled) {
       try {
-        localUser = await FirestoreUsuarioRepository().buscarPorEmail(email);
+        Usuario? remoto;
+        if (firebaseUid.trim().isNotEmpty) {
+          remoto = await firestoreUsuarios.buscarPorFirebaseUid(firebaseUid);
+        }
+        remoto ??= await firestoreUsuarios.buscarPorEmail(email);
+        if (remoto != null) {
+          if (localUser == null) {
+            final id = await sqlite.insertar(
+              remoto.copyWith(
+                firebaseUid: remoto.firebaseUid ?? firebaseUid,
+                id: null,
+              ),
+            );
+            localUser = (await sqlite.buscarPorFirebaseUid(firebaseUid)) ??
+                (await sqlite.buscarPorEmail(email)) ??
+                remoto.copyWith(id: id, firebaseUid: firebaseUid);
+          } else {
+            localUser = localUser.copyWith(
+              firebaseUid: remoto.firebaseUid ?? localUser.firebaseUid ?? firebaseUid,
+              nombre: remoto.nombre.isNotEmpty ? remoto.nombre : localUser.nombre,
+              rol: remoto.rol,
+              activo: remoto.activo,
+              pendienteAlta: remoto.pendienteAlta,
+              email: remoto.email.isNotEmpty ? remoto.email : localUser.email,
+              foto: remoto.foto.isNotEmpty ? remoto.foto : localUser.foto,
+              origenAlta: remoto.origenAlta.isNotEmpty
+                  ? remoto.origenAlta
+                  : localUser.origenAlta,
+            );
+            if (localUser.id != null) {
+              await sqlite.actualizar(localUser);
+            }
+          }
+        }
       } catch (e) {
-        debugPrint('Buscar usuario por email: $e');
+        debugPrint('Refrescar usuario desde Firestore: $e');
       }
     }
 
@@ -415,7 +453,7 @@ class AuthService {
       localUser = pendiente.copyWith(id: id);
       if (BackendConfigService.instance.firebaseEnabled) {
         try {
-          await FirestoreUsuarioRepository().insertar(localUser);
+          await firestoreUsuarios.insertar(localUser);
           try {
             await ComunicacionesService.instance.crearNotificacion(
               usuarioDestino: 'admin',
@@ -462,7 +500,8 @@ class AuthService {
       if (localUser.pendienteAlta) {
         throw StateError(
           'Tu acceso todavía está pendiente de aprobación.\n'
-          'Pedile al administrador que te dé el alta en Menú → Usuarios ($email).',
+          'Si el admin ya te aprobó, esperá unos segundos con internet '
+          'y volvé a entrar ($email).',
         );
       }
       throw StateError(

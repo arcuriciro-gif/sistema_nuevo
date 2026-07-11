@@ -1,3 +1,10 @@
+## [1.2.5] — 2026-07-11
+
+### Alta aprobada llega al celular al instante
+- Al entrar con Google/correo, el APK **vuelve a leer Firestore** (antes usaba el “pendiente” viejo guardado en el celular).
+- Aprobar en la PC avisa si falló subir a la nube (si no, el celular no se entera).
+- El alta no “tarda”: con internet y sync OK es inmediato al reingresar.
+
 ## [1.2.4] — 2026-07-11
 
 ### Sync de solicitudes de alta (crítico)

@@ -282,18 +282,48 @@ class UsuarioService {
       throw StateError('Usuario sin id local.');
     }
     final rolOk = RolUtil.normalizar(rol ?? usuario.rol);
-    final actualizado = usuario.copyWith(
+    var actualizado = usuario.copyWith(
       activo: true,
       pendienteAlta: false,
       rol: rolOk,
     );
     await _repoLocal.actualizar(actualizado);
-    if (BackendConfigService.instance.firebaseEnabled &&
-        (actualizado.firebaseUid?.isNotEmpty ?? false)) {
+
+    if (BackendConfigService.instance.firebaseEnabled) {
       try {
+        // Si no hay uid, intentar resolverlo por email antes de subir.
+        if (actualizado.firebaseUid == null ||
+            actualizado.firebaseUid!.isEmpty) {
+          final remoto = actualizado.email.trim().isEmpty
+              ? null
+              : await FirestoreUsuarioRepository()
+                  .buscarPorEmail(actualizado.email);
+          if (remoto?.firebaseUid != null &&
+              remoto!.firebaseUid!.isNotEmpty) {
+            actualizado = actualizado.copyWith(firebaseUid: remoto.firebaseUid);
+            await _repoLocal.actualizar(actualizado);
+          }
+        }
+        if (actualizado.firebaseUid == null ||
+            actualizado.firebaseUid!.isEmpty) {
+          throw StateError(
+            'Usuario aprobado en esta PC, pero no tiene firebaseUid: '
+            'el celular no se enterará. Pedile que vuelva a solicitar acceso '
+            'o revisá Firestore tenants/.../usuarios.',
+          );
+        }
         await FirestoreUsuarioRepository().actualizar(actualizado);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Firestore aprobar alta: $e');
+        if (e is StateError) rethrow;
+        throw StateError(
+          'Aprobado en esta PC, pero no se pudo subir a la nube.\n'
+          'El celular seguirá viendo “pendiente” hasta que la nube se actualice.\n\n'
+          '$e',
+        );
+      }
     }
+
     await AuthService.instance.registrarCambio(
       'APROBAR_ALTA',
       'usuarios',
