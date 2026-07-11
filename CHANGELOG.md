@@ -1,3 +1,9 @@
+## [1.1.8] — 2026-07-11
+
+### Windows build (VS 18.6+)
+- Fix compilación: MSVC STL1011 / coroutines experimentales (`permission_handler_windows`).
+- En `windows/CMakeLists.txt`: `_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS`.
+
 ## [1.1.7] — 2026-07-11
 
 ### Configuración — Borrar todo
