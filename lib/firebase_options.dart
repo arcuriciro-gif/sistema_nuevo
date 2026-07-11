@@ -29,7 +29,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyDIO601iRMJgk_pCERXJj3aalP5sUMRNgE',
-    appId: '1:932698618413:android:79f6dd8275b301f21896a4',
+    appId: '1:932698618413:android:e75d03f6d2a6d3f51896a4',
     messagingSenderId: '932698618413',
     projectId: 'tata-stock-8631e',
     storageBucket: 'tata-stock-8631e.firebasestorage.app',

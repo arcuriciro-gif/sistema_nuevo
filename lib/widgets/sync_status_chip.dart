@@ -83,7 +83,10 @@ class _SyncStatusChipState extends State<SyncStatusChip> {
 
     return Material(
       color: Colors.transparent,
-      child: InkWell(
+      child: Tooltip(
+        message: sync.uiDetalle,
+        waitDuration: const Duration(milliseconds: 400),
+        child: InkWell(
         borderRadius: BorderRadius.circular(20),
         onTap: () {
           Navigator.of(context).push(
@@ -116,7 +119,7 @@ class _SyncStatusChipState extends State<SyncStatusChip> {
               if (status == SyncUiStatus.procesando)
                 SizedBox(
                   width: dense ? 12 : 14,
-                  height: dense ? 12 : 14,
+                  height: dense ? 14 : 14,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
                     color: fg,
@@ -136,6 +139,7 @@ class _SyncStatusChipState extends State<SyncStatusChip> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

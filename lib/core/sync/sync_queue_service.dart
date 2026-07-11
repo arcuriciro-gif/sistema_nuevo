@@ -74,18 +74,18 @@ class SyncQueueService extends ChangeNotifier {
       case SyncUiStatus.sinConexion:
         if (!BackendConfigService.instance.firebaseEnabled ||
             !FirebaseBootstrap.isReady) {
-          return 'Firebase no listo';
+          return 'Sin nube';
         }
         if (FirebaseAuthUsuarioService.instance.uidActual == null) {
           return pendingCount > 0
-              ? 'Sin sesión nube ($pendingCount)'
+              ? 'Sin sesión ($pendingCount)'
               : 'Sin sesión nube';
         }
         return pendingCount > 0
             ? 'Sin conexión ($pendingCount)'
             : 'Sin conexión';
       case SyncUiStatus.error:
-        return 'Error de sync ($failedCount)';
+        return 'Error sync ($failedCount)';
       case SyncUiStatus.procesando:
         return 'Sincronizando…';
     }
