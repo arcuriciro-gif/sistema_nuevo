@@ -1,3 +1,9 @@
+## [1.1.5] — 2026-07-11
+
+### Configuración / sistema virgen
+- Bloque **MANTENIMIENTO Y DATOS** arriba en Configuración (admin), con vaciar productos/clientes y sistema virgen.
+- Si no sos admin, se explica el rol. Admin siempre tiene acceso a módulos críticos.
+
 ## [1.1.4] — 2026-07-11
 
 ### Versión visible + sync

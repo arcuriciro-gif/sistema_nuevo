@@ -39,22 +39,22 @@ class PermisosService {
   }
 
   bool puedeVer(String rol, String modulo) {
-    if (RolUtil.esAdministrador(rol) && _cache.isEmpty) return true;
+    if (RolUtil.esAdministrador(rol)) return true;
     return _buscar(rol, modulo)?.puedeVer ?? false;
   }
 
   bool puedeCrear(String rol, String modulo) {
-    if (RolUtil.esAdministrador(rol) && _cache.isEmpty) return true;
+    if (RolUtil.esAdministrador(rol)) return true;
     return _buscar(rol, modulo)?.puedeCrear ?? false;
   }
 
   bool puedeEditar(String rol, String modulo) {
-    if (RolUtil.esAdministrador(rol) && _cache.isEmpty) return true;
+    if (RolUtil.esAdministrador(rol)) return true;
     return _buscar(rol, modulo)?.puedeEditar ?? false;
   }
 
   bool puedeEliminar(String rol, String modulo) {
-    if (RolUtil.esAdministrador(rol) && _cache.isEmpty) return true;
+    if (RolUtil.esAdministrador(rol)) return true;
     return _buscar(rol, modulo)?.puedeEliminar ?? false;
   }
 
