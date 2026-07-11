@@ -1,3 +1,10 @@
+## [1.1.10] — 2026-07-11
+
+### Login multi-dispositivo (crítico)
+- Bug: usuarios traídos de Firestore se marcaban `activo=false` (`true == 1`) y el APK no dejaba entrar.
+- El hash de contraseña ahora viaja en Firestore para validar la misma clave en Android y PC.
+- Login local válido aunque Firebase Auth tenga una clave vieja; no bloquea la entrada.
+
 ## [1.1.9] — 2026-07-11
 
 ### Usuarios / login

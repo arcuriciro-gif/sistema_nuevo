@@ -283,23 +283,35 @@ class UsuarioService {
     }
 
     final clave = nuevaPassword.trim();
-    final actualizado = usuario.copyWith(
+    var actualizado = usuario.copyWith(
       password: AuthService.hashPassword(clave),
       debeCambiarPassword: true,
     );
     await _repoLocal.actualizar(actualizado);
 
-    if (BackendConfigService.instance.firebaseEnabled &&
-        (usuario.firebaseUid?.isNotEmpty ?? false)) {
+    if (BackendConfigService.instance.firebaseEnabled) {
       try {
-        await FirestoreUsuarioRepository().actualizar(actualizado);
-      } catch (_) {}
+        if (actualizado.firebaseUid == null ||
+            actualizado.firebaseUid!.isEmpty) {
+          final remoto = await FirestoreUsuarioRepository()
+              .buscarPorUsuario(usuario.usuario);
+          final remotoUid = remoto?.firebaseUid;
+          if (remotoUid != null && remotoUid.isNotEmpty) {
+            actualizado = actualizado.copyWith(firebaseUid: remotoUid);
+            await _repoLocal.actualizar(actualizado);
+          }
+        }
+        if (actualizado.firebaseUid?.isNotEmpty ?? false) {
+          await FirestoreUsuarioRepository().actualizar(actualizado);
+        }
+      } catch (e) {
+        debugPrint('Sync clave a Firestore: $e');
+      }
     }
 
     String? aviso =
-        'Clave temporal lista para ${usuario.usuario}: usá esa misma en el login. '
-        'Si no entra por la nube, en Firebase Console → Authentication → Users '
-        'reseteá la clave de su email a la misma temporal.';
+        'Listo. En el celular/PC entrá con usuario "${usuario.usuario}" '
+        'y la clave temporal que acabás de poner.';
 
     final email = usuario.email.trim();
     if (enviarEmailFirebase &&

@@ -46,13 +46,11 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _loading = false);
 
     if (user == null) {
-      final detalle = AuthService.instance.lastFirebaseError;
       setState(() {
-        _error = (detalle != null && detalle.trim().isNotEmpty)
-            ? 'No se pudo entrar: $detalle'
-            : 'Usuario o contraseña incorrectos.\n'
-                'Usá el nombre de usuario (no el email) y la clave que te dio el admin.\n'
-                'Si cambiaste la clave por el mail, pedile al admin que la restablezca.';
+        _error =
+            'Usuario o contraseña incorrectos.\n'
+            'Usá el nombre de usuario (ej. maco), no el email.\n'
+            'Si no entra: en la PC, admin → Usuarios → Restablecer contraseña.';
       });
       return;
     }

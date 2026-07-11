@@ -27,18 +27,31 @@ class Usuario {
     this.ultimoAcceso,
   }) : fechaCreacion = fechaCreacion;
 
+  static bool _asBool(dynamic value, {required bool defaultValue}) {
+    if (value == null) return defaultValue;
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final s = value.toString().trim().toLowerCase();
+    if (s == '1' || s == 'true' || s == 'si' || s == 'sí') return true;
+    if (s == '0' || s == 'false' || s == 'no') return false;
+    return defaultValue;
+  }
+
   factory Usuario.fromMap(Map<String, dynamic> map) {
     return Usuario(
       id: map['id'],
       firebaseUid: map['firebase_uid'] ?? map['firebaseUid'],
       nombre: map['nombre'] ?? '',
       usuario: map['usuario'] ?? '',
-      password: map['password'] ?? '',
+      password: map['password']?.toString() ?? '',
       rol: map['rol'] ?? 'empleado',
-      activo: (map['activo'] ?? 1) == 1,
-      debeCambiarPassword:
-          (map['debe_cambiar_password'] ?? map['debeCambiarPassword'] ?? 0) ==
-              1,
+      // Firestore manda bool; SQLite manda 0/1. Antes `true == 1` daba false
+      // y el login en Android fallaba siempre para usuarios traídos de la nube.
+      activo: _asBool(map['activo'], defaultValue: true),
+      debeCambiarPassword: _asBool(
+        map['debe_cambiar_password'] ?? map['debeCambiarPassword'],
+        defaultValue: false,
+      ),
       email: map['email'] ?? '',
       foto: map['foto']?.toString() ?? '',
       fechaCreacion: map['fechaCreacion'] != null
@@ -72,6 +85,9 @@ class Usuario {
       'firebaseUid': firebaseUid,
       'nombre': nombre,
       'usuario': usuario,
+      'usuarioLower': usuario.trim().toLowerCase(),
+      // Hash local (SHA-256) para que Android/PC validen la misma clave.
+      'password': password,
       'rol': rol,
       'activo': activo,
       'debeCambiarPassword': debeCambiarPassword,

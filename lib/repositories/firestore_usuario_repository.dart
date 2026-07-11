@@ -25,11 +25,26 @@ class FirestoreUsuarioRepository implements UsuarioRepository {
 
   @override
   Future<Usuario?> buscarPorUsuario(String usuario) async {
-    final snap = await _collection
-        .where('usuario', isEqualTo: usuario.trim())
+    final needle = usuario.trim().toLowerCase();
+    if (needle.isEmpty) return null;
+
+    // Preferir campo normalizado; fallback por si docs viejos no lo tienen.
+    var snap = await _collection
+        .where('usuarioLower', isEqualTo: needle)
         .limit(1)
         .get();
-    if (snap.docs.isEmpty) return null;
+    if (snap.docs.isEmpty) {
+      snap = await _collection.where('usuario', isEqualTo: usuario.trim()).limit(1).get();
+    }
+    if (snap.docs.isEmpty) {
+      // Último recurso: pocos usuarios por tenant.
+      final todos = await obtenerTodos();
+      try {
+        return todos.firstWhere((u) => u.usuario.trim().toLowerCase() == needle);
+      } catch (_) {
+        return null;
+      }
+    }
     final doc = snap.docs.first;
     return Usuario.fromFirestore(doc.data(), docId: doc.id);
   }

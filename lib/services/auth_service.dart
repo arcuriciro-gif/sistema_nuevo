@@ -185,14 +185,34 @@ class AuthService {
 
     if (localUser == null || !localUser.activo) return null;
 
+    // Si vino de Firestore (sin id local), guardarlo en SQLite para este dispositivo.
+    if (localUser.id == null) {
+      final existente = await sqlite.buscarPorUsuario(localUser.usuario);
+      if (existente != null) {
+        localUser = localUser.copyWith(
+          id: existente.id,
+          password: localUser.password.isNotEmpty
+              ? localUser.password
+              : existente.password,
+        );
+        await sqlite.actualizar(localUser);
+      } else {
+        final id = await sqlite.insertar(localUser);
+        localUser = localUser.copyWith(id: id);
+      }
+    }
+
     var usuarioActualizado = localUser;
     var autenticado = localUser.password == _hash(password);
 
     if (!autenticado) return null;
 
+    // Si la clave local/nube (hash) coincide, el login es válido aunque Firebase
+    // Auth todavía tenga otra clave vieja (ej. mail de reset).
+    lastFirebaseError = null;
+
     // Vincular / asegurar sesión Firebase si aún no hay uid activo.
     if (firebase.disponible && firebase.uidActual == null) {
-      lastFirebaseError = null;
       try {
         final cred = await firebase.iniciarSesion(
           usuarioActualizado.usuario,
@@ -223,17 +243,16 @@ class AuthService {
           await sqlite.actualizar(usuarioActualizado);
         } catch (createError) {
           debugPrint('Firebase crearCuenta falló: $createError');
+          // Login local OK: no bloquear la entrada. La nube se puede reconectar después.
           lastFirebaseError =
               FirebaseAuthUsuarioService.mensajeError(signInError);
           final msgCreate =
               FirebaseAuthUsuarioService.mensajeError(createError);
-          // Si el alta dice "ya existe", el problema real es la clave del signIn.
           if (msgCreate.contains('ya existe') ||
               msgCreate.contains('no coincide')) {
             lastFirebaseError = FirebaseAuthUsuarioService.mensajeError(
               signInError,
             );
-            // Si signIn no fue "wrong password", preferir el mensaje de create.
             if (!lastFirebaseError!.contains('Contraseña') &&
                 !lastFirebaseError!.contains('incorrecta') &&
                 !lastFirebaseError!.contains('no coincide')) {
@@ -271,6 +290,7 @@ class AuthService {
       }
       await FirestoreSyncService.instance.start();
       await SyncQueueService.instance.start();
+      SyncQueueService.instance.clearAuthError();
       debugPrint('Firebase Auth OK uid=$uidActual');
     } else {
       debugPrint(
@@ -278,8 +298,9 @@ class AuthService {
         'Revisá Authentication > Correo/contraseña en Firebase.',
       );
       lastFirebaseError ??=
-          'Sin sesión en la nube. Activá Authentication → Correo/contraseña '
-          'en Firebase Console y tocá el indicador para reconectar.';
+          'Entraste en este dispositivo. La nube quedó pendiente: '
+          'tocá el indicador de sync e ingresá de nuevo la misma clave, '
+          'o pedile al admin que restablezca la contraseña.';
       SyncQueueService.instance.reportAuthError(lastFirebaseError);
       await SyncQueueService.instance.start();
     }
