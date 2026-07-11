@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Excluir datos sensibles locales del backup automático de Android. -->
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="file" path="branding/" />
+    <exclude domain="file" path="productos/" />
+    <exclude domain="file" path="pdfs/" />
+</full-backup-content>

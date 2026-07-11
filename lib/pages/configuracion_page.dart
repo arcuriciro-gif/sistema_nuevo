@@ -9,6 +9,8 @@ import '../theme/app_theme.dart';
 import '../theme/theme_provider.dart';
 import 'listas_precio_page.dart';
 import 'menu_lateral_config_page.dart';
+import 'impresora_termica_page.dart';
+import 'privacidad_page.dart';
 import 'plantilla_impresion_page.dart';
 import 'documentos_config_page.dart';
 import '../theme/module_app_bar.dart';
@@ -620,6 +622,22 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                           await Navigator.push<void>(
                             context,
                             MaterialPageRoute(
+                              builder: (_) => const ImpresoraTermicaPage(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.receipt_long_rounded),
+                        label: const Text('Impresora térmica Bluetooth'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          await Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
                               builder: (_) => const DocumentosConfigPage(),
                             ),
                           );
@@ -692,6 +710,53 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                         },
                         icon: const Icon(Icons.tune_rounded),
                         label: const Text('PERSONALIZAR MENÚ'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              elevation: 3,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.privacy_tip_outlined,
+                            color: colorScheme.primary),
+                        const SizedBox(width: 10),
+                        Text(
+                          'PRIVACIDAD Y PLAY STORE',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Política de privacidad de Tata.Manager. '
+                      'En Google Play Console publicá una URL pública con este texto '
+                      '(o el de docs/PRIVACY_POLICY.md) y completá Data Safety.',
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const PrivacidadPage(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.article_outlined),
+                        label: const Text('VER POLÍTICA DE PRIVACIDAD'),
                       ),
                     ),
                   ],

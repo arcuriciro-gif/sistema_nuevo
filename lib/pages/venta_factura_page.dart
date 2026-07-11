@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'impresora_termica_page.dart';
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -385,6 +386,31 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
     await Printing.layoutPdf(onLayout: (_) async => bytes);
   }
 
+  Future<void> _imprimirTermica() async {
+    if (_ventaExistente == null) return;
+    final items = await _itemsVentaPdf();
+    final itemsTicket = items
+        .map((e) => {
+              'descripcion': e['descripcion'] ?? '',
+              'cantidad': e['cantidad'] ?? 0,
+              'precio': e['precioUnitario'] ?? e['precio'] ?? 0,
+              'subtotal': e['subtotal'] ?? 0,
+            })
+        .toList();
+    if (!mounted) return;
+    await imprimirTicketTermico(
+      context,
+      tituloDocumento: _tipoDocumentoPdf.toUpperCase(),
+      numero: _ventaExistente!.numero,
+      fechaIso: _ventaExistente!.fecha.toIso8601String(),
+      clienteNombre: _clienteSeleccionado?.nombre ?? 'Consumidor final',
+      items: itemsTicket,
+      total: _ventaExistente!.total,
+      descuento: _ventaExistente!.descuento,
+      estadoPago: _ventaExistente!.estadoPago,
+    );
+  }
+
   Future<void> _compartirPdf() async {
     if (_ventaExistente == null) return;
     final pdfService = PdfService();
@@ -499,6 +525,8 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                     if (!mounted) return;
                     Navigator.pop(context);
                   }
+                } else if (action == 'termica') {
+                  await _imprimirTermica();
                 } else if (action == 'imprimir') {
                   await _imprimirPdf();
                 } else if (action == 'compartir') {
@@ -512,6 +540,10 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                 }
               },
               itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'termica',
+                  child: Text('Imprimir térmica'),
+                ),
                 const PopupMenuItem(
                   value: 'imprimir',
                   child: Text('Imprimir PDF'),

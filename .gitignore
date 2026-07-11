@@ -48,3 +48,8 @@ dist/
 # Paquete Windows listo para copiar (se regenera al compilar)
 /Instalador_Windows/**
 !/Instalador_Windows/LEEME.txt
+
+# Android release signing
+android/key.properties
+**/*.jks
+**/*.keystore

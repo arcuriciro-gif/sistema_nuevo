@@ -10,6 +10,7 @@ import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
 import '../widgets/compartir_chat_dialog.dart';
 import '../widgets/comentarios_internos_sheet.dart';
+import 'impresora_termica_page.dart';
 import 'remito_form_page.dart';
 import '../theme/module_app_bar.dart';
 
@@ -201,6 +202,31 @@ class _RemitosPageState extends State<RemitosPage> {
       clienteId: remito['clienteId'] as int?,
     );
     await Printing.layoutPdf(onLayout: (_) async => pdf);
+  }
+
+  Future<void> imprimirTermicaRemito(Map<String, dynamic> remito) async {
+    final items = await _obtenerPdfItems(remito);
+    final itemsTicket = items.map((e) {
+      final m = Map<String, dynamic>.from(e as Map);
+      return {
+        'descripcion': m['descripcion'] ?? '',
+        'cantidad': m['cantidad'] ?? 0,
+        'precio': m['precioUnitario'] ?? m['precio'] ?? 0,
+        'subtotal': m['subtotal'] ?? 0,
+      };
+    }).toList();
+    if (!mounted) return;
+    await imprimirTicketTermico(
+      context,
+      tituloDocumento: 'REMITO',
+      numero: remito['numero']?.toString() ?? '',
+      fechaIso: remito['fecha']?.toString() ?? DateTime.now().toIso8601String(),
+      clienteNombre: remito['clienteNombre']?.toString() ?? 'Sin cliente',
+      items: itemsTicket,
+      total: (remito['total'] as num?)?.toDouble() ?? 0,
+      descuento: (remito['descuento'] as num?)?.toDouble() ?? 0,
+      estadoPago: remito['estadoPago']?.toString(),
+    );
   }
 
   Future<void> compartirRemito(Map<String, dynamic> remito) async {
@@ -537,6 +563,11 @@ class _RemitosPageState extends State<RemitosPage> {
                                           icon: const Icon(
                                             Icons.chat_bubble_outline_rounded,
                                           ),
+                                        ),
+                                        IconButton(
+                                          tooltip: 'Térmica',
+                                          onPressed: () => imprimirTermicaRemito(remito),
+                                          icon: const Icon(Icons.receipt_long_rounded),
                                         ),
                                         IconButton(
                                           tooltip: 'Imprimir PDF',

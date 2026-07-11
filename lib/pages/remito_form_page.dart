@@ -12,6 +12,7 @@ import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
 import '../theme/module_app_bar.dart';
+import 'impresora_termica_page.dart';
 import 'scanner_page.dart';
 
 class _ItemRemito {
@@ -419,9 +420,14 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
             child: const Text('Cerrar'),
           ),
           TextButton.icon(
+            onPressed: () => Navigator.pop(context, 'termica'),
+            icon: const Icon(Icons.receipt_long, color: Colors.teal),
+            label: const Text('Térmica'),
+          ),
+          TextButton.icon(
             onPressed: () => Navigator.pop(context, 'imprimir'),
             icon: const Icon(Icons.print, color: Colors.orange),
-            label: const Text('Imprimir'),
+            label: const Text('PDF'),
           ),
           ElevatedButton.icon(
             onPressed: () => Navigator.pop(context, 'compartir'),
@@ -455,6 +461,21 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
     );
 
     if (accion == null || accion == 'cerrar') {
+      return;
+    }
+
+    if (accion == 'termica') {
+      if (!mounted) return;
+      await imprimirTicketTermico(
+        context,
+        tituloDocumento: 'REMITO',
+        numero: remito.numero,
+        fechaIso: remito.fecha.toIso8601String(),
+        clienteNombre: clienteSeleccionado?.nombre ?? 'Sin cliente',
+        items: itemsPdf,
+        total: remito.total,
+        descuento: remito.descuento,
+      );
       return;
     }
 

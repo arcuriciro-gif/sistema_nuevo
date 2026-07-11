@@ -213,3 +213,17 @@ Página: `lib/pages/sync_historial_page.dart`
 ## Etiquetas EAN
 
 - `PdfService.generateEtiquetasPdf`: EAN-13 si `codigoBarras` válido; Code128 si hay barras no-EAN; QR del código interno como fallback.
+
+
+## Impresión térmica
+
+- `ThermalPrintService` + `ImpresoraTermicaPage` (Configuración).
+- ESC/POS vía `esc_pos_utils_plus`; envío con `print_bluetooth_thermal` (sin ubicación).
+- Ancho según `BrandingService.papelPdf` (`ticket_58` / `ticket_80`).
+- Hooks: remito form (post-guardado), lista remitos, venta/factura.
+
+## Google Play / Android
+
+- `applicationId`: `com.eltatamanager.app`.
+- Ver `docs/PLAY_STORE.md` y `docs/PRIVACY_POLICY.md`.
+- Re-registrar la app Android en Firebase con el nuevo package antes de producción.

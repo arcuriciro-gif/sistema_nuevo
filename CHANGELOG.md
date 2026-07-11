@@ -2,6 +2,18 @@
 
 Todos los cambios relevantes del proyecto se documentan aquí.
 
+## [1.1.3] — 2026-07-11
+
+### Impresión térmica + Google Play
+- Impresión Bluetooth ESC/POS 58/80 mm (`print_bluetooth_thermal` + `esc_pos_utils_plus`), sin permiso de ubicación.
+- Configuración → Impresora térmica; ticket de prueba; guardado de MAC.
+- Remitos y ventas: acción **Térmica** además de PDF.
+- Package Android `com.eltatamanager.app` (ya no `com.example.*`).
+- Manifest endurecido: Bluetooth CONNECT/SCAN, cámara opcional, sin cleartext, backup rules, AD_ID removido.
+- Release con R8 + `proguard-rules.pro`; firma via `android/key.properties` si existe.
+- Política de privacidad (`docs/PRIVACY_POLICY.md`) + pantalla en Configuración.
+- Checklist Play: `docs/PLAY_STORE.md`.
+
 ## [1.1.2] — 2026-07-11
 
 ### Dashboard / Inicio (Windows EXE)
