@@ -4,6 +4,7 @@ import '../models/cliente.dart';
 import '../services/cliente_service.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/comentarios_internos_sheet.dart';
+import '../widgets/form_save_bar.dart';
 
 class ClienteFormPage extends StatefulWidget {
   final Cliente? cliente;
@@ -165,8 +166,13 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
             ),
         ],
       ),
+      bottomNavigationBar: FormSaveBar(
+        onPressed: guardando ? null : guardar,
+        loading: guardando,
+        label: esEdicion ? 'ACTUALIZAR' : 'GUARDAR',
+      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: formScrollPadding(context),
         child: Form(
           key: formKey,
           child: Column(
@@ -229,22 +235,7 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
                       const TextInputType.numberWithOptions(decimal: true)),
               _campo("Observaciones", observacionesController,
                   icon: Icons.notes, maxLines: 3),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: guardando ? null : guardar,
-                  icon: guardando
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.save),
-                  label: Text(esEdicion ? "ACTUALIZAR" : "GUARDAR"),
-                ),
-              ),
+              const SizedBox(height: 8),
             ],
           ),
         ),

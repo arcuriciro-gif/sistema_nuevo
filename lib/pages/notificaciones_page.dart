@@ -99,9 +99,36 @@ class _NotificacionesPageState extends State<NotificacionesPage> {
       ),
       body: items.isEmpty
           ? Center(
-              child: Text(
-                'Sin notificaciones',
-                style: TextStyle(color: cs.onSurfaceVariant),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.notifications_none_rounded,
+                      size: 48,
+                      color: cs.onSurfaceVariant,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Sin notificaciones',
+                      style: TextStyle(
+                        color: cs.onSurfaceVariant,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (_svc.mensajesSinLeer > 0) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Tenés ${_svc.mensajesSinLeer} mensaje(s) de chat sin leer. '
+                        'Abrilos desde Comunicaciones.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: cs.onSurfaceVariant),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             )
           : ListView.separated(

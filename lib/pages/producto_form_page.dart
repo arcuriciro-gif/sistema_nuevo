@@ -8,6 +8,7 @@ import '../services/lista_precio_service.dart';
 import '../services/producto_service.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/comentarios_internos_sheet.dart';
+import '../widgets/form_save_bar.dart';
 import 'historial_precios_page.dart';
 import 'scanner_page.dart';
 
@@ -292,8 +293,9 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
           ],
         ],
       ),
+      bottomNavigationBar: FormSaveBar(onPressed: guardar),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(15),
+        padding: formScrollPadding(context, base: 15),
         child: Column(
           children: [
             GestureDetector(
@@ -452,16 +454,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
             const Divider(),
             const SizedBox(height: 8),
             _campo('Observaciones', observacionesController),
-            const SizedBox(height: 15),
-            SizedBox(
-              width: double.infinity,
-              height: 55,
-              child: ElevatedButton.icon(
-                onPressed: guardar,
-                icon: const Icon(Icons.save),
-                label: const Text('GUARDAR'),
-              ),
-            ),
+            const SizedBox(height: 8),
           ],
         ),
       ),

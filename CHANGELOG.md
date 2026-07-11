@@ -12,6 +12,8 @@ Todos los cambios relevantes del proyecto se documentan aquí.
 - Productos sin barra KPI: layout tipo Clientes (buscador + actualizar + volver).
 - En la lista de productos: foto del artículo y solo precios de listas activas (con su nombre).
 - Listas de precios: renombrar + editar % (más claro en la UI).
+- Botón Guardar fijo arriba de la barra de sistema Android (no se pisa con gestos).
+- Badge de Notificaciones solo cuenta notificaciones reales (no mensajes de chat).
 
 ### Sync — cobertura ampliada
 - Categorías y listas de precios: sync bidireccional + cola offline.

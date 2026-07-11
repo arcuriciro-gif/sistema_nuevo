@@ -591,8 +591,8 @@ class _MainShellState extends State<MainShell> {
               );
             },
             icon: Badge(
-              isLabelVisible: ComunicacionesService.instance.badgeTotal > 0,
-              label: Text('${ComunicacionesService.instance.badgeTotal}'),
+              isLabelVisible: ComunicacionesService.instance.notifSinLeer > 0,
+              label: Text('${ComunicacionesService.instance.notifSinLeer}'),
               child: const Icon(Icons.notifications_rounded),
             ),
             tooltip: 'Notificaciones',
@@ -972,8 +972,8 @@ class _TopBar extends StatelessWidget {
           // Notificaciones
           IconButton(
             icon: Badge(
-              isLabelVisible: ComunicacionesService.instance.badgeTotal > 0,
-              label: Text('${ComunicacionesService.instance.badgeTotal}'),
+              isLabelVisible: ComunicacionesService.instance.notifSinLeer > 0,
+              label: Text('${ComunicacionesService.instance.notifSinLeer}'),
               child: const Icon(Icons.notifications_rounded),
             ),
             color: _kSidebarInactiveIcon,

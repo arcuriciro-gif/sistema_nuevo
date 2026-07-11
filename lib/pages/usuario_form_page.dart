@@ -5,6 +5,7 @@ import '../models/usuario.dart';
 import '../services/auth_service.dart';
 import '../services/usuario_service.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/form_save_bar.dart';
 
 class UsuarioFormPage extends StatefulWidget {
   final Usuario? usuario;
@@ -162,8 +163,13 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
         context,
         title: _esEdicion ? 'Editar usuario' : 'Nuevo usuario',
       ),
+      bottomNavigationBar: FormSaveBar(
+        onPressed: _guardando ? null : _guardar,
+        loading: _guardando,
+        label: _esEdicion ? 'ACTUALIZAR' : 'CREAR USUARIO',
+      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: formScrollPadding(context),
         child: Form(
           key: _formKey,
           child: Column(
@@ -276,22 +282,7 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
                 onChanged: (value) => setState(() => _activo = value),
                 title: const Text('Usuario activo'),
               ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: _guardando ? null : _guardar,
-                  icon: _guardando
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.save_rounded),
-                  label: Text(_esEdicion ? 'ACTUALIZAR' : 'CREAR USUARIO'),
-                ),
-              ),
+              const SizedBox(height: 8),
             ],
           ),
         ),
