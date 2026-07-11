@@ -74,8 +74,7 @@ class CsvService {
     if (filas.isEmpty) return [];
 
     // ¿Legacy 18 columnas?
-    final primeraData =
-        filas.length > 1 ? filas[1] : <dynamic>[];
+    final primeraData = filas.length > 1 ? filas[1] : <dynamic>[];
     if (primeraData.length >= 18) {
       return _parseLegacy18(filas);
     }
@@ -122,8 +121,9 @@ class CsvService {
     List<String> headers,
     List<List<dynamic>> filas,
   ) {
-    final headersNorm =
-        headers.map(ImportacionArchivoHelper.normalizarHeader).toList();
+    final headersNorm = headers
+        .map(ImportacionArchivoHelper.normalizarHeader)
+        .toList();
 
     int? idxDe(Set<String> aliases) {
       for (var i = 0; i < headersNorm.length; i++) {
@@ -154,22 +154,22 @@ class CsvService {
       'valor',
     });
 
-    final pareceHeader = codigoIdx != null ||
+    final pareceHeader =
+        codigoIdx != null ||
         descIdx != null ||
         costoIdx != null ||
-        headersNorm.any((h) =>
-            h.contains('cod') ||
-            h.contains('desc') ||
-            h.contains('precio') ||
-            h.contains('costo') ||
-            h.contains('articulo'));
+        headersNorm.any(
+          (h) =>
+              h.contains('cod') ||
+              h.contains('desc') ||
+              h.contains('precio') ||
+              h.contains('costo') ||
+              h.contains('articulo'),
+        );
 
     if (!pareceHeader && headers.isNotEmpty) {
       // Primera fila es dato: 1 col texto, o 2 cols articulo+precio
-      dataRows = [
-        headers.map((e) => e as dynamic).toList(),
-        ...filas,
-      ];
+      dataRows = [headers.map((e) => e as dynamic).toList(), ...filas];
       if (headers.length == 1) {
         descIdx = 0;
         codigoIdx = null;
@@ -197,9 +197,7 @@ class CsvService {
 
       var codigo = valor(codigoIdx);
       var desc = valor(descIdx);
-      var costo = costoIdx != null
-          ? convertirNumero(valor(costoIdx))
-          : 0.0;
+      var costo = costoIdx != null ? convertirNumero(valor(costoIdx)) : 0.0;
 
       // Una sola celda con todo el texto
       if (desc.isEmpty && codigo.isEmpty && fila.isNotEmpty) {
@@ -255,10 +253,9 @@ class CsvService {
     List<String> headers,
     List<List<dynamic>> filas,
   ) async {
-    final csv = const CsvEncoder(fieldDelimiter: ';').convert([
-      headers,
-      ...filas,
-    ]);
+    final csv = const CsvEncoder(
+      fieldDelimiter: ';',
+    ).convert([headers, ...filas]);
 
     final directorio = await getApplicationDocumentsDirectory();
     final carpeta = Directory(p.join(directorio.path, 'reportes'));
@@ -267,6 +264,7 @@ class CsvService {
     }
 
     final archivo = File(p.join(carpeta.path, nombreArchivo));
-    return archivo.writeAsString(csv, flush: true);
+    // BOM UTF-8 para que Excel en Windows abra bien acentos y ñ.
+    return archivo.writeAsString('\uFEFF$csv', flush: true);
   }
 }

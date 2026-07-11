@@ -1,3 +1,12 @@
+## [1.1.6] — 2026-07-11
+
+### Reportes — exportación
+- En Windows/Linux/macOS: diálogo **Guardar como…** (el share de archivos fallaba en silencio en el EXE).
+- SnackBar con ruta del archivo y acción **Abrir**.
+- En Android: share con `mimeType` + `text`; queries `SEND`/`VIEW` en el manifest.
+- Carga de datos dentro del spinner (`_ejecutar`); errores de DB ya no quedan sin feedback.
+- CSV con BOM UTF-8 para que Excel abra bien acentos.
+
 ## [1.1.5] — 2026-07-11
 
 ### Configuración / sistema virgen
