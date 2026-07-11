@@ -84,6 +84,7 @@ class _EtiquetasPageState extends State<EtiquetasPage> {
           .where((p) => seleccionados.contains(p.id))
           .map((p) => {
                 'codigo': p.codigo,
+                'codigoBarras': p.codigoBarras,
                 'descripcion': p.descripcion,
                 'precio': _precioParaEtiqueta(p),
               })

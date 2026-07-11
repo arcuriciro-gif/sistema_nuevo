@@ -472,6 +472,26 @@ class CuentaCorrienteService {
     return pagos.fold<double>(0, (s, p) => s + p.monto);
   }
 
+  /// Cobros agrupados por medio de pago en el período.
+  Future<List<Map<String, dynamic>>> resumenCobrosPorMedio(
+    DateTime desde,
+    DateTime hasta,
+  ) async {
+    final db = await _db.database;
+    return db.rawQuery(
+      '''
+SELECT COALESCE(medioPago, 'otro') AS medioPago,
+       COUNT(*) AS ops,
+       COALESCE(SUM(monto), 0) AS total
+FROM pagos
+WHERE fecha >= ? AND fecha <= ?
+GROUP BY COALESCE(medioPago, 'otro')
+ORDER BY total DESC
+''',
+      [desde.toIso8601String(), hasta.toIso8601String()],
+    );
+  }
+
   Future<double> deudaTotal() async {
     final ventas = await ventasConSaldo();
     final montoVentas =

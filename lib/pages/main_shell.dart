@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../core/navigation/app_navigation.dart';
 import '../core/sync/sync_queue_service.dart';
 import '../core/utils/media_path.dart';
+import '../services/alertas_cuenta_corriente_service.dart';
 import '../services/alertas_stock_service.dart';
 import '../services/auth_service.dart';
 import '../services/auto_backup_service.dart';
@@ -22,6 +23,7 @@ import 'auditoria_page.dart';
 import 'backup_page.dart';
 import 'busqueda_global_page.dart';
 import 'categorias_page.dart';
+import 'cierre_caja_page.dart';
 import 'centro_importaciones_page.dart';
 import 'clientes_page.dart';
 import 'clientes_deudores_page.dart';
@@ -119,6 +121,7 @@ class _MainShellState extends State<MainShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _mostrarRecordatorioCc();
       AlertasStockService.instance.evaluarYNotificar();
+      AlertasCuentaCorrienteService.instance.evaluarYNotificar();
     });
   }
 
@@ -375,6 +378,13 @@ class _MainShellState extends State<MainShell> {
           title: 'Listas de Precios',
           modulo: 'listas_precios',
           builder: () => const ListasPrecioPage(),
+        ),
+        _ShellItem(
+          id: 'cierre_caja',
+          icon: Icons.account_balance_wallet_rounded,
+          title: 'Cierre de caja',
+          modulo: 'reportes',
+          builder: () => const CierreCajaPage(),
         ),
         _ShellItem(
           id: 'reportes',

@@ -44,6 +44,7 @@ class MenuPreferenciasService extends ChangeNotifier {
     (id: 'cuenta_corriente', titulo: 'Cuenta corriente', grupo: 'Clientes'),
     (id: 'proveedores', titulo: 'Proveedores', grupo: 'Compras'),
     (id: 'listas_precios', titulo: 'Listas de Precios', grupo: 'Precios'),
+    (id: 'cierre_caja', titulo: 'Cierre de caja', grupo: 'Análisis'),
     (id: 'reportes', titulo: 'Reportes', grupo: 'Análisis'),
     (id: 'estadisticas', titulo: 'Estadísticas', grupo: 'Análisis'),
     (id: 'inteligencia', titulo: 'Inteligencia Comercial', grupo: 'Análisis'),
@@ -72,6 +73,7 @@ class MenuPreferenciasService extends ChangeNotifier {
     'inventario',
     'compras',
     'pedidos',
+    'cierre_caja',
     'mi_perfil',
     'configuracion',
   };
@@ -136,9 +138,38 @@ class MenuPreferenciasService extends ChangeNotifier {
     _notify();
   }
 
+  /// Perfil intermedio: ventas, stock, clientes (sin admin/importaciones).
+  static const idsOperaciones = {
+    'inicio',
+    'dashboard',
+    'comunicaciones',
+    'productos',
+    'venta_rapida',
+    'ventas_facturas',
+    'remitos',
+    'clientes',
+    'cuenta_corriente',
+    'stock',
+    'inventario',
+    'compras',
+    'pedidos',
+    'cierre_caja',
+    'estadisticas',
+    'etiquetas',
+    'mi_perfil',
+    'configuracion',
+  };
+
   Future<void> aplicarPerfilMovil() async {
     final todos = catalogo.map((e) => e.id).toSet();
     _ocultos = todos.difference(idsEsencialesMovil)..removeAll(idsObligatorios);
+    await _persistir();
+    _notify();
+  }
+
+  Future<void> aplicarPerfilOperaciones() async {
+    final todos = catalogo.map((e) => e.id).toSet();
+    _ocultos = todos.difference(idsOperaciones)..removeAll(idsObligatorios);
     await _persistir();
     _notify();
   }

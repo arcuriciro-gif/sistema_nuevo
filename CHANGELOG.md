@@ -31,6 +31,12 @@ Todos los cambios relevantes del proyecto se documentan aquí.
 - **Inventario (barcode/cámara)**: módulo Operaciones → Inventario; escanea o busca por código/barras, carga stock contado y registra el ajuste en movimientos.
 - **Stock mínimo** editable en ficha de producto (dispara alertas cuando stock ≤ mínimo).
 - **Alertas automáticas de stock**: al abrir la app y tras movimientos, crea notificaciones internas (`tipo: stock`) para el usuario y admins (digest diario + por producto); al tocarlas abren Stock o la ficha del producto.
+- **Personalizar menú**: título claro, contador de visibles, subtítulos oculto/visible, perfil **Operaciones** además de móvil/completo.
+- **Escaneo en Remitos y Compras**: match exacto por código de barras agrega el ítem al instante.
+- **Cierre de caja**: ventas del día, cobros por medio de pago, efectivo y ganancia (menú Análisis; se puede ocultar).
+- **Alertas de cuenta corriente**: notificación diaria en la campana; al tocarla abre deudores.
+- **Etiquetas**: si el producto tiene `codigoBarras`, imprime EAN-13 (o Code128); si no, QR del código interno.
+
 
 
 ### Sync — cobertura ampliada

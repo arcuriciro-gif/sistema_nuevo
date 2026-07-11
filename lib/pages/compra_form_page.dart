@@ -83,9 +83,25 @@ class _CompraFormPageState extends State<CompraFormPage> {
     productosFiltrados = productos
         .where((p) =>
             p.descripcion.toLowerCase().contains(texto) ||
-            p.codigo.toLowerCase().contains(texto))
+            p.codigo.toLowerCase().contains(texto) ||
+            p.codigoBarras.toLowerCase().contains(texto))
         .toList();
     setState(() {});
+  }
+
+  Future<Producto?> _resolverProducto(String codigo) async {
+    final q = codigo.trim();
+    if (q.isEmpty) return null;
+    final exacto = await productoService.buscarPorCodigoBarras(q);
+    if (exacto != null) return exacto;
+    final lower = q.toLowerCase();
+    final matches = productos
+        .where((p) =>
+            p.codigo.toLowerCase() == lower ||
+            p.codigoBarras.toLowerCase() == lower)
+        .toList();
+    if (matches.length == 1) return matches.first;
+    return null;
   }
 
   double get total => items.fold(0, (sum, i) => sum + i.subtotal);
@@ -169,6 +185,19 @@ class _CompraFormPageState extends State<CompraFormPage> {
                       onPressed: () async {
                         final codigo = await _abrirScanner();
                         if (codigo == null || codigo.trim().isEmpty) return;
+                        final exacto = await _resolverProducto(codigo);
+                        if (exacto != null && ctx.mounted) {
+                          Navigator.pop(ctx);
+                          _agregarItemDirecto(exacto);
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Agregado: ${exacto.descripcion}'),
+                              ),
+                            );
+                          }
+                          return;
+                        }
                         buscarProductoController.text = codigo;
                         _filtrarProductos(codigo);
                         setModalState(() {});

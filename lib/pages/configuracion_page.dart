@@ -674,7 +674,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     Text(
                       'Elegí qué módulos mostrar en el menú de este dispositivo '
                       '(${MenuPreferenciasService.instance.plataformaLabel}). '
-                      'En el celular podés dejar solo lo esencial; en Windows, todo.',
+                      'Podés ocultar lo que no uses (Inventario, Estadísticas, '
+                      'Cierre de caja, etc.). En el celular conviene el perfil móvil; '
+                      'en Windows, el completo.',
                     ),
                     const SizedBox(height: 16),
                     SizedBox(

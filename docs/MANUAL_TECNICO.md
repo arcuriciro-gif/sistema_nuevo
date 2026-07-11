@@ -164,7 +164,13 @@ Página: `lib/pages/sync_historial_page.dart`
 7. ~~Historial de producto ampliado~~
 8. ~~Estadísticas~~
 9. ~~Inventario (barcode / cámara)~~
-10. ~~Alertas automáticas~~ ← actual (roadmap base completo)
+10. ~~Alertas automáticas~~
+
+### Siguiente oleada
+- ~~Personalizar menú (UX)~~
+- ~~Escaneo remitos/compras~~
+- ~~Cierre de caja~~
+- ~~Alertas CC + etiquetas EAN~~ ← actual
 
 ## Clientes — lista y foto
 
@@ -191,3 +197,19 @@ Página: `lib/pages/sync_historial_page.dart`
 - Triggers: arranque de `MainShell` y tras `StockService.registrarMovimiento`.
 - UI: campana de notificaciones; tap en `tipo: stock` abre Stock / ficha producto.
 - Umbral: `stock_minimo` (editable en producto); si es 0, fallback ≤ 5.
+
+## Personalizar menú lateral
+
+- Configuración → Personalizar menú (`MenuLateralConfigPage`).
+- Preferencias **locales por dispositivo** (Android ≠ Windows).
+- Perfiles: móvil / operaciones / completo. Contador de módulos visibles.
+- Nuevos ítems (`inventario`, `estadisticas`, `cierre_caja`, etc.) aparecen en el catálogo y se pueden ocultar.
+
+## Cierre de caja
+
+- `CierreCajaPage` (permiso `reportes`): ventas del día vs cobros del día, breakdown por `medioPago`, detalle de pagos.
+- `CuentaCorrienteService.resumenCobrosPorMedio`.
+
+## Etiquetas EAN
+
+- `PdfService.generateEtiquetasPdf`: EAN-13 si `codigoBarras` válido; Code128 si hay barras no-EAN; QR del código interno como fallback.

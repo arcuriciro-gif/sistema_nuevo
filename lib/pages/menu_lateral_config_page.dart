@@ -32,9 +32,21 @@ class _MenuLateralConfigPageState extends State<MenuLateralConfigPage> {
     super.dispose();
   }
 
+  int get _visibles {
+    return MenuPreferenciasService.catalogo
+        .where((i) => _svc.estaVisible(i.id))
+        .length;
+  }
+
+  Future<void> _snack(String msg) async {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final total = MenuPreferenciasService.catalogo.length;
     final porGrupo = <String, List<({String id, String titulo, String grupo})>>{};
     for (final item in MenuPreferenciasService.catalogo) {
       porGrupo.putIfAbsent(item.grupo, () => []).add(item);
@@ -43,15 +55,12 @@ class _MenuLateralConfigPageState extends State<MenuLateralConfigPage> {
     return Scaffold(
       appBar: buildModuleAppBar(
         context,
-        title: 'Menú lateral',
+        title: 'Personalizar menú',
         actions: [
           TextButton(
             onPressed: () async {
               await _svc.mostrarTodos();
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Se mostraron todos los módulos')),
-              );
+              await _snack('Se mostraron todos los módulos ($_visibles/$total)');
             },
             child: const Text('Todos'),
           ),
@@ -67,17 +76,25 @@ class _MenuLateralConfigPageState extends State<MenuLateralConfigPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Preferencias de ${_svc.plataformaLabel}',
+                    'Menú de ${_svc.plataformaLabel}',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Elegí qué módulos ver en el menú de este dispositivo. '
-                    'En el celular podés dejar menos opciones; en la PC, todas. '
+                    'Activá solo lo que usás en este dispositivo. '
+                    'Lo que desactivás no aparece en la barra lateral. '
                     'Inicio y Configuración siempre quedan visibles.',
                     style: TextStyle(
                       fontSize: 13,
                       color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Visibles ahora: $_visibles de $total',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: cs.primary,
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -88,13 +105,8 @@ class _MenuLateralConfigPageState extends State<MenuLateralConfigPage> {
                       OutlinedButton.icon(
                         onPressed: () async {
                           await _svc.aplicarPerfilMovil();
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Perfil móvil aplicado (módulos esenciales)',
-                              ),
-                            ),
+                          await _snack(
+                            'Perfil móvil: $_visibles módulos esenciales',
                           );
                         },
                         icon: const Icon(Icons.phone_android_rounded, size: 18),
@@ -102,13 +114,18 @@ class _MenuLateralConfigPageState extends State<MenuLateralConfigPage> {
                       ),
                       OutlinedButton.icon(
                         onPressed: () async {
-                          await _svc.mostrarTodos();
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Perfil completo: todos visibles'),
-                            ),
+                          await _svc.aplicarPerfilOperaciones();
+                          await _snack(
+                            'Perfil operaciones: $_visibles módulos de venta/stock',
                           );
+                        },
+                        icon: const Icon(Icons.storefront_rounded, size: 18),
+                        label: const Text('Perfil operaciones'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          await _svc.mostrarTodos();
+                          await _snack('Perfil completo: todos visibles');
                         },
                         icon: const Icon(Icons.desktop_windows_rounded, size: 18),
                         label: const Text('Perfil completo'),
@@ -143,7 +160,17 @@ class _MenuLateralConfigPageState extends State<MenuLateralConfigPage> {
                       subtitle: MenuPreferenciasService.idsObligatorios
                               .contains(item.id)
                           ? const Text('Siempre visible')
-                          : null,
+                          : Text(
+                              _svc.estaVisible(item.id)
+                                  ? 'Se muestra en el menú'
+                                  : 'Oculto en este dispositivo',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _svc.estaVisible(item.id)
+                                    ? cs.onSurfaceVariant
+                                    : cs.error,
+                              ),
+                            ),
                       value: _svc.estaVisible(item.id),
                       onChanged: MenuPreferenciasService.idsObligatorios
                               .contains(item.id)

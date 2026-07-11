@@ -7,6 +7,7 @@ import '../services/producto_service.dart';
 import '../services/comunicaciones_service.dart';
 import '../theme/module_app_bar.dart';
 import 'chat_page.dart';
+import 'clientes_deudores_page.dart';
 import 'producto_form_page.dart';
 import 'stock_page.dart';
 
@@ -83,6 +84,13 @@ class _NotificacionesPageState extends State<NotificacionesPage> {
       await Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const StockPage()),
+      );
+      return;
+    }
+    if (n.tipo == 'cobro' || n.entidadTipo == 'cuenta_corriente') {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ClientesDeudoresPage()),
       );
       return;
     }

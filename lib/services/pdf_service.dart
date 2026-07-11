@@ -697,6 +697,46 @@ class PdfService {
 
   /// Generates a sheet of product labels (código, descripción, precio and a
   /// QR code with the product código) for printing.
+  bool _esEan13Valido(String value) {
+    final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length != 13) return false;
+    var sum = 0;
+    for (var i = 0; i < 12; i++) {
+      final d = int.parse(digits[i]);
+      sum += i.isEven ? d : d * 3;
+    }
+    final check = (10 - (sum % 10)) % 10;
+    return check == int.parse(digits[12]);
+  }
+
+  pw.Widget _barcodeEtiqueta(String codigo, String codigoBarras) {
+    final barras = codigoBarras.trim();
+    if (_esEan13Valido(barras)) {
+      return pw.BarcodeWidget(
+        barcode: pw.Barcode.ean13(),
+        data: barras.replaceAll(RegExp(r'[^0-9]'), ''),
+        width: 70,
+        height: 36,
+        drawText: false,
+      );
+    }
+    if (barras.isNotEmpty) {
+      return pw.BarcodeWidget(
+        barcode: pw.Barcode.code128(),
+        data: barras,
+        width: 70,
+        height: 36,
+        drawText: false,
+      );
+    }
+    return pw.BarcodeWidget(
+      barcode: pw.Barcode.qrCode(),
+      data: codigo.isEmpty ? '-' : codigo,
+      width: 40,
+      height: 40,
+    );
+  }
+
   Future<Uint8List> generateEtiquetasPdf({
     required List<Map<String, dynamic>> productos,
     String tamano = 'medium',
@@ -723,8 +763,11 @@ class PdfService {
             childAspectRatio: tamanoLabel.x / tamanoLabel.y,
             children: productos.map((item) {
               final codigo = item['codigo']?.toString() ?? '';
+              final codigoBarras = item['codigoBarras']?.toString() ?? '';
               final descripcion = item['descripcion']?.toString() ?? '';
               final precio = (item['precio'] as num?)?.toDouble() ?? 0;
+              final codigoVisible =
+                  codigoBarras.trim().isNotEmpty ? codigoBarras.trim() : codigo;
 
               return pw.Container(
                 margin: const pw.EdgeInsets.all(4),
@@ -736,12 +779,7 @@ class PdfService {
                 child: pw.Row(
                   crossAxisAlignment: pw.CrossAxisAlignment.center,
                   children: [
-                    pw.BarcodeWidget(
-                      barcode: pw.Barcode.qrCode(),
-                      data: codigo,
-                      width: 40,
-                      height: 40,
-                    ),
+                    _barcodeEtiqueta(codigo, codigoBarras),
                     pw.SizedBox(width: 6),
                     pw.Expanded(
                       child: pw.Column(
@@ -758,7 +796,7 @@ class PdfService {
                             overflow: pw.TextOverflow.clip,
                           ),
                           pw.Text(
-                            codigo,
+                            codigoVisible,
                             style: const pw.TextStyle(
                               fontSize: 7,
                               color: PdfColors.grey700,
