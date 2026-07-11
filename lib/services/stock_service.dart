@@ -5,6 +5,7 @@ import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/movimiento_stock.dart';
 import '../models/producto.dart';
+import 'alertas_stock_service.dart';
 import 'auth_service.dart';
 
 class StockService {
@@ -73,6 +74,9 @@ class StockService {
     await FirestoreSyncService.instance
         .subirProductoPorId(movimiento.productoId);
     DataRefreshHub.instance.notifyStock();
+    try {
+      await AlertasStockService.instance.evaluarProducto(movimiento.productoId);
+    } catch (_) {}
     return movimientoId;
   }
 

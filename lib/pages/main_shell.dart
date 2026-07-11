@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../core/navigation/app_navigation.dart';
 import '../core/sync/sync_queue_service.dart';
 import '../core/utils/media_path.dart';
+import '../services/alertas_stock_service.dart';
 import '../services/auth_service.dart';
 import '../services/auto_backup_service.dart';
 import '../services/branding_service.dart';
@@ -31,6 +32,7 @@ import 'configuracion_page.dart';
 import 'dashboard_page.dart';
 import 'etiquetas_page.dart';
 import 'inicio_page.dart';
+import 'inventario_page.dart';
 import 'importacion_page.dart';
 import 'estadisticas_page.dart';
 import 'inteligencia_comercial_page.dart';
@@ -114,7 +116,10 @@ class _MainShellState extends State<MainShell> {
     ComunicacionesService.instance.iniciar();
     MenuPreferenciasService.instance.cargar();
     AppNavigation.irAModuloInicio = _irAInicio;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _mostrarRecordatorioCc());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _mostrarRecordatorioCc();
+      AlertasStockService.instance.evaluarYNotificar();
+    });
   }
 
   void _irAInicio() {
@@ -296,6 +301,13 @@ class _MainShellState extends State<MainShell> {
           title: 'Stock',
           modulo: 'stock',
           builder: () => const StockPage(),
+        ),
+        _ShellItem(
+          id: 'inventario',
+          icon: Icons.qr_code_scanner_rounded,
+          title: 'Inventario',
+          modulo: 'stock',
+          builder: () => const InventarioPage(),
         ),
         _ShellItem(
           id: 'compras',

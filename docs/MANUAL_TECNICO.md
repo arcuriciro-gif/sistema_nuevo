@@ -162,9 +162,9 @@ Página: `lib/pages/sync_historial_page.dart`
 5. ~~Administración de usuarios (solo admin + auditoría)~~
 6. ~~Reiniciar sistema (servicios, sin borrar datos)~~
 7. ~~Historial de producto ampliado~~
-8. ~~Estadísticas~~ ← actual
-9. Inventario (barcode / cámara)
-10. Alertas automáticas
+8. ~~Estadísticas~~
+9. ~~Inventario (barcode / cámara)~~
+10. ~~Alertas automáticas~~ ← actual (roadmap base completo)
 
 ## Clientes — lista y foto
 
@@ -177,3 +177,17 @@ Página: `lib/pages/sync_historial_page.dart`
 - Página `EstadisticasPage` (menú Análisis, permiso `reportes`).
 - Reutiliza `AnalyticsService` (ventas, ganancia, top/bottom productos con filtro de fechas) + consultas de rentabilidad / sin movimiento / stock crítico.
 - Gráficos de evolución ventas y compras por mes (`fl_chart`).
+
+## Inventario (conteo)
+
+- Página `InventarioPage` (menú Operaciones, permiso `stock`).
+- Flujo: escanear (`ScannerPage` / `mobile_scanner`) o buscar → `ProductoService.buscarPorCodigoBarras` → ingresar stock contado → `StockService.registrarMovimiento` (entrada/salida por delta).
+- Sesión local con historial de conteos de la pantalla.
+
+## Alertas automáticas de stock
+
+- `AlertasStockService`: digest diario + aviso por producto (dedupe SharedPreferences).
+- Destinos: usuario actual + admins activos.
+- Triggers: arranque de `MainShell` y tras `StockService.registrarMovimiento`.
+- UI: campana de notificaciones; tap en `tipo: stock` abre Stock / ficha producto.
+- Umbral: `stock_minimo` (editable en producto); si es 0, fallback ≤ 5.

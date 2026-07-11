@@ -28,6 +28,10 @@ Todos los cambios relevantes del proyecto se documentan aquí.
 - **Clientes (APK)**: lista con nombre en una sola línea horizontal (sin wrap vertical), avatar con foto o inicial, y acciones en menú “⋯” para no apretar el título.
 - Foto de cliente en alta/edición (galería/cámara); columna `clientes.foto` (DB v26).
 - **Estadísticas**: módulo en Análisis con período (30/90 días, 6 meses, 1 año): ventas, ganancia real, margen, evolución ventas/compras, más/menos vendidos, rentabilidad, sin movimiento y stock crítico.
+- **Inventario (barcode/cámara)**: módulo Operaciones → Inventario; escanea o busca por código/barras, carga stock contado y registra el ajuste en movimientos.
+- **Stock mínimo** editable en ficha de producto (dispara alertas cuando stock ≤ mínimo).
+- **Alertas automáticas de stock**: al abrir la app y tras movimientos, crea notificaciones internas (`tipo: stock`) para el usuario y admins (digest diario + por producto); al tocarlas abren Stock o la ficha del producto.
+
 
 ### Sync — cobertura ampliada
 - Categorías y listas de precios: sync bidireccional + cola offline.

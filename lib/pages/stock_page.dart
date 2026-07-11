@@ -407,7 +407,9 @@ class _StockPageState extends State<StockPage> {
                                   ),
                                 ),
                                 subtitle: Text(
-                                  'Stock actual: ${producto.stock}',
+                                  producto.stockMinimo > 0
+                                      ? 'Stock: ${producto.stock} (mín. ${producto.stockMinimo})'
+                                      : 'Stock actual: ${producto.stock}',
                                   style: TextStyle(
                                     color: AppVisuals.danger(
                                       Theme.of(context).colorScheme,

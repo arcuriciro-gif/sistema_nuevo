@@ -35,6 +35,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
   final categoriaController = TextEditingController();
   final proveedorController = TextEditingController();
   final stockController = TextEditingController();
+  final stockMinimoController = TextEditingController(text: '0');
   final costoController = TextEditingController();
   final margen1Controller = TextEditingController(text: '0');
   final margen2Controller = TextEditingController(text: '0');
@@ -59,6 +60,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
       categoriaController.text = p.categoria;
       proveedorController.text = p.proveedor;
       stockController.text = p.stock.toString();
+      stockMinimoController.text = p.stockMinimo.toString();
       costoController.text = p.costo.toString();
       precioController.text = p.precio.toString();
       precio2Controller.text = p.precio2.toString();
@@ -94,6 +96,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
     categoriaController.dispose();
     proveedorController.dispose();
     stockController.dispose();
+    stockMinimoController.dispose();
     costoController.dispose();
     margen1Controller.dispose();
     margen2Controller.dispose();
@@ -175,26 +178,37 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
       }
     }
 
+    final anterior = widget.producto;
     final producto = Producto(
-      id: widget.producto?.id,
+      id: anterior?.id,
       codigo: codigoController.text.trim(),
       codigoBarras: codigoBarrasController.text.trim(),
       descripcion: descripcionController.text.trim(),
       marca: marcaController.text.trim(),
       categoria: categoriaController.text.trim(),
+      subcategoria: anterior?.subcategoria ?? '',
+      modelo: anterior?.modelo ?? '',
+      colorProducto: anterior?.colorProducto ?? '',
+      talle: anterior?.talle ?? '',
+      unidadVenta: anterior?.unidadVenta ?? 'UN',
       proveedor: proveedorController.text.trim(),
-      ubicacion: widget.producto?.ubicacion ?? '',
+      ubicacion: anterior?.ubicacion ?? '',
       stock: int.tryParse(stockController.text) ?? 0,
+      stockMinimo: int.tryParse(stockMinimoController.text) ?? 0,
       costo: _parseDbl(costoController.text),
       precio: valores[0],
       precio2: valores[1],
       precio3: valores[2],
+      porcentajeGanancia: anterior?.porcentajeGanancia ?? 0,
       observaciones: observacionesController.text.trim(),
+      notasInternas: anterior?.notasInternas ?? '',
       foto: foto,
       // La foto elegida es la principal (no reutilizar la lista vieja).
       fotos: foto.isEmpty ? const [] : [foto],
       preciosListas: precios,
-      favorito: widget.producto?.favorito ?? false,
+      preciosBloqueados: anterior?.preciosBloqueados,
+      favorito: anterior?.favorito ?? false,
+      deletedAt: anterior?.deletedAt,
     );
 
     if (widget.producto == null) {
@@ -366,6 +380,8 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
             _campo('Categoría', categoriaController),
             _campo('Proveedor / Comprado en', proveedorController),
             _campo('Stock', stockController, keyboardType: TextInputType.number),
+            _campo('Stock mínimo (alerta)', stockMinimoController,
+                keyboardType: TextInputType.number),
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: TextField(

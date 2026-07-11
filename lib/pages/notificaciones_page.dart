@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../models/chat_conversacion.dart';
 import '../models/notificacion_interna.dart';
+import '../models/producto.dart';
+import '../services/producto_service.dart';
 import '../services/comunicaciones_service.dart';
 import '../theme/module_app_bar.dart';
 import 'chat_page.dart';
+import 'producto_form_page.dart';
+import 'stock_page.dart';
 
 class NotificacionesPage extends StatefulWidget {
   const NotificacionesPage({super.key});
@@ -61,6 +65,7 @@ class _NotificacionesPageState extends State<NotificacionesPage> {
 
   Future<void> _abrir(NotificacionInterna n) async {
     await _svc.marcarNotificacionLeida(n.id);
+    if (!mounted) return;
     if (n.conversacionId != null && n.conversacionId!.isNotEmpty) {
       final conv = _svc.conversaciones
           .where((c) => c.id == n.conversacionId)
@@ -70,6 +75,40 @@ class _NotificacionesPageState extends State<NotificacionesPage> {
         await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => ChatPage(conversacion: conv)),
+        );
+      }
+      return;
+    }
+    if (n.tipo == 'stock' || n.entidadTipo == 'stock') {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const StockPage()),
+      );
+      return;
+    }
+    if (n.entidadTipo == 'producto' && (n.entidadId ?? '').isNotEmpty) {
+      final id = int.tryParse(n.entidadId!);
+      if (id != null) {
+        final productos = await ProductoService().obtenerTodos();
+        Producto? prod;
+        for (final p in productos) {
+          if (p.id == id) {
+            prod = p;
+            break;
+          }
+        }
+        if (prod != null && mounted) {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => ProductoFormPage(producto: prod)),
+          );
+          return;
+        }
+      }
+      if (mounted) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const StockPage()),
         );
       }
     }

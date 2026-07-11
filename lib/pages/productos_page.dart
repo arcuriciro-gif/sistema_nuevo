@@ -159,9 +159,18 @@ class _ProductosPageState extends State<ProductosPage> {
       MaterialPageRoute(builder: (_) => const ScannerPage()),
     );
     if (codigo == null || codigo.trim().isEmpty || !mounted) return;
-    buscarController.text = codigo;
-    setState(() => _filtroBusqueda = codigo);
+    final exacto = await service.buscarPorCodigoBarras(codigo.trim());
+    if (!mounted) return;
+    buscarController.text = exacto?.codigoBarras.isNotEmpty == true
+        ? exacto!.codigoBarras
+        : (exacto?.codigo ?? codigo.trim());
+    setState(() => _filtroBusqueda = buscarController.text);
     _aplicarFiltros();
+    if (exacto != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Encontrado: ${exacto.descripcion}')),
+      );
+    }
   }
 
   Future<void> eliminar(Producto producto) async {
