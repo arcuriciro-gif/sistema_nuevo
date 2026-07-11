@@ -23,6 +23,8 @@ Todos los cambios relevantes del proyecto se documentan aquí.
 - **Pedido sugerido inteligente**: analiza ventas entre fechas (remitos + facturas), filtros por proveedor/categoría/marca/modelo/color/talle; sugiere cantidad = vendido + stock mín − stock; envía a la planilla por proveedor.
 - **Usuarios (solo admin)**: menú Usuarios/Permisos solo administrador; cambios de permisos auditados (`MODIFICAR_PERMISOS`); activar/desactivar y restablecer contraseña con registro en auditoría; protege al único admin.
 - **Reiniciar sistema**: en Configuración (solo admin), reinicia sync/comunicaciones/auto-backup con confirmación; no borra datos ni cierra sesión; queda en auditoría.
+- **Historial de producto**: precios + stock + auditoría (tabs), con usuario y fecha/hora; acceso desde lista de productos.
+- **Borrado con clave**: eliminar cliente / producto definitivo y vaciar productos, vaciar clientes o **sistema virgen** (Configuración) exigen contraseña del admin; se conservan usuarios/permisos.
 
 ### Sync — cobertura ampliada
 - Categorías y listas de precios: sync bidireccional + cola offline.

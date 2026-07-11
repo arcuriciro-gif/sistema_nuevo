@@ -12,6 +12,7 @@ import 'cliente_form_page.dart';
 import 'cliente_historial_page.dart';
 import 'cuenta_corriente_cliente_page.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/password_confirm_dialog.dart';
 
 class ClientesPage extends StatefulWidget {
   const ClientesPage({super.key});
@@ -76,31 +77,14 @@ class _ClientesPageState extends State<ClientesPage> {
   }
 
   Future<void> confirmarEliminar(Cliente cliente) async {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Eliminar cliente"),
-        content: Text("¿Eliminar a ${cliente.nombre}?"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("Cancelar"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(
-              "Eliminar",
-              style: TextStyle(
-                color: AppVisuals.danger(colorScheme),
-              ),
-            ),
-          ),
-        ],
-      ),
+    final ok = await confirmarConClave(
+      context,
+      titulo: 'Eliminar cliente',
+      mensaje:
+          'Vas a eliminar a ${cliente.nombre}. Esta acción no se puede deshacer.\n\nIngresá tu contraseña para confirmar.',
+      confirmarLabel: 'Eliminar',
     );
-    if (ok == true && cliente.id != null) {
+    if (ok && cliente.id != null) {
       await service.eliminar(cliente.id!);
       cargar();
     }

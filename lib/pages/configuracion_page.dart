@@ -14,9 +14,11 @@ import 'documentos_config_page.dart';
 import '../theme/module_app_bar.dart';
 import '../services/app_icon_build_service.dart';
 import '../services/auth_service.dart';
+import '../services/data_wipe_service.dart';
 import '../services/menu_preferencias_service.dart';
 import '../services/system_restart_service.dart';
 import '../theme/app_visuals.dart';
+import '../widgets/password_confirm_dialog.dart';
 
 class ConfiguracionPage extends StatefulWidget {
   const ConfiguracionPage({super.key});
@@ -28,6 +30,7 @@ class ConfiguracionPage extends StatefulWidget {
 class _ConfiguracionPageState extends State<ConfiguracionPage> {
   bool _mostrarImagenes = true;
   bool _reiniciando = false;
+  bool _vaciando = false;
 
   // Branding
   final _nombreCtrl = TextEditingController();
@@ -225,6 +228,36 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       SnackBar(
         content: Text(resultado.mensaje),
         backgroundColor: resultado.ok ? null : cs.error,
+      ),
+    );
+  }
+
+  Future<void> _accionWipe({
+    required String titulo,
+    required String mensaje,
+    required Future<({bool ok, String mensaje})> Function() accion,
+  }) async {
+    if (!AuthService.instance.esAdministrador()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Solo el administrador puede hacerlo.')),
+      );
+      return;
+    }
+    final ok = await confirmarConClave(
+      context,
+      titulo: titulo,
+      mensaje: mensaje,
+      confirmarLabel: 'Confirmar borrado',
+    );
+    if (!ok || !mounted) return;
+    setState(() => _vaciando = true);
+    final r = await accion();
+    if (!mounted) return;
+    setState(() => _vaciando = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(r.mensaje),
+        backgroundColor: r.ok ? null : Theme.of(context).colorScheme.error,
       ),
     );
   }
@@ -893,7 +926,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       ),
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
-                        onPressed: _reiniciando ? null : _reiniciarSistema,
+                        onPressed: _reiniciando || _vaciando
+                            ? null
+                            : _reiniciarSistema,
                         icon: _reiniciando
                             ? const SizedBox(
                                 width: 18,
@@ -905,6 +940,85 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                           _reiniciando
                               ? 'Reiniciando…'
                               : 'Reiniciar sistema',
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      Text(
+                        'DATOS (IRREVERSIBLE)',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: AppVisuals.danger(colorScheme),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Requieren tu contraseña. Conservan usuarios y permisos.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                        onPressed: _vaciando
+                            ? null
+                            : () => _accionWipe(
+                                  titulo: 'Vaciar productos',
+                                  mensaje:
+                                      'Se eliminarán TODOS los productos y movimientos relacionados '
+                                      '(local y nube).\n\nIngresá tu contraseña.',
+                                  accion: () => DataWipeService.instance
+                                      .vaciarProductos(),
+                                ),
+                        icon: const Icon(Icons.inventory_2_outlined),
+                        label: const Text('Vaciar productos'),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: _vaciando
+                            ? null
+                            : () => _accionWipe(
+                                  titulo: 'Vaciar clientes',
+                                  mensaje:
+                                      'Se eliminarán TODOS los clientes '
+                                      '(local y nube).\n\nIngresá tu contraseña.',
+                                  accion: () =>
+                                      DataWipeService.instance.vaciarClientes(),
+                                ),
+                        icon: const Icon(Icons.groups_outlined),
+                        label: const Text('Vaciar clientes'),
+                      ),
+                      const SizedBox(height: 8),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppVisuals.danger(colorScheme),
+                        ),
+                        onPressed: _vaciando
+                            ? null
+                            : () => _accionWipe(
+                                  titulo: 'Sistema virgen',
+                                  mensaje:
+                                      'Se borrarán productos, clientes, proveedores, ventas, '
+                                      'remitos, compras, pedidos y demás datos operativos.\n\n'
+                                      'Se conservan usuarios, permisos y branding.\n\n'
+                                      'Esta acción NO se puede deshacer. Ingresá tu contraseña.',
+                                  accion: () =>
+                                      DataWipeService.instance.sistemaVirgen(),
+                                ),
+                        icon: _vaciando
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.delete_forever_rounded),
+                        label: Text(
+                          _vaciando ? 'Borrando…' : 'Dejar sistema virgen',
                         ),
                       ),
                     ],

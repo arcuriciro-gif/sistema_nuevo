@@ -279,6 +279,16 @@ class FirestoreSyncService {
     }
   }
 
+  Future<void> eliminarProductoRemoto(String codigo) async {
+    _requireEscrituraRemota();
+    if (!_puedeEscribirRemoto || codigo.trim().isEmpty) return;
+    try {
+      await FirestoreProductoRepository().eliminarPorCodigo(codigo);
+    } catch (e) {
+      _onOutboundError(e, 'Firestore eliminar producto');
+    }
+  }
+
   Future<void> eliminarClienteRemoto(String syncId) async {
     _requireEscrituraRemota();
     if (!_puedeEscribirRemoto || syncId.isEmpty) return;

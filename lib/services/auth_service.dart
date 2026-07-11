@@ -75,6 +75,14 @@ class AuthService {
     return sha256.convert(bytes).toString();
   }
 
+  /// Valida la contraseña del usuario en sesión (hash local o clave de login).
+  bool verificarPassword(String password) {
+    final usuario = currentUser;
+    if (usuario == null || password.isEmpty) return false;
+    final hash = _hash(password);
+    return usuario.password == hash || _ultimaPasswordIngresada == password;
+  }
+
   bool esAdministrador() => RolUtil.esAdministrador(currentUser?.rol);
 
   Future<Usuario?> login(String usuario, String password) async {

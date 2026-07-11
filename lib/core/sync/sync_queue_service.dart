@@ -453,7 +453,13 @@ class SyncQueueService extends ChangeNotifier {
           }
           return;
         case 'producto':
-          await sync.subirProductoPorId(int.parse(entityId));
+          if (operation == 'delete') {
+            final codigo =
+                _payloadString(payloadJson, 'codigo') ?? entityId;
+            await sync.eliminarProductoRemoto(codigo);
+          } else {
+            await sync.subirProductoPorId(int.parse(entityId));
+          }
           return;
         case 'venta':
           if (operation == 'delete') {

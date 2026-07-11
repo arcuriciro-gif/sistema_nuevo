@@ -132,6 +132,19 @@ Página: `lib/pages/sync_historial_page.dart`
 - UI: Configuración → Mantención → **Reiniciar sistema** (diálogo de confirmación).
 - No toca SQLite, backups ni sesión. Auditoría: `REINICIAR_SISTEMA` / `REINICIAR_SISTEMA_ERROR`.
 
+## Historial de producto
+
+- `ProductoService.historialCambios`: une `historial_precios` + `movimientos_stock` + `audit_log`.
+- UI: `HistorialPreciosPage` con tabs Todo / Precios / Stock / Cambios.
+- Al editar stock en la ficha se registra movimiento de stock.
+
+## Borrado / sistema virgen
+
+- `AuthService.verificarPassword` + `confirmarConClave` (diálogo).
+- `DataWipeService`: `vaciarProductos`, `vaciarClientes`, `sistemaVirgen` (solo admin).
+- Conserva usuarios, permisos y branding. Limpia colecciones Firestore del tenant cuando hay nube.
+- Eliminar definitivo de producto también borra en Firestore vía cola.
+
 ## Reglas de evolución
 
 1. No cambiar arquitectura general ni reemplazar tecnologías.
@@ -147,8 +160,8 @@ Página: `lib/pages/sync_historial_page.dart`
 3. ~~Planilla de pedidos a proveedores~~
 4. ~~Pedido sugerido inteligente~~
 5. ~~Administración de usuarios (solo admin + auditoría)~~
-6. ~~Reiniciar sistema (servicios, sin borrar datos)~~ ← actual
-7. Historial de producto ampliado
+6. ~~Reiniciar sistema (servicios, sin borrar datos)~~
+7. ~~Historial de producto ampliado~~ ← actual
 8. Estadísticas
 9. Inventario (barcode / cámara)
 10. Alertas automáticas

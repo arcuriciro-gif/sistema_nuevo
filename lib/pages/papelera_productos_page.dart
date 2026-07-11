@@ -5,6 +5,7 @@ import '../models/producto.dart';
 import '../services/producto_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/password_confirm_dialog.dart';
 
 class PapeleraProductosPage extends StatefulWidget {
   const PapeleraProductosPage({super.key});
@@ -63,26 +64,15 @@ class _PapeleraProductosPageState extends State<PapeleraProductosPage> {
 
   Future<void> _eliminarDefinitivo(Producto p) async {
     if (p.id == null) return;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Eliminar definitivamente'),
-        content: Text(
-          '¿Borrar "${p.descripcion}" de forma permanente? No se podrá recuperar.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
+    final ok = await confirmarConClave(
+      context,
+      titulo: 'Eliminar definitivamente',
+      mensaje:
+          'Vas a borrar "${p.descripcion}" de forma permanente (local y nube).\n\n'
+          'Ingresá tu contraseña para confirmar.',
+      confirmarLabel: 'Eliminar',
     );
-    if (ok != true) return;
+    if (!ok) return;
     await _service.eliminarDefinitivo(p.id!);
     await _cargar();
   }

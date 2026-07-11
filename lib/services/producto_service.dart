@@ -3,11 +3,14 @@ import 'dart:convert';
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
+import '../core/sync/sync_queue_service.dart';
 import '../database/database_helper.dart';
+import '../models/movimiento_stock.dart';
 import '../models/producto.dart';
 import '../repositories/producto_repository.dart';
 import 'auth_service.dart';
 import 'precio_calculador_service.dart';
+import 'stock_service.dart';
 
 class ProductoService {
   final DatabaseHelper _databaseHelper = DatabaseHelper.instance;
@@ -190,6 +193,24 @@ class ProductoService {
           });
         }
 
+        final stockAnterior = anteriorProducto.stock;
+        final stockNuevo = actualizado.stock;
+        if (stockAnterior != stockNuevo && conFotos.id != null) {
+          final delta = stockNuevo - stockAnterior;
+          await StockService().registrarMovimiento(
+            MovimientoStock(
+              productoId: conFotos.id!,
+              tipo: delta >= 0 ? 'entrada' : 'salida',
+              cantidad: delta.abs(),
+              fecha: DateTime.now(),
+              motivo: 'Ajuste desde ficha de producto',
+              usuario: AuthService.instance.currentUser?.usuario ?? 'sistema',
+              stockAnterior: stockAnterior,
+              stockNuevo: stockNuevo,
+            ),
+          );
+        }
+
         final result = await _repo.actualizar(actualizado);
         await AuthService.instance.registrarCambio(
           'MODIFICACION_PRODUCTO',
@@ -284,10 +305,19 @@ class ProductoService {
     if (rows.isEmpty) return;
     final producto = Producto.fromMap(rows.first);
     await db.delete('productos', where: 'id = ?', whereArgs: [id]);
-    try {
-      // Soft-delete remoto ya aplicado; forzar borrado remoto vía actualizar no aplica.
-      // El Dual repo no expone hard delete; se deja solo local + audit.
-    } catch (_) {}
+
+    final codigo = producto.codigo.trim();
+    if (codigo.isNotEmpty) {
+      await SyncQueueService.instance.pushOrEnqueue(
+        entityType: 'producto',
+        entityId: '$id',
+        operation: 'delete',
+        payloadJson: jsonEncode({'codigo': codigo}),
+        upload: () =>
+            FirestoreSyncService.instance.eliminarProductoRemoto(codigo),
+      );
+    }
+
     await AuthService.instance.registrarCambio(
       'ELIMINAR_DEFINITIVO_PRODUCTO',
       'productos',
@@ -301,6 +331,12 @@ class ProductoService {
     final db = await _databaseHelper.database;
     final precios = await db.query(
       'historial_precios',
+      where: 'productoId = ?',
+      whereArgs: [productoId],
+      orderBy: 'datetime(fecha) DESC',
+    );
+    final stock = await db.query(
+      'movimientos_stock',
       where: 'productoId = ?',
       whereArgs: [productoId],
       orderBy: 'datetime(fecha) DESC',
@@ -326,6 +362,18 @@ class ProductoService {
         'extra': p,
       });
     }
+    for (final m in stock) {
+      final tipo = (m['tipo'] ?? 'ajuste').toString();
+      final cant = m['cantidad'] ?? 0;
+      combinados.add({
+        'tipo': 'stock',
+        'fecha': m['fecha'],
+        'usuario': m['usuario'],
+        'detalle':
+            '${tipo.toUpperCase()} · $cant u. · ${m['motivo'] ?? ''}'.trim(),
+        'extra': m,
+      });
+    }
     for (final a in audit) {
       combinados.add({
         'tipo': 'auditoria',
@@ -336,8 +384,10 @@ class ProductoService {
       });
     }
     combinados.sort((a, b) {
-      final fa = DateTime.tryParse(a['fecha']?.toString() ?? '') ?? DateTime(1970);
-      final fb = DateTime.tryParse(b['fecha']?.toString() ?? '') ?? DateTime(1970);
+      final fa =
+          DateTime.tryParse(a['fecha']?.toString() ?? '') ?? DateTime(1970);
+      final fb =
+          DateTime.tryParse(b['fecha']?.toString() ?? '') ?? DateTime(1970);
       return fb.compareTo(fa);
     });
     return combinados;

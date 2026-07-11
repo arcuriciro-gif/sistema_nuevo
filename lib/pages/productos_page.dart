@@ -12,6 +12,7 @@ import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/compartir_chat_dialog.dart';
 import '../widgets/comentarios_internos_sheet.dart';
+import 'historial_precios_page.dart';
 import 'papelera_productos_page.dart';
 import 'producto_form_page.dart';
 import 'scanner_page.dart';
@@ -451,6 +452,18 @@ class _ProductosPageState extends State<ProductosPage> {
                             onEdit: () => _editarProducto(p),
                             onDelete: () => eliminar(p),
                             onToggleFavorito: () => _toggleFavorito(p),
+                            onHistorial: () {
+                              if (p.id == null) return;
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => HistorialPreciosPage(
+                                    productoId: p.id!,
+                                    productoDescripcion: p.descripcion,
+                                  ),
+                                ),
+                              );
+                            },
                             onShare: () => showCompartirEnChatDialog(
                               context,
                               compartido: ChatCompartido(
@@ -545,6 +558,7 @@ class _ProductoCard extends StatelessWidget {
   final VoidCallback onToggleFavorito;
   final VoidCallback onShare;
   final VoidCallback onComment;
+  final VoidCallback onHistorial;
 
   const _ProductoCard({
     required this.producto,
@@ -556,6 +570,7 @@ class _ProductoCard extends StatelessWidget {
     required this.onToggleFavorito,
     required this.onShare,
     required this.onComment,
+    required this.onHistorial,
   });
 
   List<({String label, double value})> get _preciosSistema {
@@ -732,6 +747,16 @@ class _ProductoCard extends StatelessWidget {
                       color: colorScheme.secondary,
                     ),
                     onPressed: onShare,
+                  ),
+                  IconButton(
+                    tooltip: 'Historial',
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(
+                      Icons.history_rounded,
+                      size: 18,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                    onPressed: onHistorial,
                   ),
                   IconButton(
                     tooltip: 'Editar',
