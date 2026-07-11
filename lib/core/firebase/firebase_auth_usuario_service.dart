@@ -17,9 +17,9 @@ class FirebaseAuthUsuarioService {
 
   FirebaseAuth get _auth => FirebaseAuth.instance;
 
-  /// Email que se usa en Firebase Auth para este usuario.
-  String emailPara(String usuario, {String? email}) =>
-      UsuarioAuthEmail.paraUsuario(usuario, emailReal: email);
+  /// Email de Auth SIEMPRE sintético (usuario@tenant.tatastock.app).
+  /// El Gmail del formulario es solo contacto; no se usa para login.
+  String authEmailPara(String usuario) => UsuarioAuthEmail.sintetico(usuario);
 
   /// Mensaje legible de errores de Firebase Auth.
   static String mensajeError(Object error) {
@@ -30,14 +30,15 @@ class FirebaseAuthUsuarioService {
         case 'wrong-password':
         case 'invalid-credential':
         case 'INVALID_LOGIN_CREDENTIALS':
-          return 'Contraseña incorrecta para la cuenta de la nube. '
-              'Entrá con el usuario (ej. maco) y la clave que te dio el admin. '
-              'Si no recuerda, que el admin vaya a Usuarios → Restablecer contraseña.';
+          return 'Contraseña incorrecta. '
+              'Pedile al admin: Usuarios → Restablecer contraseña.';
         case 'user-not-found':
-          return 'No existe esa cuenta en Firebase Auth.';
+          return 'No existe esa cuenta en la nube. '
+              'Pedile al admin que vuelva a crear o restablecer el usuario.';
         case 'email-already-in-use':
-          return 'La cuenta ya existe en la nube, pero la contraseña no coincide. '
-              'Pedile al admin que restablezca la clave en Usuarios.';
+          return 'La cuenta ya existe en la nube con otra clave. '
+              'Admin: Usuarios → Restablecer, o en Firebase Console '
+              'Authentication → Users eliminá la cuenta vieja.';
         case 'weak-password':
           return 'La contraseña debe tener al menos 6 caracteres.';
         case 'invalid-email':
@@ -53,57 +54,102 @@ class FirebaseAuthUsuarioService {
     return error.toString();
   }
 
+  /// Login Auth: prueba email sintético y, si hay, el email real (cuentas viejas).
   Future<UserCredential> iniciarSesion(
     String usuario,
     String password, {
     String? email,
-  }) {
-    final authEmail = emailPara(usuario, email: email);
-    debugPrint('Firebase signIn email=$authEmail');
-    return _auth.signInWithEmailAndPassword(
-      email: authEmail,
-      password: password,
-    );
+  }) async {
+    final sintetico = authEmailPara(usuario);
+    try {
+      debugPrint('Firebase signIn email=$sintetico');
+      return await _auth.signInWithEmailAndPassword(
+        email: sintetico,
+        password: password,
+      );
+    } catch (e) {
+      final real = (email ?? '').trim();
+      if (UsuarioAuthEmail.esEmailReal(real) &&
+          real.toLowerCase() != sintetico.toLowerCase()) {
+        debugPrint('Firebase signIn fallback email=$real');
+        return _auth.signInWithEmailAndPassword(
+          email: real.toLowerCase(),
+          password: password,
+        );
+      }
+      rethrow;
+    }
   }
 
   Future<void> cerrarSesion() => _auth.signOut();
+
+  /// Crea o reutiliza la cuenta Auth del usuario con la clave indicada.
+  /// Siempre usa email sintético para que PC y Android entren igual.
+  Future<String> asegurarCuenta(String usuario, String password) async {
+    final authEmail = authEmailPara(usuario);
+    final nombreApp =
+        'UsuarioAuth_${DateTime.now().millisecondsSinceEpoch}';
+
+    Future<String> conAuth(FirebaseAuth auth) async {
+      try {
+        final cred = await auth.createUserWithEmailAndPassword(
+          email: authEmail,
+          password: password,
+        );
+        return cred.user!.uid;
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'email-already-in-use') {
+          try {
+            final cred = await auth.signInWithEmailAndPassword(
+              email: authEmail,
+              password: password,
+            );
+            return cred.user!.uid;
+          } on FirebaseAuthException catch (e2) {
+            throw StateError(
+              'La cuenta de nube de "$usuario" ya existe con OTRA clave.\n\n'
+              'Solución rápida:\n'
+              '1) Firebase Console → Authentication → Users\n'
+              '2) Eliminá: $authEmail\n'
+              '3) En la app: Usuarios → Restablecer contraseña de $usuario\n\n'
+              '(${mensajeError(e2)})',
+            );
+          }
+        }
+        throw StateError(mensajeError(e));
+      }
+    }
+
+    // Sin sesión: crear en la app principal.
+    if (_auth.currentUser == null) {
+      return conAuth(_auth);
+    }
+
+    // Admin logueado: app secundaria para no cerrar su sesión.
+    final secondary = await Firebase.initializeApp(
+      name: nombreApp,
+      options: _auth.app.options,
+    );
+    try {
+      final secondaryAuth = FirebaseAuth.instanceFor(app: secondary);
+      final uid = await conAuth(secondaryAuth);
+      try {
+        await secondaryAuth.signOut();
+      } catch (_) {}
+      return uid;
+    } finally {
+      try {
+        await secondary.delete();
+      } catch (_) {}
+    }
+  }
 
   Future<String> crearCuenta(
     String usuario,
     String password, {
     String? email,
-  }) async {
-    final authEmail = UsuarioAuthEmail.paraUsuario(usuario, emailReal: email);
-
-    // Si no hay sesión en la app principal, crear directo (más fiable en Windows).
-    if (_auth.currentUser == null) {
-      final cred = await _auth.createUserWithEmailAndPassword(
-        email: authEmail,
-        password: password,
-      );
-      return cred.user!.uid;
-    }
-
-    // Hay un usuario logueado (ej. admin creando otro): usar app secundaria
-    // para no cerrar la sesión actual.
-    final appName = 'UsuarioCreator_${DateTime.now().millisecondsSinceEpoch}';
-    final secondary = await Firebase.initializeApp(
-      name: appName,
-      options: _auth.app.options,
-    );
-    try {
-      final secondaryAuth = FirebaseAuth.instanceFor(app: secondary);
-      final cred = await secondaryAuth.createUserWithEmailAndPassword(
-        email: authEmail,
-        password: password,
-      );
-      final uid = cred.user!.uid;
-      await secondaryAuth.signOut();
-      return uid;
-    } finally {
-      await secondary.delete();
-    }
-  }
+  }) =>
+      asegurarCuenta(usuario, password);
 
   Future<void> cambiarPasswordActual(String passwordNueva) async {
     final user = _auth.currentUser;
@@ -133,7 +179,10 @@ class FirebaseAuthUsuarioService {
   }
 
   Future<void> enviarRestablecimiento(String usuario, {String? email}) async {
-    final authEmail = UsuarioAuthEmail.paraUsuario(usuario, emailReal: email);
+    // Preferir email real si existe (puede recibir el mail); si no, sintético.
+    final authEmail = UsuarioAuthEmail.esEmailReal(email)
+        ? email!.trim().toLowerCase()
+        : authEmailPara(usuario);
     await _auth.sendPasswordResetEmail(email: authEmail);
   }
 
@@ -141,14 +190,8 @@ class FirebaseAuthUsuarioService {
     required String usuario,
     required String email,
   }) async {
-    if (!UsuarioAuthEmail.esEmailReal(email)) {
-      throw StateError('Se necesita un email real para enviar la confirmación.');
-    }
-    // Solo verificación de email. NO sendPasswordResetEmail: eso cambiaba la
-    // clave de Firebase y el usuario ya no podía entrar con la clave del admin.
     debugPrint(
-      'Alta usuario=$usuario email=${email.trim().toLowerCase()}: '
-      'sin reset de clave (evitar desfasaje local/nube).',
+      'Alta usuario=$usuario: Auth=${authEmailPara(usuario)} contacto=$email',
     );
   }
 

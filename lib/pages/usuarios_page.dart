@@ -154,8 +154,8 @@ class _UsuariosPageState extends State<UsuariosPage> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'El usuario debe entrar con esta clave temporal. '
-              'No se envía mail de reset (evita desfasar la clave de la nube).',
+              'Se actualiza la clave en esta PC y en la nube. '
+              'En el celular: mismo usuario y esta misma clave (sin email).',
               style: TextStyle(fontSize: 12),
             ),
           ],

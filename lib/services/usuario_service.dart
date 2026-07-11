@@ -41,41 +41,40 @@ class UsuarioService {
     final emailReal = usuario.email.trim();
     var nuevo = usuario.copyWith(
       rol: rol,
-      email: emailReal.isNotEmpty
-          ? emailReal
-          : UsuarioAuthEmail.paraUsuario(usuario.usuario),
+      // Contacto opcional; Auth usa siempre email sintético del usuario.
+      email: emailReal,
       fechaCreacion: usuario.fechaCreacion ?? ahora,
       password: AuthService.hashPassword(passwordPlano),
-      debeCambiarPassword: true,
+      // La clave la define el admin: no forzar cambio al primer login.
+      debeCambiarPassword: false,
     );
 
     final firebase = FirebaseAuthUsuarioService.instance;
     var emailEnviado = false;
     String? aviso;
     if (firebase.disponible) {
-      final uid = await firebase.crearCuenta(
-        usuario.usuario,
-        passwordPlano,
-        email: emailReal,
-      );
-      nuevo = nuevo.copyWith(firebaseUid: uid);
-      await FirestoreUsuarioRepository().insertar(nuevo);
-
-      if (UsuarioAuthEmail.esEmailReal(emailReal)) {
-        // NO enviar reset de Firebase: eso cambia la clave de la nube y
-        // desincroniza la que el admin acaba de asignar.
-        emailEnviado = false;
+      try {
+        final uid = await firebase.asegurarCuenta(
+          usuario.usuario,
+          passwordPlano,
+        );
+        nuevo = nuevo.copyWith(firebaseUid: uid);
+        await FirestoreUsuarioRepository().insertar(nuevo);
         aviso =
-            'Usuario creado. Debe entrar con el usuario "${usuario.usuario}" '
-            'y la clave que le asignaste (no uses el email como usuario). '
-            'Al primer ingreso la app le pedirá cambiar la clave.';
-      } else {
+            'Usuario "${usuario.usuario}" creado.\n'
+            'Entrar con ese usuario y la clave que le asignaste '
+            '(no uses el email para iniciar sesión).';
+      } catch (e) {
+        // Igual dejamos el usuario local para que pueda entrar en esta PC.
+        debugPrint('Firebase alta usuario: $e');
         aviso =
-            'Usuario creado. Entregá usuario y clave. '
-            'Si cargás un email real, queda asociado a la cuenta de la nube.';
+            'Usuario creado en esta PC, pero la nube falló:\n$e\n\n'
+            'Podés entrar acá con usuario/clave. '
+            'Para el celular: Restablecer contraseña o limpiar Auth en Firebase.';
       }
     } else {
-      aviso = 'Usuario creado en este dispositivo (Firebase no disponible).';
+      aviso =
+          'Usuario creado solo en este dispositivo (Firebase no disponible).';
     }
 
     final id = await _repoLocal.insertar(nuevo);
@@ -328,12 +327,11 @@ class UsuarioService {
     );
   }
 
-  /// Restablece contraseña local. No manda reset de Firebase (eso desfasaba la clave).
+  /// Restablece contraseña local y alinea la cuenta de Firebase Auth.
   Future<String?> restablecerPassword(
     Usuario usuario,
-    String nuevaPassword, {
-    bool enviarEmailFirebase = false,
-  }) async {
+    String nuevaPassword,
+  ) async {
     _requiereAdministrador();
     if (nuevaPassword.trim().length < 6) {
       throw StateError(
@@ -344,51 +342,37 @@ class UsuarioService {
     final clave = nuevaPassword.trim();
     var actualizado = usuario.copyWith(
       password: AuthService.hashPassword(clave),
-      debeCambiarPassword: true,
+      debeCambiarPassword: false,
     );
     await _repoLocal.actualizar(actualizado);
 
+    String? aviso =
+        'Listo. Entrá con usuario "${usuario.usuario}" y la clave nueva.';
+
     if (BackendConfigService.instance.firebaseEnabled) {
       try {
-        if (actualizado.firebaseUid == null ||
-            actualizado.firebaseUid!.isEmpty) {
-          final remoto = await FirestoreUsuarioRepository()
-              .buscarPorUsuario(usuario.usuario);
-          final remotoUid = remoto?.firebaseUid;
-          if (remotoUid != null && remotoUid.isNotEmpty) {
-            actualizado = actualizado.copyWith(firebaseUid: remotoUid);
-            await _repoLocal.actualizar(actualizado);
-          }
+        if (FirebaseAuthUsuarioService.instance.disponible) {
+          final uid = await FirebaseAuthUsuarioService.instance.asegurarCuenta(
+            usuario.usuario,
+            clave,
+          );
+          actualizado = actualizado.copyWith(firebaseUid: uid);
+          await _repoLocal.actualizar(actualizado);
         }
         if (actualizado.firebaseUid?.isNotEmpty ?? false) {
           await FirestoreUsuarioRepository().actualizar(actualizado);
         }
-      } catch (e) {
-        debugPrint('Sync clave a Firestore: $e');
-      }
-    }
-
-    String? aviso =
-        'Listo. En el celular/PC entrá con usuario "${usuario.usuario}" '
-        'y la clave temporal que acabás de poner.';
-
-    final email = usuario.email.trim();
-    if (enviarEmailFirebase &&
-        FirebaseAuthUsuarioService.instance.disponible &&
-        UsuarioAuthEmail.esEmailReal(email)) {
-      try {
-        await FirebaseAuthUsuarioService.instance.enviarRestablecimiento(
-          usuario.usuario,
-          email: email,
-        );
         aviso =
-            'Clave local restablecida. Se envió mail a $email: '
-            'en el enlace debe poner EXACTAMENTE la misma clave temporal.';
+            'Clave actualizada en esta PC y en la nube.\n'
+            'Usuario: ${usuario.usuario}\n'
+            'Usá esa misma clave en el celular.';
       } catch (e) {
-        debugPrint('Email reset password: $e');
+        debugPrint('Restablecer + Auth: $e');
         aviso =
-            'Clave local restablecida. No se pudo enviar el email de Firebase. '
-            'El usuario debe entrar con la clave temporal en este equipo.';
+            'Clave local OK, pero la nube falló:\n$e\n\n'
+            'En Firebase Console → Authentication → Users, '
+            'eliminá ${FirebaseAuthUsuarioService.instance.authEmailPara(usuario.usuario)} '
+            'y volvé a Restablecer.';
       }
     }
 
@@ -398,8 +382,6 @@ class UsuarioService {
       'Restablecimiento de contraseña para ${usuario.usuario}',
       valorNuevo: jsonEncode({
         'usuario': usuario.usuario,
-        'emailEnviado': enviarEmailFirebase &&
-            aviso.contains('Se envió mail'),
         'fecha': DateTime.now().toIso8601String(),
       }),
     );

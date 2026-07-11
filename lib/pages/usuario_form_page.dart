@@ -194,15 +194,12 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
                 decoration: _decoracion(
-                  'Email (confirmación)',
+                  'Email (opcional, solo contacto)',
                   Icons.email_outlined,
                 ),
                 validator: (value) {
-                  if (_esEdicion) return null;
                   final v = (value ?? '').trim();
-                  if (v.isEmpty) {
-                    return 'Ingresá un email real para enviar la confirmación';
-                  }
+                  if (v.isEmpty) return null;
                   if (!v.contains('@') || !v.contains('.')) {
                     return 'Email inválido';
                   }

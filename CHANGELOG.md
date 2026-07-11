@@ -1,3 +1,12 @@
+## [1.1.12] — 2026-07-11
+
+### Login usuarios (definitivo)
+- Firebase Auth usa siempre email sintético `usuario@tenant.tatastock.app` (el Gmail es solo contacto).
+- Así el celular y la PC entran con el mismo usuario/clave.
+- Al crear/restablecer se crea o reutiliza la cuenta Auth con esa clave.
+- Email del formulario ahora es opcional.
+- Si Auth quedó con otra clave vieja, el mensaje indica borrar esa cuenta en Firebase Console.
+
 ## [1.1.11] — 2026-07-11
 
 ### Usuarios
