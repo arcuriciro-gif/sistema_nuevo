@@ -2,6 +2,19 @@
 
 Todos los cambios relevantes del proyecto se documentan aquí.
 
+## [1.1.2] — 2026-07-11
+
+### Dashboard / Inicio (Windows EXE)
+- KPIs más compactos: iconos chicos, más columnas en pantallas anchas, menos scroll.
+- Sidebar más densa (logo y filas más chicas) para menos movimiento de mouse.
+- **Valor del stock a costo** además del valor a precio de venta (Inicio, Dashboard y Productos).
+
+### Sync — cobertura ampliada
+- Categorías y listas de precios: sync bidireccional + cola offline.
+- Comentarios internos: ahora pasan por `SyncQueueService` (no se pierden offline).
+- Pagos de remito (`ventaId=0`): viajan embebidos en el documento remito.
+- Al recibir ventas remotas se recalcula el saldo del cliente.
+
 ## [1.1.1] — 2026-07-11
 
 ### Cobro parcial de remitos

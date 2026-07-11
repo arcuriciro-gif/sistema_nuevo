@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_queue_service.dart';
 import '../database/database_helper.dart';
 import '../models/comentario_interno.dart';
 import 'auth_service.dart';
@@ -82,10 +85,13 @@ class ComentarioInternoService {
       fecha: comentario.fecha,
     );
 
-    // Sync multi-dispositivo (clave de negocio: tipo+entidadId+fecha+usuario).
-    try {
-      await FirestoreSyncService.instance.subirComentario(guardado);
-    } catch (_) {}
+    final payload = jsonEncode(guardado.toMap());
+    await SyncQueueService.instance.pushOrEnqueue(
+      entityType: 'comentario',
+      entityId: 'c_$id',
+      payloadJson: payload,
+      upload: () => FirestoreSyncService.instance.subirComentario(guardado),
+    );
 
     return guardado;
   }
@@ -118,8 +124,13 @@ class ComentarioInternoService {
       'Comentario eliminado en ${c.entidadTipo} #${c.entidadId}',
       valorAnterior: c.texto,
     );
-    try {
-      await FirestoreSyncService.instance.eliminarComentarioRemoto(c);
-    } catch (_) {}
+    final payload = jsonEncode(c.toMap());
+    await SyncQueueService.instance.pushOrEnqueue(
+      entityType: 'comentario',
+      entityId: 'c_$id',
+      operation: 'delete',
+      payloadJson: payload,
+      upload: () => FirestoreSyncService.instance.eliminarComentarioRemoto(c),
+    );
   }
 }

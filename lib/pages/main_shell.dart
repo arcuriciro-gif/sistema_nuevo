@@ -729,7 +729,7 @@ class _SidebarContent extends StatelessWidget {
         // ── Encabezado (logo + nombre del negocio) ────────────────────────────
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
           decoration: const BoxDecoration(
             border: Border(bottom: BorderSide(color: _kSidebarHeaderBorder)),
           ),
@@ -737,15 +737,15 @@ class _SidebarContent extends StatelessWidget {
             children: [
               if (logoPath.isNotEmpty)
                 CircleAvatar(
-                  radius: 30,
+                  radius: 22,
                   backgroundImage: FileImage(File(logoPath)),
                 )
               else
                 Container(
-                  width: 60,
-                  height: 60,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                       color: const Color(0xFF3B82F6),
                       width: 1.5,
@@ -755,16 +755,16 @@ class _SidebarContent extends StatelessWidget {
                   child: const Icon(
                     Icons.store_rounded,
                     color: Color(0xFF93C5FD),
-                    size: 28,
+                    size: 22,
                   ),
                 ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Text(
                 branding.nombre,
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
-                  fontSize: 14,
+                  fontSize: 13,
                 ),
                 textAlign: TextAlign.center,
                 overflow: TextOverflow.ellipsis,
@@ -772,9 +772,9 @@ class _SidebarContent extends StatelessWidget {
               if (branding.slogan.isNotEmpty)
                 Text(
                   branding.slogan,
-                  style: const TextStyle(color: _kSidebarSubtext, fontSize: 11),
+                  style: const TextStyle(color: _kSidebarSubtext, fontSize: 10),
                   textAlign: TextAlign.center,
-                  maxLines: 2,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
             ],
@@ -782,33 +782,36 @@ class _SidebarContent extends StatelessWidget {
         ),
         // ── Ítems de navegación ───────────────────────────────────────────────
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
             itemCount: items.length,
             itemBuilder: (context, index) {
               final item = items[index];
               final selected = selectedIndex == index;
               return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
+                padding: const EdgeInsets.symmetric(vertical: 1),
                 child: Material(
                   color: selected ? _kSidebarSelectedBg : Colors.transparent,
                   borderRadius: BorderRadius.circular(8),
                   child: ListTile(
                     dense: true,
+                    visualDensity: const VisualDensity(horizontal: 0, vertical: -2),
+                    minLeadingWidth: 24,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
                   leading: Icon(
                     item.icon,
                     color: selected ? _kSidebarSelectedIcon : _kSidebarInactiveIcon,
-                    size: 20,
+                    size: 18,
                   ),
                   title: Text(
                     item.title,
                     style: TextStyle(
                       color: selected ? _kSidebarSelectedText : _kSidebarInactiveText,
                       fontWeight: selected ? FontWeight.w700 : FontWeight.normal,
-                      fontSize: 14,
+                      fontSize: 13,
                     ),
                   ),
                     onTap: () => onTap(index),

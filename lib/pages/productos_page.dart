@@ -57,6 +57,8 @@ class _ProductosPageState extends State<ProductosPage> {
   int get _totalProductos => productos.length;
   int get _stockTotal => productos.fold(0, (s, p) => s + p.stock);
   double get _valorStock => productos.fold(0, (s, p) => s + p.precio * p.stock);
+  double get _valorStockCosto =>
+      productos.fold(0, (s, p) => s + p.costo * p.stock);
   int get _sinStock => productos.where((p) => p.stock == 0).length;
 
   @override
@@ -300,10 +302,16 @@ class _ProductosPageState extends State<ProductosPage> {
                           color: const Color(0xFF22C55E),
                         ),
                         _KpiCard(
-                          title: 'Valor stock',
+                          title: 'Stock a venta',
                           value: '\$${_fmtNum(_valorStock)}',
                           icon: Icons.attach_money_rounded,
                           color: const Color(0xFF3B82F6),
+                        ),
+                        _KpiCard(
+                          title: 'Stock a costo',
+                          value: '\$${_fmtNum(_valorStockCosto)}',
+                          icon: Icons.price_change_rounded,
+                          color: const Color(0xFF0EA5E9),
                         ),
                         _KpiCard(
                           title: 'Sin stock',
@@ -328,20 +336,19 @@ class _ProductosPageState extends State<ProductosPage> {
                               physics: const NeverScrollableScrollPhysics(),
                               mainAxisSpacing: 8,
                               crossAxisSpacing: 8,
-                              childAspectRatio: 2.3,
+                              childAspectRatio: 2.5,
                               children: cards,
                             )
-                          : Row(
-                              children: cards
-                                  .map(
-                                    (c) => Expanded(
-                                      child: Padding(
-                                        padding: const EdgeInsets.only(right: 8),
-                                        child: c,
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
+                          : GridView.count(
+                              crossAxisCount: constraints.maxWidth >= 1100
+                                  ? 5
+                                  : 3,
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              mainAxisSpacing: 8,
+                              crossAxisSpacing: 8,
+                              childAspectRatio: 2.8,
+                              children: cards,
                             );
                     },
                   ),

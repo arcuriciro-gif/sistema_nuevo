@@ -7,6 +7,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../database/database_helper.dart';
 import '../../firebase_options.dart';
+import '../../models/comentario_interno.dart';
 import '../../models/documento_cliente.dart';
 import '../../models/venta.dart';
 import '../firebase/firebase_auth_usuario_service.dart';
@@ -479,6 +480,36 @@ class SyncQueueService extends ChangeNotifier {
             throw StateError('Documento sin payload');
           }
           await sync.subirDocumento(DocumentoCliente.fromMap(map));
+          return;
+        case 'categoria':
+          if (operation == 'delete') {
+            final nombre =
+                _payloadString(payloadJson, 'nombre') ?? entityId;
+            await sync.eliminarCategoriaRemota(nombre);
+          } else {
+            await sync.subirCategoria(int.parse(entityId));
+          }
+          return;
+        case 'lista_precio':
+          if (operation == 'delete') {
+            final nombre =
+                _payloadString(payloadJson, 'nombre') ?? entityId;
+            await sync.eliminarListaPrecioRemota(nombre);
+          } else {
+            await sync.subirListaPrecio(int.parse(entityId));
+          }
+          return;
+        case 'comentario':
+          final map = _decodeMap(payloadJson);
+          if (map.isEmpty) {
+            throw StateError('Comentario sin payload');
+          }
+          final c = ComentarioInterno.fromMap(map);
+          if (operation == 'delete') {
+            await sync.eliminarComentarioRemoto(c);
+          } else {
+            await sync.subirComentario(c);
+          }
           return;
         default:
           throw StateError('entityType desconocido: $entityType');

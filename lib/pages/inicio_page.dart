@@ -36,6 +36,7 @@ class _InicioPageState extends State<InicioPage> {
   double _ventasMes = 0;
   double _comprasMes = 0;
   double _valorStock = 0;
+  double _valorStockCosto = 0;
   ResumenCuentasCobrar? _resumenCc;
   List<Producto> _ultimosProductos = [];
   bool _cargando = true;
@@ -67,6 +68,7 @@ class _InicioPageState extends State<InicioPage> {
       _stockTotal = productos.fold(0, (s, p) => s + p.stock);
       _sinStock = productos.where((p) => p.stock == 0).length;
       _valorStock = productos.fold(0.0, (s, p) => s + p.precio * p.stock);
+      _valorStockCosto = productos.fold(0.0, (s, p) => s + p.costo * p.stock);
       _totalClientes = clientes.length;
       _totalRemitos = remitos;
       _ventasMes = ventasMes;
@@ -187,14 +189,19 @@ class _InicioPageState extends State<InicioPage> {
                     // ── KPI Cards ────────────────────────────────────────────
                     LayoutBuilder(
                       builder: (context, constraints) {
-                        final cols = constraints.maxWidth < 500 ? 2 : 4;
+                        final w = constraints.maxWidth;
+                        final cols = w < 500
+                            ? 2
+                            : w < 900
+                                ? 3
+                                : 4;
                         return GridView.count(
                           crossAxisCount: cols,
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
-                          crossAxisSpacing: 10,
-                          mainAxisSpacing: 10,
-                          childAspectRatio: cols == 2 ? 1.8 : 2.2,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                          childAspectRatio: cols >= 4 ? 3.2 : 2.6,
                           children: [
                             _KpiCard(
                               title: 'Productos',
@@ -209,10 +216,16 @@ class _InicioPageState extends State<InicioPage> {
                               color: const Color(0xFF22C55E),
                             ),
                             _KpiCard(
-                              title: 'Valor stock',
+                              title: 'Stock a venta',
                               value: '\$${_fmt(_valorStock)}',
                               icon: Icons.attach_money_rounded,
                               color: const Color(0xFF3B82F6),
+                            ),
+                            _KpiCard(
+                              title: 'Stock a costo',
+                              value: '\$${_fmt(_valorStockCosto)}',
+                              icon: Icons.price_change_rounded,
+                              color: const Color(0xFF0EA5E9),
                             ),
                             _KpiCard(
                               title: 'Sin stock',
@@ -239,7 +252,7 @@ class _InicioPageState extends State<InicioPage> {
                               color: const Color(0xFF0891B2),
                             ),
                             _KpiCard(
-                              title: 'Remitos totales',
+                              title: 'Remitos',
                               value: _fmt(_totalRemitos),
                               icon: Icons.description_rounded,
                               color: const Color(0xFFF59E0B),
@@ -261,60 +274,63 @@ class _InicioPageState extends State<InicioPage> {
                       },
                     ),
                     if (_resumenCc != null) ...[
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 10),
                       Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                        margin: EdgeInsets.zero,
+                        child: ListTile(
+                          dense: true,
+                          leading: Icon(
+                            Icons.account_balance_wallet_rounded,
+                            color: cs.error,
+                            size: 22,
+                          ),
+                          title: const Text(
+                            'Cuentas por cobrar',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${_resumenCc!.clientesConDeuda} clientes · '
+                            '${_resumenCc!.ventasPendientes} ventas',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Text(
-                                'Cuentas por cobrar',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
                               Text(
                                 '\$${_fmt(_resumenCc!.montoTotalPendiente)}',
                                 style: TextStyle(
-                                  fontSize: 28,
+                                  fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                   color: cs.error,
                                 ),
                               ),
-                              Text('${_resumenCc!.clientesConDeuda} clientes'),
-                              Text(
-                                '${_resumenCc!.ventasPendientes} ventas pendientes',
-                              ),
-                              const SizedBox(height: 8),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton.icon(
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            const ClientesDeudoresPage(),
-                                      ),
-                                    ).then((_) => _cargar());
-                                  },
-                                  icon: const Icon(Icons.visibility_rounded),
-                                  label: const Text('Ver detalle'),
-                                ),
+                              IconButton(
+                                tooltip: 'Ver detalle',
+                                icon: const Icon(Icons.chevron_right_rounded),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          const ClientesDeudoresPage(),
+                                    ),
+                                  ).then((_) => _cargar());
+                                },
                               ),
                             ],
                           ),
                         ),
                       ),
                     ],
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 14),
                     // ── Últimos productos ────────────────────────────────────
                     Card(
+                      margin: EdgeInsets.zero,
                       child: Padding(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -322,46 +338,46 @@ class _InicioPageState extends State<InicioPage> {
                               'Últimos productos cargados',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: 15,
+                                fontSize: 13,
                                 color: cs.onSurface,
                               ),
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 4),
                             if (_ultimosProductos.isEmpty)
-                              Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Text(
-                                    'No hay productos registrados',
-                                    style:
-                                        TextStyle(color: cs.onSurfaceVariant),
-                                  ),
+                              Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Text(
+                                  'No hay productos registrados',
+                                  style: TextStyle(color: cs.onSurfaceVariant),
                                 ),
                               )
                             else
                               ...(_ultimosProductos.map(
                                 (p) => ListTile(
                                   dense: true,
-                                  leading: CircleAvatar(
-                                    backgroundColor: cs.primaryContainer,
-                                    child: Text(
-                                      p.codigo.isNotEmpty
-                                          ? p.codigo[0].toUpperCase()
-                                          : '?',
-                                      style: TextStyle(
-                                        color: cs.primary,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                      ),
-                                    ),
+                                  visualDensity: VisualDensity.compact,
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(
+                                    Icons.inventory_2_outlined,
+                                    color: cs.primary,
+                                    size: 18,
                                   ),
-                                  title: Text(p.descripcion),
-                                  subtitle: Text('${p.codigo} · ${p.marca}'),
+                                  title: Text(
+                                    p.descripcion,
+                                    style: const TextStyle(fontSize: 13),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    '${p.codigo} · ${p.marca}',
+                                    style: const TextStyle(fontSize: 11),
+                                  ),
                                   trailing: Text(
                                     '\$${_fmt(p.precio)}',
                                     style: TextStyle(
                                       color: cs.primary,
                                       fontWeight: FontWeight.w700,
+                                      fontSize: 13,
                                     ),
                                   ),
                                 ),
@@ -402,9 +418,11 @@ class _KpiCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           child: Row(
             children: [
+              Icon(icon, color: color, size: 18),
+              const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -413,26 +431,19 @@ class _KpiCard extends StatelessWidget {
                     Text(
                       title,
                       style:
-                          TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+                          TextStyle(color: cs.onSurfaceVariant, fontSize: 11),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 2),
                     Text(
                       value,
                       style: const TextStyle(
-                          fontSize: 20, fontWeight: FontWeight.bold),
+                          fontSize: 16, fontWeight: FontWeight.bold),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              CircleAvatar(
-                radius: 17,
-                backgroundColor: color.withValues(alpha: 0.15),
-                child: Icon(icon, color: color, size: 18),
               ),
             ],
           ),

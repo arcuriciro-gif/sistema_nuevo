@@ -9,6 +9,7 @@ import '../config/backend_config_service.dart';
 import '../events/data_refresh_hub.dart';
 import '../firebase/firebase_auth_usuario_service.dart';
 import '../firebase/firebase_bootstrap.dart';
+import '../../services/cuenta_corriente_service.dart';
 import '../../database/database_helper.dart';
 import '../../models/cliente.dart';
 import '../../models/comentario_interno.dart';
@@ -39,6 +40,8 @@ class FirestoreSyncService {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _comprasSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _documentosSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _comentariosSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _categoriasSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _listasPreciosSub;
 
   bool _sincronizando = false;
   bool _sincronizandoVentas = false;
@@ -48,6 +51,8 @@ class FirestoreSyncService {
   bool _sincronizandoCompras = false;
   bool _sincronizandoDocumentos = false;
   bool _sincronizandoComentarios = false;
+  bool _sincronizandoCategorias = false;
+  bool _sincronizandoListasPrecios = false;
 
   /// Cuando es true, los `subir*`/`eliminar*` remotos relanzan errores
   /// (usado por [SyncQueueService] para reintentos). Callers normales no cambian.
@@ -89,6 +94,19 @@ class FirestoreSyncService {
       _col('documentos');
   CollectionReference<Map<String, dynamic>> get _comentariosCol =>
       _col('comentarios');
+  CollectionReference<Map<String, dynamic>> get _categoriasCol =>
+      _col('categorias');
+  CollectionReference<Map<String, dynamic>> get _listasPreciosCol =>
+      _col('listas_precios');
+
+  String _docIdPorNombre(String nombre) {
+    final n = nombre.trim().toLowerCase();
+    if (n.isEmpty) return 'sin_nombre';
+    return n
+        .replaceAll(RegExp(r'[^a-z0-9áéíóúñü]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+  }
 
   Future<void> start() async {
     if (!BackendConfigService.instance.firebaseEnabled ||
@@ -129,6 +147,14 @@ class FirestoreSyncService {
       _aplicarComentariosRemotos,
       onError: (Object error) => debugPrint('Sync comentarios: $error'),
     );
+    _categoriasSub = _categoriasCol.snapshots().listen(
+      _aplicarCategoriasRemotas,
+      onError: (Object error) => debugPrint('Sync categorias: $error'),
+    );
+    _listasPreciosSub = _listasPreciosCol.snapshots().listen(
+      _aplicarListasPreciosRemotas,
+      onError: (Object error) => debugPrint('Sync listas_precios: $error'),
+    );
   }
 
   Future<void> stop() async {
@@ -140,6 +166,8 @@ class FirestoreSyncService {
     await _comprasSub?.cancel();
     await _documentosSub?.cancel();
     await _comentariosSub?.cancel();
+    await _categoriasSub?.cancel();
+    await _listasPreciosSub?.cancel();
     _productosSub = null;
     _ventasSub = null;
     _remitosSub = null;
@@ -148,6 +176,8 @@ class FirestoreSyncService {
     _comprasSub = null;
     _documentosSub = null;
     _comentariosSub = null;
+    _categoriasSub = null;
+    _listasPreciosSub = null;
   }
 
   ProductoRepository get writeRepository {
@@ -380,6 +410,170 @@ class FirestoreSyncService {
     }
   }
 
+  Future<void> subirCategoria(int categoriaId) async {
+    _requireEscrituraRemota();
+    if (!_puedeEscribirRemoto) return;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      final rows = await db.query(
+        'categorias',
+        where: 'id = ?',
+        whereArgs: [categoriaId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return;
+      final nombre = rows.first['nombre']?.toString() ?? '';
+      final docId = _docIdPorNombre(nombre);
+      await _categoriasCol.doc(docId).set({
+        'nombre': nombre,
+        'descripcion': rows.first['descripcion'] ?? '',
+        'activa': rows.first['activa'] ?? 1,
+        'localId': categoriaId,
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      _onOutboundError(e, 'Firestore subir categoria');
+    }
+  }
+
+  Future<void> eliminarCategoriaRemota(String nombre) async {
+    _requireEscrituraRemota();
+    if (!_puedeEscribirRemoto) return;
+    try {
+      await _categoriasCol.doc(_docIdPorNombre(nombre)).delete();
+    } catch (e) {
+      _onOutboundError(e, 'Firestore eliminar categoria');
+    }
+  }
+
+  Future<void> _aplicarCategoriasRemotas(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (_sincronizandoCategorias) return;
+    _sincronizandoCategorias = true;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final nombre = data['nombre']?.toString().trim() ?? '';
+        if (nombre.isEmpty) continue;
+        final existentes = await db.query(
+          'categorias',
+          where: 'LOWER(nombre) = ?',
+          whereArgs: [nombre.toLowerCase()],
+          limit: 1,
+        );
+        final map = {
+          'nombre': nombre,
+          'descripcion': data['descripcion']?.toString() ?? '',
+          'activa': (data['activa'] is bool)
+              ? ((data['activa'] as bool) ? 1 : 0)
+              : (data['activa'] ?? 1),
+        };
+        if (existentes.isEmpty) {
+          await db.insert('categorias', map);
+        } else {
+          await db.update(
+            'categorias',
+            map,
+            where: 'id = ?',
+            whereArgs: [existentes.first['id']],
+          );
+        }
+      }
+      DataRefreshHub.instance.notifyTodo();
+    } catch (e) {
+      debugPrint('Aplicar categorias remotas: $e');
+    } finally {
+      _sincronizandoCategorias = false;
+    }
+  }
+
+  Future<void> subirListaPrecio(int listaId) async {
+    _requireEscrituraRemota();
+    if (!_puedeEscribirRemoto) return;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      final rows = await db.query(
+        'listas_precios',
+        where: 'id = ?',
+        whereArgs: [listaId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return;
+      final nombre = rows.first['nombre']?.toString() ?? '';
+      final docId = _docIdPorNombre(nombre);
+      await _listasPreciosCol.doc(docId).set({
+        'nombre': nombre,
+        'porcentaje': rows.first['porcentaje'] ?? 0,
+        'activa': rows.first['activa'] ?? 1,
+        'orden': rows.first['orden'] ?? 0,
+        'color': rows.first['color'] ?? '',
+        'prioridad': rows.first['prioridad'] ?? 0,
+        'localId': listaId,
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      _onOutboundError(e, 'Firestore subir lista_precio');
+    }
+  }
+
+  Future<void> eliminarListaPrecioRemota(String nombre) async {
+    _requireEscrituraRemota();
+    if (!_puedeEscribirRemoto) return;
+    try {
+      await _listasPreciosCol.doc(_docIdPorNombre(nombre)).delete();
+    } catch (e) {
+      _onOutboundError(e, 'Firestore eliminar lista_precio');
+    }
+  }
+
+  Future<void> _aplicarListasPreciosRemotas(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (_sincronizandoListasPrecios) return;
+    _sincronizandoListasPrecios = true;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final nombre = data['nombre']?.toString().trim() ?? '';
+        if (nombre.isEmpty) continue;
+        final existentes = await db.query(
+          'listas_precios',
+          where: 'LOWER(nombre) = ?',
+          whereArgs: [nombre.toLowerCase()],
+          limit: 1,
+        );
+        final map = {
+          'nombre': nombre,
+          'porcentaje': (data['porcentaje'] as num?)?.toDouble() ?? 0,
+          'activa': (data['activa'] is bool)
+              ? ((data['activa'] as bool) ? 1 : 0)
+              : (data['activa'] ?? 1),
+          'orden': (data['orden'] as num?)?.toInt() ?? 0,
+          'color': data['color']?.toString() ?? '',
+          'prioridad': (data['prioridad'] as num?)?.toInt() ?? 0,
+        };
+        if (existentes.isEmpty) {
+          await db.insert('listas_precios', map);
+        } else {
+          await db.update(
+            'listas_precios',
+            map,
+            where: 'id = ?',
+            whereArgs: [existentes.first['id']],
+          );
+        }
+      }
+      DataRefreshHub.instance.notifyTodo();
+    } catch (e) {
+      debugPrint('Aplicar listas_precios remotas: $e');
+    } finally {
+      _sincronizandoListasPrecios = false;
+    }
+  }
+
   Future<void> _aplicarComentariosRemotos(
     QuerySnapshot<Map<String, dynamic>> snap,
   ) async {
@@ -531,6 +725,25 @@ class FirestoreSyncService {
       ''', [remitoId]);
 
       final numero = remito['numero']?.toString() ?? 'R_$remitoId';
+      // Pagos de remito (ventaId=0, observaciones "Remito N…").
+      final pagosRows = await db.query(
+        'pagos',
+        where: "ventaId = 0 AND observaciones LIKE ?",
+        whereArgs: ['Remito $numero%'],
+        orderBy: 'fecha ASC',
+      );
+      final pagos = pagosRows
+          .map(
+            (p) => {
+              'fecha': p['fecha'],
+              'monto': p['monto'],
+              'medioPago': p['medioPago'],
+              'observaciones': p['observaciones'],
+              'clienteId': p['clienteId'],
+            },
+          )
+          .toList();
+
       await _remitosCol.doc(numero).set({
         'numero': numero,
         'clienteId': remito['clienteId'],
@@ -548,6 +761,7 @@ class FirestoreSyncService {
         'fechaCreacion': remito['fechaCreacion'],
         'localId': remitoId,
         'items': items,
+        'pagos': pagos,
         'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
       }, SetOptions(merge: true));
 
@@ -1023,6 +1237,25 @@ class FirestoreSyncService {
             'ganancia': item['ganancia'] ?? 0,
           });
         }
+
+        // Reemplazar pagos locales del remito por los remotos.
+        await db.delete(
+          'pagos',
+          where: "ventaId = 0 AND observaciones LIKE ?",
+          whereArgs: ['Remito $numero%'],
+        );
+        final pagosRemotos = (data['pagos'] as List?) ?? const [];
+        for (final raw in pagosRemotos) {
+          final pago = Map<String, dynamic>.from(raw as Map);
+          await db.insert('pagos', {
+            'ventaId': 0,
+            'clienteId': clienteId ?? pago['clienteId'],
+            'fecha': pago['fecha'] ?? DateTime.now().toIso8601String(),
+            'monto': pago['monto'] ?? 0,
+            'medioPago': pago['medioPago'] ?? 'efectivo',
+            'observaciones': pago['observaciones'] ?? 'Remito $numero',
+          });
+        }
       }
       DataRefreshHub.instance.notifyTodo();
     } catch (e) {
@@ -1039,6 +1272,7 @@ class FirestoreSyncService {
     _sincronizandoVentas = true;
     try {
       final db = await DatabaseHelper.instance.database;
+      final clientesAfectados = <int>{};
       for (final doc in snap.docs) {
         final data = doc.data();
         final numero = data['numero']?.toString() ?? doc.id;
@@ -1110,6 +1344,16 @@ class FirestoreSyncService {
           pago.remove('id');
           pago['ventaId'] = ventaId;
           await db.insert('pagos', pago);
+        }
+        if (clienteId != null) {
+          clientesAfectados.add(clienteId);
+        }
+      }
+      for (final cid in clientesAfectados) {
+        try {
+          await CuentaCorrienteService().recalcularSaldoCliente(cid);
+        } catch (e) {
+          debugPrint('Recalc saldo cliente $cid: $e');
         }
       }
       DataRefreshHub.instance.notifyVentas();

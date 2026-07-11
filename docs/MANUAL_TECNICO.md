@@ -65,7 +65,25 @@ Página: `lib/pages/sync_historial_page.dart`
 - `VentaService`, `CuentaCorrienteService`
 - `RemitoService`, `CompraService`
 - `DocumentoClienteService`
+- `CategoriaService`, `ListaPrecioService`
+- `ComentarioInternoService`
 - `_DualProductoRepository` (productos)
+
+### Colecciones Firestore adicionales (v1.1.2)
+
+| Colección | Clave doc | Notas |
+|-----------|-----------|--------|
+| `categorias` | nombre normalizado | master de categorías |
+| `listas_precios` | nombre normalizado | definiciones de listas |
+| `remitos.pagos` | embebido | historial cobros remito |
+| `comentarios` | hash tipo+entidad+usuario+fecha+texto | vía cola |
+
+### Aún local-only (próximos)
+
+- `movimientos_stock` / `historial_precios` (ledger)
+- Branding / numeración de documentos (SharedPreferences)
+- Roster completo de usuarios + permisos
+- AFIP config
 
 ## Reglas de evolución
 

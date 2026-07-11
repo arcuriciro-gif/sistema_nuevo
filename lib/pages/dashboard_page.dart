@@ -46,6 +46,7 @@ class _DashboardPageState extends State<DashboardPage> {
   double gananciaMes = 0;
   double gananciaTotal = 0;
   double valorStock = 0;
+  double valorStockCosto = 0;
   List<Map<String, dynamic>> productosTop = [];
   List<Map<String, dynamic>> clientesTop = [];
   List<Map<String, dynamic>> ventasMensuales = [];
@@ -97,11 +98,13 @@ class _DashboardPageState extends State<DashboardPage> {
     final margenBajo = await analytics.productosBajoMargen(umbralPorcentaje: 15);
 
     double stock = 0;
+    double stockCosto = 0;
     List<Producto> agotados = [];
     int criticos = 0;
     int sinStockCount = 0;
     for (final p in productos) {
       stock += p.precio * p.stock;
+      stockCosto += p.costo * p.stock;
       if (p.stock <= 5) criticos++;
       if (p.stock == 0) {
         sinStockCount++;
@@ -122,6 +125,7 @@ class _DashboardPageState extends State<DashboardPage> {
       gananciaMes = gananciaDelMes;
       gananciaTotal = gananciaAll;
       valorStock = stock;
+      valorStockCosto = stockCosto;
       productosTop = topProductos;
       clientesTop = topClientes;
       ventasMensuales = ventasMeses;
@@ -140,86 +144,59 @@ class _DashboardPageState extends State<DashboardPage> {
     ResumenCuentasCobrar resumen,
   ) {
     return Card(
-      elevation: 3,
+      margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
           children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor:
-                      AppVisuals.danger(cs).withValues(alpha: .15),
-                  child: Icon(
-                    Icons.account_balance_wallet_rounded,
-                    color: AppVisuals.danger(cs),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text(
-                    'Cuentas por cobrar',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
+            Icon(
+              Icons.account_balance_wallet_rounded,
+              color: AppVisuals.danger(cs),
+              size: 22,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Cuentas por cobrar',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                  Text(
+                    '\$${resumen.montoTotalPendiente.toStringAsFixed(0)} · '
+                    '${resumen.clientesConDeuda} clientes · '
+                    '${resumen.ventasPendientes} ventas',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: cs.onSurfaceVariant,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
             Text(
-              '\$${resumen.montoTotalPendiente.toStringAsFixed(2)}',
+              '\$${resumen.montoTotalPendiente.toStringAsFixed(0)}',
               style: TextStyle(
-                fontSize: 32,
+                fontSize: 18,
                 fontWeight: FontWeight.bold,
                 color: AppVisuals.danger(cs),
               ),
             ),
-            const SizedBox(height: 8),
-            Text('${resumen.clientesConDeuda} clientes'),
-            Text('${resumen.ventasPendientes} ventas pendientes'),
-            if (resumen.mayorDeudor != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Mayor deuda: ${resumen.mayorDeudor!.nombre} '
-                '(\$${resumen.mayorDeudor!.saldoPendiente.toStringAsFixed(2)})',
-                style: TextStyle(color: cs.onSurfaceVariant),
-              ),
-            ],
-            if (resumen.proximosVencimientos.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Últimos vencimientos / saldos antiguos:',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: cs.onSurfaceVariant,
-                ),
-              ),
-              ...resumen.proximosVencimientos.take(3).map(
-                    (v) => Text(
-                      '${v.clienteNombre ?? 'Cliente'} · ${v.numero} · '
-                      '\$${v.saldoPendiente.toStringAsFixed(2)}',
-                      style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
-                    ),
+            const SizedBox(width: 4),
+            IconButton(
+              tooltip: 'Ver detalle',
+              icon: const Icon(Icons.chevron_right_rounded),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ClientesDeudoresPage(),
                   ),
-            ],
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ClientesDeudoresPage(),
-                    ),
-                  ).then((_) => cargar());
-                },
-                icon: const Icon(Icons.visibility_rounded),
-                label: const Text('Ver detalle'),
-              ),
+                ).then((_) => cargar());
+              },
             ),
           ],
         ),
@@ -237,42 +214,43 @@ class _DashboardPageState extends State<DashboardPage> {
     final labelColor = Theme.of(context).colorScheme.onSurfaceVariant;
 
     return Card(
-      elevation: 3,
+      margin: EdgeInsets.zero,
+      elevation: 1,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
             children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: color.withValues(alpha: .15),
-                    radius: 20,
-                    child: Icon(icono, color: color, size: 20),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
+              Icon(icono, color: color, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
                       titulo,
-                      style: TextStyle(fontSize: 13, color: labelColor),
+                      style: TextStyle(fontSize: 11, color: labelColor),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  if (onTap != null)
-                    Icon(Icons.chevron_right_rounded, color: labelColor),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                valor,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: color,
+                    Text(
+                      valor,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
               ),
+              if (onTap != null)
+                Icon(Icons.chevron_right_rounded, size: 16, color: labelColor),
             ],
           ),
         ),
@@ -288,19 +266,25 @@ class _DashboardPageState extends State<DashboardPage> {
     required Color color,
   }) {
     return Card(
+      margin: const EdgeInsets.only(bottom: 4),
       child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color.withValues(alpha: .15),
-          child: Icon(icono, color: color),
-        ),
+        dense: true,
+        visualDensity: VisualDensity.compact,
+        leading: Icon(icono, color: color, size: 20),
         title: Text(
           titulo,
-          style: const TextStyle(fontWeight: FontWeight.bold),
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
-        subtitle: Text(subtitulo),
+        subtitle: Text(subtitulo, style: const TextStyle(fontSize: 11)),
         trailing: Text(
           valor,
-          style: TextStyle(fontWeight: FontWeight.bold, color: color),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: color,
+            fontSize: 13,
+          ),
         ),
       ),
     );
@@ -459,190 +443,237 @@ class _DashboardPageState extends State<DashboardPage> {
               onRefresh: cargar,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Resumen general',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
                     if (resumenCc != null) ...[
                       _cuentasPorCobrarCard(colorScheme, resumenCc!),
-                      const SizedBox(height: 12),
                       if (resumenCc!.alertas.isNotEmpty) ...[
-                        Text(
-                          'Alertas de cuenta corriente',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
                         const SizedBox(height: 8),
-                        ...resumenCc!.alertas.map((a) {
+                        ...resumenCc!.alertas.take(3).map((a) {
                           final color = a.contains('debe')
                               ? AppVisuals.danger(colorScheme)
-                              : a.contains('vencen')
-                                  ? AppVisuals.warning(colorScheme)
-                                  : AppVisuals.warning(colorScheme);
-                          return Card(
-                            child: ListTile(
-                              leading: Icon(Icons.warning_amber_rounded,
-                                  color: color),
-                              title: Text(a),
-                              dense: true,
+                              : AppVisuals.warning(colorScheme);
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Row(
+                              children: [
+                                Icon(Icons.warning_amber_rounded,
+                                    color: color, size: 16),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    a,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
                           );
                         }),
-                        const SizedBox(height: 12),
                       ],
+                      const SizedBox(height: 10),
                     ],
-                    GridView.count(
-                      crossAxisCount: 2,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: 1.2,
-                      children: [
-                        _statCard(
-                          titulo: 'Productos',
-                          valor: '$totalProductos',
-                          icono: Icons.inventory_2_rounded,
-                          color: productosColor,
-                        ),
-                        _statCard(
-                          titulo: 'Clientes',
-                          valor: '$totalClientes',
-                          icono: Icons.groups_rounded,
-                          color: clientesColor,
-                        ),
-                        _statCard(
-                          titulo: 'Remitos',
-                          valor: '$totalRemitos',
-                          icono: Icons.description_rounded,
-                          color: remitosColor,
-                        ),
-                        _statCard(
-                          titulo: 'Proveedores activos',
-                          valor: '$totalProveedores',
-                          icono: Icons.local_shipping_rounded,
-                          color: AppVisuals.info(colorScheme),
-                        ),
-                        _statCard(
-                          titulo: 'Ventas del día',
-                          valor: '\$${ventasHoy.toStringAsFixed(0)}',
-                          icono: Icons.today_rounded,
-                          color: ventasColor,
-                        ),
-                        _statCard(
-                          titulo: 'Ventas del mes',
-                          valor: '\$${ventasMes.toStringAsFixed(0)}',
-                          icono: Icons.calendar_month_rounded,
-                          color: ventasColor,
-                        ),
-                        _statCard(
-                          titulo: 'Compras del mes',
-                          valor: '\$${comprasMes.toStringAsFixed(0)}',
-                          icono: Icons.shopping_cart_rounded,
-                          color: stockColor,
-                        ),
-                        _statCard(
-                          titulo: 'Productos críticos',
-                          valor: '$productosCriticos',
-                          icono: Icons.warning_amber_rounded,
-                          color: sinStockColor,
-                          onTap: productosCriticos == 0
-                              ? null
-                              : () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const ProductosPage(
-                                        soloStockBajoInicial: true,
-                                      ),
-                                    ),
-                                  ).then((_) => cargar());
-                                },
-                        ),
-                        _statCard(
-                          titulo: 'Productos sin stock',
-                          valor: '$productosSinStock',
-                          icono: Icons.remove_shopping_cart_rounded,
-                          color: sinStockColor,
-                          onTap: productosSinStock == 0
-                              ? null
-                              : () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const ProductosPage(
-                                        soloSinStockInicial: true,
-                                      ),
-                                    ),
-                                  ).then((_) => cargar());
-                                },
-                        ),
-                        _statCard(
-                          titulo: 'Ganancia del mes',
-                          valor: '\$${gananciaMes.toStringAsFixed(0)}',
-                          icono: Icons.trending_up_rounded,
-                          color: AppVisuals.success(colorScheme),
-                        ),
-                        _statCard(
-                          titulo: 'Ganancia total',
-                          valor: '\$${gananciaTotal.toStringAsFixed(0)}',
-                          icono: Icons.savings_rounded,
-                          color: AppVisuals.success(colorScheme),
-                        ),
-                        _statCard(
-                          titulo: 'Bajo margen (<15%)',
-                          valor: '$productosBajoMargen',
-                          icono: Icons.percent_rounded,
-                          color: AppVisuals.warning(colorScheme),
-                        ),
-                        _statCard(
-                          titulo: 'Total ventas',
-                          valor: '\$${totalVentas.toStringAsFixed(0)}',
-                          icono: Icons.payments_rounded,
-                          color: ventasColor,
-                        ),
-                      ],
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final w = constraints.maxWidth;
+                        final cols = w >= 1100
+                            ? 4
+                            : w >= 700
+                                ? 3
+                                : 2;
+                        return GridView.count(
+                          crossAxisCount: cols,
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          mainAxisSpacing: 8,
+                          crossAxisSpacing: 8,
+                          childAspectRatio: cols >= 4 ? 3.4 : 2.8,
+                          children: [
+                            _statCard(
+                              titulo: 'Productos',
+                              valor: '$totalProductos',
+                              icono: Icons.inventory_2_rounded,
+                              color: productosColor,
+                            ),
+                            _statCard(
+                              titulo: 'Clientes',
+                              valor: '$totalClientes',
+                              icono: Icons.groups_rounded,
+                              color: clientesColor,
+                            ),
+                            _statCard(
+                              titulo: 'Remitos',
+                              valor: '$totalRemitos',
+                              icono: Icons.description_rounded,
+                              color: remitosColor,
+                            ),
+                            _statCard(
+                              titulo: 'Proveedores',
+                              valor: '$totalProveedores',
+                              icono: Icons.local_shipping_rounded,
+                              color: AppVisuals.info(colorScheme),
+                            ),
+                            _statCard(
+                              titulo: 'Ventas del día',
+                              valor: '\$${ventasHoy.toStringAsFixed(0)}',
+                              icono: Icons.today_rounded,
+                              color: ventasColor,
+                            ),
+                            _statCard(
+                              titulo: 'Ventas del mes',
+                              valor: '\$${ventasMes.toStringAsFixed(0)}',
+                              icono: Icons.calendar_month_rounded,
+                              color: ventasColor,
+                            ),
+                            _statCard(
+                              titulo: 'Compras del mes',
+                              valor: '\$${comprasMes.toStringAsFixed(0)}',
+                              icono: Icons.shopping_cart_rounded,
+                              color: stockColor,
+                            ),
+                            _statCard(
+                              titulo: 'Críticos',
+                              valor: '$productosCriticos',
+                              icono: Icons.warning_amber_rounded,
+                              color: sinStockColor,
+                              onTap: productosCriticos == 0
+                                  ? null
+                                  : () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => const ProductosPage(
+                                            soloStockBajoInicial: true,
+                                          ),
+                                        ),
+                                      ).then((_) => cargar());
+                                    },
+                            ),
+                            _statCard(
+                              titulo: 'Sin stock',
+                              valor: '$productosSinStock',
+                              icono: Icons.remove_shopping_cart_rounded,
+                              color: sinStockColor,
+                              onTap: productosSinStock == 0
+                                  ? null
+                                  : () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => const ProductosPage(
+                                            soloSinStockInicial: true,
+                                          ),
+                                        ),
+                                      ).then((_) => cargar());
+                                    },
+                            ),
+                            _statCard(
+                              titulo: 'Ganancia mes',
+                              valor: '\$${gananciaMes.toStringAsFixed(0)}',
+                              icono: Icons.trending_up_rounded,
+                              color: AppVisuals.success(colorScheme),
+                            ),
+                            _statCard(
+                              titulo: 'Ganancia total',
+                              valor: '\$${gananciaTotal.toStringAsFixed(0)}',
+                              icono: Icons.savings_rounded,
+                              color: AppVisuals.success(colorScheme),
+                            ),
+                            _statCard(
+                              titulo: 'Bajo margen',
+                              valor: '$productosBajoMargen',
+                              icono: Icons.percent_rounded,
+                              color: AppVisuals.warning(colorScheme),
+                            ),
+                            _statCard(
+                              titulo: 'Total ventas',
+                              valor: '\$${totalVentas.toStringAsFixed(0)}',
+                              icono: Icons.payments_rounded,
+                              color: ventasColor,
+                            ),
+                          ],
+                        );
+                      },
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 10),
                     Card(
-                      elevation: 3,
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: stockColor.withValues(alpha: .15),
-                          child: Icon(Icons.warehouse_rounded, color: stockColor),
+                      margin: EdgeInsets.zero,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
                         ),
-                        title: const Text('Valor del stock'),
-                        subtitle: const Text('Precio de venta × cantidad'),
-                        trailing: Text(
-                          '\$${valorStock.toStringAsFixed(0)}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
-                            color: stockColor,
-                          ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.warehouse_rounded,
+                                color: stockColor, size: 20),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Valor del stock',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Venta \$${valorStock.toStringAsFixed(0)}'
+                                    '  ·  '
+                                    'Costo \$${valorStockCosto.toStringAsFixed(0)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  '\$${valorStock.toStringAsFixed(0)}',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                    color: stockColor,
+                                  ),
+                                ),
+                                Text(
+                                  'costo \$${valorStockCosto.toStringAsFixed(0)}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 14),
                     _chartCard(ventasColor, AppVisuals.tertiaryAccent(colorScheme)),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 14),
                     Text(
                       'Top 5 productos más vendidos',
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     if (productosTop.isEmpty)
-                      const Card(child: ListTile(title: Text('Sin ventas registradas')))
+                      const Card(child: ListTile(title: Text('Sin ventas registradas'), dense: true))
                     else
                       ...productosTop.map(
                         (producto) => _rankingCard(
@@ -657,16 +688,16 @@ class _DashboardPageState extends State<DashboardPage> {
                           color: topProductosColor,
                         ),
                       ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 14),
                     Text(
                       'Top 5 clientes',
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     if (clientesTop.isEmpty)
-                      const Card(child: ListTile(title: Text('Sin clientes con compras')))
+                      const Card(child: ListTile(title: Text('Sin clientes con compras'), dense: true))
                     else
                       ...clientesTop.map(
                         (cliente) => _rankingCard(
@@ -680,24 +711,23 @@ class _DashboardPageState extends State<DashboardPage> {
                         ),
                       ),
                     if (bajoMargen.isNotEmpty) ...[
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 14),
                       Text(
                         'Alertas de bajo margen',
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       ...bajoMargen.map(
                         (p) => Card(
+                          margin: const EdgeInsets.only(bottom: 4),
                           child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor:
-                                  AppVisuals.warning(colorScheme).withValues(alpha: .15),
-                              child: Icon(
-                                Icons.percent_rounded,
-                                color: AppVisuals.warning(colorScheme),
-                              ),
+                            dense: true,
+                            leading: Icon(
+                              Icons.percent_rounded,
+                              color: AppVisuals.warning(colorScheme),
+                              size: 20,
                             ),
                             title: Text(p.descripcion),
                             subtitle: Text(
@@ -710,23 +740,23 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                     ],
                     if (sinStock.isNotEmpty) ...[
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 14),
                       Text(
                         'Productos sin stock',
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       ...sinStock.map(
                         (p) => Card(
+                          margin: const EdgeInsets.only(bottom: 4),
                           child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: sinStockColor.withValues(alpha: .15),
-                              child: Icon(
-                                Icons.warning_amber_rounded,
-                                color: sinStockColor,
-                              ),
+                            dense: true,
+                            leading: Icon(
+                              Icons.warning_amber_rounded,
+                              color: sinStockColor,
+                              size: 20,
                             ),
                             title: Text(p.descripcion),
                             subtitle: Text(p.codigo),
