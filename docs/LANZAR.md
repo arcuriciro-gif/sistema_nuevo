@@ -1,122 +1,111 @@
 # Cómo generar APK y EXE (Tata.Manager)
 
-Versión actual: **`1.1.5+15`**  
-En la pantalla de **login** debe verse abajo: **`Tata.Manager v1.1.5 (15)`**.  
+Versión actual: **`1.1.6+16`**  
+En la pantalla de **login** debe verse abajo: **`Tata.Manager v1.1.6 (16)`**.  
 Si no aparece ese texto, estás usando una carpeta/EXE/APK **vieja**.
 
-Package Android: `com.eltatamanager.app`
+Package Android: `com.eltatamanager.app`  
+Rama con todo lo nuevo: `cursor/sync-queue-offline-6144`
+
+---
+
+## Regla de oro (para no renegar)
+
+1. **Siempre** `git pull` en esa rama antes de compilar.
+2. **Borrá** el instalador/APK viejo antes de copiar el nuevo.
+3. En login verificá **`v1.1.6 (16)`**. Si no está, no es este build.
 
 ---
 
 ## A) APK (Android)
 
-### En la PC de desarrollo
+En PowerShell / CMD, en la carpeta del proyecto:
 
-```bash
-cd carpeta_del_proyecto
+```bat
+cd A:\PROYECTOS\sistema_nuevo_git
+git fetch origin
 git checkout cursor/sync-queue-offline-6144
-git pull
+git pull origin cursor/sync-queue-offline-6144
 flutter pub get
 flutter build apk --release
 ```
 
-**Archivo:**
+**Archivo listo:**
 ```
-build/app/outputs/flutter-apk/app-release.apk
+build\app\outputs\flutter-apk\app-release.apk
 ```
 
 ### Instalar en el celular
-1. Copiá el APK al teléfono (Drive, WhatsApp, USB).
-2. Desinstalá la app vieja si era `com.example…`.
-3. Abrí el APK → permitir instalar → Instalar.
-4. En login verificá: `Tata.Manager v1.1.5 (15)`.
+1. Desinstalá la app anterior (si era `com.example…` o un build viejo).
+2. Copiá **ese** `app-release.apk` al teléfono e instalá.
+3. Login → debe decir **`Tata.Manager v1.1.6 (16)`**.
 
-### Con cable USB
-```bash
-adb install -r build/app/outputs/flutter-apk/app-release.apk
+Con cable:
+```bat
+adb install -r build\app\outputs\flutter-apk\app-release.apk
 ```
 
 ---
 
-## B) EXE + carpeta para pendrive (varias PCs)
+## B) EXE (Windows)
 
-**Obligatorio: compilar en una PC con Windows** (Visual Studio C++ + Flutter desktop).
-
-### 1. Compilar
+**Solo se puede compilar en una PC Windows** (Flutter + Visual Studio C++).
 
 ```bat
-cd carpeta_del_proyecto
+cd A:\PROYECTOS\sistema_nuevo_git
+git fetch origin
 git checkout cursor/sync-queue-offline-6144
-git pull
+git pull origin cursor/sync-queue-offline-6144
 flutter pub get
 flutter config --enable-windows-desktop
 flutter build windows --release
-```
-
-Salida interna:
-```
-build\windows\x64\runner\Release\
-```
-
-### 2. Armar carpeta para el pendrive
-
-```bat
 scripts\preparar_instalador_windows.bat
 ```
 
-Crea / actualiza:
+Eso deja lista la carpeta:
 ```
 Instalador_Windows\
-  ABRIR_TATA_MANAGER.bat   ← abrir con doble clic
-  LEEME.txt
-  sistema_nuevo.exe
+  sistema_nuevo.exe      ← programa real
+  ABRIR_TATA_MANAGER.bat ← atajo cómodo
   data\
   *.dll
   ...
 ```
 
-### 3. Pendrive / otras PCs
-1. **Borrá** del pendrive cualquier `Instalador_Windows` vieja.
-2. Copiá **toda** la carpeta nueva `Instalador_Windows`.
-3. En cada PC: pegá la carpeta y abrí **`ABRIR_TATA_MANAGER.bat`**.
-4. En login verificá: `Tata.Manager v1.1.5 (15)`.
+### Usar / actualizar en esta PC o en otra
+1. Cerrá Tata.Manager si está abierto.
+2. **Borrá** cualquier `Instalador_Windows` vieja (pendrive, Escritorio, etc.).
+3. Copiá **toda** la carpeta nueva `Instalador_Windows` (no solo el `.exe`).
+4. Abrí y verificá login: **`v1.1.6 (16)`**.
 
-### No hagas esto
-- No copies solo el `.exe`.
-- No uses un ZIP sin descomprimir.
-- No mezcles DLLs de un build viejo con un exe nuevo.
+### Acceso directo en Windows
+Creá el acceso directo sobre:
 
----
+**`Instalador_Windows\sistema_nuevo.exe`**
 
-## C) Sistema virgen (borrar datos de negocio)
+No sobre el `.bat` (también funciona, pero el correcto es el `.exe`).
 
-1. Login con usuario **Administrador** (rol `admin`).
-2. Menú → **Configuración**.
-3. Arriba del todo (tarjeta rojiza): **MANTENIMIENTO Y DATOS**.
-4. **Dejar sistema virgen** → ingresá tu contraseña.
-
-Conserva: usuarios, permisos, branding.  
-Borra: productos, clientes, ventas, remitos, etc.
-
-Si ves “Solo visible para Administrador”, tu usuario no es admin.
+Importante:
+- El acceso directo debe apuntar al `.exe` **dentro** de `Instalador_Windows`.
+- No copies el `.exe` solo al Escritorio: necesita las DLL y la carpeta `data` al lado.
+- Si Windows pregunta “Iniciar en”, dejá la carpeta `Instalador_Windows`.
 
 ---
 
-## D) Checklist “¿tengo la versión nueva?”
+## C) Checklist “¿tengo la versión nueva?”
 
 | Check | OK si… |
 |-------|--------|
-| Login | Dice `v1.1.5 (15)` |
-| Configuración (admin) | Arriba: MANTENIMIENTO Y DATOS / sistema virgen |
+| Login | `Tata.Manager v1.1.6 (16)` |
+| Reportes | PDF/CSV/Excel abre **Guardar como…** en Windows |
+| Configuración (admin) | Arriba: **MANTENIMIENTO Y DATOS** |
 | Menú | Inventario, Estadísticas, Cierre de caja (si no los ocultaste) |
-| Sync | Chip de nube arriba (Sincronizado / Sin sesión / etc.) |
 
 ---
 
-## Problemas frecuentes
+## No hagas esto
 
-**EXE sin sync / sin menús nuevos** → carpeta vieja. Recompilá y reemplazá toda `Instalador_Windows`.
-
-**No veo sistema virgen** → no sos admin, o no bajaste lo suficiente (en builds viejos estaba al final). En `v1.1.5+` está **arriba**.
-
-**Firebase / sync** → Authentication → Correo/contraseña activado; proyecto Blaze; JSON con `com.eltatamanager.app`.
+- No copies solo `sistema_nuevo.exe`.
+- No mezcles DLL de un build viejo con un exe nuevo.
+- No uses un ZIP sin descomprimir.
+- No instales un APK de otra carpeta/`build` viejo.
