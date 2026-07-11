@@ -1,3 +1,4 @@
+import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/comentario_interno.dart';
 import 'auth_service.dart';
@@ -71,7 +72,7 @@ class ComentarioInternoService {
       valorNuevo: limpio,
     );
 
-    return ComentarioInterno(
+    final guardado = ComentarioInterno(
       id: id,
       entidadTipo: comentario.entidadTipo,
       entidadId: comentario.entidadId,
@@ -80,6 +81,13 @@ class ComentarioInternoService {
       texto: comentario.texto,
       fecha: comentario.fecha,
     );
+
+    // Sync multi-dispositivo (clave de negocio: tipo+entidadId+fecha+usuario).
+    try {
+      await FirestoreSyncService.instance.subirComentario(guardado);
+    } catch (_) {}
+
+    return guardado;
   }
 
   Future<void> eliminar(int id) async {
@@ -110,5 +118,8 @@ class ComentarioInternoService {
       'Comentario eliminado en ${c.entidadTipo} #${c.entidadId}',
       valorAnterior: c.texto,
     );
+    try {
+      await FirestoreSyncService.instance.eliminarComentarioRemoto(c);
+    } catch (_) {}
   }
 }

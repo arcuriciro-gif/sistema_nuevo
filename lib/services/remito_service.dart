@@ -37,6 +37,8 @@ class RemitoService {
           'descuento': remito.descuento,
           'estado': remito.estado,
           'estadoPago': remito.estadoPago,
+          'totalPagado': 0,
+          'saldoPendiente': remito.total,
           'observaciones': remito.observaciones,
           'fechaCreacion': DateTime.now().toIso8601String(),
         },
@@ -162,9 +164,27 @@ class RemitoService {
 
   Future<void> actualizarEstadoPago(int id, String estadoPago) async {
     final db = await dbHelper.database;
+    final rows = await db.query(
+      'remitos',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final total = (rows.first['total'] as num?)?.toDouble() ?? 0;
+    final totalPagado = estadoPago == 'cobrado'
+        ? total
+        : estadoPago == 'parcial'
+            ? total / 2
+            : 0.0;
+    final saldo = (total - totalPagado).clamp(0, total).toDouble();
     await db.update(
       'remitos',
-      {'estadoPago': estadoPago},
+      {
+        'estadoPago': estadoPago,
+        'totalPagado': totalPagado,
+        'saldoPendiente': saldo,
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -172,6 +192,80 @@ class RemitoService {
       entityType: 'remito',
       id: id,
       upload: () => FirestoreSyncService.instance.subirRemito(id),
+    );
+    DataRefreshHub.instance.notifyTodo();
+  }
+
+  /// Registra un cobro parcial o total sobre un remito.
+  Future<void> registrarPago({
+    required int remitoId,
+    required double monto,
+    String medioPago = 'efectivo',
+    String observaciones = '',
+  }) async {
+    if (monto <= 0) {
+      throw ArgumentError('El monto debe ser mayor a 0');
+    }
+    final db = await dbHelper.database;
+    final rows = await db.query(
+      'remitos',
+      where: 'id = ?',
+      whereArgs: [remitoId],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      throw StateError('Remito no encontrado');
+    }
+    final remito = rows.first;
+    if (remito['estado'] == 'anulado') {
+      throw StateError('No se puede cobrar un remito anulado');
+    }
+    final total = (remito['total'] as num?)?.toDouble() ?? 0;
+    final pagadoActual = (remito['totalPagado'] as num?)?.toDouble() ?? 0;
+    var saldo = (remito['saldoPendiente'] as num?)?.toDouble();
+    saldo ??= (total - pagadoActual).clamp(0, total).toDouble();
+    if (saldo <= 0.009) {
+      throw StateError('El remito ya está cobrado');
+    }
+
+    final aplicado = monto > saldo ? saldo : monto;
+    final nuevoPagado = pagadoActual + aplicado;
+    final nuevoSaldo = (total - nuevoPagado).clamp(0, total).toDouble();
+    final estadoPago = nuevoSaldo <= 0.009
+        ? 'cobrado'
+        : nuevoPagado > 0.009
+            ? 'parcial'
+            : 'pendiente';
+    final clienteId = (remito['clienteId'] as num?)?.toInt();
+    final numero = remito['numero']?.toString() ?? '$remitoId';
+
+    await db.transaction((txn) async {
+      await txn.update(
+        'remitos',
+        {
+          'totalPagado': nuevoPagado,
+          'saldoPendiente': nuevoSaldo,
+          'estadoPago': estadoPago,
+        },
+        where: 'id = ?',
+        whereArgs: [remitoId],
+      );
+      // Historial de pago (ventaId=0 = cobro de remito).
+      await txn.insert('pagos', {
+        'ventaId': 0,
+        'clienteId': clienteId,
+        'fecha': DateTime.now().toIso8601String(),
+        'monto': aplicado,
+        'medioPago': medioPago,
+        'observaciones': 'Remito $numero'
+            '${observaciones.trim().isEmpty ? '' : ' · ${observaciones.trim()}'}',
+      });
+    });
+
+    await SyncQueueService.instance.pushOrEnqueueUpsert(
+      entityType: 'remito',
+      id: remitoId,
+      upload: () => FirestoreSyncService.instance.subirRemito(remitoId),
     );
     DataRefreshHub.instance.notifyTodo();
   }

@@ -507,7 +507,9 @@ class _ProductosPageState extends State<ProductosPage> {
                               onComment: () => showComentariosInternos(
                                 context,
                                 entidadTipo: 'producto',
-                                entidadId: '${p.id}',
+                                entidadId: p.codigo.isNotEmpty
+                                    ? p.codigo
+                                    : '${p.id}',
                                 titulo: p.descripcion,
                               ),
                             );

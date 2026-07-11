@@ -11,6 +11,7 @@ import '../firebase/firebase_auth_usuario_service.dart';
 import '../firebase/firebase_bootstrap.dart';
 import '../../database/database_helper.dart';
 import '../../models/cliente.dart';
+import '../../models/comentario_interno.dart';
 import '../../models/documento_cliente.dart';
 import '../../models/producto.dart';
 import '../../models/proveedor.dart';
@@ -18,6 +19,7 @@ import '../../models/venta.dart';
 import '../../repositories/firestore_producto_repository.dart';
 import '../../repositories/producto_repository.dart';
 import '../../repositories/sqlite_producto_repository.dart';
+import 'media_sync_service.dart';
 import 'sync_queue_service.dart';
 
 /// Mantiene SQLite sincronizado con Firestore en tiempo real.
@@ -36,6 +38,7 @@ class FirestoreSyncService {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _proveedoresSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _comprasSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _documentosSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _comentariosSub;
 
   bool _sincronizando = false;
   bool _sincronizandoVentas = false;
@@ -44,6 +47,7 @@ class FirestoreSyncService {
   bool _sincronizandoProveedores = false;
   bool _sincronizandoCompras = false;
   bool _sincronizandoDocumentos = false;
+  bool _sincronizandoComentarios = false;
 
   /// Cuando es true, los `subir*`/`eliminar*` remotos relanzan errores
   /// (usado por [SyncQueueService] para reintentos). Callers normales no cambian.
@@ -83,6 +87,8 @@ class FirestoreSyncService {
   CollectionReference<Map<String, dynamic>> get _comprasCol => _col('compras');
   CollectionReference<Map<String, dynamic>> get _documentosCol =>
       _col('documentos');
+  CollectionReference<Map<String, dynamic>> get _comentariosCol =>
+      _col('comentarios');
 
   Future<void> start() async {
     if (!BackendConfigService.instance.firebaseEnabled ||
@@ -119,6 +125,10 @@ class FirestoreSyncService {
       _aplicarDocumentosRemotos,
       onError: (Object error) => debugPrint('Sync documentos: $error'),
     );
+    _comentariosSub = _comentariosCol.snapshots().listen(
+      _aplicarComentariosRemotos,
+      onError: (Object error) => debugPrint('Sync comentarios: $error'),
+    );
   }
 
   Future<void> stop() async {
@@ -129,6 +139,7 @@ class FirestoreSyncService {
     await _proveedoresSub?.cancel();
     await _comprasSub?.cancel();
     await _documentosSub?.cancel();
+    await _comentariosSub?.cancel();
     _productosSub = null;
     _ventasSub = null;
     _remitosSub = null;
@@ -136,6 +147,7 @@ class FirestoreSyncService {
     _proveedoresSub = null;
     _comprasSub = null;
     _documentosSub = null;
+    _comentariosSub = null;
   }
 
   ProductoRepository get writeRepository {
@@ -330,6 +342,96 @@ class FirestoreSyncService {
     }
   }
 
+  String _comentarioDocId(ComentarioInterno c) {
+    final raw =
+        '${c.entidadTipo}|${c.entidadId}|${c.usuario}|${c.fecha.toUtc().toIso8601String()}|${c.texto}';
+    return raw.hashCode.toUnsigned(32).toRadixString(16);
+  }
+
+  Future<void> subirComentario(ComentarioInterno c) async {
+    _requireEscrituraRemota();
+    if (!_puedeEscribirRemoto) return;
+    try {
+      await _comentariosCol.doc(_comentarioDocId(c)).set({
+        'entidadTipo': c.entidadTipo,
+        'entidadId': c.entidadId,
+        'usuario': c.usuario,
+        'nombre': c.nombre,
+        'texto': c.texto,
+        'fecha': c.fecha.toUtc().toIso8601String(),
+        'activo': c.activo,
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      _onOutboundError(e, 'Firestore subir comentario');
+    }
+  }
+
+  Future<void> eliminarComentarioRemoto(ComentarioInterno c) async {
+    _requireEscrituraRemota();
+    if (!_puedeEscribirRemoto) return;
+    try {
+      await _comentariosCol.doc(_comentarioDocId(c)).set({
+        'activo': false,
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      _onOutboundError(e, 'Firestore eliminar comentario');
+    }
+  }
+
+  Future<void> _aplicarComentariosRemotos(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (_sincronizandoComentarios) return;
+    _sincronizandoComentarios = true;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final entidadTipo = data['entidadTipo']?.toString() ?? '';
+        final entidadId = data['entidadId']?.toString() ?? '';
+        final usuario = data['usuario']?.toString() ?? '';
+        final texto = data['texto']?.toString() ?? '';
+        final fecha = data['fecha']?.toString() ?? '';
+        if (entidadTipo.isEmpty || entidadId.isEmpty || texto.isEmpty) continue;
+        final activo = data['activo'] != false;
+
+        final existentes = await db.query(
+          'comentarios_internos',
+          where:
+              'entidadTipo = ? AND entidadId = ? AND usuario = ? AND texto = ? AND fecha = ?',
+          whereArgs: [entidadTipo, entidadId, usuario, texto, fecha],
+          limit: 1,
+        );
+        if (existentes.isEmpty) {
+          if (!activo) continue;
+          await db.insert('comentarios_internos', {
+            'entidadTipo': entidadTipo,
+            'entidadId': entidadId,
+            'usuario': usuario,
+            'nombre': data['nombre']?.toString() ?? usuario,
+            'texto': texto,
+            'fecha': fecha,
+            'activo': 1,
+          });
+        } else if (!activo) {
+          await db.update(
+            'comentarios_internos',
+            {'activo': 0},
+            where: 'id = ?',
+            whereArgs: [existentes.first['id']],
+          );
+        }
+      }
+      DataRefreshHub.instance.notifyTodo();
+    } catch (e) {
+      debugPrint('Aplicar comentarios remotos: $e');
+    } finally {
+      _sincronizandoComentarios = false;
+    }
+  }
+
   Future<void> subirVenta(int ventaId) async {
     _requireEscrituraRemota();
     if (!_puedeEscribirRemoto) return;
@@ -440,6 +542,8 @@ class FirestoreSyncService {
         'descuento': remito['descuento'],
         'estado': remito['estado'],
         'estadoPago': remito['estadoPago'],
+        'totalPagado': remito['totalPagado'] ?? 0,
+        'saldoPendiente': remito['saldoPendiente'] ?? remito['total'] ?? 0,
         'observaciones': remito['observaciones'],
         'fechaCreacion': remito['fechaCreacion'],
         'localId': remitoId,
@@ -469,7 +573,27 @@ class FirestoreSyncService {
         limit: 1,
       );
       if (rows.isEmpty) return;
-      final producto = Producto.fromMap(rows.first);
+      var producto = Producto.fromMap(rows.first);
+      // Subir fotos locales a Storage para que el otro dispositivo las vea.
+      final fotos = await MediaSyncService.instance.sincronizarFotosProducto(
+        producto.codigo,
+        producto.todasLasFotos,
+      );
+      if (fotos.isNotEmpty && fotos.join('|') != producto.todasLasFotos.join('|')) {
+        producto = producto.copyWith(
+          foto: fotos.first,
+          fotos: fotos,
+        );
+        await db.update(
+          'productos',
+          {
+            'foto': producto.fotoPrincipal,
+            'fotos': producto.toMap()['fotos'],
+          },
+          where: 'id = ?',
+          whereArgs: [productoId],
+        );
+      }
       await _remote.actualizar(producto);
     } catch (e) {
       _onOutboundError(e, 'Firestore subir producto');
@@ -485,8 +609,24 @@ class FirestoreSyncService {
     }
     final locales = await _cache.obtenerTodos();
     if (locales.isEmpty) return 0;
-    await _remote.insertarLista(locales);
-    return locales.length;
+    final listos = <Producto>[];
+    for (final p in locales) {
+      final fotos = await MediaSyncService.instance.sincronizarFotosProducto(
+        p.codigo,
+        p.todasLasFotos,
+      );
+      if (fotos.isNotEmpty && fotos.join('|') != p.todasLasFotos.join('|')) {
+        final actualizado = p.copyWith(foto: fotos.first, fotos: fotos);
+        listos.add(actualizado);
+        if (p.id != null) {
+          await _cache.actualizar(actualizado);
+        }
+      } else {
+        listos.add(p);
+      }
+    }
+    await _remote.insertarLista(listos);
+    return listos.length;
   }
 
   Future<int?> _resolverClienteLocal({
@@ -829,6 +969,8 @@ class FirestoreSyncService {
           'descuento': data['descuento'] ?? 0,
           'estado': data['estado'] ?? 'confirmado',
           'estadoPago': data['estadoPago'] ?? 'pendiente',
+          'totalPagado': data['totalPagado'] ?? 0,
+          'saldoPendiente': data['saldoPendiente'] ?? data['total'] ?? 0,
           'observaciones': data['observaciones'] ?? '',
           'fechaCreacion':
               data['fechaCreacion'] ?? DateTime.now().toIso8601String(),

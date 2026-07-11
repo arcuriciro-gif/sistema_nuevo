@@ -2,6 +2,22 @@
 
 Todos los cambios relevantes del proyecto se documentan aquí.
 
+## [1.1.1] — 2026-07-11
+
+### Cobro parcial de remitos
+- Remitos ahora tienen `totalPagado` / `saldoPendiente`.
+- En cuenta corriente → Remitos → **Cobrar** permite pagar una parte o el total.
+- La lista de deudores usa el saldo real del remito (no siempre el total).
+
+### Fotos y notas entre dispositivos
+- Al subir productos / catálogo, las fotos locales se suben a Firebase Storage (URL).
+- Comentarios internos de productos se sincronizan por Firestore (clave = código de producto).
+- Notas internas del producto viajan con el documento del producto en la nube.
+
+### Sync
+- Sin tope artificial de 2000 productos.
+- Botón **Subir catálogo** para igualar dispositivos.
+
 ## [1.1.0] — 2026-07-10
 
 ### Prioridad: sincronización confiable (offline → online)

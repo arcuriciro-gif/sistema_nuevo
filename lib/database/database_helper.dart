@@ -22,7 +22,7 @@ class DatabaseHelper {
 
     return openDatabase(
       path,
-      version: 23,
+      version: 24,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -114,6 +114,8 @@ CREATE TABLE remitos(
   descuento REAL DEFAULT 0,
   estado TEXT,
   estadoPago TEXT DEFAULT 'pendiente',
+  totalPagado REAL DEFAULT 0,
+  saldoPendiente REAL DEFAULT 0,
   observaciones TEXT,
   fechaCreacion TEXT,
   FOREIGN KEY(clienteId) REFERENCES clientes(id)
@@ -871,6 +873,31 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 23) {
       await _crearTablasSyncQueue(db);
     }
+    if (oldVersion < 24) {
+      await _migrarRemitosSaldoV24(db);
+    }
+  }
+
+  Future<void> _migrarRemitosSaldoV24(Database db) async {
+    await _agregarColumnas(db, 'remitos', {
+      'totalPagado': 'REAL DEFAULT 0',
+      'saldoPendiente': 'REAL DEFAULT 0',
+    });
+    await db.execute('''
+      UPDATE remitos SET
+        totalPagado = CASE
+          WHEN COALESCE(estadoPago, 'pendiente') = 'cobrado' THEN COALESCE(total, 0)
+          WHEN COALESCE(estadoPago, 'pendiente') = 'parcial'
+            THEN COALESCE(total, 0) * 0.5
+          ELSE 0
+        END,
+        saldoPendiente = CASE
+          WHEN COALESCE(estadoPago, 'pendiente') = 'cobrado' THEN 0
+          WHEN COALESCE(estadoPago, 'pendiente') = 'parcial'
+            THEN COALESCE(total, 0) * 0.5
+          ELSE COALESCE(total, 0)
+        END
+    ''');
   }
 
   Future<void> _migrarSyncCompletoV21(Database db) async {

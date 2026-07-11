@@ -226,6 +226,8 @@ class CuentaCorrienteService {
         r.descuento,
         r.estado,
         r.estadoPago,
+        r.totalPagado,
+        r.saldoPendiente,
         r.observaciones,
         c.nombre AS clienteNombre
       FROM remitos r
@@ -239,12 +241,17 @@ class CuentaCorrienteService {
   Future<double> saldoRemitosPendientesCliente(int clienteId) async {
     final db = await _db.database;
     final rows = await db.rawQuery('''
-      SELECT COALESCE(SUM(total), 0) AS total
+      SELECT COALESCE(SUM(
+        CASE
+          WHEN COALESCE(estadoPago, 'pendiente') = 'cobrado' THEN 0
+          WHEN saldoPendiente IS NOT NULL THEN saldoPendiente
+          ELSE COALESCE(total, 0)
+        END
+      ), 0) AS total
       FROM remitos
       WHERE clienteId = ?
         AND estado != 'anulado'
         AND COALESCE(estadoPago, 'pendiente') != 'cobrado'
-        AND COALESCE(total, 0) > 0.009
     ''', [clienteId]);
     return (rows.first['total'] as num?)?.toDouble() ?? 0;
   }
@@ -330,14 +337,21 @@ class CuentaCorrienteService {
           c.id AS clienteId,
           TRIM(c.nombre || ' ' || COALESCE(c.apellido, '')) AS nombre,
           COALESCE(c.telefono, '') AS telefono,
-          COALESCE(r.total, 0) AS saldoPendiente,
+          CASE
+            WHEN COALESCE(r.estadoPago, 'pendiente') = 'cobrado' THEN 0
+            WHEN r.saldoPendiente IS NOT NULL THEN r.saldoPendiente
+            ELSE COALESCE(r.total, 0)
+          END AS saldoPendiente,
           1 AS ops,
           r.fecha AS ultimaCompra
         FROM clientes c
         INNER JOIN remitos r ON r.clienteId = c.id
         WHERE r.estado != 'anulado'
           AND COALESCE(r.estadoPago, 'pendiente') != 'cobrado'
-          AND COALESCE(r.total, 0) > 0.009
+          AND CASE
+            WHEN r.saldoPendiente IS NOT NULL THEN r.saldoPendiente
+            ELSE COALESCE(r.total, 0)
+          END > 0.009
       )
       GROUP BY clienteId
       HAVING saldoPendiente > 0.009
@@ -362,7 +376,13 @@ class CuentaCorrienteService {
   Future<double> _montoRemitosPendientes() async {
     final db = await _db.database;
     final rows = await db.rawQuery('''
-      SELECT COALESCE(SUM(total), 0) AS total
+      SELECT COALESCE(SUM(
+        CASE
+          WHEN COALESCE(estadoPago, 'pendiente') = 'cobrado' THEN 0
+          WHEN saldoPendiente IS NOT NULL THEN saldoPendiente
+          ELSE COALESCE(total, 0)
+        END
+      ), 0) AS total
       FROM remitos
       WHERE estado != 'anulado'
         AND COALESCE(estadoPago, 'pendiente') != 'cobrado'

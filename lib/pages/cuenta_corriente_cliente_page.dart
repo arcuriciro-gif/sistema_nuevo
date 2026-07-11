@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../models/pago.dart';
 import '../models/venta.dart';
 import '../services/cuenta_corriente_service.dart';
-import '../services/remito_service.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/cobrar_dialog.dart';
 import 'venta_factura_page.dart';
@@ -26,7 +25,6 @@ class CuentaCorrienteClientePage extends StatefulWidget {
 class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
     with SingleTickerProviderStateMixin {
   final _service = CuentaCorrienteService();
-  final _remitoService = RemitoService();
   late final TabController _tabs;
   List<Venta> _ventas = [];
   List<Map<String, dynamic>> _remitos = [];
@@ -68,6 +66,8 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
         final estado = r['estado']?.toString() ?? '';
         final estadoPago = (r['estadoPago']?.toString() ?? 'pendiente');
         if (estado == 'anulado' || estadoPago == 'cobrado') return s;
+        final saldo = (r['saldoPendiente'] as num?)?.toDouble();
+        if (saldo != null) return s + saldo;
         return s + ((r['total'] as num?)?.toDouble() ?? 0);
       });
 
@@ -83,30 +83,19 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
     if (ok) await _cargar();
   }
 
-  Future<void> _marcarRemitoCobrado(int remitoId) async {
-    final ok = await showDialog<bool>(
+  Future<void> _cobrarRemito(Map<String, dynamic> remito) async {
+    final id = remito['id'] as int?;
+    if (id == null) return;
+    final total = (remito['total'] as num?)?.toDouble() ?? 0;
+    final saldo = (remito['saldoPendiente'] as num?)?.toDouble() ?? total;
+    final numero = remito['numero']?.toString() ?? '$id';
+    final ok = await mostrarDialogoCobrarRemito(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Marcar remito cobrado'),
-        content: const Text(
-          '¿Confirmás que este remito ya está cobrado? '
-          'Se descontará de la deuda del cliente.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Cobrado'),
-          ),
-        ],
-      ),
+      remitoId: id,
+      numero: numero,
+      saldoPendiente: saldo,
     );
-    if (ok != true) return;
-    await _remitoService.actualizarEstadoPago(remitoId, 'cobrado');
-    await _cargar();
+    if (ok) await _cargar();
   }
 
   Future<void> _cobrarCualquiera() async {
@@ -114,8 +103,9 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
         _ventas.where((v) => v.saldoPendiente > 0.009 && v.id != null).toList();
     final remitosPend = _remitos.where((r) {
       final estadoPago = (r['estadoPago']?.toString() ?? 'pendiente');
-      return estadoPago != 'cobrado' &&
-          ((r['total'] as num?)?.toDouble() ?? 0) > 0.009;
+      final saldo = (r['saldoPendiente'] as num?)?.toDouble() ??
+          ((r['total'] as num?)?.toDouble() ?? 0);
+      return estadoPago != 'cobrado' && saldo > 0.009;
     }).toList();
 
     if (conSaldo.isEmpty && remitosPend.isEmpty) {
@@ -131,9 +121,7 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
       return;
     }
 
-    final r = remitosPend.first;
-    final id = r['id'] as int?;
-    if (id != null) await _marcarRemitoCobrado(id);
+    await _cobrarRemito(remitosPend.first);
   }
 
   @override
@@ -323,10 +311,12 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
         final id = r['id'] as int?;
         final numero = r['numero']?.toString() ?? '';
         final total = (r['total'] as num?)?.toDouble() ?? 0;
+        final saldo =
+            (r['saldoPendiente'] as num?)?.toDouble() ?? total;
         final estadoPago = (r['estadoPago']?.toString() ?? 'pendiente');
         final fecha =
             DateTime.tryParse(r['fecha']?.toString() ?? '') ?? DateTime.now();
-        final pendiente = estadoPago != 'cobrado' && total > 0.009;
+        final pendiente = estadoPago != 'cobrado' && saldo > 0.009;
 
         return Card(
           child: ListTile(
@@ -335,7 +325,9 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             subtitle: Text(
-              '${_fmtFecha(fecha)}\nTotal \$${total.toStringAsFixed(2)}',
+              '${_fmtFecha(fecha)}\n'
+              'Total \$${total.toStringAsFixed(2)} · '
+              'Saldo \$${saldo.toStringAsFixed(2)}',
             ),
             isThreeLine: true,
             trailing: Column(
@@ -349,7 +341,7 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
                       visualDensity: VisualDensity.compact,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                     ),
-                    onPressed: () => _marcarRemitoCobrado(id),
+                    onPressed: () => _cobrarRemito(r),
                     child: const Text('Cobrar'),
                   ),
               ],

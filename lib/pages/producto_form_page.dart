@@ -240,7 +240,9 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
           if (widget.producto?.id != null) ...[
             ComentariosInternosButton(
               entidadTipo: 'producto',
-              entidadId: '${widget.producto!.id}',
+              entidadId: widget.producto!.codigo.isNotEmpty
+                  ? widget.producto!.codigo
+                  : '${widget.producto!.id}',
               titulo: widget.producto!.descripcion,
             ),
             IconButton(
