@@ -14,6 +14,7 @@ Todos los cambios relevantes del proyecto se documentan aquí.
 - Listas de precios: renombrar + editar % (más claro en la UI).
 - Botón Guardar fijo arriba de la barra de sistema Android (no se pisa con gestos).
 - Badge de Notificaciones solo cuenta notificaciones reales (no mensajes de chat).
+- **Menú lateral personalizable** por dispositivo (Android/Windows): Configuración → Personalizar menú. Perfiles “móvil” y “completo”.
 
 ### Sync — cobertura ampliada
 - Categorías y listas de precios: sync bidireccional + cola offline.

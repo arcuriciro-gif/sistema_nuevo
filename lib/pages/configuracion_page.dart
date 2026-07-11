@@ -8,10 +8,12 @@ import '../services/branding_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_provider.dart';
 import 'listas_precio_page.dart';
+import 'menu_lateral_config_page.dart';
 import 'plantilla_impresion_page.dart';
 import 'documentos_config_page.dart';
 import '../theme/module_app_bar.dart';
 import '../services/app_icon_build_service.dart';
+import '../services/menu_preferencias_service.dart';
 
 class ConfiguracionPage extends StatefulWidget {
   const ConfiguracionPage({super.key});
@@ -550,6 +552,54 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                               )
                             : const Icon(Icons.save),
                         label: const Text('GUARDAR DATOS DEL NEGOCIO'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // ── Menú lateral ──────────────────────────
+            Card(
+              elevation: 3,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.view_sidebar_rounded,
+                            color: colorScheme.primary),
+                        const SizedBox(width: 10),
+                        Text(
+                          'MENÚ LATERAL',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Elegí qué módulos mostrar en el menú de este dispositivo '
+                      '(${MenuPreferenciasService.instance.plataformaLabel}). '
+                      'En el celular podés dejar solo lo esencial; en Windows, todo.',
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const MenuLateralConfigPage(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.tune_rounded),
+                        label: const Text('PERSONALIZAR MENÚ'),
                       ),
                     ),
                   ],

@@ -9,6 +9,7 @@ import '../services/auto_backup_service.dart';
 import '../services/branding_service.dart';
 import '../services/comunicaciones_service.dart';
 import '../services/cuenta_corriente_service.dart';
+import '../services/menu_preferencias_service.dart';
 import '../services/permisos_service.dart';
 import '../theme/layout_constants.dart';
 import '../core/sync/sync_queue_service.dart';
@@ -61,6 +62,7 @@ const Color _kSidebarUserBg = Color(0xFF1F2937);
 const Color _kSidebarSubtext = Color(0xFF6B7280);
 
 class _ShellItem {
+  final String id;
   final IconData icon;
   final String title;
   final String modulo;
@@ -68,6 +70,7 @@ class _ShellItem {
   final bool quickAccess;
 
   const _ShellItem({
+    required this.id,
     required this.icon,
     required this.title,
     required this.modulo,
@@ -103,8 +106,17 @@ class _MainShellState extends State<MainShell> {
     BrandingService.instance.addListener(_onBrandingChanged);
     ComunicacionesService.instance.addListener(_onCommsChanged);
     SyncQueueService.instance.addListener(_onSyncChanged);
+    MenuPreferenciasService.instance.addListener(_onMenuPrefsChanged);
     ComunicacionesService.instance.iniciar();
+    MenuPreferenciasService.instance.cargar();
     WidgetsBinding.instance.addPostFrameCallback((_) => _mostrarRecordatorioCc());
+  }
+
+  void _onMenuPrefsChanged() {
+    if (!mounted) return;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   void _onCommsChanged() {
@@ -126,6 +138,7 @@ class _MainShellState extends State<MainShell> {
     BrandingService.instance.removeListener(_onBrandingChanged);
     ComunicacionesService.instance.removeListener(_onCommsChanged);
     SyncQueueService.instance.removeListener(_onSyncChanged);
+    MenuPreferenciasService.instance.removeListener(_onMenuPrefsChanged);
     super.dispose();
   }
 
@@ -145,6 +158,7 @@ class _MainShellState extends State<MainShell> {
 
   List<_ShellItem> get _items => [
         _ShellItem(
+          id: 'inicio',
           icon: Icons.home_rounded,
           title: 'Inicio',
           modulo: 'dashboard',
@@ -152,6 +166,7 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
+          id: 'dashboard',
           icon: Icons.query_stats_rounded,
           title: 'Dashboard',
           modulo: 'dashboard',
@@ -159,6 +174,7 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
+          id: 'comunicaciones',
           icon: Icons.forum_rounded,
           title: 'Comunicaciones',
           modulo: 'comunicaciones',
@@ -166,6 +182,7 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
+          id: 'productos',
           icon: Icons.inventory_2_rounded,
           title: 'Productos',
           modulo: 'productos',
@@ -173,18 +190,21 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
+          id: 'papelera',
           icon: Icons.delete_outline_rounded,
           title: 'Papelera',
           modulo: 'productos',
           builder: () => const PapeleraProductosPage(),
         ),
         _ShellItem(
+          id: 'categorias',
           icon: Icons.category_rounded,
           title: 'Categorías',
           modulo: 'productos',
           builder: () => const CategoriasPage(),
         ),
         _ShellItem(
+          id: 'venta_rapida',
           icon: Icons.point_of_sale_rounded,
           title: 'Venta Rápida',
           modulo: 'remitos',
@@ -192,6 +212,7 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
+          id: 'ventas_facturas',
           icon: Icons.receipt_long_rounded,
           title: 'Ventas / Facturas',
           modulo: 'remitos',
@@ -199,6 +220,7 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
+          id: 'presupuestos',
           icon: Icons.request_quote_rounded,
           title: 'Presupuestos',
           modulo: 'remitos',
@@ -209,6 +231,7 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
+          id: 'notas_entrega',
           icon: Icons.local_shipping_outlined,
           title: 'Notas de entrega',
           modulo: 'remitos',
@@ -218,6 +241,7 @@ class _MainShellState extends State<MainShell> {
           ),
         ),
         _ShellItem(
+          id: 'comprobantes_internos',
           icon: Icons.article_outlined,
           title: 'Comprobantes internos',
           modulo: 'remitos',
@@ -227,36 +251,42 @@ class _MainShellState extends State<MainShell> {
           ),
         ),
         _ShellItem(
+          id: 'comparador',
           icon: Icons.compare_arrows_rounded,
           title: 'Comparador de listas',
           modulo: 'listas_precios',
           builder: () => const ComparacionPage(),
         ),
         _ShellItem(
+          id: 'importaciones',
           icon: Icons.hub_rounded,
           title: 'Importaciones',
           modulo: 'productos',
           builder: () => const CentroImportacionesPage(),
         ),
         _ShellItem(
+          id: 'importar_productos',
           icon: Icons.upload_file_rounded,
           title: 'Importar Productos',
           modulo: 'productos',
           builder: () => const ImportacionPage(),
         ),
         _ShellItem(
+          id: 'stock',
           icon: Icons.warehouse_rounded,
           title: 'Stock',
           modulo: 'stock',
           builder: () => const StockPage(),
         ),
         _ShellItem(
+          id: 'compras',
           icon: Icons.shopping_cart_rounded,
           title: 'Compras',
           modulo: 'compras',
           builder: () => const ComprasPage(),
         ),
         _ShellItem(
+          id: 'remitos',
           icon: Icons.description_rounded,
           title: 'Remitos',
           modulo: 'remitos',
@@ -264,6 +294,7 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
+          id: 'clientes',
           icon: Icons.groups_rounded,
           title: 'Clientes',
           modulo: 'clientes',
@@ -271,6 +302,7 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
+          id: 'archivo_pdf',
           icon: Icons.folder_shared_rounded,
           title: 'Archivo PDF',
           modulo: 'clientes',
@@ -278,6 +310,7 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
+          id: 'cuenta_corriente',
           icon: Icons.account_balance_wallet_rounded,
           title: 'Cuenta corriente',
           modulo: 'clientes',
@@ -285,42 +318,49 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
+          id: 'proveedores',
           icon: Icons.local_shipping_rounded,
           title: 'Proveedores',
           modulo: 'proveedores',
           builder: () => const ProveedoresPage(),
         ),
         _ShellItem(
+          id: 'listas_precios',
           icon: Icons.sell_rounded,
           title: 'Listas de Precios',
           modulo: 'listas_precios',
           builder: () => const ListasPrecioPage(),
         ),
         _ShellItem(
+          id: 'reportes',
           icon: Icons.bar_chart_rounded,
           title: 'Reportes',
           modulo: 'reportes',
           builder: () => const ReportesPage(),
         ),
         _ShellItem(
+          id: 'inteligencia',
           icon: Icons.insights_rounded,
           title: 'Inteligencia Comercial',
           modulo: 'reportes',
           builder: () => const InteligenciaComercialPage(),
         ),
         _ShellItem(
+          id: 'etiquetas',
           icon: Icons.label_rounded,
           title: 'Etiquetas',
           modulo: 'etiquetas',
           builder: () => const EtiquetasPage(),
         ),
         _ShellItem(
+          id: 'auditoria',
           icon: Icons.history_edu_rounded,
           title: 'Auditoría',
           modulo: 'auditoria',
           builder: () => const AuditoriaPage(),
         ),
         _ShellItem(
+          id: 'mi_perfil',
           icon: Icons.manage_accounts_rounded,
           title: 'Mi perfil',
           modulo: 'dashboard',
@@ -328,30 +368,35 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
+          id: 'usuarios',
           icon: Icons.people_alt_rounded,
           title: 'Usuarios',
           modulo: 'usuarios',
           builder: () => const UsuariosPage(),
         ),
         _ShellItem(
+          id: 'permisos',
           icon: Icons.admin_panel_settings_rounded,
           title: 'Permisos',
           modulo: 'usuarios',
           builder: () => const PermisosPage(),
         ),
         _ShellItem(
+          id: 'respaldo',
           icon: Icons.cloud_upload_rounded,
           title: 'Respaldo',
           modulo: 'backup',
           builder: () => const BackupPage(),
         ),
         _ShellItem(
+          id: 'manual',
           icon: Icons.menu_book_rounded,
           title: 'Manual de usuario',
           modulo: 'dashboard',
           builder: () => const ManualUsuarioPage(),
         ),
         _ShellItem(
+          id: 'configuracion',
           icon: Icons.settings_rounded,
           title: 'Configuración',
           modulo: 'configuracion',
@@ -361,8 +406,10 @@ class _MainShellState extends State<MainShell> {
 
   List<_ShellItem> get _visibleItems {
     final rol = AuthService.instance.currentUser?.rol ?? 'empleado';
+    final menu = MenuPreferenciasService.instance;
     return _items
         .where((item) => PermisosService.instance.puedeVer(rol, item.modulo))
+        .where((item) => menu.estaVisible(item.id))
         .toList();
   }
 
