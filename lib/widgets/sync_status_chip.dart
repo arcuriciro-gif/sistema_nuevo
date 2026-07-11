@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../core/sync/sync_queue_service.dart';
 import '../pages/sync_historial_page.dart';
 
 /// Chip compacto del estado de sincronización (tap → historial).
-class SyncStatusChip extends StatelessWidget {
+class SyncStatusChip extends StatefulWidget {
   const SyncStatusChip({
     super.key,
     this.dense = false,
@@ -13,6 +14,31 @@ class SyncStatusChip extends StatelessWidget {
 
   final bool dense;
   final bool dark;
+
+  @override
+  State<SyncStatusChip> createState() => _SyncStatusChipState();
+}
+
+class _SyncStatusChipState extends State<SyncStatusChip> {
+  void _onSync() {
+    if (!mounted) return;
+    // Evita rebuild en medio del frame (rompe Tooltip/InheritedWidget).
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    SyncQueueService.instance.addListener(_onSync);
+  }
+
+  @override
+  void dispose() {
+    SyncQueueService.instance.removeListener(_onSync);
+    super.dispose();
+  }
 
   Color _color(SyncUiStatus status) {
     switch (status) {
@@ -47,75 +73,70 @@ class SyncStatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sync = SyncQueueService.instance;
-    return AnimatedBuilder(
-      animation: sync,
-      builder: (context, _) {
-        final status = sync.uiStatus;
-        final color = _color(status);
-        final fg = dark ? Colors.white : color;
-        final bg = dark
-            ? color.withValues(alpha: 0.22)
-            : color.withValues(alpha: 0.12);
+    final status = sync.uiStatus;
+    final color = _color(status);
+    final fg = widget.dark ? Colors.white : color;
+    final bg = widget.dark
+        ? color.withValues(alpha: 0.22)
+        : color.withValues(alpha: 0.12);
+    final dense = widget.dense;
 
-        return Tooltip(
-          message: sync.uiDetalle,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(20),
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SyncHistorialPage()),
-              );
-            },
-            onLongPress: () async {
-              await sync.reintentarFallidos();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Reintentando sincronización…'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              }
-            },
-            child: Container(
-              padding: EdgeInsets.symmetric(
-                horizontal: dense ? 8 : 10,
-                vertical: dense ? 4 : 6,
-              ),
-              decoration: BoxDecoration(
-                color: bg,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: color.withValues(alpha: 0.45)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (status == SyncUiStatus.procesando)
-                    SizedBox(
-                      width: dense ? 12 : 14,
-                      height: dense ? 12 : 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: fg,
-                      ),
-                    )
-                  else
-                    Icon(_icon(status), size: dense ? 14 : 16, color: fg),
-                  SizedBox(width: dense ? 4 : 6),
-                  Text(
-                    sync.uiLabel,
-                    style: TextStyle(
-                      color: fg,
-                      fontSize: dense ? 11 : 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const SyncHistorialPage()),
+          );
+        },
+        onLongPress: () async {
+          await sync.reintentarFallidos();
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Reintentando sincronización…'),
+              duration: Duration(seconds: 2),
             ),
+          );
+        },
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: dense ? 8 : 10,
+            vertical: dense ? 4 : 6,
           ),
-        );
-      },
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: color.withValues(alpha: 0.45)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (status == SyncUiStatus.procesando)
+                SizedBox(
+                  width: dense ? 12 : 14,
+                  height: dense ? 12 : 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: fg,
+                  ),
+                )
+              else
+                Icon(_icon(status), size: dense ? 14 : 16, color: fg),
+              SizedBox(width: dense ? 4 : 6),
+              Text(
+                sync.uiLabel,
+                style: TextStyle(
+                  color: fg,
+                  fontSize: dense ? 11 : 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

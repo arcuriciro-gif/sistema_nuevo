@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/sync/firestore_sync_service.dart';
@@ -38,7 +39,10 @@ class _SyncHistorialPageState extends State<SyncHistorialPage>
   }
 
   void _onSync() {
-    if (mounted) _cargar();
+    if (!mounted) return;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _cargar();
+    });
   }
 
   Future<void> _cargar() async {

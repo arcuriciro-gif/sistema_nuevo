@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../services/auth_service.dart';
@@ -107,7 +108,10 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _onSyncChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override

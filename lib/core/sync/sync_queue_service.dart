@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../database/database_helper.dart';
@@ -115,12 +116,24 @@ class SyncQueueService extends ChangeNotifier {
 
   void reportAuthError(String? message) {
     lastError = message;
-    notifyListeners();
+    _notifySafe();
   }
 
   void clearAuthError() {
     lastError = null;
-    notifyListeners();
+    _notifySafe();
+  }
+
+  void _notifySafe() {
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    if (phase == SchedulerPhase.idle ||
+        phase == SchedulerPhase.postFrameCallbacks) {
+      notifyListeners();
+    } else {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        notifyListeners();
+      });
+    }
   }
 
   Future<void> start() async {
@@ -251,7 +264,7 @@ class SyncQueueService extends ChangeNotifier {
     );
     pendingCount = Sqflite.firstIntValue(pending) ?? 0;
     failedCount = Sqflite.firstIntValue(failed) ?? 0;
-    notifyListeners();
+    _notifySafe();
   }
 
   Future<void> processQueue() async {
@@ -263,7 +276,7 @@ class SyncQueueService extends ChangeNotifier {
 
     _processing = true;
     isProcessing = true;
-    notifyListeners();
+    _notifySafe();
 
     try {
       final db = await DatabaseHelper.instance.database;
