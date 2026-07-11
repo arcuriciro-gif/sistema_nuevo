@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/firebase/firebase_auth_usuario_service.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/sync_queue_service.dart';
 import '../services/auth_service.dart';
 
@@ -19,6 +20,7 @@ class _SyncHistorialPageState extends State<SyncHistorialPage>
   List<Map<String, dynamic>> _historial = [];
   bool _loading = true;
   bool _conectando = false;
+  bool _subiendoCatalogo = false;
 
   @override
   void initState() {
@@ -112,12 +114,60 @@ class _SyncHistorialPageState extends State<SyncHistorialPage>
     await _cargar();
   }
 
+  Future<void> _subirCatalogo() async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Subir catálogo local'),
+        content: const Text(
+          'Va a subir todos los productos de ESTE dispositivo a la nube '
+          'para que el celular/PC se igualen. Puede tardar un poco.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Subir'),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true || !mounted) return;
+
+    setState(() => _subiendoCatalogo = true);
+    try {
+      final n =
+          await FirestoreSyncService.instance.subirCatalogoLocalCompleto();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Se subieron $n productos a la nube.'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo subir el catálogo: $e'),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _subiendoCatalogo = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final sync = SyncQueueService.instance;
     final cs = Theme.of(context).colorScheme;
     final sinNube = FirebaseAuthUsuarioService.instance.uidActual == null &&
         FirebaseAuthUsuarioService.instance.disponible;
+    final conNube = FirebaseAuthUsuarioService.instance.uidActual != null;
 
     return Scaffold(
       appBar: AppBar(
@@ -141,6 +191,18 @@ class _SyncHistorialPageState extends State<SyncHistorialPage>
                     )
                   : const Icon(Icons.cloud_sync_rounded),
               label: const Text('Conectar'),
+            ),
+          if (conNube)
+            IconButton(
+              tooltip: 'Subir catálogo local a la nube',
+              onPressed: _subiendoCatalogo ? null : _subirCatalogo,
+              icon: _subiendoCatalogo
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.cloud_upload_rounded),
             ),
           IconButton(
             tooltip: 'Reintentar fallidos',
@@ -170,7 +232,17 @@ class _SyncHistorialPageState extends State<SyncHistorialPage>
                             onPressed: _conectando ? null : _conectarNube,
                             child: const Text('Conectar a la nube'),
                           )
-                        : null,
+                        : conNube
+                            ? FilledButton.tonal(
+                                onPressed:
+                                    _subiendoCatalogo ? null : _subirCatalogo,
+                                child: Text(
+                                  _subiendoCatalogo
+                                      ? 'Subiendo…'
+                                      : 'Subir catálogo',
+                                ),
+                              )
+                            : null,
                   ),
                 ),
                 Expanded(
