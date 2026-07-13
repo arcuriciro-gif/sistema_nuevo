@@ -36,6 +36,12 @@ class CsvService {
     'precio_lista',
     'importe',
     'unitario',
+    // Listas de proveedor tipo JK: "Lista 1", "Lista1", "Lista"
+    'lista 1',
+    'lista1',
+    'lista 2',
+    'lista2',
+    'lista',
   ];
   static const _kwCodigo = ['codigo', 'código', 'cod', 'sku', 'code'];
   static const _kwMarca = ['marca', 'brand'];

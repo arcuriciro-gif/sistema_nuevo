@@ -144,17 +144,26 @@ class ComparadorService {
       return List<Producto>.from(exactos);
     }
 
-    // 2) Si hay rango de talles: "papi blanco 39-42"
+    // 2) Si hay rango de talles: "febo papifutbol 39-42 blanco"
     if (rango.desde != null && rango.hasta != null) {
       final base = rango.base;
+      final bases = <String>{
+        base,
+        // Variantes sin ruido típico de listas de proveedor
+        base
+            .replaceAll(RegExp(r'\b(x par|por par|en eva|eva|pu|pve|tr|goma)\b'), ' ')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim(),
+      }..removeWhere((e) => e.isEmpty);
+
       final candidatos = <Producto>{};
 
-      final porColor = porDescColor[base];
-      if (porColor != null) candidatos.addAll(porColor);
-
-      // También si la base coincide solo con descripción (sin color en el local)
-      final soloDesc = porDesc[base];
-      if (soloDesc != null) candidatos.addAll(soloDesc);
+      for (final b in bases) {
+        final porColor = porDescColor[b];
+        if (porColor != null) candidatos.addAll(porColor);
+        final soloDesc = porDesc[b];
+        if (soloDesc != null) candidatos.addAll(soloDesc);
+      }
 
       // Fallback: locales cuyo desc+color coincida de forma suave con la base
       if (candidatos.isEmpty) {
@@ -164,7 +173,7 @@ class ComparadorService {
             color: p.colorProducto,
           );
           if (dc.isEmpty) continue;
-          if (base == dc || _coincideSuave(base, dc)) {
+          if (bases.any((b) => b == dc || _coincideSuave(b, dc))) {
             candidatos.add(p);
           }
         }
@@ -177,13 +186,12 @@ class ComparadorService {
               '${p.descripcion} ${p.colorProducto}',
             );
         if (t == null) {
-          // Sin talle numérico: si la descripción local ya incluye el rango, ok
           final full = TextoProducto.textoLocal(
             descripcion: p.descripcion,
             color: p.colorProducto,
             talle: p.talle,
           );
-          return full == n || full.startsWith(base);
+          return full == n || bases.any(full.startsWith);
         }
         return t >= rango.desde! && t <= rango.hasta!;
       }).toList();
