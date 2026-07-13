@@ -21,6 +21,59 @@ class TextoProducto {
     'ù': 'u',
   };
 
+  static const _stop = {
+    'x',
+    'par',
+    'por',
+    'en',
+    'de',
+    'la',
+    'el',
+    'los',
+    'las',
+    'un',
+    'una',
+    'y',
+    'o',
+    'con',
+    'para',
+    'mm',
+    'mts',
+    'mtr',
+    'kg',
+    'lt',
+    'lts',
+    'cc',
+    'gr',
+    'doc',
+    'al',
+    'del',
+  };
+
+  static const _colores = {
+    'blanco',
+    'negro',
+    'azul',
+    'rojo',
+    'beige',
+    'marron',
+    'gris',
+    'verde',
+    'rosa',
+    'nude',
+    'camel',
+    'suela',
+    'crudo',
+    'natural',
+    'fluo',
+    'vison',
+    'habano',
+    'amarillo',
+    'bordo',
+    'celeste',
+    'marino',
+  };
+
   /// Minúsculas, sin acentos, espacios colapsados, sin signos raros.
   static String normalizar(String raw) {
     var t = raw.trim().toLowerCase();
@@ -54,6 +107,32 @@ class TextoProducto {
 
   static bool _esTalleCalzado(int n) => n >= talleMin && n <= talleMax;
 
+  static Set<String> tokensSignificativos(String textoNormalizado) {
+    return textoNormalizado
+        .split(' ')
+        .where((t) => t.length > 1 && !_stop.contains(t))
+        .toSet();
+  }
+
+  /// True si los tokens del proveedor están cubiertos por el local
+  /// (permite extras locales como "goma"/"eva") y no hay conflicto de color.
+  static bool coincidePorTokens(String proveedor, String local) {
+    final a = tokensSignificativos(normalizar(proveedor));
+    final b = tokensSignificativos(normalizar(local));
+    if (a.isEmpty || b.isEmpty) return false;
+
+    final ca = a.intersection(_colores);
+    final cb = b.intersection(_colores);
+    if (ca.isNotEmpty && cb.isNotEmpty && ca.intersection(cb).isEmpty) {
+      return false;
+    }
+
+    if (a.difference(b).isEmpty) return true; // a ⊆ b
+    final comunes = a.intersection(b).length;
+    final minNecesario = a.length <= 2 ? a.length : ((a.length * 0.75).ceil());
+    return comunes >= minNecesario && comunes >= 2;
+  }
+
   /// Extrae rango de talle en cualquier posición.
   /// Ej: "febo papifutbol 39-42 blanco" → base "febo papifutbol blanco", 39..42
   static ({String base, int? desde, int? hasta}) parsearRangoTalle(
@@ -66,12 +145,12 @@ class TextoProducto {
       final b = int.tryParse(m.group(2)!);
       if (a == null || b == null) continue;
       if (!_esTalleCalzado(a) || !_esTalleCalzado(b)) continue;
-      // Evitar rangos absurdos (ej. 20-50 enteros de catálogo raro > 12)
       final desde = a <= b ? a : b;
       final hasta = a <= b ? b : a;
       if (hasta - desde > 15) continue;
 
-      final base = n.replaceFirst(m.group(0)!, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+      final base =
+          n.replaceFirst(m.group(0)!, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
       return (base: base, desde: desde, hasta: hasta);
     }
     return (base: n, desde: null, hasta: null);
@@ -123,8 +202,10 @@ class TextoProducto {
     required String descripcion,
     String color = '',
   }) {
-    return normalizar([descripcion, color]
+    final base = normalizar([descripcion, color]
         .where((e) => e.trim().isNotEmpty)
         .join(' '));
+    // Si el talle está pegado al final de la descripción, sacarlo.
+    return quitarTalleFinal(base);
   }
 }

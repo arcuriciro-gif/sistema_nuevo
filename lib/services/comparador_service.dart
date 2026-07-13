@@ -165,7 +165,7 @@ class ComparadorService {
         if (soloDesc != null) candidatos.addAll(soloDesc);
       }
 
-      // Fallback: locales cuyo desc+color coincida de forma suave con la base
+      // Fallback: tokens del proveedor ⊆ tokens locales (permite "goma"/"eva" extra)
       if (candidatos.isEmpty) {
         for (final p in todos) {
           final dc = TextoProducto.textoLocalSinTalle(
@@ -173,7 +173,10 @@ class ComparadorService {
             color: p.colorProducto,
           );
           if (dc.isEmpty) continue;
-          if (bases.any((b) => b == dc || _coincideSuave(b, dc))) {
+          if (bases.any((b) =>
+              b == dc ||
+              TextoProducto.coincidePorTokens(b, dc) ||
+              _coincideSuave(b, dc))) {
             candidatos.add(p);
           }
         }
@@ -203,7 +206,7 @@ class ComparadorService {
     final dc = porDescColor[n];
     if (dc != null && dc.isNotEmpty) return List<Producto>.from(dc);
 
-    // 4) Contención suave con tokens significativos (evita "blanco" ≠ todo blanco)
+    // 4) Match por tokens (proveedor ⊆ local) y contención suave
     final suaves = <Producto>[];
     for (final p in todos) {
       final localDc = TextoProducto.textoLocalSinTalle(
@@ -220,7 +223,10 @@ class ComparadorService {
         suaves.add(p);
         continue;
       }
-      if (_coincideSuave(n, localFull) || _coincideSuave(n, localDc)) {
+      if (TextoProducto.coincidePorTokens(n, localDc) ||
+          TextoProducto.coincidePorTokens(n, localFull) ||
+          _coincideSuave(n, localFull) ||
+          _coincideSuave(n, localDc)) {
         suaves.add(p);
       }
     }
