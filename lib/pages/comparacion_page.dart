@@ -144,6 +144,44 @@ class _ComparacionPageState extends State<ComparacionPage> {
     );
   }
 
+  Future<void> exportarInforme() async {
+    if (lista.isEmpty) return;
+    final filas = listaFiltrada.map((e) {
+      final pct = e.precioViejo > 0
+          ? ((e.precioNuevo - e.precioViejo) / e.precioViejo) * 100
+          : 0.0;
+      return [
+        e.codigo,
+        e.descripcion,
+        e.marca,
+        e.proveedor,
+        e.estado,
+        e.precioViejo.toStringAsFixed(2),
+        e.precioNuevo.toStringAsFixed(2),
+        pct.toStringAsFixed(1),
+      ];
+    }).toList();
+
+    final archivo = await csvService.exportarCsv(
+      'informe_comparacion_${DateTime.now().millisecondsSinceEpoch}.csv',
+      [
+        'TuCodigo',
+        'Descripcion',
+        'Marca',
+        'Proveedor',
+        'Estado',
+        'CostoAnterior',
+        'CostoNuevo',
+        'VariacionPct',
+      ],
+      filas,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Informe guardado: ${archivo.path}')),
+    );
+  }
+
   Future<void> actualizarCostos() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -241,6 +279,12 @@ class _ComparacionPageState extends State<ComparacionPage> {
             tooltip: 'Cargar Excel/CSV del proveedor',
             onPressed: analizarNuevaLista,
           ),
+          if (lista.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.download_rounded),
+              tooltip: 'Exportar informe CSV',
+              onPressed: exportarInforme,
+            ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'Actualizar',
@@ -261,10 +305,9 @@ class _ComparacionPageState extends State<ComparacionPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
             child: Text(
-              'Compara por descripción y costo (no por tu código). '
-              'El orden del Excel/PDF exportado no importa. '
-              'Si el proveedor manda rangos (ej. "papi blanco 39-42"), '
-              'se buscan tus talles 39–42 y se actualiza el costo de cada uno con tu código.',
+              'Compara por descripción y costo (no por tu código), para todos los productos. '
+              'Sirve Febo Running, Papi, bases, etc.: color + numeración (39-42 o 3435/3839). '
+              'El informe muestra subas/bajas/nuevos; podés exportarlo a CSV.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: .65),
                 height: 1.35,

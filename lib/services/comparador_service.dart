@@ -165,38 +165,27 @@ class ComparadorService {
         if (soloDesc != null) candidatos.addAll(soloDesc);
       }
 
-      // Fallback: tokens del proveedor ⊆ tokens locales (permite "goma"/"eva" extra)
-      if (candidatos.isEmpty) {
-        for (final p in todos) {
-          final dc = TextoProducto.textoLocalSinTalle(
-            descripcion: p.descripcion,
-            color: p.colorProducto,
-          );
-          if (dc.isEmpty) continue;
-          if (bases.any((b) =>
-              b == dc ||
-              TextoProducto.coincidePorTokens(b, dc) ||
-              _coincideSuave(b, dc))) {
-            candidatos.add(p);
-          }
+      // Tokens del proveedor vs locales (permite "goma"/"eva" extra; respeta color)
+      for (final p in todos) {
+        final dc = TextoProducto.textoLocalSinTalle(
+          descripcion: p.descripcion,
+          color: p.colorProducto,
+        );
+        if (dc.isEmpty) continue;
+        if (bases.any((b) =>
+            b == dc || TextoProducto.coincidePorTokens(b, dc))) {
+          candidatos.add(p);
         }
       }
 
       final enRango = candidatos.where((p) {
-        final t = TextoProducto.parsearTalle(p.talle) ??
-            TextoProducto.parsearTalleAlFinal(p.descripcion) ??
-            TextoProducto.parsearTalleAlFinal(
-              '${p.descripcion} ${p.colorProducto}',
-            );
-        if (t == null) {
-          final full = TextoProducto.textoLocal(
-            descripcion: p.descripcion,
-            color: p.colorProducto,
-            talle: p.talle,
-          );
-          return full == n || bases.any(full.startsWith);
-        }
-        return t >= rango.desde! && t <= rango.hasta!;
+        return TextoProducto.localEnRangoProveedor(
+          descripcionLocal: p.descripcion,
+          colorLocal: p.colorProducto,
+          talleLocal: p.talle,
+          desde: rango.desde!,
+          hasta: rango.hasta!,
+        );
       }).toList();
 
       if (enRango.isNotEmpty) return enRango;
@@ -206,7 +195,12 @@ class ComparadorService {
     final dc = porDescColor[n];
     if (dc != null && dc.isNotEmpty) return List<Producto>.from(dc);
 
-    // 4) Match por tokens (proveedor ⊆ local) y contención suave
+    // 4) Match por tokens — solo si el proveedor NO trae rango/numeration
+    //    (si trae talles y no matcheamos arriba, no ensuciamos el informe).
+    if (rango.desde != null) {
+      return [];
+    }
+
     final suaves = <Producto>[];
     for (final p in todos) {
       final localDc = TextoProducto.textoLocalSinTalle(
@@ -224,29 +218,11 @@ class ComparadorService {
         continue;
       }
       if (TextoProducto.coincidePorTokens(n, localDc) ||
-          TextoProducto.coincidePorTokens(n, localFull) ||
-          _coincideSuave(n, localFull) ||
-          _coincideSuave(n, localDc)) {
+          TextoProducto.coincidePorTokens(n, localFull)) {
         suaves.add(p);
       }
     }
     return suaves;
-  }
-
-  bool _coincideSuave(String a, String b) {
-    if (a.isEmpty || b.isEmpty) return false;
-    if (a == b) return true;
-    final shorter = a.length <= b.length ? a : b;
-    final longer = a.length > b.length ? a : b;
-    if (shorter.length < 8 || !longer.contains(shorter)) return false;
-    final tokensA = a.split(' ').where((t) => t.length > 2).toSet();
-    final tokensB = b.split(' ').where((t) => t.length > 2).toSet();
-    if (tokensA.isEmpty || tokensB.isEmpty) return false;
-    final comunes = tokensA.intersection(tokensB).length;
-    if (tokensA.length <= 2 || tokensB.length <= 2) {
-      return comunes >= 1;
-    }
-    return comunes >= 2;
   }
 
   /// Actualiza **únicamente el costo** de los productos emparejados (por código local).
