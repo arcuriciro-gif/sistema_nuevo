@@ -9,6 +9,7 @@ import '../config/backend_config_service.dart';
 import '../events/data_refresh_hub.dart';
 import '../firebase/firebase_auth_usuario_service.dart';
 import '../firebase/firebase_bootstrap.dart';
+import 'media_sync_service.dart';
 import '../../database/database_helper.dart';
 import '../../models/cliente.dart';
 import '../../models/documento_cliente.dart';
@@ -432,7 +433,29 @@ class FirestoreSyncService {
         limit: 1,
       );
       if (rows.isEmpty) return;
-      final producto = Producto.fromMap(rows.first);
+      var producto = Producto.fromMap(rows.first);
+
+      // Subir fotos locales a Storage antes de empujar a Firestore
+      // (evita sincronizar rutas C:\... o /data/... al otro dispositivo).
+      final fotos = await MediaSyncService.instance.sincronizarFotosProducto(
+        producto.codigo,
+        producto.todasLasFotos,
+      );
+      if (fotos.isNotEmpty &&
+          (fotos.first != producto.fotoPrincipal ||
+              fotos.length != producto.todasLasFotos.length)) {
+        producto = producto.copyWith(foto: fotos.first, fotos: fotos);
+        await db.update(
+          'productos',
+          {
+            'foto': producto.fotoPrincipal,
+            'fotos': producto.toMap()['fotos'],
+          },
+          where: 'id = ?',
+          whereArgs: [productoId],
+        );
+      }
+
       await _remote.actualizar(producto);
     } catch (e) {
       debugPrint('Firestore subir producto $productoId: $e');

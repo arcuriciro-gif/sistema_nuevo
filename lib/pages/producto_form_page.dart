@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../core/sync/media_sync_service.dart';
 import '../core/utils/media_path.dart';
 import '../models/lista_precio.dart';
 import '../models/producto.dart';
@@ -43,6 +44,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
   final observacionesController = TextEditingController();
 
   String foto = '';
+  bool _guardando = false;
 
   @override
   void initState() {
@@ -71,7 +73,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
         margen3Controller.text = ((p.precio3 / p.costo - 1) * 100).toStringAsFixed(1);
       }
       observacionesController.text = p.observaciones;
-      foto = p.foto;
+      foto = p.fotoPrincipal;
     }
 
     _cargarListasPrecio();
@@ -104,13 +106,45 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
   }
 
   Future<void> elegirFoto() async {
+    final origen = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded),
+              title: const Text('Galería'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_rounded),
+              title: const Text('Cámara'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (origen == null) return;
+
     final picker = ImagePicker();
     final imagen = await picker.pickImage(
-      source: ImageSource.gallery,
+      source: origen,
       imageQuality: 70,
+      maxWidth: 1600,
     );
     if (imagen == null) return;
-    setState(() => foto = imagen.path);
+
+    // Guardar en carpeta permanente ya al elegir (no depender del temp del picker).
+    final codigo = codigoController.text.trim().isNotEmpty
+        ? codigoController.text.trim()
+        : 'sin_codigo';
+    final permanente = await MediaSyncService.instance.persistirFotoLocal(
+      sourcePath: imagen.path,
+      codigoProducto: codigo,
+    );
+    if (!mounted) return;
+    setState(() => foto = permanente ?? imagen.path);
   }
 
   double _parseDbl(String text) => double.tryParse(text.replaceAll(',', '.')) ?? 0;
@@ -138,33 +172,48 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
   }
 
   Future<void> guardar() async {
-    final producto = Producto(
-      id: widget.producto?.id,
-      codigo: codigoController.text.trim(),
-      codigoBarras: codigoBarrasController.text.trim(),
-      descripcion: descripcionController.text.trim(),
-      marca: marcaController.text.trim(),
-      categoria: categoriaController.text.trim(),
-      proveedor: proveedorController.text.trim(),
-      ubicacion: widget.producto?.ubicacion ?? '',
-      stock: int.tryParse(stockController.text) ?? 0,
-      costo: _parseDbl(costoController.text),
-      precio: _parseDbl(precioController.text),
-      precio2: _parseDbl(precio2Controller.text),
-      precio3: _parseDbl(precio3Controller.text),
-      observaciones: observacionesController.text.trim(),
-      foto: foto,
-      favorito: widget.producto?.favorito ?? false,
-    );
+    if (_guardando) return;
+    setState(() => _guardando = true);
+    try {
+      final fotosLista = foto.trim().isEmpty
+          ? <String>[]
+          : <String>[foto.trim()];
+      final producto = Producto(
+        id: widget.producto?.id,
+        codigo: codigoController.text.trim(),
+        codigoBarras: codigoBarrasController.text.trim(),
+        descripcion: descripcionController.text.trim(),
+        marca: marcaController.text.trim(),
+        categoria: categoriaController.text.trim(),
+        proveedor: proveedorController.text.trim(),
+        ubicacion: widget.producto?.ubicacion ?? '',
+        stock: int.tryParse(stockController.text) ?? 0,
+        costo: _parseDbl(costoController.text),
+        precio: _parseDbl(precioController.text),
+        precio2: _parseDbl(precio2Controller.text),
+        precio3: _parseDbl(precio3Controller.text),
+        observaciones: observacionesController.text.trim(),
+        foto: foto,
+        fotos: fotosLista,
+        favorito: widget.producto?.favorito ?? false,
+      );
 
-    if (widget.producto == null) {
-      await service.insertar(producto);
-    } else {
-      await service.actualizar(producto);
+      if (widget.producto == null) {
+        await service.insertar(producto);
+      } else {
+        await service.actualizar(producto);
+      }
+
+      if (!mounted) return;
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo guardar: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _guardando = false);
     }
-
-    if (!mounted) return;
-    Navigator.pop(context);
   }
 
   Widget _campo(
@@ -266,11 +315,26 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
         child: Column(
           children: [
             GestureDetector(
-              onTap: elegirFoto,
+              onTap: _guardando ? null : elegirFoto,
               child: CircleAvatar(
                 radius: 60,
                 backgroundImage: imageProviderDesdePath(foto),
-                child: foto.isEmpty ? const Icon(Icons.camera_alt, size: 40) : null,
+                child: foto.isEmpty
+                    ? const Icon(Icons.camera_alt, size: 40)
+                    : null,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              MediaSyncService.instance.nubeDisponible
+                  ? 'La foto se sincroniza al celular y a la PC al guardar'
+                  : 'Foto guardada en este equipo. Activá la nube en Configuración para verla también en el otro dispositivo',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: .6),
               ),
             ),
             const SizedBox(height: 20),
@@ -406,9 +470,15 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
               width: double.infinity,
               height: 55,
               child: ElevatedButton.icon(
-                onPressed: guardar,
-                icon: const Icon(Icons.save),
-                label: const Text('GUARDAR'),
+                onPressed: _guardando ? null : guardar,
+                icon: _guardando
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save),
+                label: Text(_guardando ? 'GUARDANDO…' : 'GUARDAR'),
               ),
             ),
           ],

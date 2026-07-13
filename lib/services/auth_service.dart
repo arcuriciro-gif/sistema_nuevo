@@ -291,7 +291,7 @@ class AuthService {
         return (
           ok: true,
           mensaje:
-              'Sincronización activada. Las ventas/productos se comparten con el celular.',
+              'Sincronización activada. Las ventas/productos/fotos se comparten con el celular.',
         );
       }
 

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../config/backend_config_service.dart';
@@ -20,7 +21,46 @@ class MediaSyncService {
       FirebaseBootstrap.isReady &&
       FirebaseAuthUsuarioService.instance.uidActual != null;
 
+  bool get nubeDisponible => _ok;
+
   String get _tenant => BackendConfigService.instance.tenantId;
+
+  /// Copia una imagen temporal (ImagePicker) a almacenamiento permanente.
+  Future<String?> persistirFotoLocal({
+    required String sourcePath,
+    required String codigoProducto,
+  }) async {
+    if (sourcePath.isEmpty || esUrlRemota(sourcePath)) return sourcePath;
+    final source = File(sourcePath);
+    if (!source.existsSync()) return null;
+
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      final dir = Directory(p.join(docs.path, 'productos_fotos'));
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      final safeCodigo =
+          codigoProducto.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+      final ext =
+          p.extension(sourcePath).isNotEmpty ? p.extension(sourcePath) : '.jpg';
+      final dest = p.join(
+        dir.path,
+        '${safeCodigo}_${const Uuid().v4()}$ext',
+      );
+      // Si ya está dentro de nuestra carpeta, no recopiar.
+      final alreadyPersisted = p.normalize(p.dirname(sourcePath)) ==
+          p.normalize(dir.path);
+      if (alreadyPersisted) {
+        return sourcePath;
+      }
+      await source.copy(dest);
+      return dest;
+    } catch (e) {
+      debugPrint('MediaSync persistirFotoLocal: $e');
+      return sourcePath;
+    }
+  }
 
   Future<String?> subirArchivo({
     required String storagePath,
@@ -38,18 +78,36 @@ class MediaSyncService {
     }
   }
 
-  /// Convierte rutas locales a URLs de Storage; deja intactas las URLs remotas.
+  /// 1) Persiste rutas temporales en disco de la app
+  /// 2) Si hay nube, sube a Storage y devuelve HTTPS
+  /// 3) Si no hay nube, deja la ruta permanente local
   Future<List<String>> sincronizarFotosProducto(
     String codigo,
     List<String> rutas,
   ) async {
     if (rutas.isEmpty) return const [];
-    if (!_ok) return rutas;
+
+    final persistidas = <String>[];
+    for (final ruta in rutas) {
+      if (ruta.isEmpty) continue;
+      if (esUrlRemota(ruta)) {
+        persistidas.add(ruta);
+        continue;
+      }
+      final local = await persistirFotoLocal(
+        sourcePath: ruta,
+        codigoProducto: codigo,
+      );
+      if (local != null && local.isNotEmpty) {
+        persistidas.add(local);
+      }
+    }
+    if (persistidas.isEmpty) return const [];
+    if (!_ok) return persistidas;
 
     final resultado = <String>[];
     var i = 0;
-    for (final ruta in rutas) {
-      if (ruta.isEmpty) continue;
+    for (final ruta in persistidas) {
       if (esUrlRemota(ruta)) {
         resultado.add(ruta);
         continue;
@@ -68,7 +126,8 @@ class MediaSyncService {
         resultado.add(url);
         i++;
       } else {
-        resultado.add(ruta); // fallback local
+        // Queda la ruta permanente local; se reintentará en el próximo sync.
+        resultado.add(ruta);
       }
     }
     return resultado;

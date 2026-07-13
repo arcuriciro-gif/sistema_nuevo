@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
+import '../core/utils/media_path.dart';
 import '../database/database_helper.dart';
 import '../models/producto.dart';
 import '../repositories/producto_repository.dart';
@@ -43,6 +44,44 @@ class ProductoService {
       foto: fotos.first,
       fotos: fotos,
     );
+  }
+
+  /// Re-sube a Storage las fotos que todavía son rutas locales (tras activar nube).
+  Future<int> sincronizarFotosLocalesPendientes() async {
+    final todos = await obtenerTodos();
+    var actualizados = 0;
+    final db = await _databaseHelper.database;
+    for (final p in todos) {
+      final locales = p.todasLasFotos
+          .where((f) => f.isNotEmpty && !esUrlRemota(f))
+          .toList();
+      if (locales.isEmpty) continue;
+      final fotos = await MediaSyncService.instance.sincronizarFotosProducto(
+        p.codigo,
+        p.todasLasFotos,
+      );
+      if (fotos.isEmpty) continue;
+      final huboUrl = fotos.any(esUrlRemota);
+      if (!huboUrl) continue;
+      final actualizado = p.copyWith(foto: fotos.first, fotos: fotos);
+      await db.update(
+        'productos',
+        {
+          'foto': actualizado.fotoPrincipal,
+          'fotos': actualizado.toMap()['fotos'],
+        },
+        where: 'id = ?',
+        whereArgs: [p.id],
+      );
+      try {
+        await _repo.actualizar(actualizado);
+      } catch (_) {}
+      actualizados++;
+    }
+    if (actualizados > 0) {
+      DataRefreshHub.instance.notifyProductos();
+    }
+    return actualizados;
   }
 
   Future<int> insertar(Producto producto) async {

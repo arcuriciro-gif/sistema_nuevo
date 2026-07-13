@@ -10,6 +10,7 @@ import '../core/firebase/firebase_safe_mode.dart';
 import '../services/app_log.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
+import '../services/producto_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_provider.dart';
 import 'listas_precio_page.dart';
@@ -79,6 +80,15 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     setState(() => _conectandoNube = true);
     await appendAppLog('UI activar nube');
     final r = await AuthService.instance.activarNube();
+    var extra = '';
+    if (r.ok) {
+      try {
+        final n = await ProductoService().sincronizarFotosLocalesPendientes();
+        if (n > 0) {
+          extra = ' Se subieron fotos de $n productos.';
+        }
+      } catch (_) {}
+    }
     if (!mounted) return;
     setState(() {
       _conectandoNube = false;
@@ -86,7 +96,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       _modoSeguro = FirebaseSafeMode.enabled;
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(r.mensaje)),
+      SnackBar(content: Text('${r.mensaje}$extra')),
     );
   }
 
