@@ -6,6 +6,8 @@ on:
     branches:
       - cursor/fix-login-confirmacion-e44b
       - cursor/fotos-productos-sync-e44b
+      - cursor/comparador-descripcion-costo-e44b
+      - cursor/release-mejoras-e44b
 
 jobs:
   build-windows:

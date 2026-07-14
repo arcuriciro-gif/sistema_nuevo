@@ -1,4 +1,6 @@
 import 'package:sqflite/sqflite.dart';
+
+import '../core/utils/texto_producto.dart';
 import '../database/database_helper.dart';
 import '../models/comparacion.dart';
 import '../models/producto.dart';
@@ -28,52 +30,202 @@ class ComparadorService {
     return resultado.map((e) => Comparacion.fromMap(e)).toList();
   }
 
-  /// Compara la lista importada contra la base usando el campo [costo].
-  /// [proveedor] identifica de qué lista/proveedor provienen los datos.
+  /// Compara la lista del proveedor contra la base por **descripción**
+  /// (no por código interno). Soporta rangos tipo "papi blanco 39-42".
   Future<void> compararProductos(
     List<Producto> productosImportados, {
     String proveedor = '',
   }) async {
     await limpiarComparaciones();
-    for (final productoNuevo in productosImportados) {
-      final productoViejo =
-          await productoService.buscarPorCodigo(productoNuevo.codigo);
-      if (productoViejo == null) {
+    final locales = await productoService.obtenerTodos();
+
+    // Índice por descripción normalizada (exacta).
+    final porDesc = <String, List<Producto>>{};
+    // Índice por descripción+color (sin talle).
+    final porDescColor = <String, List<Producto>>{};
+    for (final p in locales) {
+      final d = TextoProducto.normalizar(p.descripcion);
+      if (d.isNotEmpty) {
+        porDesc.putIfAbsent(d, () => []).add(p);
+      }
+      final dc = TextoProducto.textoLocalSinTalle(
+        descripcion: p.descripcion,
+        color: p.colorProducto,
+      );
+      if (dc.isNotEmpty) {
+        porDescColor.putIfAbsent(dc, () => []).add(p);
+      }
+      // Si el talle está pegado en la descripción ("papi blanco 40"),
+      // también indexar la base sin ese número.
+      if (p.talle.trim().isEmpty) {
+        final sinTalle = TextoProducto.quitarTalleFinal(
+          p.colorProducto.trim().isEmpty
+              ? p.descripcion
+              : '${p.descripcion} ${p.colorProducto}',
+        );
+        if (sinTalle.isNotEmpty && sinTalle != dc && sinTalle != d) {
+          porDescColor.putIfAbsent(sinTalle, () => []).add(p);
+        }
+      }
+      final full = TextoProducto.textoLocal(
+        descripcion: p.descripcion,
+        color: p.colorProducto,
+        talle: p.talle,
+      );
+      if (full.isNotEmpty && full != d && full != dc) {
+        porDesc.putIfAbsent(full, () => []).add(p);
+      }
+    }
+
+    for (final importado in productosImportados) {
+      final descProv = importado.descripcion.trim();
+      if (descProv.isEmpty) continue;
+
+      final matches = _buscarLocales(
+        descripcionProveedor: descProv,
+        porDesc: porDesc,
+        porDescColor: porDescColor,
+        todos: locales,
+      );
+
+      if (matches.isEmpty) {
         await guardarComparacion(
           Comparacion(
-            codigo: productoNuevo.codigo,
-            descripcion: productoNuevo.descripcion,
+            codigo: importado.codigo.isNotEmpty
+                ? importado.codigo
+                : 'NUEVO-${TextoProducto.normalizar(descProv).hashCode.abs()}',
+            descripcion: descProv,
             precioViejo: 0,
-            precioNuevo: productoNuevo.costo,
+            precioNuevo: importado.costo,
             estado: 'NUEVO',
-            marca: productoNuevo.marca,
+            marca: importado.marca,
             proveedor: proveedor,
           ),
         );
         continue;
       }
-      String estado = 'IGUAL';
-      if (productoNuevo.costo > productoViejo.costo) {
-        estado = 'SUBIO';
-      } else if (productoNuevo.costo < productoViejo.costo) {
-        estado = 'BAJO';
+
+      for (final local in matches) {
+        var estado = 'IGUAL';
+        if (importado.costo > local.costo) {
+          estado = 'SUBIO';
+        } else if (importado.costo < local.costo) {
+          estado = 'BAJO';
+        }
+        // codigo = código LOCAL (para actualizar el producto correcto).
+        await guardarComparacion(
+          Comparacion(
+            codigo: local.codigo,
+            descripcion:
+                '${local.descripcion}${local.colorProducto.isNotEmpty ? ' ${local.colorProducto}' : ''}${local.talle.isNotEmpty ? ' ${local.talle}' : ''}  ←  $descProv',
+            precioViejo: local.costo,
+            precioNuevo: importado.costo,
+            estado: estado,
+            marca: local.marca.isNotEmpty ? local.marca : importado.marca,
+            proveedor: proveedor,
+          ),
+        );
       }
-      await guardarComparacion(
-        Comparacion(
-          codigo: productoNuevo.codigo,
-          descripcion: productoNuevo.descripcion,
-          precioViejo: productoViejo.costo,
-          precioNuevo: productoNuevo.costo,
-          estado: estado,
-          marca: productoNuevo.marca,
-          proveedor: proveedor,
-        ),
-      );
     }
   }
 
-  /// Actualiza **únicamente el costo** de los productos en comparación.
-  /// No modifica descripción, categoría, marca, proveedor, foto, precio de venta ni stock.
+  List<Producto> _buscarLocales({
+    required String descripcionProveedor,
+    required Map<String, List<Producto>> porDesc,
+    required Map<String, List<Producto>> porDescColor,
+    required List<Producto> todos,
+  }) {
+    final n = TextoProducto.normalizar(descripcionProveedor);
+    final rango = TextoProducto.parsearRangoTalle(descripcionProveedor);
+
+    // 1) Match exacto de descripción completa / desc+color+talle
+    final exactos = porDesc[n];
+    if (exactos != null && exactos.isNotEmpty) {
+      return List<Producto>.from(exactos);
+    }
+
+    // 2) Si hay rango de talles: "febo papifutbol 39-42 blanco"
+    if (rango.desde != null && rango.hasta != null) {
+      final base = rango.base;
+      final bases = <String>{
+        base,
+        // Variantes sin ruido típico de listas de proveedor
+        base
+            .replaceAll(RegExp(r'\b(x par|por par|en eva|eva|pu|pve|tr|goma)\b'), ' ')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim(),
+      }..removeWhere((e) => e.isEmpty);
+
+      final candidatos = <Producto>{};
+
+      for (final b in bases) {
+        final porColor = porDescColor[b];
+        if (porColor != null) candidatos.addAll(porColor);
+        final soloDesc = porDesc[b];
+        if (soloDesc != null) candidatos.addAll(soloDesc);
+      }
+
+      // Tokens del proveedor vs locales (permite "goma"/"eva" extra; respeta color)
+      for (final p in todos) {
+        final dc = TextoProducto.textoLocalSinTalle(
+          descripcion: p.descripcion,
+          color: p.colorProducto,
+        );
+        if (dc.isEmpty) continue;
+        if (bases.any((b) =>
+            b == dc || TextoProducto.coincidePorTokens(b, dc))) {
+          candidatos.add(p);
+        }
+      }
+
+      final enRango = candidatos.where((p) {
+        return TextoProducto.localEnRangoProveedor(
+          descripcionLocal: p.descripcion,
+          colorLocal: p.colorProducto,
+          talleLocal: p.talle,
+          desde: rango.desde!,
+          hasta: rango.hasta!,
+        );
+      }).toList();
+
+      if (enRango.isNotEmpty) return enRango;
+    }
+
+    // 3) Match por descripción+color sin talle (un solo costo para todos los talles)
+    final dc = porDescColor[n];
+    if (dc != null && dc.isNotEmpty) return List<Producto>.from(dc);
+
+    // 4) Match por tokens — solo si el proveedor NO trae rango/numeration
+    //    (si trae talles y no matcheamos arriba, no ensuciamos el informe).
+    if (rango.desde != null) {
+      return [];
+    }
+
+    final suaves = <Producto>[];
+    for (final p in todos) {
+      final localDc = TextoProducto.textoLocalSinTalle(
+        descripcion: p.descripcion,
+        color: p.colorProducto,
+      );
+      final localFull = TextoProducto.textoLocal(
+        descripcion: p.descripcion,
+        color: p.colorProducto,
+        talle: p.talle,
+      );
+      if (localDc.isEmpty) continue;
+      if (n == localFull || n == localDc) {
+        suaves.add(p);
+        continue;
+      }
+      if (TextoProducto.coincidePorTokens(n, localDc) ||
+          TextoProducto.coincidePorTokens(n, localFull)) {
+        suaves.add(p);
+      }
+    }
+    return suaves;
+  }
+
+  /// Actualiza **únicamente el costo** de los productos emparejados (por código local).
   Future<void> actualizarProductos() async {
     final comparaciones = await obtenerComparacion();
     final db = await DatabaseHelper.instance.database;
@@ -84,7 +236,6 @@ class ComparadorService {
       final producto = await productoService.buscarPorCodigo(comp.codigo);
       if (producto != null) {
         if (comp.precioNuevo != comp.precioViejo) {
-          // Actualizar solo costo, mantener precio de venta y demás campos
           await db.update(
             'productos',
             {'costo': comp.precioNuevo},
@@ -92,7 +243,6 @@ class ComparadorService {
             whereArgs: [producto.id],
           );
 
-          // Registrar historial
           await db.insert('historial_precios', {
             'productoId': producto.id,
             'fecha': ahora,
@@ -107,15 +257,14 @@ class ComparadorService {
                 : 0.0,
             'listaModificada':
                 comp.proveedor.isNotEmpty ? comp.proveedor : 'Lista proveedor',
-            'motivo': 'Actualización de costo por lista',
+            'motivo': 'Actualización de costo por lista (desc)',
           });
         }
       } else if (comp.estado == 'NUEVO') {
-        // Crear producto nuevo con solo los datos del CSV/Excel
         await productoService.insertar(
           Producto(
             codigo: comp.codigo,
-            descripcion: comp.descripcion,
+            descripcion: comp.descripcion.split('  ←  ').first.trim(),
             marca: comp.marca,
             categoria: '',
             proveedor: comp.proveedor,
