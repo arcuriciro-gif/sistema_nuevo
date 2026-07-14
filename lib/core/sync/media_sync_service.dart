@@ -25,6 +25,8 @@ class MediaSyncService {
 
   bool get nubeDisponible => _ok;
 
+  String get tenantId => _tenant;
+
   String get _tenant => BackendConfigService.instance.tenantId;
 
   FirebaseStorage get _storage => FirebaseStorage.instance;

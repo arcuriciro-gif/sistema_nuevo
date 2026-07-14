@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -6,10 +7,13 @@ import 'package:flutter/foundation.dart';
 import '../core/auth/rol_util.dart';
 import '../core/auth/usuario_auth_email.dart';
 import '../core/config/backend_config_service.dart';
+import '../core/events/data_refresh_hub.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/firebase/firebase_bootstrap.dart';
 import '../core/firebase/firebase_safe_mode.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/media_sync_service.dart';
+import '../core/utils/media_path.dart';
 import '../database/database_helper.dart';
 import '../models/usuario.dart';
 import '../repositories/firestore_usuario_repository.dart';
@@ -19,11 +23,24 @@ import 'biometric_auth_service.dart';
 
 class AuthService {
   static final AuthService instance = AuthService._();
-  AuthService._();
+  AuthService._() {
+    FirestoreSyncService.instance.onUsuarioRemoto = _aplicarUsuarioRemotoEnSesion;
+  }
 
   Usuario? currentUser;
   String? _ultimaPasswordIngresada;
   String? lastLoginError;
+
+  void _aplicarUsuarioRemotoEnSesion(Usuario merged) {
+    final yo = currentUser;
+    if (yo == null) return;
+    final sameUid =
+        yo.firebaseUid != null && yo.firebaseUid == merged.firebaseUid;
+    final sameUser =
+        yo.usuario.toLowerCase() == merged.usuario.toLowerCase();
+    if (!sameUid && !sameUser) return;
+    currentUser = merged.copyWith(password: yo.password);
+  }
 
   bool get isLoggedIn => currentUser != null;
 
@@ -716,6 +733,32 @@ class AuthService {
       email: nuevoEmail,
       foto: nuevaFoto,
     );
+
+    // Subir foto a Storage si es local y hay nube.
+    if (BackendConfigService.instance.firebaseEnabled &&
+        FirebaseBootstrap.isReady &&
+        nuevaFoto.isNotEmpty &&
+        !esUrlRemota(nuevaFoto)) {
+      final key = actual.firebaseUid?.isNotEmpty == true
+          ? actual.firebaseUid!
+          : (FirebaseAuthUsuarioService.instance.uidActual ?? actual.usuario);
+      final file = File(nuevaFoto);
+      if (!file.existsSync()) {
+        throw Exception('No se encontró la foto de perfil en este dispositivo.');
+      }
+      final url = await MediaSyncService.instance.subirFotoUsuario(
+        uidOrUsuario: key,
+        file: file,
+      );
+      if (url == null) {
+        throw Exception(
+          'No se pudo subir la foto de perfil a la nube. '
+          '${MediaSyncService.instance.lastError ?? "Revisá la conexión."}',
+        );
+      }
+      actualizado = actualizado.copyWith(foto: url);
+    }
+
     await sqlite.actualizar(actualizado);
 
     final firebase = FirebaseAuthUsuarioService.instance;
@@ -738,15 +781,27 @@ class AuthService {
     }
 
     if (BackendConfigService.instance.firebaseEnabled &&
-        (actualizado.firebaseUid?.isNotEmpty ?? false)) {
+        FirebaseBootstrap.isReady) {
       try {
-        await FirestoreUsuarioRepository().actualizar(actualizado);
+        // Asegurar firebaseUid desde Auth si falta.
+        if ((actualizado.firebaseUid == null ||
+                actualizado.firebaseUid!.isEmpty) &&
+            firebase.uidActual != null) {
+          actualizado =
+              actualizado.copyWith(firebaseUid: firebase.uidActual);
+          await sqlite.actualizar(actualizado);
+        }
+        await FirestoreSyncService.instance.subirUsuario(actualizado);
       } catch (e) {
-        debugPrint('Firestore perfil: $e');
+        throw Exception(
+          'Perfil guardado en este equipo, pero no se sincronizó: '
+          '${mensajeUsuario(e)}',
+        );
       }
     }
 
     currentUser = actualizado;
+    DataRefreshHub.instance.notifyUsuarios();
     await registrarCambio(
       'ACTUALIZAR_PERFIL',
       'usuarios',

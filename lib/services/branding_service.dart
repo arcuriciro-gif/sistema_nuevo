@@ -1,9 +1,14 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
+
+import '../core/utils/media_path.dart';
+import '../core/sync/media_sync_service.dart';
 
 class BrandingService extends ChangeNotifier {
   static const _keyNombre = 'brandNombre';
@@ -268,6 +273,167 @@ class BrandingService extends ChangeNotifier {
     if (leyendaLegal != null) this.leyendaLegal = leyendaLegal;
     if (diasVencimiento != null) this.diasVencimiento = diasVencimiento;
     notifyListeners();
+  }
+
+  /// Payload para Firestore (URLs de logo/icono, no paths locales).
+  Map<String, dynamic> toFirestoreMap({
+    String? logoUrl,
+    String? iconoUrl,
+  }) {
+    return {
+      'nombre': nombre,
+      'slogan': slogan,
+      'telefono': telefono,
+      'direccion': direccion,
+      'email': email,
+      'sitioWeb': sitioWeb,
+      'whatsapp': whatsapp,
+      'instagram': instagram,
+      'facebook': facebook,
+      'moneda': moneda,
+      'formatoFecha': formatoFecha,
+      'cuit': cuit,
+      'ingresosBrutos': ingresosBrutos,
+      'condicionIva': condicionIva,
+      'direccionFiscal': direccionFiscal,
+      'encabezadoPdf': encabezadoPdf,
+      'piePdf': piePdf,
+      'colorPdf': colorPdf,
+      'pdfBlancoNegro': pdfBlancoNegro,
+      'papelPdf': papelPdf,
+      'margenPdfMm': margenPdfMm,
+      'mostrarFirma': mostrarFirma,
+      'mostrarSello': mostrarSello,
+      'mostrarEstadoPago': mostrarEstadoPago,
+      'leyendaLegal': leyendaLegal,
+      'diasVencimiento': diasVencimiento,
+      'logoUrl': logoUrl ?? (esUrlRemota(logoPath) ? logoPath : ''),
+      'iconoUrl': iconoUrl ?? (esUrlRemota(iconoPath) ? iconoPath : ''),
+      'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+    };
+  }
+
+  /// Sube logo/icono locales a Storage y arma el mapa para la nube.
+  Future<Map<String, dynamic>> prepararPayloadNube() async {
+    final media = MediaSyncService.instance;
+    final tenant = media.tenantId;
+    String logoUrl = esUrlRemota(logoPath) ? logoPath : '';
+    String iconoUrl = esUrlRemota(iconoPath) ? iconoPath : '';
+
+    if (logoPath.isNotEmpty && !esUrlRemota(logoPath)) {
+      final f = File(logoPath);
+      if (await f.exists()) {
+        final ext =
+            p.extension(logoPath).isEmpty ? '.jpg' : p.extension(logoPath);
+        final url = await media.subirArchivo(
+          storagePath:
+              'tenants/$tenant/branding/logo_${const Uuid().v4()}$ext',
+          file: f,
+          contentType: 'image/jpeg',
+        );
+        if (url != null) logoUrl = url;
+      }
+    }
+    if (iconoPath.isNotEmpty && !esUrlRemota(iconoPath)) {
+      final f = File(iconoPath);
+      if (await f.exists()) {
+        final ext =
+            p.extension(iconoPath).isEmpty ? '.jpg' : p.extension(iconoPath);
+        final url = await media.subirArchivo(
+          storagePath:
+              'tenants/$tenant/branding/icono_${const Uuid().v4()}$ext',
+          file: f,
+          contentType: 'image/jpeg',
+        );
+        if (url != null) iconoUrl = url;
+      }
+    }
+
+    return toFirestoreMap(logoUrl: logoUrl, iconoUrl: iconoUrl);
+  }
+
+  Future<String?> _descargarImagen(String url, String nombreBase) async {
+    try {
+      final res = await http.get(Uri.parse(url));
+      if (res.statusCode < 200 || res.statusCode >= 300) return null;
+      final dir = await getApplicationDocumentsDirectory();
+      final brandingDir = Directory(p.join(dir.path, 'branding'));
+      if (!await brandingDir.exists()) {
+        await brandingDir.create(recursive: true);
+      }
+      var ext = p.extension(Uri.parse(url).path);
+      if (ext.isEmpty || ext.length > 5) ext = '.jpg';
+      final dest = p.join(brandingDir.path, '$nombreBase$ext');
+      await File(dest).writeAsBytes(res.bodyBytes);
+      return dest;
+    } catch (e) {
+      debugPrint('Branding descargar imagen: $e');
+      return null;
+    }
+  }
+
+  /// Aplica branding remoto (textos + logo/icono por URL → cache local).
+  Future<void> aplicarDesdeFirestore(Map<String, dynamic> data) async {
+    String s(String key, [String def = '']) {
+      final v = data[key]?.toString();
+      if (v == null || v.isEmpty) return def;
+      return v;
+    }
+
+    final logoUrl = s('logoUrl');
+    final iconoUrl = s('iconoUrl');
+
+    var nuevoLogo = logoPath;
+    var nuevoIcono = iconoPath;
+
+    if (logoUrl.isNotEmpty && esUrlRemota(logoUrl)) {
+      final local = await _descargarImagen(logoUrl, 'logo_sync');
+      if (local != null) nuevoLogo = local;
+    }
+    if (iconoUrl.isNotEmpty && esUrlRemota(iconoUrl)) {
+      final local = await _descargarImagen(iconoUrl, 'icono_sync');
+      if (local != null) nuevoIcono = local;
+    }
+
+    await guardar(
+      nombre: s('nombre', nombre),
+      slogan: s('slogan', slogan),
+      telefono: s('telefono', telefono),
+      direccion: s('direccion', direccion),
+      logoPath: nuevoLogo,
+      iconoPath: nuevoIcono,
+      email: s('email', email),
+      sitioWeb: s('sitioWeb', sitioWeb),
+      whatsapp: s('whatsapp', whatsapp),
+      instagram: s('instagram', instagram),
+      facebook: s('facebook', facebook),
+      moneda: s('moneda', moneda),
+      formatoFecha: s('formatoFecha', formatoFecha),
+      cuit: s('cuit', cuit),
+      ingresosBrutos: s('ingresosBrutos', ingresosBrutos),
+      condicionIva: s('condicionIva', condicionIva),
+      direccionFiscal: s('direccionFiscal', direccionFiscal),
+      encabezadoPdf: s('encabezadoPdf', encabezadoPdf),
+      piePdf: s('piePdf', piePdf),
+      colorPdf: s('colorPdf', colorPdf),
+      pdfBlancoNegro: data['pdfBlancoNegro'] is bool
+          ? data['pdfBlancoNegro'] as bool
+          : pdfBlancoNegro,
+      papelPdf: s('papelPdf', papelPdf),
+      margenPdfMm: (data['margenPdfMm'] as num?)?.toDouble() ?? margenPdfMm,
+      mostrarFirma: data['mostrarFirma'] is bool
+          ? data['mostrarFirma'] as bool
+          : mostrarFirma,
+      mostrarSello: data['mostrarSello'] is bool
+          ? data['mostrarSello'] as bool
+          : mostrarSello,
+      mostrarEstadoPago: data['mostrarEstadoPago'] is bool
+          ? data['mostrarEstadoPago'] as bool
+          : mostrarEstadoPago,
+      leyendaLegal: s('leyendaLegal', leyendaLegal),
+      diasVencimiento:
+          (data['diasVencimiento'] as num?)?.toInt() ?? diasVencimiento,
+    );
   }
 
   Future<void> guardarPlantilla({

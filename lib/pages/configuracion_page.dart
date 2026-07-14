@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/firebase/firebase_safe_mode.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../services/app_log.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
@@ -87,6 +88,18 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
         if (n > 0) {
           extra = ' Se subieron fotos de $n productos.';
         }
+      } catch (_) {}
+      try {
+        await FirestoreSyncService.instance.subirBranding();
+      } catch (_) {}
+      try {
+        final u = AuthService.instance.currentUser;
+        if (u != null) {
+          await FirestoreSyncService.instance.subirUsuario(u);
+        }
+      } catch (_) {}
+      try {
+        await FirestoreSyncService.instance.subirPermisos();
       } catch (_) {}
     }
     if (!mounted) return;
@@ -189,32 +202,45 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
 
   Future<void> _guardarBranding() async {
     setState(() => _guardandoBranding = true);
-    await BrandingService.instance.guardar(
-      nombre: _nombreCtrl.text.trim(),
-      slogan: _sloganCtrl.text.trim(),
-      telefono: _telefonoCtrl.text.trim(),
-      direccion: _direccionCtrl.text.trim(),
-      logoPath: _logoPath,
-      iconoPath: _iconoPath,
-      email: _emailCtrl.text.trim(),
-      sitioWeb: _sitioWebCtrl.text.trim(),
-      whatsapp: _whatsappCtrl.text.trim(),
-      instagram: _instagramCtrl.text.trim(),
-      facebook: _facebookCtrl.text.trim(),
-      moneda: _monedaCtrl.text.trim().isEmpty ? r'$' : _monedaCtrl.text.trim(),
-      formatoFecha: _formatoFechaCtrl.text.trim().isEmpty
-          ? 'dd/MM/yyyy'
-          : _formatoFechaCtrl.text.trim(),
-      cuit: _cuitCtrl.text.trim(),
-      ingresosBrutos: _ingresosBrutosCtrl.text.trim(),
-      condicionIva: _condicionIvaCtrl.text.trim(),
-      direccionFiscal: _direccionFiscalCtrl.text.trim(),
-    );
-    if (!mounted) return;
-    setState(() => _guardandoBranding = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Datos del negocio guardados')),
-    );
+    try {
+      await BrandingService.instance.guardar(
+        nombre: _nombreCtrl.text.trim(),
+        slogan: _sloganCtrl.text.trim(),
+        telefono: _telefonoCtrl.text.trim(),
+        direccion: _direccionCtrl.text.trim(),
+        logoPath: _logoPath,
+        iconoPath: _iconoPath,
+        email: _emailCtrl.text.trim(),
+        sitioWeb: _sitioWebCtrl.text.trim(),
+        whatsapp: _whatsappCtrl.text.trim(),
+        instagram: _instagramCtrl.text.trim(),
+        facebook: _facebookCtrl.text.trim(),
+        moneda: _monedaCtrl.text.trim().isEmpty ? r'$' : _monedaCtrl.text.trim(),
+        formatoFecha: _formatoFechaCtrl.text.trim().isEmpty
+            ? 'dd/MM/yyyy'
+            : _formatoFechaCtrl.text.trim(),
+        cuit: _cuitCtrl.text.trim(),
+        ingresosBrutos: _ingresosBrutosCtrl.text.trim(),
+        condicionIva: _condicionIvaCtrl.text.trim(),
+        direccionFiscal: _direccionFiscalCtrl.text.trim(),
+      );
+      String mensaje = 'Datos del negocio guardados';
+      if (BackendConfigService.instance.firebaseEnabled) {
+        try {
+          await FirestoreSyncService.instance.subirBranding();
+          mensaje = 'Datos del negocio sincronizados con la nube';
+        } catch (e) {
+          mensaje =
+              'Guardado local. No se pudo sincronizar: ${AuthService.mensajeUsuario(e)}';
+        }
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(mensaje)),
+      );
+    } finally {
+      if (mounted) setState(() => _guardandoBranding = false);
+    }
   }
 
   Future<void> _cargarPreferencias() async {
@@ -274,16 +300,33 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     ),
                     if (_modoSeguro) ...[
                       const SizedBox(height: 8),
-                      Text(
-                        'Modo seguro activo (hubo un cierre con Firebase). '
-                        'Desactivalo antes de conectar la nube.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.error,
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF4E5),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFF0B429)),
                         ),
-                      ),
-                      TextButton(
-                        onPressed: _salirModoSeguro,
-                        child: const Text('Desactivar modo seguro'),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Modo seguro activo (hubo un cierre al conectar Firebase). '
+                              'Desactivalo para volver a sincronizar.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: const Color(0xFF8A5A00),
+                              ),
+                            ),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton(
+                                onPressed: _salirModoSeguro,
+                                child: const Text('Desactivar modo seguro'),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                     const SizedBox(height: 12),

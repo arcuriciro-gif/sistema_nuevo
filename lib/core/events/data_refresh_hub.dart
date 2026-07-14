@@ -9,5 +9,8 @@ class DataRefreshHub extends ChangeNotifier {
   void notifyProductos() => notifyListeners();
   void notifyVentas() => notifyListeners();
   void notifyStock() => notifyListeners();
+  void notifyUsuarios() => notifyListeners();
+  void notifyBranding() => notifyListeners();
+  void notifyPermisos() => notifyListeners();
   void notifyTodo() => notifyListeners();
 }

@@ -17,10 +17,15 @@ import '../../models/cliente.dart';
 import '../../models/documento_cliente.dart';
 import '../../models/producto.dart';
 import '../../models/proveedor.dart';
+import '../../models/usuario.dart';
 import '../../models/venta.dart';
 import '../../repositories/firestore_producto_repository.dart';
+import '../../repositories/firestore_usuario_repository.dart';
 import '../../repositories/producto_repository.dart';
 import '../../repositories/sqlite_producto_repository.dart';
+import '../../repositories/sqlite_usuario_repository.dart';
+import '../../services/branding_service.dart';
+import '../../services/permisos_service.dart';
 
 /// Mantiene SQLite sincronizado con Firestore en tiempo real.
 class FirestoreSyncService {
@@ -28,10 +33,18 @@ class FirestoreSyncService {
 
   static final FirestoreSyncService instance = FirestoreSyncService._();
 
+  /// Lo registra AuthService para actualizar la sesión sin import circular.
+  void Function(Usuario remoto)? onUsuarioRemoto;
+
   final SqliteProductoRepository _cache = SqliteProductoRepository();
   final FirestoreProductoRepository _remote = FirestoreProductoRepository();
+  final FirestoreUsuarioRepository _usuariosRemote = FirestoreUsuarioRepository();
+  final SqliteUsuarioRepository _usuariosLocal = SqliteUsuarioRepository();
 
   StreamSubscription<List<Producto>>? _productosSub;
+  StreamSubscription<List<Usuario>>? _usuariosSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _brandingSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _permisosSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _ventasSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _remitosSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _clientesSub;
@@ -46,6 +59,13 @@ class FirestoreSyncService {
   bool _sincronizandoProveedores = false;
   bool _sincronizandoCompras = false;
   bool _sincronizandoDocumentos = false;
+  bool _sincronizandoUsuarios = false;
+  bool _sincronizandoBranding = false;
+  bool _sincronizandoPermisos = false;
+
+  /// Último estado legible para la UI (sin carteles rojos agresivos).
+  String syncStatusLabel = 'Local';
+  String? syncStatusDetail;
 
   CollectionReference<Map<String, dynamic>> _col(String name) {
     final tenant = BackendConfigService.instance.tenantId;
@@ -53,6 +73,15 @@ class FirestoreSyncService {
         .collection('tenants')
         .doc(tenant)
         .collection(name);
+  }
+
+  DocumentReference<Map<String, dynamic>> _configDoc(String id) {
+    final tenant = BackendConfigService.instance.tenantId;
+    return FirebaseFirestore.instance
+        .collection('tenants')
+        .doc(tenant)
+        .collection('config')
+        .doc(id);
   }
 
   CollectionReference<Map<String, dynamic>> get _ventasCol => _col('ventas');
@@ -68,13 +97,30 @@ class FirestoreSyncService {
   Future<void> start() async {
     if (!BackendConfigService.instance.firebaseEnabled ||
         !FirebaseBootstrap.isReady) {
+      syncStatusLabel = 'Solo local';
+      syncStatusDetail = null;
       return;
     }
     try {
       await stop();
+      syncStatusLabel = 'Sincronizando…';
+      syncStatusDetail = null;
+
       _productosSub = _remote.watchTodos(limit: 10000).listen(
         _aplicarProductosRemotos,
         onError: (Object error) => debugPrint('Sync productos: $error'),
+      );
+      _usuariosSub = _usuariosRemote.watchTodos().listen(
+        _aplicarUsuariosRemotos,
+        onError: (Object error) => debugPrint('Sync usuarios: $error'),
+      );
+      _brandingSub = _configDoc('branding').snapshots().listen(
+        _aplicarBrandingRemoto,
+        onError: (Object error) => debugPrint('Sync branding: $error'),
+      );
+      _permisosSub = _configDoc('permisos').snapshots().listen(
+        _aplicarPermisosRemotos,
+        onError: (Object error) => debugPrint('Sync permisos: $error'),
       );
       _ventasSub = _ventasCol.snapshots().listen(
         _aplicarVentasRemotas,
@@ -100,9 +146,16 @@ class FirestoreSyncService {
         _aplicarDocumentosRemotos,
         onError: (Object error) => debugPrint('Sync documentos: $error'),
       );
-      // Re-sube fotos locales pendientes (p.ej. tomadas offline o falló Storage).
+
       unawaited(_reintentarFotosLocalesPendientes());
+      // Empuja branding/permisos locales la primera vez si la nube no tiene.
+      unawaited(_publicarConfigLocalSiHaceFalta());
+
+      syncStatusLabel = 'En la nube';
+      DataRefreshHub.instance.notifyTodo();
     } catch (e, st) {
+      syncStatusLabel = 'Local';
+      syncStatusDetail = '$e';
       debugPrint('FirestoreSyncService.start falló: $e\n$st');
     }
   }
@@ -131,6 +184,9 @@ class FirestoreSyncService {
 
   Future<void> stop() async {
     await _productosSub?.cancel();
+    await _usuariosSub?.cancel();
+    await _brandingSub?.cancel();
+    await _permisosSub?.cancel();
     await _ventasSub?.cancel();
     await _remitosSub?.cancel();
     await _clientesSub?.cancel();
@@ -138,12 +194,152 @@ class FirestoreSyncService {
     await _comprasSub?.cancel();
     await _documentosSub?.cancel();
     _productosSub = null;
+    _usuariosSub = null;
+    _brandingSub = null;
+    _permisosSub = null;
     _ventasSub = null;
     _remitosSub = null;
     _clientesSub = null;
     _proveedoresSub = null;
     _comprasSub = null;
     _documentosSub = null;
+  }
+
+  Future<void> _publicarConfigLocalSiHaceFalta() async {
+    if (!_puedeEscribirRemoto) return;
+    try {
+      final brandingSnap = await _configDoc('branding').get();
+      if (!brandingSnap.exists) {
+        await subirBranding();
+      }
+      final permisosSnap = await _configDoc('permisos').get();
+      if (!permisosSnap.exists) {
+        await subirPermisos();
+      }
+    } catch (e) {
+      debugPrint('Publicar config local: $e');
+    }
+  }
+
+  Future<void> subirBranding() async {
+    if (!_puedeEscribirRemoto) return;
+    try {
+      final payload = await BrandingService.instance.prepararPayloadNube();
+      await _configDoc('branding').set(payload, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Firestore subir branding: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> subirPermisos() async {
+    if (!_puedeEscribirRemoto) return;
+    try {
+      final items = await PermisosService.instance.exportarParaFirestore();
+      await _configDoc('permisos').set({
+        'items': items,
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Firestore subir permisos: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> subirUsuario(Usuario usuario) async {
+    if (!_puedeEscribirRemoto) return;
+    var u = usuario;
+    final uidAuth = FirebaseAuthUsuarioService.instance.uidActual;
+    if ((u.firebaseUid == null || u.firebaseUid!.isEmpty) && uidAuth != null) {
+      u = u.copyWith(firebaseUid: uidAuth);
+    }
+    if (u.firebaseUid == null || u.firebaseUid!.isEmpty) {
+      throw Exception(
+        'No hay sesión de nube. Activá sincronización e iniciá sesión de nuevo.',
+      );
+    }
+    // Solo URLs de foto a Firestore
+    var foto = u.foto;
+    if (foto.isNotEmpty && !esUrlRemota(foto)) {
+      final file = File(foto);
+      if (file.existsSync()) {
+        final url = await MediaSyncService.instance.subirFotoUsuario(
+          uidOrUsuario: u.firebaseUid!,
+          file: file,
+        );
+        if (url == null) {
+          throw Exception(
+            'No se pudo subir la foto de perfil. '
+            '${MediaSyncService.instance.lastError ?? ""}',
+          );
+        }
+        foto = url;
+        u = u.copyWith(foto: foto);
+        await _usuariosLocal.actualizar(u);
+      } else {
+        foto = '';
+        u = u.copyWith(foto: '');
+      }
+    }
+    await _usuariosRemote.actualizar(u.copyWith(foto: foto));
+  }
+
+  Future<void> _aplicarUsuariosRemotos(List<Usuario> remotos) async {
+    if (_sincronizandoUsuarios) return;
+    _sincronizandoUsuarios = true;
+    try {
+      for (final remoto in remotos) {
+        // No pisar password local: remoto no trae password.
+        final merged = await _usuariosLocal.upsertDesdeRemoto(
+          remoto.copyWith(password: ''),
+        );
+        onUsuarioRemoto?.call(merged);
+      }
+      DataRefreshHub.instance.notifyUsuarios();
+    } catch (e) {
+      debugPrint('Aplicar usuarios remotos: $e');
+    } finally {
+      _sincronizandoUsuarios = false;
+    }
+  }
+
+  Future<void> _aplicarBrandingRemoto(
+    DocumentSnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (_sincronizandoBranding || !snap.exists) return;
+    _sincronizandoBranding = true;
+    try {
+      final data = snap.data();
+      if (data == null || data.isEmpty) return;
+      await BrandingService.instance.aplicarDesdeFirestore(data);
+      DataRefreshHub.instance.notifyBranding();
+    } catch (e) {
+      debugPrint('Aplicar branding remoto: $e');
+    } finally {
+      _sincronizandoBranding = false;
+    }
+  }
+
+  Future<void> _aplicarPermisosRemotos(
+    DocumentSnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (_sincronizandoPermisos || !snap.exists) return;
+    _sincronizandoPermisos = true;
+    try {
+      final data = snap.data();
+      final raw = data?['items'];
+      if (raw is! List || raw.isEmpty) return;
+      final items = raw
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      await PermisosService.instance.aplicarDesdeRemoto(items);
+      DataRefreshHub.instance.notifyPermisos();
+    } catch (e) {
+      debugPrint('Aplicar permisos remotos: $e');
+    } finally {
+      _sincronizandoPermisos = false;
+    }
   }
 
   ProductoRepository get writeRepository {

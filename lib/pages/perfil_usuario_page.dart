@@ -117,6 +117,18 @@ class _PerfilUsuarioPageState extends State<PerfilUsuarioPage> {
         uidOrUsuario: key,
         file: File(img.path),
       );
+      if (url == null && MediaSyncService.instance.nubeDisponible) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'No se pudo subir la foto: '
+              '${MediaSyncService.instance.lastError ?? "revisá la nube"}',
+            ),
+          ),
+        );
+        return;
+      }
       setState(() => _foto = url ?? img.path);
     } finally {
       if (mounted) setState(() => _guardando = false);

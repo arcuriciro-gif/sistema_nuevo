@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../core/config/backend_config_service.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../models/permiso.dart';
+import '../services/auth_service.dart';
 import '../services/permisos_service.dart';
 import '../theme/module_app_bar.dart';
 
@@ -48,6 +51,21 @@ class _PermisosPageState extends State<PermisosPage> {
         }
       }
       await _service.cargar();
+      if (BackendConfigService.instance.firebaseEnabled) {
+        try {
+          await FirestoreSyncService.instance.subirPermisos();
+        } catch (e) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Permisos guardados localmente. Sync: ${AuthService.mensajeUsuario(e)}',
+              ),
+            ),
+          );
+          return;
+        }
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Permisos actualizados correctamente.')),
@@ -55,7 +73,11 @@ class _PermisosPageState extends State<PermisosPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudieron guardar los permisos: $e')),
+        SnackBar(
+          content: Text(
+            'No se pudieron guardar los permisos: ${AuthService.mensajeUsuario(e)}',
+          ),
+        ),
       );
     } finally {
       if (mounted) setState(() => _guardando = false);

@@ -18,15 +18,34 @@ class Permiso {
   });
 
   factory Permiso.fromMap(Map<String, dynamic> map) {
+    bool asBool(dynamic v, {bool def = false}) {
+      if (v == null) return def;
+      if (v is bool) return v;
+      if (v is num) return v != 0;
+      final t = v.toString().trim().toLowerCase();
+      return t == '1' || t == 'true' || t == 'si' || t == 'yes';
+    }
+
     return Permiso(
       id: map['id'],
       rol: map['rol'] ?? '',
       modulo: map['modulo'] ?? '',
-      puedeVer: (map['puede_ver'] ?? 0) == 1,
-      puedeCrear: (map['puede_crear'] ?? 0) == 1,
-      puedeEditar: (map['puede_editar'] ?? 0) == 1,
-      puedeEliminar: (map['puede_eliminar'] ?? 0) == 1,
+      puedeVer: asBool(map['puede_ver'] ?? map['puedeVer'], def: true),
+      puedeCrear: asBool(map['puede_crear'] ?? map['puedeCrear']),
+      puedeEditar: asBool(map['puede_editar'] ?? map['puedeEditar']),
+      puedeEliminar: asBool(map['puede_eliminar'] ?? map['puedeEliminar']),
     );
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'rol': rol,
+      'modulo': modulo,
+      'puedeVer': puedeVer,
+      'puedeCrear': puedeCrear,
+      'puedeEditar': puedeEditar,
+      'puedeEliminar': puedeEliminar,
+    };
   }
 
   Map<String, dynamic> toMap() {

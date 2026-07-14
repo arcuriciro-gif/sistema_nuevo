@@ -9,6 +9,9 @@ import '../services/branding_service.dart';
 import '../services/comunicaciones_service.dart';
 import '../services/cuenta_corriente_service.dart';
 import '../services/permisos_service.dart';
+import '../core/events/data_refresh_hub.dart';
+import '../core/config/backend_config_service.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../theme/layout_constants.dart';
 import '../theme/module_app_bar.dart';
 import 'archivo_pdfs_page.dart';
@@ -89,11 +92,16 @@ class _MainShellState extends State<MainShell> {
     if (mounted) setState(() {});
   }
 
+  void _onDatosRemotos() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
     BrandingService.instance.addListener(_onBrandingChanged);
     ComunicacionesService.instance.addListener(_onCommsChanged);
+    DataRefreshHub.instance.addListener(_onDatosRemotos);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         await AutoBackupService.instance.iniciar();
@@ -117,6 +125,7 @@ class _MainShellState extends State<MainShell> {
   void dispose() {
     BrandingService.instance.removeListener(_onBrandingChanged);
     ComunicacionesService.instance.removeListener(_onCommsChanged);
+    DataRefreshHub.instance.removeListener(_onDatosRemotos);
     super.dispose();
   }
 
@@ -1013,6 +1022,40 @@ class _TopBar extends StatelessWidget {
             ),
           ),
           const Spacer(),
+          // Estado de sync (discreto, sin cartel rojo)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A1A1A),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: _kSidebarHeaderBorder),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  BackendConfigService.instance.firebaseEnabled
+                      ? Icons.cloud_done_outlined
+                      : Icons.cloud_off_outlined,
+                  size: 14,
+                  color: BackendConfigService.instance.firebaseEnabled
+                      ? const Color(0xFF4ADE80)
+                      : _kSidebarSubtext,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  BackendConfigService.instance.firebaseEnabled
+                      ? FirestoreSyncService.instance.syncStatusLabel
+                      : 'Solo local',
+                  style: const TextStyle(
+                    color: _kSidebarInactiveText,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
           GestureDetector(
             onTap: onSearch,
             child: Container(
