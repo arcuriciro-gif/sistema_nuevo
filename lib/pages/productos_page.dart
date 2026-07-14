@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/utils/media_path.dart';
 import '../models/chat_mensaje.dart';
 import '../models/lista_precio.dart';
 import '../models/producto.dart';
@@ -743,18 +744,42 @@ class _ProductoCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                CircleAvatar(
+                  radius: 26,
+                  backgroundColor: colorScheme.primaryContainer,
+                  backgroundImage:
+                      imageProviderDesdePath(p.fotoPrincipal),
+                  child: imageProviderDesdePath(p.fotoPrincipal) == null
+                      ? Text(
+                          (p.descripcion.isNotEmpty
+                                  ? p.descripcion
+                                  : p.codigo)
+                              .substring(0, 1)
+                              .toUpperCase(),
+                          style: TextStyle(
+                            color: colorScheme.primary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                          ),
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         p.descripcion,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 15),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         'Cód: ${p.codigo}  •  ${p.marca}',
-                        style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: colorScheme.onSurfaceVariant),
                       ),
                     ],
                   ),
@@ -770,7 +795,8 @@ class _ProductoCard extends StatelessWidget {
                   onPressed: onToggleFavorito,
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
                     color: stockColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(999),

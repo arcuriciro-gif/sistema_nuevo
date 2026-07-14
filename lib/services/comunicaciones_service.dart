@@ -331,10 +331,17 @@ class ComunicacionesService extends ChangeNotifier {
         final ref = FirebaseStorage.instance.ref().child(
               'tenants/$tenant/chats/$conversacionId/${p.basename(dest.path)}',
             );
-        await ref.putFile(dest);
+        await ref.putFile(
+          dest,
+          SettableMetadata(contentType: mime),
+        );
         pathGuardado = await ref.getDownloadURL();
       } catch (e) {
         debugPrint('upload storage: $e');
+        throw StateError(
+          'No se pudo subir el archivo a la nube. '
+          'Revisá la conexión e intentá de nuevo.',
+        );
       }
     }
 

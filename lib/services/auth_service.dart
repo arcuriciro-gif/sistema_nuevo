@@ -15,6 +15,7 @@ import '../models/usuario.dart';
 import '../repositories/firestore_usuario_repository.dart';
 import '../repositories/sqlite_usuario_repository.dart';
 import 'app_log.dart';
+import 'biometric_auth_service.dart';
 
 class AuthService {
   static final AuthService instance = AuthService._();
@@ -470,7 +471,7 @@ class AuthService {
     return sesion;
   }
 
-  Future<void> logout() async {
+  Future<void> logout({bool olvidarHuella = false}) async {
     await _registrarAudit(
       'LOGOUT',
       'Cierre de sesión',
@@ -480,11 +481,92 @@ class AuthService {
     currentUser = null;
     _ultimaPasswordIngresada = null;
     await FirestoreSyncService.instance.stop();
+    if (olvidarHuella) {
+      await BiometricAuthService.instance.desactivar();
+    }
     if (FirebaseAuthUsuarioService.instance.disponible) {
       try {
         await FirebaseAuthUsuarioService.instance.cerrarSesion();
       } catch (_) {}
     }
+  }
+
+  /// Restaura la sesión local tras biometría (el usuario ya se había logueado).
+  Future<Usuario> loginConHuella() async {
+    lastLoginError = null;
+    final bio = BiometricAuthService.instance;
+    if (!await bio.estaActivada()) {
+      throw StateError(
+        'El desbloqueo biométrico no está activado. '
+        'Entrá con usuario y activalo en Mi perfil.',
+      );
+    }
+    final ok = await bio.autenticar(
+      motivo: 'Entrar a Tata.Manager con huella, rostro o desbloqueo del celular',
+    );
+    if (!ok) {
+      throw StateError('No se pudo verificar la identidad.');
+    }
+    final userId = await bio.usuarioIdGuardado();
+    if (userId == null) {
+      throw StateError('No hay usuario guardado para biometría.');
+    }
+    final sqlite = SqliteUsuarioRepository();
+    final user = await sqlite.buscarPorId(userId);
+    if (user == null) {
+      await bio.desactivar();
+      throw StateError('El usuario ya no existe. Entrá de nuevo.');
+    }
+    if (!user.activo) {
+      throw StateError('Tu usuario no está activo.');
+    }
+
+    final ahora = DateTime.now();
+    final sesion = user.copyWith(ultimoAcceso: ahora);
+    await sqlite.actualizar(sesion);
+    currentUser = sesion;
+
+    final uidActual = FirebaseAuthUsuarioService.instance.uidActual;
+    if (uidActual != null) {
+      try {
+        await FirestoreSyncService.instance.start();
+      } catch (_) {}
+    }
+
+    await _registrarAudit(
+      'LOGIN_BIOMETRIA',
+      'Inicio de sesión con biometría',
+      tablaAfectada: 'usuarios',
+      valorNuevo: jsonEncode({
+        'usuario': currentUser?.usuario,
+        'rol': currentUser?.rol,
+      }),
+    );
+    return sesion;
+  }
+
+  /// Ofrece guardar el usuario actual para desbloqueo biométrico.
+  Future<void> activarDesbloqueoHuella() async {
+    final u = currentUser;
+    if (u?.id == null) {
+      throw StateError('Tenés que estar logueado.');
+    }
+    final bio = BiometricAuthService.instance;
+    if (!await bio.dispositivoSoporta()) {
+      throw StateError('Este dispositivo no soporta biometría / desbloqueo.');
+    }
+    if (!await bio.tieneHuellaOBiometria()) {
+      throw StateError(
+        'Configurá huella, rostro o PIN/patrón en Ajustes del celular y reintentá.',
+      );
+    }
+    final ok = await bio.autenticar(
+      motivo: 'Confirmá para activar el desbloqueo rápido',
+    );
+    if (!ok) {
+      throw StateError('No se confirmó la identidad.');
+    }
+    await bio.activarParaUsuario(u!.id!);
   }
 
   Future<void> completarCambioPasswordObligatorio(String passwordNueva) async {

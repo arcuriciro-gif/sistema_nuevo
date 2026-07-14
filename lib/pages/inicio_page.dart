@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/utils/media_path.dart';
 import '../models/producto.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
@@ -13,7 +14,11 @@ import '../services/producto_service.dart';
 import '../services/remito_service.dart';
 import '../theme/module_app_bar.dart';
 import 'clientes_deudores_page.dart';
+import 'clientes_page.dart';
+import 'compras_page.dart';
 import 'productos_page.dart';
+import 'remitos_page.dart';
+import 'ventas_page.dart';
 
 class InicioPage extends StatefulWidget {
   const InicioPage({super.key});
@@ -189,11 +194,6 @@ class _InicioPageState extends State<InicioPage> {
                             ],
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.refresh_rounded),
-                          onPressed: _cargar,
-                          tooltip: 'Actualizar',
-                        ),
                       ],
                     ),
                     const SizedBox(height: 20),
@@ -214,60 +214,114 @@ class _InicioPageState extends State<InicioPage> {
                               value: _fmt(_totalProductos),
                               icon: Icons.inventory_2_rounded,
                               color: const Color(0xFF8B5CF6),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const ProductosPage(),
+                                  ),
+                                ).then((_) => _cargar());
+                              },
                             ),
                             _KpiCard(
                               title: 'Stock total',
                               value: _fmt(_stockTotal),
                               icon: Icons.layers_rounded,
                               color: const Color(0xFF22C55E),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const ProductosPage(),
+                                  ),
+                                ).then((_) => _cargar());
+                              },
                             ),
                             _KpiCard(
                               title: 'Valor stock',
                               value: '\$${_fmt(_valorStock)}',
                               icon: Icons.attach_money_rounded,
                               color: const Color(0xFF3B82F6),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const ProductosPage(),
+                                  ),
+                                ).then((_) => _cargar());
+                              },
                             ),
                             _KpiCard(
                               title: 'Sin stock',
                               value: _fmt(_sinStock),
                               icon: Icons.warning_amber_rounded,
                               color: const Color(0xFFEF4444),
-                              onTap: _sinStock == 0
-                                  ? null
-                                  : () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => const ProductosPage(
-                                            soloSinStockInicial: true,
-                                          ),
-                                        ),
-                                      ).then((_) => _cargar());
-                                    },
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const ProductosPage(
+                                      soloSinStockInicial: true,
+                                    ),
+                                  ),
+                                ).then((_) => _cargar());
+                              },
                             ),
                             _KpiCard(
                               title: 'Clientes',
                               value: _fmt(_totalClientes),
                               icon: Icons.groups_rounded,
                               color: const Color(0xFF0891B2),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const ClientesPage(),
+                                  ),
+                                ).then((_) => _cargar());
+                              },
                             ),
                             _KpiCard(
                               title: 'Remitos totales',
                               value: _fmt(_totalRemitos),
                               icon: Icons.description_rounded,
                               color: const Color(0xFFF59E0B),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const RemitosPage(),
+                                  ),
+                                ).then((_) => _cargar());
+                              },
                             ),
                             _KpiCard(
                               title: 'Ventas del mes',
                               value: '\$${_fmt(_ventasMes)}',
                               icon: Icons.payments_rounded,
                               color: const Color(0xFF16A34A),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const VentasPage(),
+                                  ),
+                                ).then((_) => _cargar());
+                              },
                             ),
                             _KpiCard(
                               title: 'Compras del mes',
                               value: '\$${_fmt(_comprasMes)}',
                               icon: Icons.shopping_cart_rounded,
                               color: const Color(0xFF7C3AED),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const ComprasPage(),
+                                  ),
+                                ).then((_) => _cargar());
+                              },
                             ),
                           ],
                         );
@@ -357,16 +411,23 @@ class _InicioPageState extends State<InicioPage> {
                                   dense: true,
                                   leading: CircleAvatar(
                                     backgroundColor: cs.primaryContainer,
-                                    child: Text(
-                                      p.codigo.isNotEmpty
-                                          ? p.codigo[0].toUpperCase()
-                                          : '?',
-                                      style: TextStyle(
-                                        color: cs.primary,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                      ),
+                                    backgroundImage: imageProviderDesdePath(
+                                      p.fotoPrincipal,
                                     ),
+                                    child: imageProviderDesdePath(
+                                              p.fotoPrincipal) ==
+                                            null
+                                        ? Text(
+                                            p.codigo.isNotEmpty
+                                                ? p.codigo[0].toUpperCase()
+                                                : '?',
+                                            style: TextStyle(
+                                              color: cs.primary,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                            ),
+                                          )
+                                        : null,
                                   ),
                                   title: Text(p.descripcion),
                                   subtitle: Text('${p.codigo} · ${p.marca}'),

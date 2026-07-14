@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -9,6 +10,7 @@ import '../config/backend_config_service.dart';
 import '../events/data_refresh_hub.dart';
 import '../firebase/firebase_auth_usuario_service.dart';
 import '../firebase/firebase_bootstrap.dart';
+import '../utils/media_path.dart';
 import 'media_sync_service.dart';
 import '../../database/database_helper.dart';
 import '../../models/cliente.dart';
@@ -98,8 +100,32 @@ class FirestoreSyncService {
         _aplicarDocumentosRemotos,
         onError: (Object error) => debugPrint('Sync documentos: $error'),
       );
+      // Re-sube fotos locales pendientes (p.ej. tomadas offline o falló Storage).
+      unawaited(_reintentarFotosLocalesPendientes());
     } catch (e, st) {
       debugPrint('FirestoreSyncService.start falló: $e\n$st');
+    }
+  }
+
+  Future<void> _reintentarFotosLocalesPendientes() async {
+    if (!_puedeEscribirRemoto) return;
+    try {
+      final todos = await _cache.obtenerTodos(limit: 10000);
+      for (final p in todos) {
+        if (p.id == null) continue;
+        final locales = p.todasLasFotos.where((f) {
+          if (f.isEmpty || esUrlRemota(f)) return false;
+          try {
+            return File(f).existsSync();
+          } catch (_) {
+            return false;
+          }
+        }).toList();
+        if (locales.isEmpty) continue;
+        await subirProductoPorId(p.id!);
+      }
+    } catch (e) {
+      debugPrint('Reintento fotos locales: $e');
     }
   }
 
@@ -995,6 +1021,37 @@ class FirestoreSyncService {
     }
   }
 
+  /// Evita guardar en SQLite rutas locales de OTRO dispositivo (foto rota).
+  Producto _fusionarProductoRemoto(Producto remoto, Producto? local) {
+    final urls = remoto.todasLasFotos.where(esUrlRemota).toList();
+    if (urls.isNotEmpty) {
+      return remoto.copyWith(
+        id: local?.id,
+        foto: urls.first,
+        fotos: urls,
+      );
+    }
+    if (local != null) {
+      final localesUsables = local.todasLasFotos.where((f) {
+        if (f.isEmpty) return false;
+        if (esUrlRemota(f)) return true;
+        try {
+          return File(f).existsSync();
+        } catch (_) {
+          return false;
+        }
+      }).toList();
+      if (localesUsables.isNotEmpty) {
+        return remoto.copyWith(
+          id: local.id,
+          foto: localesUsables.first,
+          fotos: localesUsables,
+        );
+      }
+    }
+    return remoto.copyWith(id: local?.id, foto: '', fotos: <String>[]);
+  }
+
   Future<void> _aplicarProductosRemotos(List<Producto> remotos) async {
     if (_sincronizando) return;
     _sincronizando = true;
@@ -1003,7 +1060,7 @@ class FirestoreSyncService {
       final batch = db.batch();
       for (final producto in remotos) {
         final local = await _cache.buscarPorCodigo(producto.codigo);
-        final merged = producto.copyWith(id: local?.id);
+        final merged = _fusionarProductoRemoto(producto, local);
         final data = merged.toMap();
         if (local?.id != null) {
           batch.update(
@@ -1034,12 +1091,50 @@ class _DualProductoRepository implements ProductoRepository {
   final SqliteProductoRepository local;
   final FirestoreProductoRepository remote;
 
+  /// Sube fotos a Storage y deja en Firestore solo URLs https.
+  /// Si el upload falla, preserva las URLs que ya estaban en la nube.
+  Future<Producto> _paraFirestore(Producto producto) async {
+    final sincronizado = await MediaSyncService.instance.sincronizarFotosProducto(
+      producto.codigo,
+      producto.todasLasFotos,
+    );
+    var actual = producto;
+    if (sincronizado.isNotEmpty) {
+      actual = producto.copyWith(
+        foto: sincronizado.first,
+        fotos: sincronizado,
+      );
+      final huboUrl = sincronizado.any(esUrlRemota);
+      if (huboUrl && actual.id != null) {
+        try {
+          await local.actualizar(actual);
+        } catch (_) {}
+      }
+    }
+    final urls = MediaSyncService.instance.soloUrlsRemotas(actual.todasLasFotos);
+    if (urls.isNotEmpty) {
+      return actual.copyWith(foto: urls.first, fotos: urls);
+    }
+    try {
+      final remoto = await remote.buscarPorCodigo(producto.codigo);
+      final urlsRemotas =
+          remoto?.todasLasFotos.where(esUrlRemota).toList() ?? const [];
+      if (urlsRemotas.isNotEmpty) {
+        return actual.copyWith(
+          foto: urlsRemotas.first,
+          fotos: urlsRemotas,
+        );
+      }
+    } catch (_) {}
+    return actual.copyWith(foto: '', fotos: <String>[]);
+  }
+
   @override
   Future<int> insertar(Producto producto) async {
     final id = await local.insertar(producto);
     final conId = producto.copyWith(id: id);
     try {
-      await remote.insertar(conId);
+      await remote.insertar(await _paraFirestore(conId));
     } catch (error) {
       debugPrint('Firestore insertar producto: $error');
     }
@@ -1050,7 +1145,11 @@ class _DualProductoRepository implements ProductoRepository {
   Future<void> insertarLista(List<Producto> productos) async {
     await local.insertarLista(productos);
     try {
-      await remote.insertarLista(productos);
+      final remotos = <Producto>[];
+      for (final p in productos) {
+        remotos.add(await _paraFirestore(p));
+      }
+      await remote.insertarLista(remotos);
     } catch (error) {
       debugPrint('Firestore insertarLista productos: $error');
     }
@@ -1075,7 +1174,7 @@ class _DualProductoRepository implements ProductoRepository {
   Future<int> actualizar(Producto producto) async {
     final result = await local.actualizar(producto);
     try {
-      await remote.actualizar(producto);
+      await remote.actualizar(await _paraFirestore(producto));
     } catch (error) {
       debugPrint('Firestore actualizar producto: $error');
     }

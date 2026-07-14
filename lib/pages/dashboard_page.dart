@@ -13,7 +13,12 @@ import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
 import 'clientes_deudores_page.dart';
+import 'clientes_page.dart';
+import 'compras_page.dart';
 import 'productos_page.dart';
+import 'proveedores_page.dart';
+import 'remitos_page.dart';
+import 'ventas_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -237,42 +242,48 @@ class _DashboardPageState extends State<DashboardPage> {
     final labelColor = Theme.of(context).colorScheme.onSurfaceVariant;
 
     return Card(
-      elevation: 3,
+      elevation: 1,
+      margin: EdgeInsets.zero,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
             children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: color.withValues(alpha: .15),
-                    radius: 20,
-                    child: Icon(icono, color: color, size: 20),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      titulo,
-                      style: TextStyle(fontSize: 13, color: labelColor),
-                    ),
-                  ),
-                  if (onTap != null)
-                    Icon(Icons.chevron_right_rounded, color: labelColor),
-                ],
+              CircleAvatar(
+                backgroundColor: color.withValues(alpha: .15),
+                radius: 16,
+                child: Icon(icono, color: color, size: 16),
               ),
-              const SizedBox(height: 12),
-              Text(
-                valor,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: color,
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      titulo,
+                      style: TextStyle(fontSize: 12, color: labelColor),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      valor,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
               ),
+              if (onTap != null)
+                Icon(Icons.chevron_right_rounded, color: labelColor, size: 18),
             ],
           ),
         ),
@@ -503,111 +514,195 @@ class _DashboardPageState extends State<DashboardPage> {
                       crossAxisCount: 2,
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: 1.2,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 8,
+                      childAspectRatio: 2.6,
                       children: [
                         _statCard(
                           titulo: 'Productos',
                           valor: '$totalProductos',
                           icono: Icons.inventory_2_rounded,
                           color: productosColor,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ProductosPage(),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                         _statCard(
                           titulo: 'Clientes',
                           valor: '$totalClientes',
                           icono: Icons.groups_rounded,
                           color: clientesColor,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ClientesPage(),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                         _statCard(
                           titulo: 'Remitos',
                           valor: '$totalRemitos',
                           icono: Icons.description_rounded,
                           color: remitosColor,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const RemitosPage(),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                         _statCard(
                           titulo: 'Proveedores activos',
                           valor: '$totalProveedores',
                           icono: Icons.local_shipping_rounded,
                           color: AppVisuals.info(colorScheme),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ProveedoresPage(),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                         _statCard(
                           titulo: 'Ventas del día',
                           valor: '\$${ventasHoy.toStringAsFixed(0)}',
                           icono: Icons.today_rounded,
                           color: ventasColor,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const VentasPage(),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                         _statCard(
                           titulo: 'Ventas del mes',
                           valor: '\$${ventasMes.toStringAsFixed(0)}',
                           icono: Icons.calendar_month_rounded,
                           color: ventasColor,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const VentasPage(),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                         _statCard(
                           titulo: 'Compras del mes',
                           valor: '\$${comprasMes.toStringAsFixed(0)}',
                           icono: Icons.shopping_cart_rounded,
                           color: stockColor,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ComprasPage(),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                         _statCard(
                           titulo: 'Productos críticos',
                           valor: '$productosCriticos',
                           icono: Icons.warning_amber_rounded,
                           color: sinStockColor,
-                          onTap: productosCriticos == 0
-                              ? null
-                              : () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const ProductosPage(
-                                        soloStockBajoInicial: true,
-                                      ),
-                                    ),
-                                  ).then((_) => cargar());
-                                },
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ProductosPage(
+                                  soloStockBajoInicial: true,
+                                ),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                         _statCard(
                           titulo: 'Productos sin stock',
                           valor: '$productosSinStock',
                           icono: Icons.remove_shopping_cart_rounded,
                           color: sinStockColor,
-                          onTap: productosSinStock == 0
-                              ? null
-                              : () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const ProductosPage(
-                                        soloSinStockInicial: true,
-                                      ),
-                                    ),
-                                  ).then((_) => cargar());
-                                },
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ProductosPage(
+                                  soloSinStockInicial: true,
+                                ),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                         _statCard(
                           titulo: 'Ganancia del mes',
                           valor: '\$${gananciaMes.toStringAsFixed(0)}',
                           icono: Icons.trending_up_rounded,
                           color: AppVisuals.success(colorScheme),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const VentasPage(),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                         _statCard(
                           titulo: 'Ganancia total',
                           valor: '\$${gananciaTotal.toStringAsFixed(0)}',
                           icono: Icons.savings_rounded,
                           color: AppVisuals.success(colorScheme),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const VentasPage(),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                         _statCard(
                           titulo: 'Bajo margen (<15%)',
                           valor: '$productosBajoMargen',
                           icono: Icons.percent_rounded,
                           color: AppVisuals.warning(colorScheme),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ProductosPage(),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                         _statCard(
                           titulo: 'Total ventas',
                           valor: '\$${totalVentas.toStringAsFixed(0)}',
                           icono: Icons.payments_rounded,
                           color: ventasColor,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const VentasPage(),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                       ],
                     ),

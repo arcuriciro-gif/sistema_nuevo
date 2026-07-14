@@ -5,7 +5,6 @@ import '../services/auth_service.dart';
 import '../services/comunicaciones_service.dart';
 import '../theme/module_app_bar.dart';
 import 'chat_page.dart';
-import 'notificaciones_page.dart';
 
 class ComunicacionesPage extends StatefulWidget {
   const ComunicacionesPage({super.key});
@@ -197,20 +196,6 @@ class _ComunicacionesPageState extends State<ComunicacionesPage> {
             tooltip: 'Actualizar',
             icon: const Icon(Icons.refresh_rounded),
             onPressed: () => _svc.refrescar(),
-          ),
-          IconButton(
-            tooltip: 'Notificaciones',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const NotificacionesPage()),
-              );
-            },
-            icon: Badge(
-              isLabelVisible: _svc.notifSinLeer > 0,
-              label: Text('${_svc.notifSinLeer}'),
-              child: const Icon(Icons.notifications_rounded),
-            ),
           ),
           PopupMenuButton<String>(
             onSelected: (v) {

@@ -310,10 +310,17 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
           ],
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(15),
-        child: Column(
-          children: [
+      body: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            15,
+            15,
+            15,
+            24 + MediaQuery.paddingOf(context).bottom,
+          ),
+          child: Column(
+            children: [
             GestureDetector(
               onTap: _guardando ? null : elegirFoto,
               child: CircleAvatar(
@@ -482,6 +489,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );

@@ -10,6 +10,7 @@ import '../services/comunicaciones_service.dart';
 import '../services/cuenta_corriente_service.dart';
 import '../services/permisos_service.dart';
 import '../theme/layout_constants.dart';
+import '../theme/module_app_bar.dart';
 import 'archivo_pdfs_page.dart';
 import 'auditoria_page.dart';
 import 'backup_page.dart';
@@ -46,15 +47,15 @@ import 'venta_rapida_page.dart';
 import '../core/utils/media_path.dart';
 
 // ── Paleta fija para la barra lateral oscura ──────────────────────────────────
-const Color _kSidebarBg = Color(0xFF111827);
-const Color _kSidebarBorder = Color(0xFF1F2937);
-const Color _kSidebarHeaderBorder = Color(0xFF374151);
+const Color _kSidebarBg = Color(0xFF000000);
+const Color _kSidebarBorder = Color(0xFF1A1A1A);
+const Color _kSidebarHeaderBorder = Color(0xFF2A2A2A);
 const Color _kSidebarSelectedBg = Color(0xFFFF7A00);
 const Color _kSidebarSelectedIcon = Colors.white;
 const Color _kSidebarSelectedText = Colors.white;
 const Color _kSidebarInactiveIcon = Color(0xFF9CA3AF);
 const Color _kSidebarInactiveText = Color(0xFFD1D5DB);
-const Color _kSidebarUserBg = Color(0xFF1F2937);
+const Color _kSidebarUserBg = Color(0xFF141414);
 const Color _kSidebarSubtext = Color(0xFF6B7280);
 
 class _ShellItem {
@@ -128,10 +129,17 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
-          icon: Icons.query_stats_rounded,
-          title: 'Dashboard',
-          modulo: 'dashboard',
-          builder: () => const DashboardPage(),
+          icon: Icons.point_of_sale_rounded,
+          title: 'Venta Rápida',
+          modulo: 'remitos',
+          builder: () => const VentaRapidaPage(),
+          quickAccess: true,
+        ),
+        _ShellItem(
+          icon: Icons.inventory_2_rounded,
+          title: 'Productos',
+          modulo: 'productos',
+          builder: () => const ProductosPage(),
           quickAccess: true,
         ),
         _ShellItem(
@@ -142,11 +150,10 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
-          icon: Icons.inventory_2_rounded,
-          title: 'Productos',
-          modulo: 'productos',
-          builder: () => const ProductosPage(),
-          quickAccess: true,
+          icon: Icons.query_stats_rounded,
+          title: 'Dashboard',
+          modulo: 'dashboard',
+          builder: () => const DashboardPage(),
         ),
         _ShellItem(
           icon: Icons.delete_outline_rounded,
@@ -159,13 +166,6 @@ class _MainShellState extends State<MainShell> {
           title: 'Categorías',
           modulo: 'productos',
           builder: () => const CategoriasPage(),
-        ),
-        _ShellItem(
-          icon: Icons.point_of_sale_rounded,
-          title: 'Venta Rápida',
-          modulo: 'remitos',
-          builder: () => const VentaRapidaPage(),
-          quickAccess: true,
         ),
         _ShellItem(
           icon: Icons.receipt_long_rounded,
@@ -182,7 +182,6 @@ class _MainShellState extends State<MainShell> {
             titulo: 'Presupuestos',
             tipos: {'presupuesto': 'Presupuesto'},
           ),
-          quickAccess: true,
         ),
         _ShellItem(
           icon: Icons.local_shipping_outlined,
@@ -237,28 +236,24 @@ class _MainShellState extends State<MainShell> {
           title: 'Remitos',
           modulo: 'remitos',
           builder: () => const RemitosPage(),
-          quickAccess: true,
         ),
         _ShellItem(
           icon: Icons.groups_rounded,
           title: 'Clientes',
           modulo: 'clientes',
           builder: () => const ClientesPage(),
-          quickAccess: true,
         ),
         _ShellItem(
           icon: Icons.folder_shared_rounded,
           title: 'Archivo PDF',
           modulo: 'clientes',
           builder: () => const ArchivoPdfsPage(),
-          quickAccess: true,
         ),
         _ShellItem(
           icon: Icons.account_balance_wallet_rounded,
           title: 'Cuenta corriente',
           modulo: 'clientes',
           builder: () => const ClientesDeudoresPage(),
-          quickAccess: true,
         ),
         _ShellItem(
           icon: Icons.local_shipping_rounded,
@@ -301,7 +296,6 @@ class _MainShellState extends State<MainShell> {
           title: 'Mi perfil',
           modulo: 'dashboard',
           builder: () => const PerfilUsuarioPage(),
-          quickAccess: true,
         ),
         _ShellItem(
           icon: Icons.people_alt_rounded,
@@ -353,13 +347,39 @@ class _MainShellState extends State<MainShell> {
   }
 
   Future<void> _logout() async {
+    final olvidar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cerrar sesión'),
+        content: const Text(
+          '¿También querés desactivar el desbloqueo biométrico en este dispositivo?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Solo salir'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Salir y olvidar'),
+          ),
+        ],
+      ),
+    );
+    if (olvidar == null) return;
     await ComunicacionesService.instance.detener();
-    await AuthService.instance.logout();
+    await AuthService.instance.logout(olvidarHuella: olvidar);
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginPage()),
       (_) => false,
     );
+  }
+
+  void _irAInicio() {
+    final items = _visibleItems;
+    final idx = items.indexWhere((e) => e.title == 'Inicio');
+    if (idx >= 0) _select(idx);
   }
 
   Future<void> _abrirBusqueda({required bool desktop}) async {
@@ -469,13 +489,13 @@ class _MainShellState extends State<MainShell> {
         const SingleActivator(LogicalKeyboardKey.digit1, control: true): () =>
             _irAModulo('Inicio'),
         const SingleActivator(LogicalKeyboardKey.digit2, control: true): () =>
-            _irAModulo('Dashboard'),
+            _irAModulo('Venta Rápida'),
         const SingleActivator(LogicalKeyboardKey.digit3, control: true): () =>
             _irAModulo('Productos'),
         const SingleActivator(LogicalKeyboardKey.digit4, control: true): () =>
-            _irAModulo('Venta Rápida'),
+            _irAModulo('Comunicaciones'),
         const SingleActivator(LogicalKeyboardKey.digit5, control: true): () =>
-            _irAModulo('Remitos'),
+            _irAModulo('Ventas / Facturas'),
         const SingleActivator(LogicalKeyboardKey.keyH, control: true): () {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -505,34 +525,52 @@ class _MainShellState extends State<MainShell> {
   Widget _buildDesktopLayout() {
     final items = _visibleItems;
     final index = _safeIndex(items);
-    return Scaffold(
-      body: Column(
-        children: [
-          _TopBar(
-            onSearch: () => _abrirBusqueda(desktop: true),
-            onLogout: _logout,
-          ),
-          Expanded(
-            child: Row(
-              children: [
-                _Sidebar(
-                  selectedIndex: index,
-                  items: items,
-                  onTap: _select,
-                  onLogout: _logout,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+          return;
+        }
+        _irAInicio();
+      },
+      child: ShellHost(
+        embedded: true,
+        goHome: _irAInicio,
+        child: Scaffold(
+          body: Column(
+            children: [
+              _TopBar(
+                onSearch: () => _abrirBusqueda(desktop: true),
+                onLogout: _logout,
+                onHome: _irAInicio,
+              ),
+              Expanded(
+                child: Row(
+                  children: [
+                    _Sidebar(
+                      selectedIndex: index,
+                      items: items,
+                      onTap: _select,
+                      onLogout: _logout,
+                    ),
+                    Expanded(
+                      child: items.isEmpty
+                          ? const Center(child: Text('Sin módulos disponibles'))
+                          : IndexedStack(
+                              index: index,
+                              children: [
+                                for (final item in items) item.builder()
+                              ],
+                            ),
+                    ),
+                  ],
                 ),
-                Expanded(
-                  child: items.isEmpty
-                      ? const Center(child: Text('Sin módulos disponibles'))
-                      : IndexedStack(
-                          index: index,
-                          children: [for (final item in items) item.builder()],
-                        ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -544,108 +582,141 @@ class _MainShellState extends State<MainShell> {
     final quickItems = items.where((item) => item.quickAccess).take(4).toList();
     final cs = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          current?.title ?? 'EL TATA Manager',
-          style: TextStyle(
-            color: cs.onSurface,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const NotificacionesPage()),
-              );
-            },
-            icon: Badge(
-              isLabelVisible: ComunicacionesService.instance.badgeTotal > 0,
-              label: Text('${ComunicacionesService.instance.badgeTotal}'),
-              child: const Icon(Icons.notifications_rounded),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+          return;
+        }
+        if (current?.title != 'Inicio') {
+          _irAInicio();
+          return;
+        }
+      },
+      child: ShellHost(
+        embedded: true,
+        goHome: _irAInicio,
+        child: Scaffold(
+          appBar: AppBar(
+            leading: IconButton(
+              tooltip: 'Inicio',
+              icon: const Icon(Icons.home_rounded),
+              onPressed: _irAInicio,
             ),
-            tooltip: 'Notificaciones',
-          ),
-          IconButton(
-            onPressed: () => _abrirBusqueda(desktop: false),
-            icon: const Icon(Icons.search_rounded),
-            tooltip: 'Búsqueda global',
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: InkWell(
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const PerfilUsuarioPage()),
-                );
-              },
-              borderRadius: BorderRadius.circular(20),
-              child: CircleAvatar(
-                radius: 16,
-                backgroundColor: cs.primaryContainer,
-                backgroundImage: imageProviderDesdePath(
-                  AuthService.instance.currentUser?.foto,
-                ),
-                child: (AuthService.instance.currentUser?.foto ?? '').isEmpty
-                    ? Text(
-                        (AuthService.instance.currentUser?.nombre ?? 'A')
-                            .substring(0, 1)
-                            .toUpperCase(),
-                        style: TextStyle(
-                          color: cs.onPrimaryContainer,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      )
-                    : null,
+            title: Text(
+              current?.title ?? 'EL TATA Manager',
+              style: TextStyle(
+                color: cs.onSurface,
+                fontWeight: FontWeight.w700,
               ),
             ),
+            centerTitle: true,
+            actions: [
+              IconButton(
+                onPressed: () => _abrirBusqueda(desktop: false),
+                icon: const Icon(Icons.search_rounded),
+                tooltip: 'Búsqueda global',
+              ),
+              IconButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const NotificacionesPage(),
+                    ),
+                  );
+                },
+                icon: Badge(
+                  isLabelVisible:
+                      ComunicacionesService.instance.badgeTotal > 0,
+                  label:
+                      Text('${ComunicacionesService.instance.badgeTotal}'),
+                  child: const Icon(Icons.notifications_rounded),
+                ),
+                tooltip: 'Notificaciones',
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: InkWell(
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const PerfilUsuarioPage(),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(20),
+                  child: CircleAvatar(
+                    radius: 16,
+                    backgroundColor: cs.primaryContainer,
+                    backgroundImage: imageProviderDesdePath(
+                      AuthService.instance.currentUser?.foto,
+                    ),
+                    child:
+                        (AuthService.instance.currentUser?.foto ?? '').isEmpty
+                            ? Text(
+                                (AuthService.instance.currentUser?.nombre ??
+                                        'A')
+                                    .substring(0, 1)
+                                    .toUpperCase(),
+                                style: TextStyle(
+                                  color: cs.onPrimaryContainer,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              )
+                            : null,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-      drawer: Drawer(
-        backgroundColor: _kSidebarBg,
-        width: 260,
-        child: _SidebarContent(
-          selectedIndex: index,
-          items: items,
-          onTap: (i) {
-            Navigator.of(context).pop();
-            _select(i);
-          },
-          onLogout: _logout,
+          drawer: Drawer(
+            backgroundColor: _kSidebarBg,
+            width: 260,
+            child: _SidebarContent(
+              selectedIndex: index,
+              items: items,
+              onTap: (i) {
+                Navigator.of(context).pop();
+                _select(i);
+              },
+              onLogout: _logout,
+            ),
+          ),
+          body: items.isEmpty
+              ? const Center(child: Text('Sin módulos disponibles'))
+              : IndexedStack(
+                  index: index,
+                  children: [for (final item in items) item.builder()],
+                ),
+          bottomNavigationBar: quickItems.isEmpty
+              ? null
+              : SafeArea(
+                  top: false,
+                  child: BottomNavigationBar(
+                    backgroundColor: cs.surfaceContainerLow,
+                    selectedItemColor: cs.primary,
+                    unselectedItemColor: cs.onSurfaceVariant,
+                    type: BottomNavigationBarType.fixed,
+                    currentIndex: quickItems.contains(current)
+                        ? quickItems.indexOf(current!)
+                        : 0,
+                    onTap: (i) => _select(items.indexOf(quickItems[i])),
+                    items: quickItems
+                        .map(
+                          (item) => BottomNavigationBarItem(
+                            icon: Icon(item.icon),
+                            label: item.title,
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
         ),
       ),
-      body: items.isEmpty
-          ? const Center(child: Text('Sin módulos disponibles'))
-          : IndexedStack(
-              index: index,
-              children: [for (final item in items) item.builder()],
-            ),
-      bottomNavigationBar: quickItems.isEmpty
-          ? null
-          : SafeArea(
-              top: false,
-              child: BottomNavigationBar(
-              backgroundColor: cs.surfaceContainerLow,
-              selectedItemColor: cs.primary,
-              unselectedItemColor: cs.onSurfaceVariant,
-              type: BottomNavigationBarType.fixed,
-              currentIndex: quickItems.contains(current) ? quickItems.indexOf(current!) : 0,
-              onTap: (i) => _select(items.indexOf(quickItems[i])),
-              items: quickItems
-                  .map(
-                    (item) => BottomNavigationBarItem(
-                      icon: Icon(item.icon),
-                      label: item.title,
-                    ),
-                  )
-                  .toList(),
-            ),
-            ),
     );
   }
 }
@@ -722,14 +793,14 @@ class _SidebarContent extends StatelessWidget {
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: const Color(0xFF3B82F6),
+                      color: const Color(0xFF3A3A3A),
                       width: 1.5,
                     ),
-                    color: const Color(0xFF1E3A5F),
+                    color: const Color(0xFF1A1A1A),
                   ),
                   child: const Icon(
                     Icons.store_rounded,
-                    color: Color(0xFF93C5FD),
+                    color: Colors.white70,
                     size: 28,
                   ),
                 ),
@@ -875,8 +946,13 @@ class _SidebarContent extends StatelessWidget {
 class _TopBar extends StatelessWidget {
   final VoidCallback onSearch;
   final VoidCallback onLogout;
+  final VoidCallback onHome;
 
-  const _TopBar({required this.onSearch, required this.onLogout});
+  const _TopBar({
+    required this.onSearch,
+    required this.onLogout,
+    required this.onHome,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -886,24 +962,28 @@ class _TopBar extends StatelessWidget {
     final userInitial = userName.substring(0, 1).toUpperCase();
 
     return Container(
-  height: 56,
-  padding: const EdgeInsets.symmetric(horizontal: 16),
-  decoration: const BoxDecoration(
-    color: _kSidebarBg,
-    border: Border(
-      bottom: BorderSide(color: _kSidebarBorder),
-    ),
-  ),
-  child: Row(
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: const BoxDecoration(
+        color: _kSidebarBg,
+        border: Border(
+          bottom: BorderSide(color: _kSidebarBorder),
+        ),
+      ),
+      child: Row(
         children: [
-          // Logo / nombre del negocio
+          IconButton(
+            tooltip: 'Inicio',
+            onPressed: onHome,
+            icon: const Icon(Icons.home_rounded, color: Colors.white),
+          ),
           if (logoPath.isNotEmpty)
             CircleAvatar(
               radius: 16,
               backgroundImage: FileImage(File(logoPath)),
             )
           else
-            const Icon(Icons.store_rounded, color: Color(0xFF93C5FD), size: 22),
+            const Icon(Icons.store_rounded, color: Colors.white70, size: 22),
           const SizedBox(width: 10),
           Text(
             branding.nombre,
@@ -914,21 +994,21 @@ class _TopBar extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          // Buscador global
           GestureDetector(
             onTap: onSearch,
             child: Container(
               height: 34,
               width: 220,
               decoration: BoxDecoration(
-                color: const Color(0xFF1F2937),
+                color: const Color(0xFF1A1A1A),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: _kSidebarHeaderBorder),
               ),
               child: const Row(
                 children: [
                   SizedBox(width: 10),
-                  Icon(Icons.search_rounded, color: _kSidebarInactiveIcon, size: 17),
+                  Icon(Icons.search_rounded,
+                      color: _kSidebarInactiveIcon, size: 17),
                   SizedBox(width: 8),
                   Text(
                     'Buscar productos...',
@@ -939,7 +1019,6 @@ class _TopBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          // Notificaciones
           IconButton(
             icon: Badge(
               isLabelVisible: ComunicacionesService.instance.badgeTotal > 0,
@@ -949,13 +1028,13 @@ class _TopBar extends StatelessWidget {
             color: _kSidebarInactiveIcon,
             tooltip: 'Notificaciones',
             onPressed: () {
-              Navigator.of(context).push(
+              Navigator.push(
+                context,
                 MaterialPageRoute(builder: (_) => const NotificacionesPage()),
               );
             },
           ),
           const SizedBox(width: 4),
-          // Usuario
           InkWell(
             onTap: () {
               Navigator.of(context).push(
@@ -963,46 +1042,33 @@ class _TopBar extends StatelessWidget {
               );
             },
             borderRadius: BorderRadius.circular(20),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 15,
-                  backgroundColor: const Color(0xFF1E3A5F),
-                  backgroundImage: imageProviderDesdePath(
-                    AuthService.instance.currentUser?.foto,
-                  ),
-                  child: (AuthService.instance.currentUser?.foto ?? '').isEmpty
-                      ? Text(
-                          userInitial,
-                          style: const TextStyle(
-                            color: Color(0xFF93C5FD),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        )
-                      : null,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  userName,
-                  style: const TextStyle(
-                    color: _kSidebarInactiveText,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
+            child: CircleAvatar(
+              radius: 16,
+              backgroundColor: const Color(0xFF2A2A2A),
+              backgroundImage: imageProviderDesdePath(
+                AuthService.instance.currentUser?.foto,
+              ),
+              child: (AuthService.instance.currentUser?.foto ?? '').isEmpty
+                  ? Text(
+                      userInitial,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    )
+                  : null,
             ),
           ),
-          const SizedBox(width: 8),
-          // Cerrar sesión
+          const SizedBox(width: 4),
           IconButton(
-            icon: const Icon(Icons.logout_rounded),
-            color: _kSidebarInactiveIcon,
             tooltip: 'Cerrar sesión',
             onPressed: onLogout,
+            icon: const Icon(Icons.logout_rounded, color: _kSidebarInactiveIcon),
           ),
         ],
       ),
     );
   }
 }
+

@@ -126,11 +126,29 @@ class MediaSyncService {
         resultado.add(url);
         i++;
       } else {
-        // Queda la ruta permanente local; se reintentará en el próximo sync.
+        // Queda local en este dispositivo; Dual repo no la manda a Firestore.
         resultado.add(ruta);
       }
     }
     return resultado;
+  }
+
+  /// Solo URLs https para escribir en Firestore (nunca paths de otro dispositivo).
+  List<String> soloUrlsRemotas(List<String> rutas) =>
+      rutas.where(esUrlRemota).toList();
+
+  Future<String?> subirAdjuntoChat({
+    required String conversacionId,
+    required File file,
+    String contentType = 'application/octet-stream',
+  }) async {
+    final nombre = p.basename(file.path);
+    return subirArchivo(
+      storagePath:
+          'tenants/$_tenant/chats/$conversacionId/${const Uuid().v4()}_$nombre',
+      file: file,
+      contentType: contentType,
+    );
   }
 
   Future<String?> subirFotoUsuario({

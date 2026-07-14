@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/chat_conversacion.dart';
 import '../models/chat_mensaje.dart';
+import '../core/utils/media_path.dart';
 import '../services/auth_service.dart';
 import '../services/comunicaciones_service.dart';
 import '../theme/module_app_bar.dart';
@@ -353,16 +354,23 @@ class _ImagenAdjunto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isUrl = path.startsWith('http');
+    final provider = imageProviderDesdePath(path);
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
-        child: isUrl
-            ? Image.network(path, height: 160, fit: BoxFit.cover,
-                errorBuilder: (_, error, stack) => const Icon(Icons.broken_image))
-            : Image.file(File(path), height: 160, fit: BoxFit.cover,
-                errorBuilder: (_, error, stack) => const Icon(Icons.broken_image)),
+        child: provider == null
+            ? const SizedBox(
+                height: 160,
+                child: Center(child: Icon(Icons.broken_image)),
+              )
+            : Image(
+                image: provider,
+                height: 160,
+                fit: BoxFit.cover,
+                errorBuilder: (_, error, stack) =>
+                    const Icon(Icons.broken_image),
+              ),
       ),
     );
   }
