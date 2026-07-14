@@ -80,7 +80,7 @@ class _PerfilUsuarioPageState extends State<PerfilUsuarioPage> {
       }
       await _cargarHuella();
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('$e')));
+      messenger.showSnackBar(SnackBar(content: Text(AuthService.mensajeUsuario(e))));
       await _cargarHuella();
     } finally {
       if (mounted) setState(() => _huellaCambiando = false);

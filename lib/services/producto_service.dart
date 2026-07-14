@@ -35,15 +35,35 @@ class ProductoService {
   }
 
   Future<Producto> _conFotosEnNube(Producto producto) async {
+    final entrantes =
+        producto.todasLasFotos.where((f) => f.isNotEmpty).toList();
+    if (entrantes.isEmpty) return producto;
+
     final fotos = await MediaSyncService.instance.sincronizarFotosProducto(
       producto.codigo,
-      producto.todasLasFotos,
+      entrantes,
     );
     if (fotos.isEmpty) return producto;
-    return producto.copyWith(
-      foto: fotos.first,
-      fotos: fotos,
-    );
+
+    final urls = fotos.where(esUrlRemota).toList();
+    final teniaLocal = entrantes.any((f) => !esUrlRemota(f));
+
+    // Con nube activa, una foto local DEBE subir; si no, avisamos (no “sync silenciosa”).
+    if (MediaSyncService.instance.nubeDisponible &&
+        teniaLocal &&
+        urls.isEmpty) {
+      final detalle =
+          MediaSyncService.instance.lastError ?? 'error desconocido';
+      throw Exception(
+        'No se pudo subir la foto a la nube ($detalle). '
+        'Revisá internet / Configuración → sync e intentá guardar de nuevo.',
+      );
+    }
+
+    if (urls.isNotEmpty) {
+      return producto.copyWith(foto: urls.first, fotos: urls);
+    }
+    return producto.copyWith(foto: fotos.first, fotos: fotos);
   }
 
   /// Re-sube a Storage las fotos que todavía son rutas locales (tras activar nube).

@@ -1,0 +1,12 @@
+rules_version = '2';
+// Desplegar en Firebase Console → Storage → Rules
+// Sin estas reglas las fotos NO suben (los costos en Firestore sí).
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /tenants/{tenantId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.resource.size < 15 * 1024 * 1024;
+    }
+  }
+}

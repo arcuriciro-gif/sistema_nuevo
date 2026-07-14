@@ -241,22 +241,19 @@ class _DashboardPageState extends State<DashboardPage> {
   }) {
     final labelColor = Theme.of(context).colorScheme.onSurfaceVariant;
 
-    return Card(
-      elevation: 1,
-      margin: EdgeInsets.zero,
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest
+          .withValues(alpha: 0.55),
+      borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           child: Row(
             children: [
-              CircleAvatar(
-                backgroundColor: color.withValues(alpha: .15),
-                radius: 16,
-                child: Icon(icono, color: color, size: 16),
-              ),
-              const SizedBox(width: 10),
+              Icon(icono, color: color, size: 16),
+              const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -264,17 +261,17 @@ class _DashboardPageState extends State<DashboardPage> {
                   children: [
                     Text(
                       titulo,
-                      style: TextStyle(fontSize: 12, color: labelColor),
+                      style: TextStyle(fontSize: 10, color: labelColor, height: 1.1),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 2),
                     Text(
                       valor,
                       style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
                         color: color,
+                        height: 1.15,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -283,7 +280,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
               ),
               if (onTap != null)
-                Icon(Icons.chevron_right_rounded, color: labelColor, size: 18),
+                Icon(Icons.chevron_right_rounded, color: labelColor, size: 14),
             ],
           ),
         ),
@@ -510,14 +507,27 @@ class _DashboardPageState extends State<DashboardPage> {
                         const SizedBox(height: 12),
                       ],
                     ],
-                    GridView.count(
-                      crossAxisCount: 2,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      mainAxisSpacing: 8,
-                      crossAxisSpacing: 8,
-                      childAspectRatio: 2.6,
-                      children: [
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final w = constraints.maxWidth;
+                        final cols = w >= 1100
+                            ? 4
+                            : w >= 720
+                                ? 3
+                                : 2;
+                        final aspect = cols >= 4
+                            ? 4.2
+                            : cols == 3
+                                ? 3.6
+                                : 3.2;
+                        return GridView.count(
+                          crossAxisCount: cols,
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          mainAxisSpacing: 6,
+                          crossAxisSpacing: 6,
+                          childAspectRatio: aspect,
+                          children: [
                         _statCard(
                           titulo: 'Productos',
                           valor: '$totalProductos',
@@ -705,6 +715,8 @@ class _DashboardPageState extends State<DashboardPage> {
                           },
                         ),
                       ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 20),
                     Card(

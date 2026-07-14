@@ -505,7 +505,10 @@ class AuthService {
       motivo: 'Entrar a Tata.Manager con huella, rostro o desbloqueo del celular',
     );
     if (!ok) {
-      throw StateError('No se pudo verificar la identidad.');
+      throw Exception(
+        bio.lastError ??
+            'No se pudo verificar la identidad. Probá de nuevo.',
+      );
     }
     final userId = await bio.usuarioIdGuardado();
     if (userId == null) {
@@ -564,9 +567,19 @@ class AuthService {
       motivo: 'Confirmá para activar el desbloqueo rápido',
     );
     if (!ok) {
-      throw StateError('No se confirmó la identidad.');
+      throw Exception(
+        bio.lastError ??
+            'No se confirmó la identidad. Probá de nuevo o usá el PIN del celular.',
+      );
     }
     await bio.activarParaUsuario(u!.id!);
+  }
+
+  /// Mensaje limpio para SnackBars (sin "Bad state:" / "Exception:").
+  static String mensajeUsuario(Object e) {
+    return e
+        .toString()
+        .replaceFirst(RegExp(r'^(Bad state: |Exception: |StateError: )'), '');
   }
 
   Future<void> completarCambioPasswordObligatorio(String passwordNueva) async {

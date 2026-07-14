@@ -770,174 +770,193 @@ class _SidebarContent extends StatelessWidget {
     final branding = BrandingService.instance;
     final logoPath = branding.imagenUiPath;
 
-    return Column(
-      children: [
-        // ── Encabezado (logo + nombre del negocio) ────────────────────────────
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
-          decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: _kSidebarHeaderBorder)),
-          ),
-          child: Column(
-            children: [
-              if (logoPath.isNotEmpty)
-                CircleAvatar(
-                  radius: 30,
-                  backgroundImage: FileImage(File(logoPath)),
-                )
-              else
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: const Color(0xFF3A3A3A),
-                      width: 1.5,
+    return SafeArea(
+      child: Column(
+        children: [
+          // ── Encabezado (logo + nombre del negocio) ────────────────────────────
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: _kSidebarHeaderBorder)),
+            ),
+            child: Column(
+              children: [
+                if (logoPath.isNotEmpty)
+                  CircleAvatar(
+                    radius: 30,
+                    backgroundImage: FileImage(File(logoPath)),
+                  )
+                else
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: const Color(0xFF3A3A3A),
+                        width: 1.5,
+                      ),
+                      color: const Color(0xFF1A1A1A),
                     ),
-                    color: const Color(0xFF1A1A1A),
+                    child: const Icon(
+                      Icons.store_rounded,
+                      color: Colors.white70,
+                      size: 28,
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.store_rounded,
-                    color: Colors.white70,
-                    size: 28,
-                  ),
-                ),
-              const SizedBox(height: 8),
-              Text(
-                branding.nombre,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-                textAlign: TextAlign.center,
-                overflow: TextOverflow.ellipsis,
-              ),
-              if (branding.slogan.isNotEmpty)
+                const SizedBox(height: 8),
                 Text(
-                  branding.slogan,
-                  style: const TextStyle(color: _kSidebarSubtext, fontSize: 11),
+                  branding.nombre,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
                   textAlign: TextAlign.center,
-                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-            ],
-          ),
-        ),
-        // ── Ítems de navegación ───────────────────────────────────────────────
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            itemCount: items.length,
-            itemBuilder: (context, index) {
-              final item = items[index];
-              final selected = selectedIndex == index;
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Material(
-                  color: selected ? _kSidebarSelectedBg : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
-                  child: ListTile(
-                    dense: true,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  leading: Icon(
-                    item.icon,
-                    color: selected ? _kSidebarSelectedIcon : _kSidebarInactiveIcon,
-                    size: 20,
+                if (branding.slogan.isNotEmpty)
+                  Text(
+                    branding.slogan,
+                    style:
+                        const TextStyle(color: _kSidebarSubtext, fontSize: 11),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  title: Text(
-                    item.title,
-                    style: TextStyle(
-                      color: selected ? _kSidebarSelectedText : _kSidebarInactiveText,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.normal,
-                      fontSize: 14,
-                    ),
-                  ),
-                    onTap: () => onTap(index),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        // ── Usuario logueado ──────────────────────────────────────────────────
-        Container(
-          margin: const EdgeInsets.all(10),
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: _kSidebarUserBg,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: InkWell(
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PerfilUsuarioPage()),
-              );
-            },
-            borderRadius: BorderRadius.circular(10),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 16,
-                  backgroundColor: const Color(0xFF1E3A5F),
-                  backgroundImage: imageProviderDesdePath(
-                    AuthService.instance.currentUser?.foto,
-                  ),
-                  child: (AuthService.instance.currentUser?.foto ?? '').isEmpty
-                      ? Text(
-                          (AuthService.instance.currentUser?.nombre ?? 'A')
-                              .substring(0, 1)
-                              .toUpperCase(),
-                          style: const TextStyle(
-                            color: Color(0xFF93C5FD),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        )
-                      : null,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        AuthService.instance.currentUser?.nombre ?? 'Usuario',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const Text(
-                        'Editar perfil',
-                        style: TextStyle(color: _kSidebarSubtext, fontSize: 11),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(
-                    Icons.logout_rounded,
-                    color: _kSidebarInactiveIcon,
-                    size: 20,
-                  ),
-                  tooltip: 'Cerrar sesión',
-                  onPressed: onLogout,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
               ],
             ),
           ),
-        ),
-      ],
+          // ── Ítems de navegación ───────────────────────────────────────────────
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                final selected = selectedIndex == index;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Material(
+                    color:
+                        selected ? _kSidebarSelectedBg : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                    child: ListTile(
+                      dense: true,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      leading: Icon(
+                        item.icon,
+                        color: selected
+                            ? _kSidebarSelectedIcon
+                            : _kSidebarInactiveIcon,
+                        size: 20,
+                      ),
+                      title: Text(
+                        item.title,
+                        style: TextStyle(
+                          color: selected
+                              ? _kSidebarSelectedText
+                              : _kSidebarInactiveText,
+                          fontWeight:
+                              selected ? FontWeight.w700 : FontWeight.normal,
+                          fontSize: 14,
+                        ),
+                      ),
+                      onTap: () => onTap(index),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          // ── Usuario logueado ──────────────────────────────────────────────────
+          Container(
+            margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: _kSidebarUserBg,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: InkWell(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const PerfilUsuarioPage(),
+                  ),
+                );
+              },
+              borderRadius: BorderRadius.circular(10),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 16,
+                    backgroundColor: const Color(0xFF2A2A2A),
+                    backgroundImage: imageProviderDesdePath(
+                      AuthService.instance.currentUser?.foto,
+                    ),
+                    child:
+                        (AuthService.instance.currentUser?.foto ?? '').isEmpty
+                            ? Text(
+                                (AuthService.instance.currentUser?.nombre ??
+                                        'A')
+                                    .substring(0, 1)
+                                    .toUpperCase(),
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              )
+                            : null,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          AuthService.instance.currentUser?.nombre ??
+                              'Usuario',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          AuthService.instance.currentUser?.rol ??
+                              'Editar perfil',
+                          style: const TextStyle(
+                            color: _kSidebarSubtext,
+                            fontSize: 11,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.logout_rounded,
+                      color: _kSidebarInactiveIcon,
+                      size: 20,
+                    ),
+                    tooltip: 'Cerrar sesión',
+                    onPressed: onLogout,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

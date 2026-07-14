@@ -16,6 +16,8 @@ class MediaSyncService {
   MediaSyncService._();
   static final MediaSyncService instance = MediaSyncService._();
 
+  String? lastError;
+
   bool get _ok =>
       BackendConfigService.instance.firebaseEnabled &&
       FirebaseBootstrap.isReady &&
@@ -24,6 +26,8 @@ class MediaSyncService {
   bool get nubeDisponible => _ok;
 
   String get _tenant => BackendConfigService.instance.tenantId;
+
+  FirebaseStorage get _storage => FirebaseStorage.instance;
 
   /// Copia una imagen temporal (ImagePicker) a almacenamiento permanente.
   Future<String?> persistirFotoLocal({
@@ -48,7 +52,6 @@ class MediaSyncService {
         dir.path,
         '${safeCodigo}_${const Uuid().v4()}$ext',
       );
-      // Si ya está dentro de nuestra carpeta, no recopiar.
       final alreadyPersisted = p.normalize(p.dirname(sourcePath)) ==
           p.normalize(dir.path);
       if (alreadyPersisted) {
@@ -67,13 +70,46 @@ class MediaSyncService {
     required File file,
     String contentType = 'application/octet-stream',
   }) async {
-    if (!_ok || !file.existsSync()) return null;
+    lastError = null;
+    if (!_ok) {
+      lastError =
+          'Nube no lista (Firebase/auth). Activá sync e iniciá sesión de nuevo.';
+      return null;
+    }
+    if (!file.existsSync()) {
+      lastError = 'No se encontró el archivo local de la foto.';
+      return null;
+    }
+
+    final ref = _storage.ref().child(storagePath);
+    final meta = SettableMetadata(contentType: contentType);
+
+    // 1) putData (más fiable en Android que putFile con rutas del picker)
     try {
-      final ref = FirebaseStorage.instance.ref().child(storagePath);
-      await ref.putFile(file, SettableMetadata(contentType: contentType));
-      return await ref.getDownloadURL();
+      final Uint8List bytes = await file.readAsBytes();
+      if (bytes.isEmpty) {
+        lastError = 'La foto está vacía.';
+        return null;
+      }
+      await ref.putData(bytes, meta);
+      final url = await ref.getDownloadURL();
+      debugPrint('MediaSync OK putData → $storagePath');
+      return url;
     } catch (e) {
-      debugPrint('MediaSync subirArchivo: $e');
+      debugPrint('MediaSync putData falló: $e');
+      lastError = '$e';
+    }
+
+    // 2) Fallback putFile
+    try {
+      await ref.putFile(file, meta);
+      final url = await ref.getDownloadURL();
+      debugPrint('MediaSync OK putFile → $storagePath');
+      lastError = null;
+      return url;
+    } catch (e) {
+      debugPrint('MediaSync putFile falló: $e');
+      lastError = '$e';
       return null;
     }
   }
@@ -126,7 +162,7 @@ class MediaSyncService {
         resultado.add(url);
         i++;
       } else {
-        // Queda local en este dispositivo; Dual repo no la manda a Firestore.
+        // Queda local; el caller debe avisar si la nube está activa.
         resultado.add(ruta);
       }
     }

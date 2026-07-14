@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,6 +15,8 @@ class BiometricAuthService {
 
   final LocalAuthentication _auth = LocalAuthentication();
 
+  String? lastError;
+
   bool get esAndroidMovil => !kIsWeb && Platform.isAndroid;
 
   Future<bool> dispositivoSoporta() async {
@@ -23,6 +26,7 @@ class BiometricAuthService {
       final supported = await _auth.isDeviceSupported();
       return can || supported;
     } catch (e) {
+      lastError = '$e';
       debugPrint('Biometric soporta: $e');
       return false;
     }
@@ -32,7 +36,6 @@ class BiometricAuthService {
     if (!await dispositivoSoporta()) return false;
     try {
       final disponibles = await _auth.getAvailableBiometrics();
-      // También aceptamos desbloqueo por PIN/patrón del sistema.
       return disponibles.isNotEmpty || await _auth.isDeviceSupported();
     } catch (_) {
       return false;
@@ -67,19 +70,57 @@ class BiometricAuthService {
   Future<bool> autenticar({
     String motivo = 'Desbloqueá Tata.Manager',
   }) async {
-    if (!await dispositivoSoporta()) return false;
+    lastError = null;
+    if (!await dispositivoSoporta()) {
+      lastError = 'Este dispositivo no soporta biometría.';
+      return false;
+    }
     try {
-      return await _auth.authenticate(
+      // Pequeña pausa: evita choque si acabamos de cerrar un diálogo.
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      final ok = await _auth.authenticate(
         localizedReason: motivo,
         options: const AuthenticationOptions(
           biometricOnly: false,
-          stickyAuth: true,
+          stickyAuth: false,
           useErrorDialogs: true,
+          sensitiveTransaction: false,
         ),
       );
+      if (!ok) {
+        lastError =
+            'No se confirmó la identidad. Probá de nuevo o usá el PIN/patrón del celular.';
+      }
+      return ok;
+    } on PlatformException catch (e) {
+      lastError = _mensajePlatform(e);
+      debugPrint('Biometric PlatformException: ${e.code} ${e.message}');
+      return false;
     } catch (e) {
+      lastError = 'Error al verificar identidad: $e';
       debugPrint('Biometric auth: $e');
       return false;
+    }
+  }
+
+  String _mensajePlatform(PlatformException e) {
+    switch (e.code) {
+      case 'NotAvailable':
+      case 'NotEnrolled':
+        return 'Configurá huella, rostro o PIN en Ajustes del celular.';
+      case 'LockedOut':
+      case 'PermanentlyLockedOut':
+        return 'Biometría bloqueada. Desbloqueá el celular e intentá de nuevo.';
+      case 'UserCancel':
+      case 'Canceled':
+        return 'Cancelaste la verificación.';
+      case 'FragmentActivity':
+      case 'no_fragment_activity':
+        return 'Falta reiniciar la app tras la actualización (FragmentActivity).';
+      default:
+        return e.message?.isNotEmpty == true
+            ? e.message!
+            : 'No se pudo verificar la identidad (${e.code}).';
     }
   }
 }

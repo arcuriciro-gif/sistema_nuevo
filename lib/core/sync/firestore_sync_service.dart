@@ -1058,9 +1058,20 @@ class FirestoreSyncService {
     try {
       final db = await DatabaseHelper.instance.database;
       final batch = db.batch();
+      var huboCambios = false;
       for (final producto in remotos) {
         final local = await _cache.buscarPorCodigo(producto.codigo);
         final merged = _fusionarProductoRemoto(producto, local);
+        // Evitar pisar datos locales idénticos (reduce flicker).
+        if (local != null &&
+            local.costo == merged.costo &&
+            local.precio == merged.precio &&
+            local.stock == merged.stock &&
+            local.fotoPrincipal == merged.fotoPrincipal &&
+            local.descripcion == merged.descripcion) {
+          continue;
+        }
+        huboCambios = true;
         final data = merged.toMap();
         if (local?.id != null) {
           batch.update(
@@ -1077,8 +1088,10 @@ class FirestoreSyncService {
           );
         }
       }
-      await batch.commit(noResult: true);
-      DataRefreshHub.instance.notifyProductos();
+      if (huboCambios) {
+        await batch.commit(noResult: true);
+        DataRefreshHub.instance.notifyProductos();
+      }
     } finally {
       _sincronizando = false;
     }

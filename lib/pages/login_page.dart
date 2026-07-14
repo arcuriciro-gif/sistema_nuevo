@@ -116,7 +116,7 @@ class _LoginPageState extends State<LoginPage> {
           } catch (e) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('$e')),
+                SnackBar(content: Text(AuthService.mensajeUsuario(e))),
               );
             }
           }
@@ -149,7 +149,7 @@ class _LoginPageState extends State<LoginPage> {
       setState(() {
         _loading = false;
         if (!auto) {
-          _error = e.toString().replaceFirst('StateError: ', '');
+          _error = AuthService.mensajeUsuario(e);
         }
       });
     }

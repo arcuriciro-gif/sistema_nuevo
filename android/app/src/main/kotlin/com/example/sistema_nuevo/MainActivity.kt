@@ -1,5 +1,6 @@
 package com.example.sistema_nuevo
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+/// FragmentActivity es obligatorio para local_auth (huella / rostro / PIN).
+class MainActivity : FlutterFragmentActivity()

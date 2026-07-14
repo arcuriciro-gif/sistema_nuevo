@@ -161,6 +161,10 @@ class Producto {
 
   Map<String, dynamic> toFirestore() {
     final data = Map<String, dynamic>.from(toMap()..remove('id'));
+    // En Firestore guardamos lista nativa (no JSON string) para que el otro
+    // dispositivo lea bien las URLs de Storage.
+    data['foto'] = fotoPrincipal;
+    data['fotos'] = todasLasFotos;
     data['actualizadoEn'] = DateTime.now().toUtc().toIso8601String();
     return data;
   }

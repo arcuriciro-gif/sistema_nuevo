@@ -5,6 +5,7 @@ import '../core/sync/media_sync_service.dart';
 import '../core/utils/media_path.dart';
 import '../models/lista_precio.dart';
 import '../models/producto.dart';
+import '../services/auth_service.dart';
 import '../services/lista_precio_service.dart';
 import '../services/producto_service.dart';
 import '../theme/module_app_bar.dart';
@@ -209,7 +210,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo guardar: $e')),
+        SnackBar(content: Text(AuthService.mensajeUsuario(e))),
       );
     } finally {
       if (mounted) setState(() => _guardando = false);
