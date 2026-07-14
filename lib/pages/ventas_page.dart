@@ -232,7 +232,12 @@ class _VentasPageState extends State<VentasPage> {
                         ),
                       )
                     : ListView.builder(
-                        padding: const EdgeInsets.all(8),
+                        padding: EdgeInsets.fromLTRB(
+                          8,
+                          8,
+                          8,
+                          8 + MediaQuery.viewPaddingOf(context).bottom,
+                        ),
                         itemCount: _filtradas.length,
                         itemBuilder: (context, i) {
                           final v = _filtradas[i];

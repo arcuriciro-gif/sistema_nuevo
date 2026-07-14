@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
+import '../../firebase_options.dart';
 import '../auth/usuario_auth_email.dart';
 import '../config/backend_config_service.dart';
 import 'firebase_bootstrap.dart';
@@ -62,7 +66,88 @@ class FirebaseAuthUsuarioService {
     throw ultimoError ?? StateError('No se pudo iniciar sesión en Firebase.');
   }
 
-  Future<void> cerrarSesion() => _auth.signOut();
+  Future<void> cerrarSesion() async {
+    try {
+      await _auth.signOut();
+    } catch (_) {}
+    if (!kIsWeb && Platform.isAndroid) {
+      try {
+        await GoogleSignIn().signOut();
+      } catch (_) {}
+    }
+  }
+
+  /// Google → sesión Firebase. Devuelve el User de Firebase con email.
+  Future<User> iniciarSesionConGoogle() async {
+    if (!disponible) {
+      throw StateError(
+        'Firebase no está listo. Activá la sincronización online '
+        '(Configuración) o revisá internet.',
+      );
+    }
+
+    if (!kIsWeb && Platform.isAndroid) {
+      return _googleSignInAndroid();
+    }
+
+    if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
+      try {
+        final provider = GoogleAuthProvider();
+        provider.addScope('email');
+        provider.addScope('profile');
+        final cred = await _auth.signInWithProvider(provider);
+        final user = cred.user;
+        if (user == null || (user.email ?? '').isEmpty) {
+          throw StateError('Google no devolvió un email.');
+        }
+        return user;
+      } catch (e) {
+        throw StateError(
+          'En Windows el login con Google puede fallar.\n'
+          'Usá usuario/clave en la PC, o Google desde el celular.\n\n$e',
+        );
+      }
+    }
+
+    throw StateError('Login con Google no soportado en esta plataforma.');
+  }
+
+  Future<User> _googleSignInAndroid() async {
+    final webClientId = DefaultFirebaseOptions.googleWebClientId.trim();
+    final googleSignIn = GoogleSignIn(
+      scopes: const ['email', 'profile'],
+      serverClientId: webClientId.isEmpty ? null : webClientId,
+    );
+
+    try {
+      await googleSignIn.signOut();
+    } catch (_) {}
+
+    final account = await googleSignIn.signIn();
+    if (account == null) {
+      throw StateError('Inicio con Google cancelado.');
+    }
+
+    final auth = await account.authentication;
+    if ((auth.idToken ?? '').isEmpty) {
+      throw StateError(
+        'Google no devolvió idToken.\n'
+        'Pedile al admin que revise Authentication → Google en Firebase '
+        'y el SHA-1 de la app.',
+      );
+    }
+
+    final credential = GoogleAuthProvider.credential(
+      accessToken: auth.accessToken,
+      idToken: auth.idToken,
+    );
+    final cred = await _auth.signInWithCredential(credential);
+    final user = cred.user;
+    if (user == null || (user.email ?? '').isEmpty) {
+      throw StateError('Google no devolvió un email de cuenta.');
+    }
+    return user;
+  }
 
   /// Crea la cuenta en Auth.
   /// [iniciarSesionDespues]: true en el primer login propio; false al dar de alta
@@ -149,9 +234,7 @@ class FirebaseAuthUsuarioService {
     if (!UsuarioAuthEmail.esEmailReal(email)) {
       throw StateError('Se necesita un email real para enviar la confirmación.');
     }
-    // Aviso al nuevo usuario: puede definir/recuperar su contraseña.
     await _auth.sendPasswordResetEmail(email: email.trim().toLowerCase());
-    // Si hay sesión del usuario recién creado, también verificación.
     final user = _auth.currentUser;
     if (user != null &&
         (user.email ?? '').toLowerCase() == email.trim().toLowerCase() &&

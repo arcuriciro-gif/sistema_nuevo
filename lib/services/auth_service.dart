@@ -357,6 +357,119 @@ class AuthService {
     await firebase.enviarRestablecimiento(entrada, email: entrada);
   }
 
+  /// Login con Google: el Gmail debe coincidir con un usuario dado de alta.
+  Future<Usuario> loginConGoogle() async {
+    // En Android/Windows, Google requiere Firebase activo.
+    if (!BackendConfigService.instance.firebaseEnabled) {
+      await BackendConfigService.instance.setFirebaseEnabled(true);
+    }
+    if (FirebaseSafeMode.enabled) {
+      throw StateError(
+        'Modo seguro activo. Desactivalo en el login o Configuración.',
+      );
+    }
+    try {
+      if (!FirebaseBootstrap.isReady) {
+        await FirebaseBootstrap.initializeIfNeeded();
+      }
+    } catch (e) {
+      await FirebaseSafeMode.activar();
+      await BackendConfigService.instance.setFirebaseEnabled(false);
+      throw StateError('No se pudo iniciar Firebase para Google: $e');
+    }
+
+    final firebase = FirebaseAuthUsuarioService.instance;
+    if (!firebase.disponible) {
+      throw StateError('Firebase no está listo en este dispositivo.');
+    }
+
+    final googleUser = await firebase.iniciarSesionConGoogle();
+    final email = (googleUser.email ?? '').trim().toLowerCase();
+    final uid = googleUser.uid;
+    if (email.isEmpty) {
+      await firebase.cerrarSesion();
+      throw StateError('Google no devolvió un email.');
+    }
+
+    final sqlite = SqliteUsuarioRepository();
+    var localUser = await sqlite.buscarPorEmail(email);
+
+    if (localUser == null && BackendConfigService.instance.firebaseEnabled) {
+      try {
+        localUser = await FirestoreUsuarioRepository().buscarPorEmail(email);
+      } catch (e) {
+        debugPrint('Buscar usuario por email (Google): $e');
+      }
+    }
+
+    if (localUser == null || !localUser.activo) {
+      try {
+        await firebase.cerrarSesion();
+      } catch (_) {}
+      throw StateError(
+        'El Gmail $email no está dado de alta en Tata.Manager.\n\n'
+        'Pedile al administrador que cree tu usuario y ponga exactamente '
+        'ese email en el campo Email.',
+      );
+    }
+
+    if (localUser.id == null) {
+      final existente = await sqlite.buscarPorUsuario(localUser.usuario);
+      if (existente != null) {
+        localUser = localUser.copyWith(
+          id: existente.id,
+          password: existente.password.isNotEmpty
+              ? existente.password
+              : localUser.password,
+        );
+        await sqlite.actualizar(localUser);
+      } else {
+        final id = await sqlite.insertar(localUser);
+        localUser = localUser.copyWith(id: id);
+      }
+    }
+
+    final ahora = DateTime.now();
+    final sesion = localUser.copyWith(
+      firebaseUid: uid,
+      email: email,
+      debeCambiarPassword: false,
+      ultimoAcceso: ahora,
+      nombre: localUser.nombre.trim().isEmpty
+          ? (googleUser.displayName ?? localUser.usuario)
+          : localUser.nombre,
+    );
+    await sqlite.actualizar(sesion);
+    currentUser = sesion;
+    _ultimaPasswordIngresada = null;
+
+    if (BackendConfigService.instance.firebaseEnabled) {
+      try {
+        await FirestoreUsuarioRepository().actualizar(sesion);
+      } catch (e) {
+        debugPrint('Firestore usuario Google login: $e');
+      }
+      try {
+        await FirestoreSyncService.instance.start();
+      } catch (e) {
+        debugPrint('Sync start Google login: $e');
+      }
+    }
+
+    await _registrarAudit(
+      'LOGIN_GOOGLE',
+      'Inicio de sesión con Google',
+      tablaAfectada: 'usuarios',
+      valorNuevo: jsonEncode({
+        'usuario': sesion.usuario,
+        'email': email,
+        'rol': sesion.rol,
+      }),
+    );
+
+    return sesion;
+  }
+
   Future<void> logout() async {
     await _registrarAudit(
       'LOGOUT',

@@ -43,4 +43,8 @@ class DefaultFirebaseOptions {
     authDomain: 'tata-stock-8631e.firebaseapp.com',
     storageBucket: 'tata-stock-8631e.firebasestorage.app',
   );
+
+  /// Web client ID (OAuth) para Google Sign-In + Firebase.
+  static const String googleWebClientId =
+      '932698618413-hp847sk8q70ofqimjqifsojs3fii2f30.apps.googleusercontent.com';
 }

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../core/firebase/firebase_safe_mode.dart';
@@ -24,6 +25,9 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscure = true;
   String? _error;
   String? _info;
+
+  bool get _googleDisponible =>
+      !kIsWeb && (Platform.isAndroid || Platform.isWindows);
 
   @override
   void initState() {
@@ -106,6 +110,26 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _loginGoogle() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+      _info = null;
+    });
+    try {
+      await AuthService.instance.loginConGoogle();
+      if (!mounted) return;
+      setState(() => _loading = false);
+      await _irDespuesDelLogin();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.toString().replaceFirst('Bad state: ', '');
+      });
+    }
+  }
+
   Future<void> _olvidePassword() async {
     final entrada = _usuarioCtrl.text.trim();
     if (entrada.isEmpty) {
@@ -159,14 +183,15 @@ class _LoginPageState extends State<LoginPage> {
     final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(32),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(32),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
                 if (logoPath.isNotEmpty && File(logoPath).existsSync())
                   CircleAvatar(
                     radius: 48,
@@ -224,7 +249,8 @@ class _LoginPageState extends State<LoginPage> {
                         const SizedBox(height: 8),
                         Text(
                           'Primera vez: admin / admin123. '
-                          'Para usarlo online con el celular: Configuración → Activar sincronización.',
+                          'Empleados: preferí Google con el Gmail que te cargó el admin. '
+                          'Nube: Configuración → Activar sincronización.',
                           style: textTheme.bodySmall?.copyWith(
                             color: cs.onSurfaceVariant,
                           ),
@@ -329,6 +355,18 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                           ),
                         ),
+                        if (_googleDisponible) ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: OutlinedButton.icon(
+                              onPressed: _loading ? null : _loginGoogle,
+                              icon: const Icon(Icons.g_mobiledata_rounded),
+                              label: const Text('Continuar con Google'),
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 8),
                         Align(
                           alignment: Alignment.centerRight,
@@ -359,6 +397,7 @@ class _LoginPageState extends State<LoginPage> {
               ],
             ),
           ),
+        ),
         ),
       ),
     );

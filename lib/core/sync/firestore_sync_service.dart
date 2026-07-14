@@ -70,7 +70,7 @@ class FirestoreSyncService {
     }
     try {
       await stop();
-      _productosSub = _remote.watchTodos(limit: 2000).listen(
+      _productosSub = _remote.watchTodos(limit: 10000).listen(
         _aplicarProductosRemotos,
         onError: (Object error) => debugPrint('Sync productos: $error'),
       );

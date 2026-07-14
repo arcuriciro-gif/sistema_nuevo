@@ -471,7 +471,12 @@ class _ProductosPageState extends State<ProductosPage> {
                           ),
                         )
                       : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(10, 0, 10, 80),
+                          padding: EdgeInsets.fromLTRB(
+                            10,
+                            0,
+                            10,
+                            80 + MediaQuery.viewPaddingOf(context).bottom,
+                          ),
                           itemCount: filtrados.length,
                           itemBuilder: (context, index) {
                             final p = filtrados[index];

@@ -572,8 +572,10 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
 
           // --- Total y botón finalizar ---
           if (_carrito.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.all(16),
+            SafeArea(
+              top: false,
+              child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
               decoration: BoxDecoration(
                 color: theme.colorScheme.surfaceContainerLowest,
                 border: Border(
@@ -613,6 +615,7 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
                         ),
                 ],
               ),
+            ),
             ),
         ],
       ),

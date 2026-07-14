@@ -27,18 +27,23 @@ class FirestoreProductoRepository implements ProductoRepository {
 
   @override
   Future<void> insertarLista(List<Producto> productos) async {
-    final batch = _firestore.batch();
-    for (final producto in productos) {
-      final ref = _collection.doc(_docId(producto));
-      batch.set(ref, producto.toFirestore(), SetOptions(merge: true));
+    // Firestore admite máx. 500 ops por batch.
+    const chunk = 400;
+    for (var i = 0; i < productos.length; i += chunk) {
+      final slice = productos.skip(i).take(chunk);
+      final batch = _firestore.batch();
+      for (final producto in slice) {
+        final ref = _collection.doc(_docId(producto));
+        batch.set(ref, producto.toFirestore(), SetOptions(merge: true));
+      }
+      await batch.commit();
     }
-    await batch.commit();
   }
 
   @override
   Future<List<Producto>> obtenerTodos({int? limit, int? offset}) async {
     Query<Map<String, dynamic>> query =
-        _collection.orderBy('descripcion').limit(limit ?? 500);
+        _collection.orderBy('descripcion').limit(limit ?? 10000);
     if (offset != null && offset > 0) {
       // Firestore no usa offset clásico; para miles de productos se pagina por cursor.
       final skipSnap = await _collection.orderBy('descripcion').limit(offset).get();
@@ -46,7 +51,7 @@ class FirestoreProductoRepository implements ProductoRepository {
       query = _collection
           .orderBy('descripcion')
           .startAfterDocument(skipSnap.docs.last)
-          .limit(limit ?? 500);
+          .limit(limit ?? 10000);
     }
     final snap = await query.get();
     return snap.docs
@@ -107,7 +112,7 @@ class FirestoreProductoRepository implements ProductoRepository {
   }
 
   @override
-  Stream<List<Producto>> watchTodos({int limit = 200}) {
+  Stream<List<Producto>> watchTodos({int limit = 10000}) {
     return _collection
         .orderBy('descripcion')
         .limit(limit)
@@ -115,6 +120,7 @@ class FirestoreProductoRepository implements ProductoRepository {
         .map(
           (snap) => snap.docs
               .map((doc) => Producto.fromFirestore(doc.data(), docId: doc.id))
+              .where((p) => !p.estaEliminado)
               .toList(),
         );
   }

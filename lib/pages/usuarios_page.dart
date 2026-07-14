@@ -186,7 +186,12 @@ class _UsuariosPageState extends State<UsuariosPage> {
                 : _filtrados.isEmpty
                     ? const Center(child: Text('No hay usuarios registrados.'))
                     : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 80),
+                        padding: EdgeInsets.fromLTRB(
+                          12,
+                          0,
+                          12,
+                          80 + MediaQuery.viewPaddingOf(context).bottom,
+                        ),
                         itemCount: _filtrados.length,
                         itemBuilder: (context, index) {
                           final usuario = _filtrados[index];

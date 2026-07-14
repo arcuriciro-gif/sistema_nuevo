@@ -627,7 +627,9 @@ class _MainShellState extends State<MainShell> {
             ),
       bottomNavigationBar: quickItems.isEmpty
           ? null
-          : BottomNavigationBar(
+          : SafeArea(
+              top: false,
+              child: BottomNavigationBar(
               backgroundColor: cs.surfaceContainerLow,
               selectedItemColor: cs.primary,
               unselectedItemColor: cs.onSurfaceVariant,
@@ -642,6 +644,7 @@ class _MainShellState extends State<MainShell> {
                     ),
                   )
                   .toList(),
+            ),
             ),
     );
   }

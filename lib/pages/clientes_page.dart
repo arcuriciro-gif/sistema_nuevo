@@ -161,6 +161,9 @@ class _ClientesPageState extends State<ClientesPage> {
                         ),
                       )
                     : ListView.builder(
+                        padding: EdgeInsets.only(
+                          bottom: 80 + MediaQuery.viewPaddingOf(context).bottom,
+                        ),
                         itemCount: filtrados.length,
                         itemBuilder: (context, i) {
                           final c = filtrados[i];
