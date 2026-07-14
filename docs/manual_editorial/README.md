@@ -1,31 +1,45 @@
-# Manual Profesional — Tata.Manager
+# Manual Profesional — Tata.Manager (edición editorial)
 
-Generador editorial del **Manual Profesional** (PDF).
+Pieza editorial / marketing de **~67 páginas A4**.
+
+No es un documento Word. Es un manual de producto con ritmo de revista técnica:
+portada tipo render, doble página de valor, héroes Apple-style, zooms anotados,
+infografías, fotografías lifestyle y contratapa con QR.
 
 ## Regenerar
 
 ```bash
-pip install reportlab pillow
-cd docs/manual_editorial
+pip install -r requirements.txt
 python3 generate_manual.py
 ```
 
-Salida:
+## Salidas
 
-- `Tata_Manager_Manual_Profesional.pdf`
-- Copia en `assets/docs/MANUAL_DE_USO.pdf`
-- Copia en raíz `MANUAL_DE_USO.pdf`
+| Archivo | Uso |
+|---------|-----|
+| `Tata_Manager_Manual_Profesional.pdf` | Maestro editorial |
+| `../../MANUAL_DE_USO.pdf` | Copia raíz |
+| `../../assets/docs/MANUAL_DE_USO.pdf` | Embebible en la app |
 
-## Estructura
+## Arquitectura
 
 | Archivo | Rol |
 |---------|-----|
-| `design.py` | Paleta, tipografía, constantes |
-| `mockups.py` | UI realista + diagramas + ilustraciones |
-| `generate_manual.py` | Maquetación editorial y ensamblado PDF |
-| `assets/` | Imágenes generadas |
-| `fonts/` | Outfit (latin) |
+| `design.py` | Identidad (naranja `#F57C00`, tipografía Outfit) |
+| `mockups.py` | UI, zooms, iconos, infografías, hero devices |
+| `generate_manual.py` | Maquetación editorial completa |
+| `assets/photos/` | Fotografías e ilustraciones premium |
+| `assets/zooms/` | Recortes estilo Microsoft |
+| `fonts/` | Outfit |
 
-## Estilo
+## Contenido visual
 
-Naranja `#F57C00`, negro, blanco, grises suaves. Tipografía Outfit. ~48 páginas A4.
+- Portada con laptop + tablet + celular (misma UI)
+- Bienvenida tipo catálogo (12 capacidades)
+- Índice premium
+- Portadillas de capítulo full-bleed
+- Páginas hero de marketing
+- Capturas anotadas (① ② ③…)
+- Zooms de botón / formulario / guardar
+- Diagramas Cliente→WhatsApp y Proveedor→dispositivos
+- Contratapa con QR, GitHub, versión, copyright
