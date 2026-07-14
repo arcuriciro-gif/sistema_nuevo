@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - cursor/release-mejoras-e44b
+      - cursor/ui-shell-fotos-bio-e44b
 
 jobs:
   build-android:

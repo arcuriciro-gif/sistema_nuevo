@@ -8,6 +8,7 @@ on:
       - cursor/fotos-productos-sync-e44b
       - cursor/comparador-descripcion-costo-e44b
       - cursor/release-mejoras-e44b
+      - cursor/ui-shell-fotos-bio-e44b
 
 jobs:
   build-windows:
