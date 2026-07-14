@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -11,6 +10,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_bootstrap.dart';
+import '../core/sync/media_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/chat_conversacion.dart';
 import '../models/chat_mensaje.dart';
@@ -326,23 +326,18 @@ class ComunicacionesService extends ChangeNotifier {
     var pathGuardado = dest.path;
 
     if (_firebaseOk) {
-      try {
-        final tenant = BackendConfigService.instance.tenantId;
-        final ref = FirebaseStorage.instance.ref().child(
-              'tenants/$tenant/chats/$conversacionId/${p.basename(dest.path)}',
-            );
-        await ref.putFile(
-          dest,
-          SettableMetadata(contentType: mime),
-        );
-        pathGuardado = await ref.getDownloadURL();
-      } catch (e) {
-        debugPrint('upload storage: $e');
+      final url = await MediaSyncService.instance.subirAdjuntoChat(
+        conversacionId: conversacionId,
+        file: dest,
+        contentType: mime,
+      );
+      if (url == null) {
         throw StateError(
           'No se pudo subir el archivo a la nube. '
-          'Revisá la conexión e intentá de nuevo.',
+          '${MediaSyncService.instance.lastError ?? "Revisá la conexión."}',
         );
       }
+      pathGuardado = url;
     }
 
     return _enviar(

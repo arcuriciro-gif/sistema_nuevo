@@ -55,8 +55,7 @@ class ProductoService {
       final detalle =
           MediaSyncService.instance.lastError ?? 'error desconocido';
       throw Exception(
-        'No se pudo subir la foto a la nube ($detalle). '
-        'Revisá internet / Configuración → sync e intentá guardar de nuevo.',
+        'No se pudo subir la foto a la nube ($detalle)',
       );
     }
 

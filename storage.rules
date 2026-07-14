@@ -1,6 +1,8 @@
 rules_version = '2';
-// Desplegar en Firebase Console → Storage → Rules
-// Sin estas reglas las fotos NO suben (los costos en Firestore sí).
+// OBLIGATORIO: Firebase Console → Build → Storage → Rules → pegar esto → Publish
+// (o: firebase deploy --only storage)
+// Sin Storage habilitado + estas reglas, las fotos fallan con object-not-found /
+// permission-denied. Firestore (costos/stock) puede seguir funcionando igual.
 service firebase.storage {
   match /b/{bucket}/o {
     match /tenants/{tenantId}/{allPaths=**} {
