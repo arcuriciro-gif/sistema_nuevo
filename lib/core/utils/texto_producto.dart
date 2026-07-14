@@ -77,7 +77,6 @@ class TextoProducto {
     'caramelo',
     'grey',
     'avorio',
-    'blanco',
   };
 
   /// Minúsculas, sin acentos, espacios colapsados, sin signos raros.
