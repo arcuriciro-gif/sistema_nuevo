@@ -328,10 +328,10 @@ class _ComparacionPageState extends State<ComparacionPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
             child: Text(
-              'Compara la lista del proveedor contra tu stock (por descripción/costo, no por tu código). '
-              'El número del informe no es tu catálogo completo ni el Excel “tal cual”: '
-              'solo aparecen artículos del proveedor, y un modelo puede abrir varios talles. '
-              'Febo: rangos (39-42). Leal: un precio = todos tus talles del modelo.',
+              'Compara la lista del proveedor contra tu stock (por artículo, no por tu código). '
+              'Leal/Profeta: un precio por modelo → se aplica a todos tus color×talle de ese artículo. '
+              'Febo: rango (ej. blanco 39-42) → solo ese color y esos talles. '
+              'El número del informe puede ser mayor que las filas del Excel porque un modelo abre varias líneas de stock.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: .65),
                 height: 1.35,

@@ -33,9 +33,13 @@ class ComparadorService {
   /// Compara la lista del proveedor contra la base por **descripción**
   /// (no por código interno).
   ///
-  /// - Rangos (Febo): "papi blanco 39-42" → todos tus talles 39..42 de ese modelo.
-  /// - Un precio / toda la numeración (Leal): "marilyn 39" o "marilyn" →
-  ///   todos tus marilyn (35, 36, 39, …), porque el costo es el mismo.
+  /// Dos modos (según cómo venga la línea del proveedor):
+  /// 1) **Rango de talles** (Febo): "papi blanco 39-42" → solo ese color y
+  ///    talles 39..42. El precio sí depende de color/rango.
+  /// 2) **Precio único por modelo** (Leal, Profeta, etc.): "marilyn" /
+  ///    "marilyn 39" → **todos** tus color×talle de ese artículo. Vos
+  ///    separás artículo/color/talle solo para el conteo de stock; el costo
+  ///    del proveedor no cambia por color ni talle.
   Future<void> compararProductos(
     List<Producto> productosImportados, {
     String proveedor = '',
@@ -43,11 +47,25 @@ class ComparadorService {
     await limpiarComparaciones();
     final locales = await productoService.obtenerTodos();
 
-    // Índice por descripción normalizada (exacta).
-    final porDesc = <String, List<Producto>>{};
-    // Índice por descripción+color (sin talle).
+    // Índice por artículo (descripcion / modelo) — sin color ni talle.
+    final porArticulo = <String, List<Producto>>{};
+    // Índice por artículo+color (sin talle) — para rangos tipo Febo.
     final porDescColor = <String, List<Producto>>{};
+    // Índice por texto completo normalizado.
+    final porDesc = <String, List<Producto>>{};
+
     for (final p in locales) {
+      final art = TextoProducto.articuloBase(
+        p.modelo.trim().isNotEmpty ? p.modelo : p.descripcion,
+      );
+      if (art.isNotEmpty) {
+        porArticulo.putIfAbsent(art, () => []).add(p);
+      }
+      final artDesc = TextoProducto.articuloBase(p.descripcion);
+      if (artDesc.isNotEmpty && artDesc != art) {
+        porArticulo.putIfAbsent(artDesc, () => []).add(p);
+      }
+
       final d = TextoProducto.normalizar(p.descripcion);
       if (d.isNotEmpty) {
         porDesc.putIfAbsent(d, () => []).add(p);
@@ -59,8 +77,6 @@ class ComparadorService {
       if (dc.isNotEmpty) {
         porDescColor.putIfAbsent(dc, () => []).add(p);
       }
-      // Si el talle está pegado en la descripción ("papi blanco 40"),
-      // también indexar la base sin ese número.
       if (p.talle.trim().isEmpty) {
         final sinTalle = TextoProducto.quitarTalleFinal(
           p.colorProducto.trim().isEmpty
@@ -81,23 +97,30 @@ class ComparadorService {
       }
     }
 
+    // Una fila del informe por código local (si el Excel repite el modelo,
+    // gana la última línea válida — evita inflar el conteo).
+    final porCodigoLocal = <String, Comparacion>{};
+    final nuevos = <Comparacion>[];
+
     for (final importado in productosImportados) {
       final descProv = importado.descripcion.trim();
       if (descProv.isEmpty) continue;
 
       final matches = _buscarLocales(
         descripcionProveedor: descProv,
+        proveedorLista: proveedor,
+        porArticulo: porArticulo,
         porDesc: porDesc,
         porDescColor: porDescColor,
         todos: locales,
       );
 
       if (matches.isEmpty) {
-        await guardarComparacion(
+        nuevos.add(
           Comparacion(
             codigo: importado.codigo.isNotEmpty
                 ? importado.codigo
-                : 'NUEVO-${TextoProducto.normalizar(descProv).hashCode.abs()}',
+                : 'NUEVO-${TextoProducto.articuloBase(descProv).hashCode.abs()}',
             descripcion: descProv,
             precioViejo: 0,
             precioNuevo: importado.costo,
@@ -116,33 +139,60 @@ class ComparadorService {
         } else if (importado.costo < local.costo) {
           estado = 'BAJO';
         }
-        // codigo = código LOCAL (para actualizar el producto correcto).
-        await guardarComparacion(
-          Comparacion(
-            codigo: local.codigo,
-            descripcion:
-                '${local.descripcion}${local.colorProducto.isNotEmpty ? ' ${local.colorProducto}' : ''}${local.talle.isNotEmpty ? ' ${local.talle}' : ''}  ←  $descProv',
-            precioViejo: local.costo,
-            precioNuevo: importado.costo,
-            estado: estado,
-            marca: local.marca.isNotEmpty ? local.marca : importado.marca,
-            proveedor: proveedor,
-          ),
+        final etiquetaLocal =
+            '${local.descripcion}${local.colorProducto.isNotEmpty ? ' ${local.colorProducto}' : ''}${local.talle.isNotEmpty ? ' ${local.talle}' : ''}';
+        porCodigoLocal[local.codigo] = Comparacion(
+          codigo: local.codigo,
+          descripcion: '$etiquetaLocal  ←  $descProv',
+          precioViejo: local.costo,
+          precioNuevo: importado.costo,
+          estado: estado,
+          marca: local.marca.isNotEmpty ? local.marca : importado.marca,
+          proveedor: proveedor,
         );
       }
+    }
+
+    // NUEVO solo si ese artículo no quedó cubierto por ningún match local.
+    final articulosMatcheados = <String>{};
+    for (final c in porCodigoLocal.values) {
+      final ladoProv = c.descripcion.contains('  ←  ')
+          ? c.descripcion.split('  ←  ').last
+          : c.descripcion;
+      articulosMatcheados.add(TextoProducto.articuloBase(ladoProv));
+    }
+    final nuevosUnicos = <String, Comparacion>{};
+    for (final n in nuevos) {
+      final art = TextoProducto.articuloBase(n.descripcion);
+      if (art.isNotEmpty && articulosMatcheados.contains(art)) continue;
+      nuevosUnicos.putIfAbsent(art.isNotEmpty ? art : n.codigo, () => n);
+    }
+
+    for (final c in [...porCodigoLocal.values, ...nuevosUnicos.values]) {
+      await guardarComparacion(c);
     }
   }
 
   List<Producto> _buscarLocales({
     required String descripcionProveedor,
+    required String proveedorLista,
+    required Map<String, List<Producto>> porArticulo,
     required Map<String, List<Producto>> porDesc,
     required Map<String, List<Producto>> porDescColor,
     required List<Producto> todos,
   }) {
     final n = TextoProducto.normalizar(descripcionProveedor);
     final rango = TextoProducto.parsearRangoTalle(descripcionProveedor);
+    final universo = todos
+        .where(
+          (p) => TextoProducto.proveedorCompatible(
+            proveedorLista,
+            p.proveedor,
+          ),
+        )
+        .toList();
 
-    // 1) Rango de talles (Febo): "papi blanco 39-42" / "papi negro 39-42"
+    // 1) Rango de talles (Febo): color + talles del rango.
     if (rango.desde != null && rango.hasta != null) {
       final base = rango.base;
       final bases = <String>{
@@ -157,25 +207,36 @@ class ComparadorService {
       }..removeWhere((e) => e.isEmpty);
 
       final candidatos = <Producto>{};
+      final artProv = TextoProducto.articuloBase(base);
 
-      for (final b in bases) {
-        final porColor = porDescColor[b];
-        if (porColor != null) candidatos.addAll(porColor);
-        final soloDesc = porDesc[b];
-        if (soloDesc != null) candidatos.addAll(soloDesc);
-      }
-
-      for (final p in todos) {
+      for (final p in universo) {
+        final mismoModelo = artProv.isNotEmpty &&
+            TextoProducto.localEsMismoModeloPrecioUnico(
+              descripcionProveedor: artProv,
+              descripcionLocal: p.descripcion,
+              modeloLocal: p.modelo,
+            );
         final dc = TextoProducto.textoLocalSinTalle(
           descripcion: p.descripcion,
           color: p.colorProducto,
         );
-        if (dc.isEmpty) continue;
-        if (bases.any(
-          (b) => b == dc || TextoProducto.coincidePorTokens(b, dc),
+        final porTexto = bases.any(
+          (b) =>
+              b == dc ||
+              (dc.isNotEmpty && TextoProducto.coincidePorTokens(b, dc)),
+        );
+
+        if (!mismoModelo && !porTexto) continue;
+
+        if (!TextoProducto.localCoincideColorProveedor(
+          descripcionLocal: p.descripcion,
+          colorLocal: p.colorProducto,
+          textoProveedorSinTalle: base,
         )) {
-          candidatos.add(p);
+          continue;
         }
+
+        candidatos.add(p);
       }
 
       final enRango = candidatos.where((p) {
@@ -189,38 +250,35 @@ class ComparadorService {
       }).toList();
 
       if (enRango.isNotEmpty) return enRango;
-      // Si el rango no pegó, seguimos con match de modelo (por si el formato vino raro).
+      // Si el rango no pegó, seguimos con precio único por modelo.
     }
 
-    // 2) Un precio para toda la numeración (Leal, etc.):
-    //    "marilyn 39" o "marilyn" → TODOS los talles locales de ese modelo.
-    final baseProv = TextoProducto.quitarTalleFinal(descripcionProveedor);
-    final basesModelo = <String>{
-      baseProv,
-      n,
-      if (baseProv != n) baseProv,
-    }..removeWhere((e) => e.isEmpty);
-
+    // 2) Precio único por modelo (Leal, Profeta, …):
+    //    un costo → todos los color×talle de ese artículo en tu stock.
+    final artProv = TextoProducto.articuloBase(descripcionProveedor);
     final delModelo = <Producto>{};
-    for (final b in basesModelo) {
-      final porColor = porDescColor[b];
-      if (porColor != null) delModelo.addAll(porColor);
-      final soloDesc = porDesc[b];
-      if (soloDesc != null) delModelo.addAll(soloDesc);
-    }
 
-    for (final p in todos) {
-      final localDc = TextoProducto.textoLocalSinTalle(
-        descripcion: p.descripcion,
-        color: p.colorProducto,
-      );
-      if (localDc.isEmpty) continue;
-      if (basesModelo.any(
-        (b) =>
-            b == localDc ||
-            TextoProducto.coincidePorTokens(b, localDc),
-      )) {
-        delModelo.add(p);
+    if (artProv.isNotEmpty) {
+      final indexados = porArticulo[artProv];
+      if (indexados != null) {
+        delModelo.addAll(
+          indexados.where(
+            (p) => TextoProducto.proveedorCompatible(
+              proveedorLista,
+              p.proveedor,
+            ),
+          ),
+        );
+      }
+
+      for (final p in universo) {
+        if (TextoProducto.localEsMismoModeloPrecioUnico(
+          descripcionProveedor: descripcionProveedor,
+          descripcionLocal: p.descripcion,
+          modeloLocal: p.modelo,
+        )) {
+          delModelo.add(p);
+        }
       }
     }
 
@@ -231,7 +289,14 @@ class ComparadorService {
     // 3) Match exacto del texto completo (último recurso).
     final exactos = porDesc[n];
     if (exactos != null && exactos.isNotEmpty) {
-      return List<Producto>.from(exactos);
+      return exactos
+          .where(
+            (p) => TextoProducto.proveedorCompatible(
+              proveedorLista,
+              p.proveedor,
+            ),
+          )
+          .toList();
     }
 
     return const [];

@@ -311,4 +311,115 @@ class TextoProducto {
         .join(' '));
     return quitarTalleFinal(base);
   }
+
+  static const _ruidoArticulo = {
+    'x',
+    'par',
+    'por',
+    'en',
+    'eva',
+    'pu',
+    'pve',
+    'tr',
+    'goma',
+    'art',
+    'mm',
+    'mts',
+    'mtr',
+  };
+
+  /// Artículo/modelo sin talle ni color.
+  /// Sirve para listas tipo Leal/Profeta: un precio para todo el modelo
+  /// (vos tenés artículo + color + talle separados solo por el stock).
+  static String articuloBase(String texto) {
+    var n = normalizar(texto);
+    final rango = parsearRangoTalle(n);
+    if (rango.desde != null) {
+      n = rango.base;
+    }
+    n = quitarTalleFinal(n);
+    // Quitar talles sueltos en cualquier posición (marilyn 39 negro → marilyn negro)
+    n = n
+        .split(' ')
+        .where((t) {
+          final v = int.tryParse(t);
+          if (v != null && _esTalleCalzado(v)) return false;
+          return true;
+        })
+        .join(' ');
+    final parts = n
+        .split(' ')
+        .where((t) => t.isNotEmpty)
+        .where((t) => !_colores.contains(t))
+        .where((t) => !_ruidoArticulo.contains(t))
+        .toList();
+    return parts.join(' ').trim();
+  }
+
+  /// Color(es) mencionados en un texto de proveedor (si hay).
+  static Set<String> coloresEnTexto(String texto) {
+    return tokensSignificativos(normalizar(texto)).intersection(_colores);
+  }
+
+  /// ¿Mismo artículo? Comparación estricta (igualdad de núcleo).
+  /// No usa umbrales flojos: evita cruzar modelos parecidos.
+  static bool mismoArticulo(String a, String b) {
+    final na = articuloBase(a);
+    final nb = articuloBase(b);
+    if (na.isEmpty || nb.isEmpty) return false;
+    if (na == nb) return true;
+    final ta = tokensSignificativos(na).difference(_colores);
+    final tb = tokensSignificativos(nb).difference(_colores);
+    if (ta.isEmpty || tb.isEmpty) return false;
+    return ta.length == tb.length && ta.difference(tb).isEmpty;
+  }
+
+  /// Local vs línea de proveedor con precio único por modelo
+  /// (ignora color y talle del stock).
+  static bool localEsMismoModeloPrecioUnico({
+    required String descripcionProveedor,
+    required String descripcionLocal,
+    String modeloLocal = '',
+  }) {
+    final artProv = articuloBase(descripcionProveedor);
+    if (artProv.isEmpty) return false;
+    if (mismoArticulo(artProv, descripcionLocal)) return true;
+    if (modeloLocal.trim().isNotEmpty &&
+        mismoArticulo(artProv, modeloLocal)) {
+      return true;
+    }
+    return false;
+  }
+
+  /// ¿El producto local comparte el color indicado por el proveedor?
+  /// Si el proveedor no menciona color, no filtra.
+  static bool localCoincideColorProveedor({
+    required String descripcionLocal,
+    required String colorLocal,
+    required String textoProveedorSinTalle,
+  }) {
+    final coloresProv = coloresEnTexto(textoProveedorSinTalle);
+    if (coloresProv.isEmpty) return true;
+
+    final coloresLoc = coloresEnTexto('$descripcionLocal $colorLocal');
+    if (coloresLoc.intersection(coloresProv).isNotEmpty) return true;
+
+    final c = normalizar(colorLocal);
+    if (c.isEmpty) {
+      // Sin color en el local: no descartamos (puede ser genérico).
+      return true;
+    }
+    if (coloresProv.contains(c)) return true;
+    return coloresProv.any((p) => c == p || c.contains(p) || p.contains(c));
+  }
+
+  /// Compatible por campo proveedor del producto (si ambos tienen valor).
+  static bool proveedorCompatible(String proveedorLista, String proveedorLocal) {
+    final a = normalizar(proveedorLista);
+    final b = normalizar(proveedorLocal);
+    if (a.isEmpty || b.isEmpty) return true;
+    if (a == b) return true;
+    if (b.contains(a) || a.contains(b)) return true;
+    return coincidePorTokens(a, b);
+  }
 }
