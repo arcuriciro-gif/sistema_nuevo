@@ -10,6 +10,7 @@ import '../services/lista_precio_service.dart';
 import '../services/producto_service.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/comentarios_internos_sheet.dart';
+import '../widgets/media_avatar.dart';
 import 'historial_precios_page.dart';
 import 'scanner_page.dart';
 
@@ -338,13 +339,22 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
             children: [
             GestureDetector(
               onTap: _guardando ? null : elegirFoto,
-              child: CircleAvatar(
-                radius: 60,
-                backgroundImage: imageProviderDesdePath(foto),
-                child: foto.isEmpty
-                    ? const Icon(Icons.camera_alt, size: 40)
-                    : null,
-              ),
+              child: foto.isEmpty
+                  ? CircleAvatar(
+                      radius: 60,
+                      backgroundColor:
+                          Theme.of(context).colorScheme.primaryContainer,
+                      child: Icon(
+                        Icons.camera_alt,
+                        size: 40,
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
+                    )
+                  : MediaAvatar(
+                      path: foto,
+                      radius: 60,
+                      fallbackLetter: '?',
+                    ),
             ),
             const SizedBox(height: 8),
             Text(
