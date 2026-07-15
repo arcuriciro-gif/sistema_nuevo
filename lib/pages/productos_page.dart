@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
-import '../core/utils/media_path.dart';
 import '../models/chat_mensaje.dart';
 import '../models/lista_precio.dart';
 import '../models/producto.dart';
 import '../services/lista_precio_service.dart';
 import '../services/producto_service.dart';
 import '../theme/app_visuals.dart';
+import '../widgets/media_avatar.dart';
 import '../widgets/compartir_chat_dialog.dart';
 import '../widgets/comentarios_internos_sheet.dart';
 import 'papelera_productos_page.dart';
@@ -744,25 +744,15 @@ class _ProductoCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
+                MediaAvatar(
+                  path: p.fotoPrincipal,
                   radius: 26,
+                  fallbackLetter: (p.descripcion.isNotEmpty
+                          ? p.descripcion
+                          : p.codigo)
+                      .substring(0, 1),
                   backgroundColor: colorScheme.primaryContainer,
-                  backgroundImage:
-                      imageProviderDesdePath(p.fotoPrincipal),
-                  child: imageProviderDesdePath(p.fotoPrincipal) == null
-                      ? Text(
-                          (p.descripcion.isNotEmpty
-                                  ? p.descripcion
-                                  : p.codigo)
-                              .substring(0, 1)
-                              .toUpperCase(),
-                          style: TextStyle(
-                            color: colorScheme.primary,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
-                          ),
-                        )
-                      : null,
+                  foregroundColor: colorScheme.onPrimaryContainer,
                 ),
                 const SizedBox(width: 12),
                 Expanded(

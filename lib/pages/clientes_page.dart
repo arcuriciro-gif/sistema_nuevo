@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../core/utils/media_path.dart';
 import '../models/chat_mensaje.dart';
 import '../models/cliente.dart';
 import '../services/cliente_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/media_avatar.dart';
 import '../widgets/compartir_chat_dialog.dart';
 import '../widgets/comentarios_internos_sheet.dart';
 import '../widgets/cobrar_dialog.dart';
@@ -109,20 +109,12 @@ class _ClientesPageState extends State<ClientesPage> {
   }
 
   Widget _avatar(Cliente c, ColorScheme cs) {
-    final provider = imageProviderDesdePath(c.foto);
-    return CircleAvatar(
+    return MediaAvatar(
+      path: c.foto,
       radius: 22,
+      fallbackLetter: c.nombre.isNotEmpty ? c.nombre[0] : '?',
       backgroundColor: cs.primaryContainer,
-      backgroundImage: provider,
-      child: provider == null
-          ? Text(
-              c.nombre.isNotEmpty ? c.nombre[0].toUpperCase() : '?',
-              style: TextStyle(
-                color: cs.onPrimaryContainer,
-                fontWeight: FontWeight.bold,
-              ),
-            )
-          : null,
+      foregroundColor: cs.onPrimaryContainer,
     );
   }
 

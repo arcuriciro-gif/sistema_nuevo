@@ -1300,7 +1300,7 @@ class _DualProductoRepository implements ProductoRepository {
   final FirestoreProductoRepository remote;
 
   /// Sube fotos a Storage y deja en Firestore solo URLs https.
-  /// Si el upload falla, preserva las URLs que ya estaban en la nube.
+  /// Nunca manda fotos vacías (preserva las URLs ya publicadas).
   Future<Producto> _paraFirestore(Producto producto) async {
     final sincronizado = await MediaSyncService.instance.sincronizarFotosProducto(
       producto.codigo,
@@ -1328,13 +1328,16 @@ class _DualProductoRepository implements ProductoRepository {
       final urlsRemotas =
           remoto?.todasLasFotos.where(esUrlRemota).toList() ?? const [];
       if (urlsRemotas.isNotEmpty) {
+        // Conservar URLs previas en la nube; local puede seguir con path.
         return actual.copyWith(
           foto: urlsRemotas.first,
           fotos: urlsRemotas,
         );
       }
     } catch (_) {}
-    return actual.copyWith(foto: '', fotos: <String>[]);
+    // Sin URLs nuevas ni previas: devolver tal cual.
+    // toFirestore() omitirá foto/fotos y no borrará nada en merge.
+    return actual;
   }
 
   @override

@@ -10,6 +10,7 @@ import 'services/app_log.dart';
 import 'services/branding_service.dart';
 import 'services/document_numbering_service.dart';
 import 'services/permisos_service.dart';
+import 'services/sidebar_preferencias_service.dart';
 import 'core/config/backend_config_service.dart';
 import 'core/config/platform_capabilities.dart';
 import 'core/firebase/firebase_bootstrap.dart';
@@ -32,6 +33,7 @@ void main() async {
     await appendAppLog('BOOT start');
     initializeThemeProvider();
     await BrandingService.instance.cargar();
+    await SidebarPreferenciasService.instance.cargar();
     await DocumentNumberingService.instance.cargar();
     await AfipConfigService.instance.cargar();
     await BackendConfigService.instance.cargar();

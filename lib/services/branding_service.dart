@@ -96,9 +96,27 @@ class BrandingService extends ChangeNotifier {
   /// Días por defecto para vencimiento de cuenta corriente.
   int diasVencimiento = 30;
 
-  /// Imagen preferida para UI: icono si existe, si no logo.
-  String get imagenUiPath =>
-      iconoPath.isNotEmpty ? iconoPath : logoPath;
+  /// Imagen preferida para UI: logo válido primero, si no icono.
+  String get imagenUiPath {
+    for (final candidato in [logoPath, iconoPath]) {
+      if (candidato.isEmpty) continue;
+      if (esUrlRemota(candidato)) return candidato;
+      try {
+        if (File(candidato).existsSync()) return candidato;
+      } catch (_) {}
+    }
+    return logoPath.isNotEmpty ? logoPath : iconoPath;
+  }
+
+  /// Logo del negocio (no el icono de app).
+  String get logoUiPath {
+    if (logoPath.isEmpty) return '';
+    if (esUrlRemota(logoPath)) return logoPath;
+    try {
+      if (File(logoPath).existsSync()) return logoPath;
+    } catch (_) {}
+    return logoPath;
+  }
 
   bool get encabezadoPdfTransparente =>
       pdfBlancoNegro ||

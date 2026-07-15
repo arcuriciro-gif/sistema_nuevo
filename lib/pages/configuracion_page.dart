@@ -7,11 +7,13 @@ import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/firebase/firebase_safe_mode.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/utils/media_path.dart';
+import '../navigation/shell_menu_catalog.dart';
 import '../services/app_log.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
 import '../services/permisos_service.dart';
 import '../services/producto_service.dart';
+import '../services/sidebar_preferencias_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_provider.dart';
 import 'listas_precio_page.dart';
@@ -776,6 +778,70 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                         ),
                       ),
                     ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // ── Barra lateral personalizable ───────────
+            Card(
+              elevation: 3,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.view_sidebar_rounded,
+                            color: colorScheme.primary),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'BARRA LATERAL',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () async {
+                            await SidebarPreferenciasService.instance
+                                .mostrarTodos();
+                            if (!mounted) return;
+                            setState(() {});
+                          },
+                          child: const Text('Mostrar todos'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Elegí qué módulos ver en el menú. Podés dejarla llena o vacía; '
+                      'ningún ítem es obligatorio. Si queda vacía, usá el engranaje '
+                      'de la barra superior para volver a Configuración.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ...kShellMenuCatalog.map((entry) {
+                      final visible = SidebarPreferenciasService.instance
+                          .estaVisible(entry.id);
+                      return CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        secondary: Icon(entry.icon, size: 22),
+                        title: Text(entry.title),
+                        value: visible,
+                        onChanged: (v) async {
+                          await SidebarPreferenciasService.instance
+                              .setVisible(entry.id, v ?? true);
+                          if (!mounted) return;
+                          setState(() {});
+                        },
+                      );
+                    }),
                   ],
                 ),
               ),

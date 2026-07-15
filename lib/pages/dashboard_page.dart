@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../models/producto.dart';
 import '../services/analytics_service.dart';
+import '../services/branding_service.dart';
 import '../services/cliente_service.dart';
 import '../services/compra_service.dart';
 import '../services/cuenta_corriente_service.dart';
@@ -12,6 +13,7 @@ import '../services/proveedor_service.dart';
 import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/media_avatar.dart';
 import 'clientes_deudores_page.dart';
 import 'clientes_page.dart';
 import 'compras_page.dart';
@@ -63,7 +65,12 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
     DataRefreshHub.instance.addListener(_onDatosActualizados);
+    BrandingService.instance.addListener(_onBranding);
     cargar();
+  }
+
+  void _onBranding() {
+    if (mounted) setState(() {});
   }
 
   void _onDatosActualizados() {
@@ -74,6 +81,7 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void dispose() {
     DataRefreshHub.instance.removeListener(_onDatosActualizados);
+    BrandingService.instance.removeListener(_onBranding);
     super.dispose();
   }
 
@@ -452,6 +460,44 @@ class _DashboardPageState extends State<DashboardPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Row(
+                      children: [
+                        MediaAvatar(
+                          path: BrandingService.instance.logoUiPath.isNotEmpty
+                              ? BrandingService.instance.logoUiPath
+                              : BrandingService.instance.imagenUiPath,
+                          radius: 28,
+                          fallbackLetter:
+                              BrandingService.instance.nombre.isNotEmpty
+                                  ? BrandingService.instance.nombre[0]
+                                  : 'T',
+                          backgroundColor: colorScheme.primaryContainer,
+                          foregroundColor: colorScheme.onPrimaryContainer,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                BrandingService.instance.nombre,
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              if (BrandingService.instance.slogan.isNotEmpty)
+                                Text(
+                                  BrandingService.instance.slogan,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
                     Text(
                       'Resumen general',
                       style: theme.textTheme.titleLarge?.copyWith(

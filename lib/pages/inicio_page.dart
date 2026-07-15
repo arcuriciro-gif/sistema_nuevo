@@ -1,9 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
-import '../core/utils/media_path.dart';
 import '../models/producto.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
@@ -13,6 +10,7 @@ import '../services/cuenta_corriente_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/media_avatar.dart';
 import 'clientes_deudores_page.dart';
 import 'clientes_page.dart';
 import 'compras_page.dart';
@@ -115,7 +113,6 @@ class _InicioPageState extends State<InicioPage> {
     final userName =
         AuthService.instance.currentUser?.nombre ?? 'Usuario';
     final cs = Theme.of(context).colorScheme;
-    final logoPath = branding.imagenUiPath;
     final ahora = DateTime.now();
     const meses = [
       'enero',
@@ -159,23 +156,32 @@ class _InicioPageState extends State<InicioPage> {
                     // ── Encabezado de bienvenida ─────────────────────────────
                     Row(
                       children: [
-                        if (logoPath.isNotEmpty)
-                          CircleAvatar(
-                            radius: 24,
-                            backgroundImage: FileImage(File(logoPath)),
-                          )
-                        else
-                          CircleAvatar(
-                            radius: 24,
-                            backgroundColor: cs.primaryContainer,
-                            child:
-                                Icon(Icons.store_rounded, color: cs.primary),
-                          ),
+                        MediaAvatar(
+                          path: branding.logoUiPath.isNotEmpty
+                              ? branding.logoUiPath
+                              : branding.imagenUiPath,
+                          radius: 24,
+                          fallbackLetter: branding.nombre.isNotEmpty
+                              ? branding.nombre[0]
+                              : 'T',
+                          backgroundColor: cs.primaryContainer,
+                          foregroundColor: cs.onPrimaryContainer,
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              Text(
+                                branding.nombre,
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: cs.primary,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                               Text(
                                 'Bienvenido, $userName',
                                 style: TextStyle(
@@ -422,25 +428,14 @@ class _InicioPageState extends State<InicioPage> {
                                       ),
                                     ).then((_) => _cargar());
                                   },
-                                  leading: CircleAvatar(
+                                  leading: MediaAvatar(
+                                    path: p.fotoPrincipal,
+                                    radius: 20,
+                                    fallbackLetter: p.codigo.isNotEmpty
+                                        ? p.codigo[0]
+                                        : '?',
                                     backgroundColor: cs.primaryContainer,
-                                    backgroundImage: imageProviderDesdePath(
-                                      p.fotoPrincipal,
-                                    ),
-                                    child: imageProviderDesdePath(
-                                              p.fotoPrincipal) ==
-                                            null
-                                        ? Text(
-                                            p.codigo.isNotEmpty
-                                                ? p.codigo[0].toUpperCase()
-                                                : '?',
-                                            style: TextStyle(
-                                              color: cs.primary,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 13,
-                                            ),
-                                          )
-                                        : null,
+                                    foregroundColor: cs.onPrimaryContainer,
                                   ),
                                   title: Text(p.descripcion),
                                   subtitle: Text('${p.codigo} · ${p.marca}'),

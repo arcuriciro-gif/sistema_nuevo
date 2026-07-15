@@ -51,14 +51,17 @@ class AppTheme {
       brightness: brightness,
     );
     // Usar el color elegido tal cual (sin “filtro” Material del seed).
-    final onSeed =
-        seed.computeLuminance() > 0.55 ? Colors.black : Colors.white;
+    // Gris/negro: acento brillante para que botones e ítems no parezcan apagados.
+    final seedOscuro = seed.computeLuminance() < 0.22;
+    final accent = seedOscuro ? const Color(0xFFFF7A00) : seed;
+    final onAccent =
+        accent.computeLuminance() > 0.55 ? Colors.black : Colors.white;
     final colorScheme = baseScheme.copyWith(
-      primary: seed,
-      onPrimary: onSeed,
-      secondary: seed,
-      onSecondary: onSeed,
-      tertiary: Color.lerp(seed, baseScheme.tertiary, 0.35)!,
+      primary: accent,
+      onPrimary: onAccent,
+      secondary: accent,
+      onSecondary: onAccent,
+      tertiary: Color.lerp(accent, baseScheme.tertiary, 0.35)!,
     );
     final textTheme = _textTheme(fuente).apply(
       bodyColor: colorScheme.onSurface,
@@ -85,17 +88,29 @@ class AppTheme {
           borderRadius: BorderRadius.circular(20),
         ),
       ),
-      floatingActionButtonTheme: FloatingActionButtonThemeData(
-        backgroundColor: colorScheme.primary,
-        foregroundColor: colorScheme.onPrimary,
-      ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
+          backgroundColor: colorScheme.primary,
+          foregroundColor: colorScheme.onPrimary,
+          disabledBackgroundColor:
+              colorScheme.onSurface.withValues(alpha: 0.12),
+          disabledForegroundColor:
+              colorScheme.onSurface.withValues(alpha: 0.38),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
         ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: colorScheme.primary,
+          foregroundColor: colorScheme.onPrimary,
+        ),
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: colorScheme.primary,
+        foregroundColor: colorScheme.onPrimary,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,

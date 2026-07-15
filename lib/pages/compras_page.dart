@@ -6,6 +6,7 @@ import '../theme/app_visuals.dart';
 import '../widgets/compartir_chat_dialog.dart';
 import '../widgets/comentarios_internos_sheet.dart';
 import 'compra_form_page.dart';
+import 'proveedores_page.dart';
 import '../theme/module_app_bar.dart';
 
 class ComprasPage extends StatefulWidget {
@@ -22,6 +23,9 @@ class _ComprasPageState extends State<ComprasPage> {
   List<Map<String, dynamic>> compras = [];
   List<Map<String, dynamic>> comprasOriginales = [];
   bool cargando = true;
+  DateTime? _desde;
+  DateTime? _hasta;
+  double _totalPeriodo = 0;
 
   @override
   void initState() {
@@ -35,19 +39,67 @@ class _ComprasPageState extends State<ComprasPage> {
     super.dispose();
   }
 
+  String _fmtDia(DateTime f) =>
+      '${f.day.toString().padLeft(2, '0')}/${f.month.toString().padLeft(2, '0')}/${f.year}';
+
   Future<void> cargar() async {
     setState(() => cargando = true);
-    comprasOriginales = await service.obtenerTodasConProveedor();
+    if (_desde != null && _hasta != null) {
+      comprasOriginales = await service.obtenerPorPeriodo(_desde!, _hasta!);
+      _totalPeriodo =
+          await service.totalComprasPorPeriodo(_desde!, _hasta!);
+    } else {
+      comprasOriginales = await service.obtenerTodasConProveedor();
+      _totalPeriodo = comprasOriginales.fold<double>(
+        0,
+        (s, c) => s + ((c['total'] as num?)?.toDouble() ?? 0),
+      );
+    }
     _filtrar(buscarController.text, actualizarEstado: false);
     if (!mounted) return;
     setState(() => cargando = false);
+  }
+
+  Future<void> _elegirPeriodo() async {
+    final ahora = DateTime.now();
+    final rango = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(ahora.year - 5),
+      lastDate: DateTime(ahora.year + 1),
+      initialDateRange: _desde != null && _hasta != null
+          ? DateTimeRange(start: _desde!, end: _hasta!)
+          : DateTimeRange(
+              start: ahora.subtract(const Duration(days: 7)),
+              end: ahora,
+            ),
+      helpText: 'Compras entre fechas',
+      saveText: 'Aplicar',
+    );
+    if (rango == null) return;
+    setState(() {
+      _desde = DateTime(rango.start.year, rango.start.month, rango.start.day);
+      _hasta = DateTime(rango.end.year, rango.end.month, rango.end.day);
+    });
+    await cargar();
+  }
+
+  void _limpiarPeriodo() {
+    setState(() {
+      _desde = null;
+      _hasta = null;
+    });
+    cargar();
   }
 
   void _filtrar(String texto, {bool actualizarEstado = true}) {
     final filtro = texto.toLowerCase().trim();
     compras = comprasOriginales.where((c) {
       final numero = (c['numero'] ?? '').toString().toLowerCase();
-      final proveedor = (c['proveedorNombre'] ?? '').toString().toLowerCase();
+      final proveedor = (c['proveedorNombre'] ??
+              c['proveedorNombreActual'] ??
+              '')
+          .toString()
+          .toLowerCase();
       return numero.contains(filtro) || proveedor.contains(filtro);
     }).toList();
 
@@ -225,6 +277,16 @@ class _ComprasPageState extends State<ComprasPage> {
         title: 'Compras',
         actions: [
           IconButton(
+            tooltip: 'Proveedores',
+            icon: const Icon(Icons.local_shipping_rounded),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ProveedoresPage()),
+              );
+            },
+          ),
+          IconButton(
             tooltip: 'Actualizar',
             icon: const Icon(Icons.refresh_rounded),
             onPressed: cargar,
@@ -245,6 +307,44 @@ class _ComprasPageState extends State<ComprasPage> {
       ),
       body: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _elegirPeriodo,
+                    icon: const Icon(Icons.date_range_rounded),
+                    label: Text(
+                      _desde != null && _hasta != null
+                          ? '${_fmtDia(_desde!)} → ${_fmtDia(_hasta!)}'
+                          : 'Filtrar por fechas',
+                    ),
+                  ),
+                ),
+                if (_desde != null) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'Quitar filtro de fechas',
+                    onPressed: _limpiarPeriodo,
+                    icon: const Icon(Icons.clear_rounded),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (_desde != null && _hasta != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Total del período: \$${_totalPeriodo.toStringAsFixed(2)} '
+                  '(${comprasOriginales.length} compras)',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.all(12),
             child: TextField(

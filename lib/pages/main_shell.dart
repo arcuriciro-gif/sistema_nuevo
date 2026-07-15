@@ -7,11 +7,13 @@ import '../services/branding_service.dart';
 import '../services/comunicaciones_service.dart';
 import '../services/cuenta_corriente_service.dart';
 import '../services/permisos_service.dart';
+import '../services/sidebar_preferencias_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../theme/layout_constants.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/media_avatar.dart';
 import 'archivo_pdfs_page.dart';
 import 'auditoria_page.dart';
 import 'backup_page.dart';
@@ -72,6 +74,9 @@ class _ShellItem {
     required this.builder,
     this.quickAccess = false,
   });
+
+  /// Id estable para preferencias de barra lateral.
+  String get preferenciaId => '$modulo|$title';
 }
 
 class MainShell extends StatefulWidget {
@@ -99,7 +104,13 @@ class _MainShellState extends State<MainShell> {
     BrandingService.instance.addListener(_onBrandingChanged);
     ComunicacionesService.instance.addListener(_onCommsChanged);
     DataRefreshHub.instance.addListener(_onDatosRemotos);
+    SidebarPreferenciasService.instance.addListener(_onSidebarPrefs);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await SidebarPreferenciasService.instance.cargar();
+      } catch (e) {
+        debugPrint('Sidebar prefs: $e');
+      }
       try {
         await AutoBackupService.instance.iniciar();
       } catch (e) {
@@ -114,6 +125,10 @@ class _MainShellState extends State<MainShell> {
     });
   }
 
+  void _onSidebarPrefs() {
+    if (mounted) setState(() {});
+  }
+
   void _onCommsChanged() {
     if (mounted) setState(() {});
   }
@@ -123,6 +138,7 @@ class _MainShellState extends State<MainShell> {
     BrandingService.instance.removeListener(_onBrandingChanged);
     ComunicacionesService.instance.removeListener(_onCommsChanged);
     DataRefreshHub.instance.removeListener(_onDatosRemotos);
+    SidebarPreferenciasService.instance.removeListener(_onSidebarPrefs);
     super.dispose();
   }
 
@@ -337,8 +353,10 @@ class _MainShellState extends State<MainShell> {
 
   List<_ShellItem> get _visibleItems {
     final rol = AuthService.instance.currentUser?.rol ?? 'empleado';
+    final prefs = SidebarPreferenciasService.instance;
     return _items
         .where((item) => PermisosService.instance.puedeVer(rol, item.modulo))
+        .where((item) => prefs.estaVisible(item.preferenciaId))
         .toList();
   }
 
@@ -551,6 +569,13 @@ class _MainShellState extends State<MainShell> {
                 onSearch: () => _abrirBusqueda(desktop: true),
                 onLogout: _logout,
                 onHome: _irAInicio,
+                onSettings: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ConfiguracionPage(),
+                    ),
+                  );
+                },
               ),
               Expanded(
                 child: Row(
@@ -563,7 +588,15 @@ class _MainShellState extends State<MainShell> {
                     ),
                     Expanded(
                       child: items.isEmpty
-                          ? const Center(child: Text('Sin módulos disponibles'))
+                          ? _SidebarVacia(
+                              onAbrirConfig: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => const ConfiguracionPage(),
+                                  ),
+                                );
+                              },
+                            )
                           : IndexedStack(
                               index: index,
                               children: [
@@ -775,7 +808,6 @@ class _SidebarContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final branding = BrandingService.instance;
     final logoPath = branding.imagenUiPath;
-    final logoProvider = imageProviderDesdePath(logoPath);
     final selectedBg = Theme.of(context).colorScheme.primary;
 
     return SafeArea(
@@ -790,29 +822,16 @@ class _SidebarContent extends StatelessWidget {
             ),
             child: Column(
               children: [
-                if (logoProvider != null)
-                  CircleAvatar(
-                    radius: 30,
-                    backgroundImage: logoProvider,
-                  )
-                else
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: const Color(0xFF3A3A3A),
-                        width: 1.5,
-                      ),
-                      color: const Color(0xFF1A1A1A),
-                    ),
-                    child: const Icon(
-                      Icons.store_rounded,
-                      color: Colors.white70,
-                      size: 28,
-                    ),
-                  ),
+                MediaAvatar(
+                  path: branding.logoUiPath.isNotEmpty
+                      ? branding.logoUiPath
+                      : logoPath,
+                  radius: 30,
+                  fallbackLetter:
+                      branding.nombre.isNotEmpty ? branding.nombre[0] : 'T',
+                  backgroundColor: const Color(0xFF1A1A1A),
+                  foregroundColor: Colors.white70,
+                ),
                 const SizedBox(height: 8),
                 Text(
                   branding.nombre,
@@ -968,22 +987,59 @@ class _SidebarContent extends StatelessWidget {
   }
 }
 
+
+class _SidebarVacia extends StatelessWidget {
+  final VoidCallback onAbrirConfig;
+  const _SidebarVacia({required this.onAbrirConfig});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.view_sidebar_outlined, size: 48),
+            const SizedBox(height: 12),
+            const Text(
+              'La barra lateral está vacía.\n'
+              'Podés elegir qué mostrar en Configuración.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onAbrirConfig,
+              icon: const Icon(Icons.settings_rounded),
+              label: const Text('Abrir configuración'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ── Barra superior de escritorio ─────────────────────────────────────────────
 class _TopBar extends StatelessWidget {
   final VoidCallback onSearch;
   final VoidCallback onLogout;
   final VoidCallback onHome;
+  final VoidCallback onSettings;
 
   const _TopBar({
     required this.onSearch,
     required this.onLogout,
     required this.onHome,
+    required this.onSettings,
   });
 
   @override
   Widget build(BuildContext context) {
     final branding = BrandingService.instance;
-    final logoPath = branding.imagenUiPath;
+    final logoPath = branding.logoUiPath.isNotEmpty
+        ? branding.logoUiPath
+        : branding.imagenUiPath;
     final userName = AuthService.instance.currentUser?.nombre ?? 'Usuario';
     final userInitial = userName.substring(0, 1).toUpperCase();
 
@@ -1003,16 +1059,14 @@ class _TopBar extends StatelessWidget {
             onPressed: onHome,
             icon: const Icon(Icons.home_rounded, color: Colors.white),
           ),
-          if (logoPath.isNotEmpty)
-            CircleAvatar(
-              radius: 16,
-              backgroundImage: imageProviderDesdePath(logoPath),
-              child: imageProviderDesdePath(logoPath) == null
-                  ? const Icon(Icons.store_rounded, color: Colors.white70, size: 18)
-                  : null,
-            )
-          else
-            const Icon(Icons.store_rounded, color: Colors.white70, size: 22),
+          MediaAvatar(
+            path: logoPath,
+            radius: 16,
+            fallbackLetter:
+                branding.nombre.isNotEmpty ? branding.nombre[0] : 'T',
+            backgroundColor: const Color(0xFF2A2A2A),
+            foregroundColor: Colors.white70,
+          ),
           const SizedBox(width: 10),
           Text(
             branding.nombre,
@@ -1056,7 +1110,12 @@ class _TopBar extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 12),
+          IconButton(
+            tooltip: 'Configuración',
+            onPressed: onSettings,
+            icon: const Icon(Icons.settings_rounded, color: _kSidebarInactiveIcon),
+          ),
+          const SizedBox(width: 4),
           GestureDetector(
             onTap: onSearch,
             child: Container(

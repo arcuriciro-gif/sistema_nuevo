@@ -224,6 +224,23 @@ class CompraService {
     return (r.first['total'] as num?)?.toDouble() ?? 0;
   }
 
+  Future<List<Map<String, dynamic>>> obtenerPorPeriodo(
+    DateTime desde,
+    DateTime hasta,
+  ) async {
+    final db = await dbHelper.database;
+    final fin = DateTime(hasta.year, hasta.month, hasta.day, 23, 59, 59);
+    return db.rawQuery('''
+      SELECT c.*, p.nombre AS proveedorNombreActual
+      FROM compras c
+      LEFT JOIN proveedores p ON p.id = c.proveedorId
+      WHERE c.estado != 'anulada'
+        AND c.fecha >= ?
+        AND c.fecha <= ?
+      ORDER BY datetime(c.fecha) DESC, datetime(c.fechaCreacion) DESC
+    ''', [desde.toIso8601String(), fin.toIso8601String()]);
+  }
+
   Future<double> totalComprasPorPeriodo(DateTime desde, DateTime hasta) async {
     final db = await dbHelper.database;
     final r = await db.rawQuery(
