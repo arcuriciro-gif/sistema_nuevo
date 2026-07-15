@@ -129,8 +129,18 @@ class _MainShellState extends State<MainShell> {
 
   void _onSidebarPrefs() {
     if (!mounted) return;
+    // Las preferencias solo se editan desde Configuración: quedarse ahí
+    // (si no, al tildar/destildar el índice viejo cae en Manual u otra pantalla).
     setState(() {
-      _selectedIndex = _resolverIndiceSeleccionado(_visibleItems);
+      const cfgId = 'configuracion|Configuración';
+      final items = _visibleItems;
+      final cfg = items.indexWhere((e) => e.preferenciaId == cfgId);
+      if (cfg >= 0) {
+        _selectedPreferenciaId = cfgId;
+        _selectedIndex = cfg;
+      } else {
+        _selectedIndex = _resolverIndiceSeleccionado(items);
+      }
     });
   }
 
@@ -366,19 +376,22 @@ class _MainShellState extends State<MainShell> {
   }
 
   /// Mantiene la misma pantalla al ocultar/mostrar ítems del menú.
+  /// Nunca reutiliza un índice “viejo”: al crecer/achicar la lista el mismo
+  /// número apunta a otro módulo (ej. Manual en lugar de Configuración).
   int _resolverIndiceSeleccionado(List<_ShellItem> items) {
     if (items.isEmpty) return 0;
+
     final id = _selectedPreferenciaId;
     if (id != null) {
       final i = items.indexWhere((e) => e.preferenciaId == id);
       if (i >= 0) return i;
     }
-    // La página actual se ocultó: quedarse en Configuración si está, si no Inicio.
-    final cfg = items.indexWhere(
-      (e) => e.preferenciaId == 'configuracion|Configuración',
-    );
+
+    // La página actual se ocultó (o aún no hay id): Configuración → Inicio.
+    const cfgId = 'configuracion|Configuración';
+    final cfg = items.indexWhere((e) => e.preferenciaId == cfgId);
     if (cfg >= 0) {
-      _selectedPreferenciaId = items[cfg].preferenciaId;
+      _selectedPreferenciaId = cfgId;
       return cfg;
     }
     final ini = items.indexWhere((e) => e.title == 'Inicio');
@@ -391,20 +404,38 @@ class _MainShellState extends State<MainShell> {
   }
 
   int _safeIndex(List<_ShellItem> items) {
-    return _resolverIndiceSeleccionado(items);
+    final i = _resolverIndiceSeleccionado(items);
+    if (_selectedIndex != i) {
+      // Mantener el campo en sync sin setState extra (estamos en build).
+      _selectedIndex = i;
+    }
+    return i;
   }
 
   void _select(int index) {
     final items = _visibleItems;
     if (index < 0 || index >= items.length) return;
-    if (_selectedIndex == index &&
-        _selectedPreferenciaId == items[index].preferenciaId) {
-      return;
-    }
+    final id = items[index].preferenciaId;
+    if (_selectedIndex == index && _selectedPreferenciaId == id) return;
     setState(() {
       _selectedIndex = index;
-      _selectedPreferenciaId = items[index].preferenciaId;
+      _selectedPreferenciaId = id;
     });
+  }
+
+  void _irAConfiguracion() {
+    final items = _visibleItems;
+    final idx = items.indexWhere(
+      (e) => e.preferenciaId == 'configuracion|Configuración',
+    );
+    if (idx >= 0) {
+      _select(idx);
+      return;
+    }
+    // Si Config está oculta en el menú, abrirla igual (push).
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ConfiguracionPage()),
+    );
   }
 
   Future<void> _logout() async {
@@ -606,13 +637,7 @@ class _MainShellState extends State<MainShell> {
                 onSearch: () => _abrirBusqueda(desktop: true),
                 onLogout: _logout,
                 onHome: _irAInicio,
-                onSettings: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const ConfiguracionPage(),
-                    ),
-                  );
-                },
+                onSettings: _irAConfiguracion,
               ),
               Expanded(
                 child: Row(
@@ -626,13 +651,7 @@ class _MainShellState extends State<MainShell> {
                     Expanded(
                       child: items.isEmpty
                           ? _SidebarVacia(
-                              onAbrirConfig: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => const ConfiguracionPage(),
-                                  ),
-                                );
-                              },
+                              onAbrirConfig: _irAConfiguracion,
                             )
                           : IndexedStack(
                               index: index,

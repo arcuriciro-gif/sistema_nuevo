@@ -45,12 +45,26 @@ jobs:
         run: |
           $src = "build\windows\x64\runner\Release"
           $dst = "Instalador_Windows"
-          if (-not (Test-Path "$src\sistema_nuevo.exe")) {
-            throw "No se encontró sistema_nuevo.exe en $src"
+          $exeName = "Tata.Manager.exe"
+          if (-not (Test-Path "$src\$exeName")) {
+            # Compatibilidad si el build viejo aún genera otro nombre
+            $fallback = Get-ChildItem "$src\*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($fallback) {
+              Write-Host "AVISO: no está $exeName; se encontró $($fallback.Name)"
+              $exeName = $fallback.Name
+            } else {
+              throw "No se encontró Tata.Manager.exe en $src"
+            }
           }
           if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
           New-Item -ItemType Directory -Path $dst | Out-Null
           Copy-Item -Path "$src\*" -Destination $dst -Recurse -Force
+
+          # Si el exe no se llama Tata.Manager.exe, renombrarlo
+          if ($exeName -ne "Tata.Manager.exe" -and (Test-Path "$dst\$exeName")) {
+            Rename-Item "$dst\$exeName" "Tata.Manager.exe" -Force
+            $exeName = "Tata.Manager.exe"
+          }
 
           # Asegurar sqlite3.dll junto al exe (sqflite_common_ffi en release)
           $sqliteCandidates = @(

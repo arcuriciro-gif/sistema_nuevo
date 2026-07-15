@@ -1,10 +1,14 @@
 Tata.Manager — carpeta para instalar en otra PC
 ================================================
+Autor: Matias Arcuri
 
-COMO ABRIR
-----------
+COMO ABRIR / ACCESO DIRECTO
+---------------------------
 1) Descomprimí TODO el ZIP en una carpeta (ej. C:\TataManager)
-2) Doble clic en:  ABRIR_TATA_MANAGER.bat
+2) Doble clic en:  Tata.Manager.exe
+   (o ABRIR_TATA_MANAGER.bat)
+3) Para acceso directo: clic derecho en Tata.Manager.exe
+   → Enviar a → Escritorio (crear acceso directo)
 
 PRIMERA VEZ
 -----------

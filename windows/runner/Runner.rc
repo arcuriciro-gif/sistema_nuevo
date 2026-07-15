@@ -89,12 +89,12 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "Tata.Manager" "\0"
+            VALUE "CompanyName", "Matias Arcuri" "\0"
             VALUE "FileDescription", "Tata.Manager" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "tata_manager" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 Tata.Manager. All rights reserved." "\0"
-            VALUE "OriginalFilename", "tata_manager.exe" "\0"
+            VALUE "InternalName", "Tata.Manager" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Matias Arcuri. All rights reserved." "\0"
+            VALUE "OriginalFilename", "Tata.Manager.exe" "\0"
             VALUE "ProductName", "Tata.Manager" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

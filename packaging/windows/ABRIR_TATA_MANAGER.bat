@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
-if not exist "sistema_nuevo.exe" (
-  echo No esta sistema_nuevo.exe en esta carpeta.
+if not exist "Tata.Manager.exe" (
+  echo No esta Tata.Manager.exe en esta carpeta.
   pause
   exit /b 1
 )
@@ -13,4 +13,4 @@ echo  - No muevas solo el .exe; usa TODA esta carpeta
 echo  - Instala "Microsoft Visual C++ Redistributable" x64
 echo  - Mira el archivo tata_manager_error.log en Documentos
 echo.
-start "" "sistema_nuevo.exe"
+start "" "Tata.Manager.exe"
