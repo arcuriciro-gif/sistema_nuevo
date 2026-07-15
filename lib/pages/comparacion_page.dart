@@ -19,7 +19,7 @@ class _ComparacionPageState extends State<ComparacionPage> {
 
   List<Comparacion> lista = [];
   bool cargando = true;
-  String filtro = "TODOS";
+  String filtro = 'TODOS';
 
   int aumentos = 0;
   int bajas = 0;
@@ -39,22 +39,17 @@ class _ComparacionPageState extends State<ComparacionPage> {
   }
 
   Future<void> cargar() async {
-    setState(() {
-      cargando = true;
-    });
+    setState(() => cargando = true);
     lista = await comparadorService.obtenerComparacion();
     aumentos = await comparadorService.cantidadAumentos();
     bajas = await comparadorService.cantidadBajas();
     nuevos = await comparadorService.cantidadNuevos();
     iguales = await comparadorService.cantidadIguales();
     if (!mounted) return;
-    setState(() {
-      cargando = false;
-    });
+    setState(() => cargando = false);
   }
 
   Future<void> analizarNuevaLista() async {
-    // Pedir proveedor si está vacío
     if (_proveedorCtrl.text.trim().isEmpty) {
       await showDialog<void>(
         context: context,
@@ -64,7 +59,7 @@ class _ComparacionPageState extends State<ComparacionPage> {
             controller: _proveedorCtrl,
             autofocus: true,
             decoration: const InputDecoration(
-              hintText: 'Ej: Febo, Bisso, Arola...',
+              hintText: 'Ej: Febo, Leal, Profeta...',
               labelText: 'Proveedor',
             ),
           ),
@@ -98,15 +93,13 @@ class _ComparacionPageState extends State<ComparacionPage> {
       );
       return;
     }
-    // El informe parte de la lista del proveedor, no de tu catálogo completo.
-    // Una fila del Excel puede generar varias del informe (p. ej. un modelo → varios talles).
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         duration: const Duration(seconds: 8),
         content: Text(
           'Archivo: ${meta.leidas} filas leídas, ${meta.validas} válidas. '
-          'Informe: ${meta.informe} líneas '
-          '(solo lo del proveedor; no incluye productos tuyos que no estén en su lista).',
+          'Informe: ${meta.informe} líneas. '
+          'Los NUEVO no se crean solos: tocá cada uno si querés darlo de alta.',
         ),
       ),
     );
@@ -114,15 +107,14 @@ class _ComparacionPageState extends State<ComparacionPage> {
 
   Color colorEstado(String estado) {
     final colorScheme = Theme.of(context).colorScheme;
-
     switch (estado) {
-      case "SUBIO":
+      case 'SUBIO':
         return AppVisuals.danger(colorScheme);
-      case "BAJO":
+      case 'BAJO':
         return AppVisuals.success(colorScheme);
-      case "NUEVO":
+      case 'NUEVO':
         return AppVisuals.info(colorScheme);
-      case "IGUAL":
+      case 'IGUAL':
         return AppVisuals.neutral(colorScheme);
       default:
         return colorScheme.onSurfaceVariant;
@@ -131,40 +123,56 @@ class _ComparacionPageState extends State<ComparacionPage> {
 
   IconData iconoEstado(String estado) {
     switch (estado) {
-      case "SUBIO":
+      case 'SUBIO':
         return Icons.trending_up_rounded;
-      case "BAJO":
+      case 'BAJO':
         return Icons.trending_down_rounded;
-      case "NUEVO":
+      case 'NUEVO':
         return Icons.new_releases_rounded;
-      case "IGUAL":
+      case 'IGUAL':
         return Icons.horizontal_rule_rounded;
       default:
         return Icons.help_outline_rounded;
     }
   }
 
-  List<Comparacion> get listaFiltrada {
-    if (filtro == "TODOS") {
-      return lista;
+  String _etiquetaFiltro(String estado) {
+    switch (estado) {
+      case 'SUBIO':
+        return 'SUBIÓ';
+      case 'BAJO':
+        return 'BAJÓ';
+      case 'NUEVO':
+        return 'NUEVO';
+      case 'IGUAL':
+        return 'IGUAL';
+      case 'TODOS':
+        return 'TODOS';
+      default:
+        return estado;
     }
+  }
+
+  List<Comparacion> get listaFiltrada {
+    if (filtro == 'TODOS') return lista;
     return lista.where((e) => e.estado == filtro).toList();
   }
 
-  Widget botonFiltro(String texto, Color color) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: ChoiceChip(
-        label: Text(texto),
-        selected: filtro == texto,
-        selectedColor: color.withValues(alpha: .20),
-        onSelected: (_) {
-          setState(() {
-            filtro = texto;
-          });
-        },
-      ),
-    );
+  int _countFor(String estado) {
+    switch (estado) {
+      case 'TODOS':
+        return lista.length;
+      case 'SUBIO':
+        return aumentos;
+      case 'BAJO':
+        return bajas;
+      case 'NUEVO':
+        return nuevos;
+      case 'IGUAL':
+        return iguales;
+      default:
+        return 0;
+    }
   }
 
   Future<void> exportarInforme() async {
@@ -206,84 +214,211 @@ class _ComparacionPageState extends State<ComparacionPage> {
   }
 
   Future<void> actualizarCostos() async {
+    final aActualizar = lista
+        .where((e) => e.estado != 'IGUAL' && e.estado != 'NUEVO')
+        .length;
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Actualizar costos'),
         content: Text(
-          '¿Actualizar el costo de ${lista.where((e) => e.estado != "IGUAL").length} productos?\n\n'
-          'Solo se modificará el COSTO. El precio de venta, stock y demás datos no cambiarán.',
+          aActualizar == 0
+              ? 'No hay costos para actualizar (solo iguales o nuevos sin alta).'
+              : '¿Actualizar el costo de $aActualizar productos?\n\n'
+                  'Solo se modifica el COSTO de artículos que ya tenés.\n'
+                  'Los NUEVO no se crean solos: dalos de alta uno por uno si te interesan.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancelar'),
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Confirmar'),
-          ),
+          if (aActualizar > 0)
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Confirmar'),
+            ),
         ],
       ),
     );
 
-    if (ok != true) {
-      return;
-    }
+    if (ok != true) return;
 
-    setState(() {
-      cargando = true;
-    });
+    setState(() => cargando = true);
     await comparadorService.actualizarProductos();
+    // Dejamos los NUEVO en el informe por si querés crearlos después;
+    // limpiamos el resto.
+    final quedanNuevos = lista.where((e) => e.estado == 'NUEVO').toList();
     await comparadorService.limpiarComparaciones();
-    _proveedorCtrl.clear();
+    for (final n in quedanNuevos) {
+      await comparadorService.guardarComparacion(n);
+    }
+    if (quedanNuevos.isEmpty) {
+      _proveedorCtrl.clear();
+    }
     if (!mounted) return;
-    setState(() {
-      lista = [];
-      aumentos = 0;
-      bajas = 0;
-      nuevos = 0;
-      iguales = 0;
-      cargando = false;
-    });
+    await cargar();
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Costos actualizados correctamente.")),
+      SnackBar(
+        content: Text(
+          quedanNuevos.isEmpty
+              ? 'Costos actualizados correctamente.'
+              : 'Costos actualizados. Quedan ${quedanNuevos.length} NUEVO '
+                  'para crear o ignorar.',
+        ),
+      ),
     );
   }
 
-  Widget _statChip(String label, int count, Color color) {
-    return Container(
-      margin: const EdgeInsets.only(right: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: .15),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: .40)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(color: color, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(10),
+  Future<void> _ignorarNuevo(Comparacion item) async {
+    await comparadorService.eliminarComparacionPorCodigo(item.codigo);
+    if (!mounted) return;
+    await cargar();
+  }
+
+  Future<void> _crearNuevo(Comparacion item) async {
+    final sugerido = await comparadorService.sugerirCodigoNuevo();
+    if (!mounted) return;
+
+    final codigoCtrl = TextEditingController(text: sugerido);
+    final descCtrl = TextEditingController(text: item.descripcion.trim());
+    final colorCtrl = TextEditingController();
+    final talleCtrl = TextEditingController();
+
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Crear en mi lista'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Solo crealo si lo vas a vender. Si no te interesa, cancelá e ignorá.',
+                  style: Theme.of(ctx).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: codigoCtrl,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: 'Tu código',
+                    helperText: 'Sugerido: $sugerido (podés cambiarlo)',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: descCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Descripción / artículo',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: colorCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Color (opcional)',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: talleCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Talle (opcional)',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Costo: \$${item.precioNuevo.toStringAsFixed(2)}'
+                  '${item.proveedor.isNotEmpty ? ' · ${item.proveedor}' : ''}',
+                  style: Theme.of(ctx).textTheme.labelLarge,
+                ),
+              ],
             ),
-            child: Text(
-              '$count',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-              ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Crear'),
+            ),
+          ],
+        );
+      },
+    );
+
+    final codigo = codigoCtrl.text;
+    final desc = descCtrl.text;
+    final color = colorCtrl.text;
+    final talle = talleCtrl.text;
+    codigoCtrl.dispose();
+    descCtrl.dispose();
+    colorCtrl.dispose();
+    talleCtrl.dispose();
+
+    if (confirmar != true || !mounted) return;
+
+    final error = await comparadorService.crearProductoDesdeNuevo(
+      comp: item,
+      codigo: codigo,
+      descripcion: desc,
+      color: color,
+      talle: talle,
+    );
+    if (!mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+    await cargar();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Creado: $codigo')),
+    );
+  }
+
+  /// Chip de conteo = filtro: un solo control para ver la lista.
+  Widget _filtroChip({
+    required String estado,
+    required String label,
+    required int count,
+    required Color color,
+  }) {
+    final selected = filtro == estado;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        selected: selected,
+        showCheckmark: false,
+        avatar: CircleAvatar(
+          backgroundColor: selected ? color : color.withValues(alpha: .85),
+          child: Text(
+            '$count',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
             ),
           ),
-        ],
+        ),
+        label: Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: selected ? color : null,
+          ),
+        ),
+        selectedColor: color.withValues(alpha: .18),
+        side: BorderSide(
+          color: selected ? color : color.withValues(alpha: .35),
+        ),
+        onSelected: (_) => setState(() => filtro = estado),
       ),
     );
   }
@@ -315,12 +450,14 @@ class _ComparacionPageState extends State<ComparacionPage> {
           ),
         ],
       ),
-      floatingActionButton: lista.isNotEmpty
+      floatingActionButton: lista.any(
+            (e) => e.estado == 'SUBIO' || e.estado == 'BAJO',
+          )
           ? FloatingActionButton.extended(
-        heroTag: 'fab_comparacion',
+              heroTag: 'fab_comparacion',
               onPressed: actualizarCostos,
               icon: const Icon(Icons.save_rounded),
-              label: const Text("ACTUALIZAR COSTOS"),
+              label: const Text('ACTUALIZAR COSTOS'),
             )
           : null,
       body: Column(
@@ -328,17 +465,15 @@ class _ComparacionPageState extends State<ComparacionPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
             child: Text(
-              'Compara la lista del proveedor contra tu stock (por artículo, no por tu código). '
-              'Leal/Profeta: un precio por modelo → se aplica a todos tus color×talle de ese artículo. '
-              'Febo: rango (ej. blanco 39-42) → solo ese color y esos talles. '
-              'El número del informe puede ser mayor que las filas del Excel porque un modelo abre varias líneas de stock.',
+              'Tocá SUBIÓ / BAJÓ / NUEVO / IGUAL para filtrar la lista. '
+              'Los NUEVO no se crean solos: solo si los das de alta vos '
+              '(con el código que elijas).',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: .65),
                 height: 1.35,
               ),
             ),
           ),
-          // Header con proveedor actual
           if (lista.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
@@ -346,15 +481,19 @@ class _ComparacionPageState extends State<ComparacionPage> {
                 children: [
                   const Icon(Icons.local_shipping_rounded, size: 16),
                   const SizedBox(width: 6),
-                  Text(
-                    lista.first.proveedor.isNotEmpty
-                        ? 'Lista: ${lista.first.proveedor}'
-                        : 'Lista cargada',
-                    style: theme.textTheme.labelLarge,
+                  Expanded(
+                    child: Text(
+                      lista.first.proveedor.isNotEmpty
+                          ? 'Lista: ${lista.first.proveedor}'
+                          : 'Lista cargada',
+                      style: theme.textTheme.labelLarge,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  const Spacer(),
                   Text(
-                    '${lista.length} líneas en el informe',
+                    filtro == 'TODOS'
+                        ? '${lista.length} líneas'
+                        : '${listaFiltrada.length} · ${_etiquetaFiltro(filtro)}',
                     style: theme.textTheme.labelMedium,
                   ),
                 ],
@@ -367,28 +506,40 @@ class _ComparacionPageState extends State<ComparacionPage> {
               padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Row(
                 children: [
-                  _statChip("SUBIÓ", aumentos, colorEstado("SUBIO")),
-                  _statChip("BAJÓ", bajas, colorEstado("BAJO")),
-                  _statChip("NUEVO", nuevos, colorEstado("NUEVO")),
-                  _statChip("IGUAL", iguales, colorEstado("IGUAL")),
+                  _filtroChip(
+                    estado: 'TODOS',
+                    label: 'TODOS',
+                    count: _countFor('TODOS'),
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  _filtroChip(
+                    estado: 'SUBIO',
+                    label: 'SUBIÓ',
+                    count: aumentos,
+                    color: colorEstado('SUBIO'),
+                  ),
+                  _filtroChip(
+                    estado: 'BAJO',
+                    label: 'BAJÓ',
+                    count: bajas,
+                    color: colorEstado('BAJO'),
+                  ),
+                  _filtroChip(
+                    estado: 'NUEVO',
+                    label: 'NUEVO',
+                    count: nuevos,
+                    color: colorEstado('NUEVO'),
+                  ),
+                  _filtroChip(
+                    estado: 'IGUAL',
+                    label: 'IGUAL',
+                    count: iguales,
+                    color: colorEstado('IGUAL'),
+                  ),
                 ],
               ),
             ),
           ],
-          const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              children: [
-                botonFiltro("TODOS", theme.colorScheme.onSurfaceVariant),
-                botonFiltro("SUBIO", colorEstado("SUBIO")),
-                botonFiltro("BAJO", colorEstado("BAJO")),
-                botonFiltro("NUEVO", colorEstado("NUEVO")),
-                botonFiltro("IGUAL", colorEstado("IGUAL")),
-              ],
-            ),
-          ),
           const SizedBox(height: 10),
           Expanded(
             child: cargando
@@ -401,15 +552,15 @@ class _ComparacionPageState extends State<ComparacionPage> {
                             Icon(
                               Icons.compare_arrows_rounded,
                               size: 64,
-                              color:
-                                  theme.colorScheme.onSurface.withValues(alpha: .3),
+                              color: theme.colorScheme.onSurface
+                                  .withValues(alpha: .3),
                             ),
                             const SizedBox(height: 12),
                             Text(
                               lista.isEmpty
                                   ? 'Cargá el Excel o CSV del proveedor\n'
                                       '(columnas: descripción + costo/precio)'
-                                  : 'No hay diferencias con el filtro seleccionado.',
+                                  : 'No hay ítems con el filtro ${_etiquetaFiltro(filtro)}.',
                               style: theme.textTheme.bodyLarge?.copyWith(
                                 color: theme.colorScheme.onSurface
                                     .withValues(alpha: .5),
@@ -436,116 +587,162 @@ class _ComparacionPageState extends State<ComparacionPage> {
                                       item.precioViejo) *
                                   100
                               : 0.0;
+                          final esNuevo = item.estado == 'NUEVO';
                           return Card(
                             margin: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 5),
-                            child: ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: colorEstado(item.estado)
-                                    .withValues(alpha: .15),
-                                child: Icon(
-                                  iconoEstado(item.estado),
-                                  color: colorEstado(item.estado),
-                                ),
-                              ),
-                              title: Text(
-                                item.descripcion,
-                                style:
-                                    const TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Column(
                                 children: [
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      SizedBox(
-                                        width: 110,
-                                        child: Text(
-                                            item.estado == 'NUEVO'
-                                                ? 'Ref. proveedor'
-                                                : 'Tu código',
-                                            style: theme.textTheme.labelSmall),
+                                  ListTile(
+                                    leading: CircleAvatar(
+                                      backgroundColor: colorEstado(item.estado)
+                                          .withValues(alpha: .15),
+                                      child: Icon(
+                                        iconoEstado(item.estado),
+                                        color: colorEstado(item.estado),
                                       ),
-                                      Expanded(child: Text(item.codigo)),
-                                    ],
-                                  ),
-                                  if (item.marca.isNotEmpty)
-                                    Row(
+                                    ),
+                                    title: Text(
+                                      item.descripcion,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    subtitle: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        SizedBox(
-                                          width: 110,
-                                          child: Text('Marca',
-                                              style: theme.textTheme.labelSmall),
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            SizedBox(
+                                              width: 110,
+                                              child: Text(
+                                                esNuevo
+                                                    ? 'Ref. proveedor'
+                                                    : 'Tu código',
+                                                style: theme
+                                                    .textTheme.labelSmall,
+                                              ),
+                                            ),
+                                            Expanded(child: Text(item.codigo)),
+                                          ],
                                         ),
-                                        Expanded(child: Text(item.marca)),
+                                        if (item.marca.isNotEmpty)
+                                          Row(
+                                            children: [
+                                              SizedBox(
+                                                width: 110,
+                                                child: Text(
+                                                  'Marca',
+                                                  style: theme
+                                                      .textTheme.labelSmall,
+                                                ),
+                                              ),
+                                              Expanded(
+                                                child: Text(item.marca),
+                                              ),
+                                            ],
+                                          ),
+                                        Row(
+                                          children: [
+                                            SizedBox(
+                                              width: 110,
+                                              child: Text(
+                                                'Costo anterior',
+                                                style:
+                                                    theme.textTheme.labelSmall,
+                                              ),
+                                            ),
+                                            Expanded(
+                                              child: Text(
+                                                item.precioViejo == 0
+                                                    ? '—'
+                                                    : '\$${item.precioViejo.toStringAsFixed(2)}',
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        Row(
+                                          children: [
+                                            SizedBox(
+                                              width: 110,
+                                              child: Text(
+                                                'Costo nuevo',
+                                                style:
+                                                    theme.textTheme.labelSmall,
+                                              ),
+                                            ),
+                                            Expanded(
+                                              child: Text(
+                                                '\$${item.precioNuevo.toStringAsFixed(2)}',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                  color:
+                                                      colorEstado(item.estado),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ],
                                     ),
-                                  Row(
-                                    children: [
-                                      SizedBox(
-                                        width: 110,
-                                        child: Text('Costo anterior',
-                                            style: theme.textTheme.labelSmall),
-                                      ),
-                                      Expanded(
-                                        child: Text(
-                                          item.precioViejo == 0
-                                              ? '—'
-                                              : '\$${item.precioViejo.toStringAsFixed(2)}',
-                                        ),
-                                      ),
-                                    ],
+                                    isThreeLine: true,
+                                    trailing: esNuevo
+                                        ? null
+                                        : item.precioViejo == 0
+                                            ? null
+                                            : Text(
+                                                '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(1)}%',
+                                                style: TextStyle(
+                                                  color: colorEstado(
+                                                    item.estado,
+                                                  ),
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 16,
+                                                ),
+                                              ),
                                   ),
-                                  Row(
-                                    children: [
-                                      SizedBox(
-                                        width: 110,
-                                        child: Text('Costo nuevo',
-                                            style: theme.textTheme.labelSmall),
+                                  if (esNuevo)
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        12,
+                                        0,
+                                        12,
+                                        4,
                                       ),
-                                      Expanded(
-                                        child: Text(
-                                          '\$${item.precioNuevo.toStringAsFixed(2)}',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            color: colorEstado(item.estado),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: OutlinedButton(
+                                              onPressed: () =>
+                                                  _ignorarNuevo(item),
+                                              child: const Text('Ignorar'),
+                                            ),
                                           ),
-                                        ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: FilledButton.icon(
+                                              onPressed: () =>
+                                                  _crearNuevo(item),
+                                              icon: const Icon(
+                                                Icons.add_rounded,
+                                                size: 18,
+                                              ),
+                                              label: const Text(
+                                                'Crear en mi lista',
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                    ],
-                                  ),
+                                    ),
                                 ],
                               ),
-                              isThreeLine: true,
-                              trailing: item.estado == 'NUEVO'
-                                  ? Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: colorEstado('NUEVO')
-                                            .withValues(alpha: .15),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text(
-                                        'NUEVO',
-                                        style: TextStyle(
-                                          color: colorEstado('NUEVO'),
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    )
-                                  : item.precioViejo == 0
-                                      ? null
-                                      : Text(
-                                          '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(1)}%',
-                                          style: TextStyle(
-                                            color: colorEstado(item.estado),
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 16,
-                                          ),
-                                        ),
                             ),
                           );
                         },

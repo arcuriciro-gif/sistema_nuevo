@@ -302,7 +302,8 @@ class ComparadorService {
     return const [];
   }
 
-  /// Actualiza **únicamente el costo** de los productos emparejados (por código local).
+  /// Actualiza **únicamente el costo** de productos ya existentes en tu lista.
+  /// Los NUEVO no se crean solos: hay que darlos de alta a mano (si te interesan).
   Future<void> actualizarProductos() async {
     final comparaciones = await obtenerComparacion();
     final db = await DatabaseHelper.instance.database;
@@ -310,51 +311,91 @@ class ComparadorService {
     final ahora = DateTime.now().toIso8601String();
 
     for (final comp in comparaciones) {
-      final producto = await productoService.buscarPorCodigo(comp.codigo);
-      if (producto != null) {
-        if (comp.precioNuevo != comp.precioViejo) {
-          await db.update(
-            'productos',
-            {'costo': comp.precioNuevo},
-            where: 'id = ?',
-            whereArgs: [producto.id],
-          );
+      if (comp.estado == 'NUEVO') continue;
 
-          await db.insert('historial_precios', {
-            'productoId': producto.id,
-            'fecha': ahora,
-            'usuario': usuario,
-            'costoAnterior': comp.precioViejo,
-            'costoNuevo': comp.precioNuevo,
-            'precioAnterior': producto.precio,
-            'precioNuevo': producto.precio,
-            'porcentaje': comp.precioViejo > 0
-                ? ((comp.precioNuevo - comp.precioViejo) / comp.precioViejo) *
-                    100
-                : 0.0,
-            'listaModificada':
-                comp.proveedor.isNotEmpty ? comp.proveedor : 'Lista proveedor',
-            'motivo': 'Actualización de costo por lista (desc)',
-          });
-        }
-      } else if (comp.estado == 'NUEVO') {
-        await productoService.insertar(
-          Producto(
-            codigo: comp.codigo,
-            descripcion: comp.descripcion.split('  ←  ').first.trim(),
-            marca: comp.marca,
-            categoria: '',
-            proveedor: comp.proveedor,
-            ubicacion: '',
-            stock: 0,
-            costo: comp.precioNuevo,
-            precio: 0,
-            observaciones: '',
-            foto: '',
-          ),
-        );
-      }
+      final producto = await productoService.buscarPorCodigo(comp.codigo);
+      if (producto == null) continue;
+      if (comp.precioNuevo == comp.precioViejo) continue;
+
+      await db.update(
+        'productos',
+        {'costo': comp.precioNuevo},
+        where: 'id = ?',
+        whereArgs: [producto.id],
+      );
+
+      await db.insert('historial_precios', {
+        'productoId': producto.id,
+        'fecha': ahora,
+        'usuario': usuario,
+        'costoAnterior': comp.precioViejo,
+        'costoNuevo': comp.precioNuevo,
+        'precioAnterior': producto.precio,
+        'precioNuevo': producto.precio,
+        'porcentaje': comp.precioViejo > 0
+            ? ((comp.precioNuevo - comp.precioViejo) / comp.precioViejo) * 100
+            : 0.0,
+        'listaModificada':
+            comp.proveedor.isNotEmpty ? comp.proveedor : 'Lista proveedor',
+        'motivo': 'Actualización de costo por lista (desc)',
+      });
     }
+  }
+
+  /// Sugiere el próximo código numérico libre (máx+1), o un código corto.
+  Future<String> sugerirCodigoNuevo() async {
+    final todos = await productoService.obtenerTodos();
+    var maxN = 0;
+    for (final p in todos) {
+      final n = int.tryParse(p.codigo.trim());
+      if (n != null && n > maxN) maxN = n;
+    }
+    if (maxN > 0) return '${maxN + 1}';
+    return 'A${DateTime.now().millisecondsSinceEpoch % 100000}';
+  }
+
+  Future<void> eliminarComparacionPorCodigo(String codigo) async {
+    final db = await DatabaseHelper.instance.database;
+    await db.delete('comparacion', where: 'codigo = ?', whereArgs: [codigo]);
+  }
+
+  /// Alta manual de un artículo NUEVO del informe.
+  Future<String?> crearProductoDesdeNuevo({
+    required Comparacion comp,
+    required String codigo,
+    required String descripcion,
+    String color = '',
+    String talle = '',
+  }) async {
+    final cod = codigo.trim();
+    if (cod.isEmpty) return 'Ingresá un código.';
+    if (cod.toUpperCase().startsWith('NUEVO-')) {
+      return 'Elegí tu código (no uses el de referencia del informe).';
+    }
+    final existe = await productoService.buscarPorCodigo(cod);
+    if (existe != null) return 'Ese código ya existe en tu lista.';
+
+    await productoService.insertar(
+      Producto(
+        codigo: cod,
+        descripcion: descripcion.trim().isEmpty
+            ? comp.descripcion.split('  ←  ').first.trim()
+            : descripcion.trim(),
+        marca: comp.marca,
+        categoria: '',
+        proveedor: comp.proveedor,
+        ubicacion: '',
+        stock: 0,
+        costo: comp.precioNuevo,
+        precio: 0,
+        observaciones: '',
+        foto: '',
+        colorProducto: color.trim(),
+        talle: talle.trim(),
+      ),
+    );
+    await eliminarComparacionPorCodigo(comp.codigo);
+    return null;
   }
 
   Future<int> cantidadAumentos() async {
