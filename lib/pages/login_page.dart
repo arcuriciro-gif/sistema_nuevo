@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../core/firebase/firebase_safe_mode.dart';
 import '../core/utils/media_path.dart';
+import '../models/usuario.dart';
 import '../services/app_log.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_auth_service.dart';
@@ -131,7 +132,10 @@ class _LoginPageState extends State<LoginPage> {
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      AuthService.instance.conectarFirebaseDespuesDelLogin();
+      AuthService.instance.conectarFirebaseDespuesDelLogin().then((_) {},
+          onError: (Object e, StackTrace st) {
+        debugPrint('Post-login Firebase: $e\n$st');
+      });
     });
   }
 
@@ -163,33 +167,44 @@ class _LoginPageState extends State<LoginPage> {
       _info = FirebaseSafeMode.enabled ? _info : null;
     });
 
+    Usuario? user;
     try {
-      final user = await AuthService.instance.login(
+      user = await AuthService.instance.login(
         _usuarioCtrl.text.trim(),
         _passwordCtrl.text,
       );
-
-      if (!mounted) return;
-      setState(() => _loading = false);
-
-      if (user == null) {
-        setState(() {
-          _error = AuthService.instance.lastLoginError ??
-              'Usuario o contraseña incorrectos.';
-        });
-        return;
-      }
-
-      await _irDespuesDelLogin();
     } catch (e, st) {
       debugPrint('Login crash: $e\n$st');
       if (!mounted) return;
       setState(() {
         _loading = false;
         _error =
-            'Error al iniciar sesión: $e. '
+            'Error al iniciar sesión. '
             'Probá con admin / admin123 (primera vez en esta PC).';
       });
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _loading = false);
+
+    if (user == null) {
+      setState(() {
+        _error = AuthService.instance.lastLoginError ??
+            'Usuario o contraseña incorrectos.';
+      });
+      return;
+    }
+
+    // La navegación / chip de nube no debe mostrar error de Firebase como fallo de login.
+    try {
+      await _irDespuesDelLogin();
+    } catch (e, st) {
+      debugPrint('Post-login nav: $e\n$st');
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const MainShell()),
+      );
     }
   }
 

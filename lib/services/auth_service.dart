@@ -71,11 +71,16 @@ class AuthService {
     }
 
     final firebase = FirebaseAuthUsuarioService.instance;
-    final puedeFirebase = BackendConfigService.instance.firebaseEnabled &&
-        firebase.disponible &&
-        !FirebaseSafeMode.enabled;
+    // Nunca tocamos Firebase Auth si el app no está listo (evita [core/no-app] en .exe).
+    final puedeFirebase = !FirebaseSafeMode.enabled &&
+        BackendConfigService.instance.firebaseEnabled &&
+        firebase.disponible;
 
-    await appendAppLog('LOGIN start entrada=$entrada');
+    await appendAppLog(
+      'LOGIN start entrada=$entrada '
+      'local=${localUser != null} puedeFirebase=$puedeFirebase '
+      'fbReady=${FirebaseBootstrap.isReady}',
+    );
 
     // Sin usuario local: solo posible vía Firebase (otra PC / pendrive).
     if (localUser == null || !localUser.activo) {
@@ -83,7 +88,8 @@ class AuthService {
         lastLoginError = FirebaseSafeMode.enabled
             ? 'Modo seguro activo (la app se cerró antes con Firebase). '
                 'Entrá con un usuario local (ej. admin) o desactivá el modo seguro.'
-            : 'Usuario o contraseña incorrectos.';
+            : 'Usuario o contraseña incorrectos. '
+                'Primera vez en esta PC: admin / admin123.';
         return null;
       }
       try {
@@ -129,7 +135,8 @@ class AuthService {
         debugPrint('Login remoto Firebase falló: $e');
         lastLoginError =
             'Usuario o contraseña incorrectos. '
-            'Si te llegó el mail de confirmación, usá la contraseña del enlace.';
+            'Si te llegó el mail de confirmación, usá la contraseña del enlace. '
+            'Sin nube en esta PC: admin / admin123.';
         return null;
       }
     }

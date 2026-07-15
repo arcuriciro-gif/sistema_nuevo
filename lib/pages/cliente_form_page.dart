@@ -11,6 +11,7 @@ import '../core/sync/media_sync_service.dart';
 import '../core/utils/media_path.dart';
 import '../models/cliente.dart';
 import '../services/cliente_service.dart';
+import '../theme/layout_constants.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/comentarios_internos_sheet.dart';
 
@@ -232,97 +233,114 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
             ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: formKey,
-          child: Column(
-            children: [
-              GestureDetector(
-                onTap: guardando ? null : _elegirFoto,
-                child: CircleAvatar(
-                  radius: 48,
-                  backgroundColor: cs.primaryContainer,
-                  backgroundImage: provider,
-                  child: provider == null
-                      ? Icon(Icons.add_a_photo_rounded,
-                          size: 32, color: cs.onPrimaryContainer)
-                      : null,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Foto del cliente (opcional)',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: cs.onSurfaceVariant,
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: pageScrollPadding(context, extraBottom: 16),
+              child: Form(
+                key: formKey,
+                child: Column(
+                  children: [
+                    GestureDetector(
+                      onTap: guardando ? null : _elegirFoto,
+                      child: CircleAvatar(
+                        radius: 48,
+                        backgroundColor: cs.primaryContainer,
+                        backgroundImage: provider,
+                        child: provider == null
+                            ? Icon(Icons.add_a_photo_rounded,
+                                size: 32, color: cs.onPrimaryContainer)
+                            : null,
+                      ),
                     ),
-              ),
-              if (_foto.isNotEmpty)
-                TextButton(
-                  onPressed: () => setState(() => _foto = ''),
-                  child: const Text('Quitar foto'),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Foto del cliente (opcional)',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                    ),
+                    if (_foto.isNotEmpty)
+                      TextButton(
+                        onPressed: () => setState(() => _foto = ''),
+                        child: const Text('Quitar foto'),
+                      ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: nombreController,
+                      decoration: const InputDecoration(
+                        labelText: "Nombre *",
+                        prefixIcon: Icon(Icons.person),
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (v) => v == null || v.trim().isEmpty
+                          ? "Ingresá el nombre"
+                          : null,
+                    ),
+                    const SizedBox(height: 16),
+                    _campo("Apellido", apellidoController,
+                        icon: Icons.badge_outlined),
+                    _campo("Teléfono", telefonoController,
+                        icon: Icons.phone, keyboardType: TextInputType.phone),
+                    _campo("WhatsApp", whatsappController,
+                        icon: Icons.chat, keyboardType: TextInputType.phone),
+                    _campo("Email", emailController,
+                        icon: Icons.email_outlined,
+                        keyboardType: TextInputType.emailAddress),
+                    _campo("Dirección", direccionController,
+                        icon: Icons.location_on),
+                    _campo("Localidad", localidadController,
+                        icon: Icons.location_city_outlined),
+                    _campo("Provincia", provinciaController,
+                        icon: Icons.map_outlined),
+                    _campo("CUIT", cuitController, icon: Icons.badge),
+                    _campo("Condición IVA", condicionIvaController,
+                        icon: Icons.receipt_long_outlined),
+                    TextFormField(
+                      controller: descuentoController,
+                      decoration: const InputDecoration(
+                        labelText: "Descuento (%)",
+                        prefixIcon: Icon(Icons.percent),
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true),
+                      validator: (value) {
+                        final texto = (value ?? '').trim();
+                        if (texto.isEmpty) return null;
+                        final descuento =
+                            double.tryParse(texto.replaceAll(',', '.'));
+                        if (descuento == null) {
+                          return 'Ingresá un número válido';
+                        }
+                        if (descuento < 0 || descuento > 100) {
+                          return 'El descuento debe estar entre 0 y 100';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    _campo("Saldo de cuenta corriente", saldoController,
+                        icon: Icons.account_balance_wallet_outlined,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true, signed: true)),
+                    _campo("Límite de cuenta corriente", limiteCuentaController,
+                        icon: Icons.credit_card,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true)),
+                    _campo("Observaciones", observacionesController,
+                        icon: Icons.notes, maxLines: 3),
+                  ],
                 ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: nombreController,
-                decoration: const InputDecoration(
-                  labelText: "Nombre *",
-                  prefixIcon: Icon(Icons.person),
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) =>
-                    v == null || v.trim().isEmpty ? "Ingresá el nombre" : null,
               ),
-              const SizedBox(height: 16),
-              _campo("Apellido", apellidoController, icon: Icons.badge_outlined),
-              _campo("Teléfono", telefonoController,
-                  icon: Icons.phone, keyboardType: TextInputType.phone),
-              _campo("WhatsApp", whatsappController,
-                  icon: Icons.chat, keyboardType: TextInputType.phone),
-              _campo("Email", emailController,
-                  icon: Icons.email_outlined,
-                  keyboardType: TextInputType.emailAddress),
-              _campo("Dirección", direccionController,
-                  icon: Icons.location_on),
-              _campo("Localidad", localidadController,
-                  icon: Icons.location_city_outlined),
-              _campo("Provincia", provinciaController, icon: Icons.map_outlined),
-              _campo("CUIT", cuitController, icon: Icons.badge),
-              _campo("Condición IVA", condicionIvaController,
-                  icon: Icons.receipt_long_outlined),
-              TextFormField(
-                controller: descuentoController,
-                decoration: const InputDecoration(
-                  labelText: "Descuento (%)",
-                  prefixIcon: Icon(Icons.percent),
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                validator: (value) {
-                  final texto = (value ?? '').trim();
-                  if (texto.isEmpty) return null;
-                  final descuento = double.tryParse(texto.replaceAll(',', '.'));
-                  if (descuento == null) return 'Ingresá un número válido';
-                  if (descuento < 0 || descuento > 100) {
-                    return 'El descuento debe estar entre 0 y 100';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              _campo("Saldo de cuenta corriente", saldoController,
-                  icon: Icons.account_balance_wallet_outlined,
-                  keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true, signed: true)),
-              _campo("Límite de cuenta corriente", limiteCuentaController,
-                  icon: Icons.credit_card,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true)),
-              _campo("Observaciones", observacionesController,
-                  icon: Icons.notes, maxLines: 3),
-              const SizedBox(height: 24),
-              SizedBox(
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton.icon(
@@ -337,9 +355,9 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
                   label: Text(esEdicion ? "ACTUALIZAR" : "GUARDAR"),
                 ),
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

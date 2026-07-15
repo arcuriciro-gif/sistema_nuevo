@@ -1153,7 +1153,9 @@ class _TopBar extends StatelessWidget {
           Builder(
             builder: (context) {
               final nubeOn = BackendConfigService.instance.firebaseEnabled;
-              final conAuth =
+              // Nunca tocar FirebaseAuth si la app no está lista (crash .exe).
+              final conAuth = nubeOn &&
+                  FirebaseAuthUsuarioService.instance.disponible &&
                   FirebaseAuthUsuarioService.instance.uidActual != null;
               final label = !nubeOn
                   ? 'Solo local'

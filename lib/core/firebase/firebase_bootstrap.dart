@@ -36,11 +36,13 @@ class FirebaseBootstrap {
       debugPrint('Firebase inicializado correctamente.');
     } catch (e) {
       // Si ya estaba inicializado en un hot restart / segundo intento.
-      if (Firebase.apps.isNotEmpty) {
-        _initialized = true;
-        debugPrint('Firebase ya estaba inicializado.');
-        return;
-      }
+      try {
+        if (Firebase.apps.isNotEmpty) {
+          _initialized = true;
+          debugPrint('Firebase ya estaba inicializado.');
+          return;
+        }
+      } catch (_) {}
       debugPrint('Firebase.initializeApp falló: $e');
       rethrow;
     }

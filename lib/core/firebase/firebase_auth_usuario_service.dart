@@ -16,10 +16,36 @@ class FirebaseAuthUsuarioService {
   static final FirebaseAuthUsuarioService instance =
       FirebaseAuthUsuarioService._();
 
-  bool get disponible =>
-      BackendConfigService.instance.firebaseEnabled && FirebaseBootstrap.isReady;
+  static bool get _appsListas {
+    if (!FirebaseBootstrap.isReady) return false;
+    try {
+      return Firebase.apps.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
 
-  FirebaseAuth get _auth => FirebaseAuth.instance;
+  bool get disponible =>
+      BackendConfigService.instance.firebaseEnabled && _appsListas;
+
+  FirebaseAuth? get _authOrNull {
+    if (!_appsListas) return null;
+    try {
+      return FirebaseAuth.instance;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  FirebaseAuth get _auth {
+    final a = _authOrNull;
+    if (a == null) {
+      throw StateError(
+        'Firebase no está inicializado. Activá la sincronización en Configuración.',
+      );
+    }
+    return a;
+  }
 
   Future<UserCredential> iniciarSesion(
     String usuario,
@@ -68,7 +94,8 @@ class FirebaseAuthUsuarioService {
 
   Future<void> cerrarSesion() async {
     try {
-      await _auth.signOut();
+      final auth = _authOrNull;
+      if (auth != null) await auth.signOut();
     } catch (_) {}
     if (!kIsWeb && Platform.isAndroid) {
       try {
@@ -247,5 +274,13 @@ class FirebaseAuthUsuarioService {
     }
   }
 
-  String? get uidActual => _auth.currentUser?.uid;
+  String? get uidActual {
+    final auth = _authOrNull;
+    if (auth == null) return null;
+    try {
+      return auth.currentUser?.uid;
+    } catch (_) {
+      return null;
+    }
+  }
 }

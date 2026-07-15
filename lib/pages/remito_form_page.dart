@@ -661,7 +661,9 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
                       ),
                     ],
                   ),
-                  child: Column(
+                  child: SafeArea(
+                    top: false,
+                    child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Row(
@@ -727,6 +729,7 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
                         ],
                       ),
                     ],
+                  ),
                   ),
                 ),
               ],

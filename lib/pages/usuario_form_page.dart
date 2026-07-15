@@ -4,6 +4,7 @@ import '../core/auth/rol_util.dart';
 import '../models/usuario.dart';
 import '../services/auth_service.dart';
 import '../services/usuario_service.dart';
+import '../theme/layout_constants.dart';
 import '../theme/module_app_bar.dart';
 
 class UsuarioFormPage extends StatefulWidget {
@@ -162,12 +163,15 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
         context,
         title: _esEdicion ? 'Editar usuario' : 'Nuevo usuario',
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: pageScrollPadding(context, extraBottom: 16),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
               TextFormField(
                 controller: _nombreController,
                 decoration: _decoracion('Nombre completo', Icons.badge_outlined),
@@ -276,8 +280,16 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
                 onChanged: (value) => setState(() => _activo = value),
                 title: const Text('Usuario activo'),
               ),
-              const SizedBox(height: 20),
-              SizedBox(
+                  ],
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton.icon(
@@ -292,9 +304,9 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
                   label: Text(_esEdicion ? 'ACTUALIZAR' : 'CREAR USUARIO'),
                 ),
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

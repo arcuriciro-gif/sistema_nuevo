@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/proveedor.dart';
 import '../services/proveedor_service.dart';
+import '../theme/layout_constants.dart';
 import '../theme/module_app_bar.dart';
 
 class ProveedorFormPage extends StatefulWidget {
@@ -184,12 +185,15 @@ class _ProveedorFormPageState extends State<ProveedorFormPage> {
         context,
         title: widget.proveedor == null ? "Nuevo Proveedor" : "Editar Proveedor",
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: formKey,
-          child: Column(
-            children: [
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: pageScrollPadding(context, extraBottom: 16),
+              child: Form(
+                key: formKey,
+                child: Column(
+                  children: [
               _campo(
                 "Nombre del Proveedor",
                 nombreController,
@@ -254,8 +258,16 @@ class _ProveedorFormPageState extends State<ProveedorFormPage> {
                   });
                 },
               ),
-              const SizedBox(height: 24),
-              SizedBox(
+                  ],
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
@@ -271,9 +283,9 @@ class _ProveedorFormPageState extends State<ProveedorFormPage> {
                       : const Text("Guardar Proveedor"),
                 ),
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

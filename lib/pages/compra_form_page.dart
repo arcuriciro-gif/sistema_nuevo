@@ -435,7 +435,9 @@ class _CompraFormPageState extends State<CompraFormPage> {
                       ),
                     ],
                   ),
-                  child: Column(
+                  child: SafeArea(
+                    top: false,
+                    child: Column(
                     children: [
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -475,6 +477,7 @@ class _CompraFormPageState extends State<CompraFormPage> {
                         ),
                       ),
                     ],
+                  ),
                   ),
                 ),
               ],

@@ -73,8 +73,10 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
 
   void _cargarEstadoNube() {
     setState(() {
+      final fb = FirebaseAuthUsuarioService.instance;
       _nubeActiva = BackendConfigService.instance.firebaseEnabled &&
-          FirebaseAuthUsuarioService.instance.uidActual != null;
+          fb.disponible &&
+          fb.uidActual != null;
       _modoSeguro = FirebaseSafeMode.enabled;
     });
   }
