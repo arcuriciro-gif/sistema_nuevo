@@ -64,10 +64,74 @@ class AuthService {
       return null;
     }
 
+    try {
+      return await _loginInterno(entrada, password);
+    } catch (e, st) {
+      debugPrint('LOGIN exception: $e\n$st');
+      await appendAppLog('LOGIN exception: $e\n$st');
+      lastLoginError =
+          'No se pudo iniciar sesión (dato local).\n'
+          'Si es la primera vez en esta PC, cerrá la app y abrila con '
+          'ABRIR_TATA_MANAGER.bat desde la carpeta completa.\n'
+          'Detalle: $e';
+      return null;
+    }
+  }
+
+  Future<Usuario?> _loginInterno(String entrada, String password) async {
+    // Asegura DB + usuario admin seed antes de validar.
+    await DatabaseHelper.instance.database;
+
     final sqlite = SqliteUsuarioRepository();
     var localUser = await sqlite.buscarPorUsuario(entrada);
     if (localUser == null && UsuarioAuthEmail.esEmailReal(entrada)) {
       localUser = await sqlite.buscarPorEmail(entrada);
+    }
+
+    // Recuperación: admin / admin123 siempre debe poder entrar en local.
+    if (entrada.toLowerCase() == 'admin' &&
+        password == 'admin123' &&
+        (localUser == null ||
+            !localUser.activo ||
+            localUser.password != _hash(password))) {
+      final db = await DatabaseHelper.instance.database;
+      const hashAdmin123 =
+          '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
+      final ahora = DateTime.now();
+      if (localUser == null) {
+        final id = await db.insert('usuarios', {
+          'nombre': 'Administrador',
+          'usuario': 'admin',
+          'password': hashAdmin123,
+          'rol': 'admin',
+          'activo': 1,
+          'debe_cambiar_password': 0,
+          'email': 'admin@tata-stock.tatastock.app',
+          'fechaCreacion': ahora.toIso8601String(),
+          'ultimoAcceso': ahora.toIso8601String(),
+        });
+        localUser = Usuario(
+          id: id,
+          nombre: 'Administrador',
+          usuario: 'admin',
+          password: hashAdmin123,
+          rol: 'admin',
+          activo: true,
+          debeCambiarPassword: false,
+          email: 'admin@tata-stock.tatastock.app',
+          fechaCreacion: ahora,
+          ultimoAcceso: ahora,
+        );
+      } else {
+        localUser = localUser.copyWith(
+          password: hashAdmin123,
+          activo: true,
+          rol: 'admin',
+          debeCambiarPassword: false,
+        );
+        await sqlite.actualizar(localUser);
+      }
+      await appendAppLog('LOGIN admin local reparado');
     }
 
     final firebase = FirebaseAuthUsuarioService.instance;
@@ -79,7 +143,8 @@ class AuthService {
     await appendAppLog(
       'LOGIN start entrada=$entrada '
       'local=${localUser != null} puedeFirebase=$puedeFirebase '
-      'fbReady=${FirebaseBootstrap.isReady}',
+      'fbReady=${FirebaseBootstrap.isReady} '
+      'db=${await DatabaseHelper.instance.dbFilePath}',
     );
 
     // Sin usuario local: solo posible vía Firebase (otra PC / pendrive).
@@ -866,16 +931,20 @@ class AuthService {
     String? valorAnterior,
     String? valorNuevo,
   }) async {
-    if (currentUser == null && accion != 'LOGIN') return;
-    final db = await DatabaseHelper.instance.database;
-    await db.insert('audit_log', {
-      'usuario': currentUser?.usuario ?? 'sistema',
-      'accion': accion,
-      'detalle': detalle,
-      'tablaAfectada': tablaAfectada,
-      'valorAnterior': valorAnterior,
-      'valorNuevo': valorNuevo,
-      'fecha': DateTime.now().toIso8601String(),
-    });
+    try {
+      if (currentUser == null && accion != 'LOGIN') return;
+      final db = await DatabaseHelper.instance.database;
+      await db.insert('audit_log', {
+        'usuario': currentUser?.usuario ?? 'sistema',
+        'accion': accion,
+        'detalle': detalle,
+        'tablaAfectada': tablaAfectada,
+        'valorAnterior': valorAnterior,
+        'valorNuevo': valorNuevo,
+        'fecha': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {
+      debugPrint('audit_log omitido: $e');
+    }
   }
 }

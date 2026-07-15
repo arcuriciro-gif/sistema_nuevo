@@ -175,12 +175,13 @@ class _LoginPageState extends State<LoginPage> {
       );
     } catch (e, st) {
       debugPrint('Login crash: $e\n$st');
+      await appendAppLog('Login UI crash: $e\n$st');
       if (!mounted) return;
       setState(() {
         _loading = false;
         _error =
-            'Error al iniciar sesión. '
-            'Probá con admin / admin123 (primera vez en esta PC).';
+            'Error al iniciar sesión: $e\n'
+            'Probá admin / admin123 o abrí con ABRIR_TATA_MANAGER.bat.';
       });
       return;
     }

@@ -4,14 +4,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:sqflite/sqflite.dart';
 
 import '../database/database_helper.dart';
 
 class BackupService {
   Future<String> exportarBackup() async {
-    final dbPath = await getDatabasesPath();
-    final origen = File(p.join(dbPath, 'eltata.db'));
+    final origen = File(await DatabaseHelper.instance.dbFilePath);
     if (!await origen.exists()) {
       throw Exception('Base de datos no encontrada');
     }
@@ -49,8 +47,11 @@ class BackupService {
     await DatabaseHelper.instance.cerrar();
 
     final origen = File(result.files.first.path!);
-    final dbPath = await getDatabasesPath();
-    final destino = File(p.join(dbPath, 'eltata.db'));
+    final destino = File(await DatabaseHelper.instance.dbFilePath);
+    final parent = destino.parent;
+    if (!await parent.exists()) {
+      await parent.create(recursive: true);
+    }
     if (await destino.exists()) {
       await destino.delete();
     }

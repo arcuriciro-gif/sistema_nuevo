@@ -8,9 +8,9 @@ if not exist "Tata.Manager.exe" (
 echo Abriendo Tata.Manager desde:
 echo   %CD%
 echo.
-echo Si la app se cierra al iniciar sesion:
-echo  - No muevas solo el .exe; usa TODA esta carpeta
-echo  - Instala "Microsoft Visual C++ Redistributable" x64
-echo  - Mira el archivo tata_manager_error.log en Documentos
+echo Primera vez: usuario admin / clave admin123
+echo.
+echo Si falla el login, mira tata_manager_error.log
+echo (en esta carpeta o en Documentos).
 echo.
 start "" "Tata.Manager.exe"

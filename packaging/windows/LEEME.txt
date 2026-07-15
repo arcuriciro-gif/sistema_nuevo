@@ -5,16 +5,16 @@ Autor: Matias Arcuri
 COMO ABRIR / ACCESO DIRECTO
 ---------------------------
 1) Descomprimí TODO el ZIP en una carpeta (ej. C:\TataManager)
-2) Doble clic en:  Tata.Manager.exe
-   (o ABRIR_TATA_MANAGER.bat)
-3) Para acceso directo: clic derecho en Tata.Manager.exe
+2) Preferí abrir con:  ABRIR_TATA_MANAGER.bat
+   (también sirve doble clic en Tata.Manager.exe)
+3) Para acceso directo: clic derecho en ABRIR_TATA_MANAGER.bat
    → Enviar a → Escritorio (crear acceso directo)
+   Así la app siempre arranca desde la carpeta correcta.
 
 PRIMERA VEZ
 -----------
 Usuario: admin
 Contraseña: admin123
-(Te pide cambiar la clave, mínimo 6 caracteres.)
 
 USAR ONLINE (con el celular)
 ----------------------------
@@ -23,8 +23,9 @@ USAR ONLINE (con el celular)
 3) Tocá "Activar sincronización online"
 4) En el celular, mismo usuario/clave e internet
 
-Si la app se cerrara al activar la nube, avisá y revisá
-tata_manager_error.log (en esta carpeta o Documentos).
+Si no podés entrar, mirá el archivo:
+  tata_manager_error.log
+(en Documentos o en esta carpeta) y avisá.
 
 IMPORTANTE
 ----------

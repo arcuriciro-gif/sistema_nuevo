@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 class DatabaseHelper {
@@ -8,24 +11,94 @@ class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._();
 
   Database? _database;
+  String? _dbFilePath;
+
+  /// Ruta absoluta del archivo SQLite (para backup / diagnóstico).
+  Future<String> get dbFilePath async {
+    _dbFilePath ??= await _resolverRutaDb();
+    return _dbFilePath!;
+  }
 
   Future<Database> get database async {
     _database ??= await _initDatabase();
     return _database!;
   }
 
-  Future<Database> _initDatabase() async {
+  /// En Windows/Linux el getDatabasesPath() de sqflite_ffi es relativo
+  /// (`.dart_tool/...`) y depende del directorio de trabajo: un acceso directo
+  /// o abrir el .exe desde otra carpeta hace fallar el login. Usamos una
+  /// carpeta fija del usuario.
+  Future<String> _resolverRutaDb() async {
+    if (!kIsWeb &&
+        (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      final support = await getApplicationSupportDirectory();
+      final dir = Directory(join(support.path, 'databases'));
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      final primary = join(dir.path, 'eltata.db');
+      await _migrarDbLegadaSiHaceFalta(primary);
+      return primary;
+    }
+
     final dbPath = await getDatabasesPath();
-    final path = join(dbPath, 'eltata.db');
+    return join(dbPath, 'eltata.db');
+  }
+
+  Future<void> _migrarDbLegadaSiHaceFalta(String primary) async {
+    if (await File(primary).exists()) return;
+
+    final candidatos = <String>[];
+
+    // Path viejo relativo al cwd (bug de sqflite_ffi).
+    candidatos.add(
+      absolute(join('.dart_tool', 'sqflite_common_ffi', 'databases', 'eltata.db')),
+    );
+
+    try {
+      final exeDir = File(Platform.resolvedExecutable).parent.path;
+      candidatos.add(join(exeDir, 'eltata.db'));
+      candidatos.add(
+        join(exeDir, '.dart_tool', 'sqflite_common_ffi', 'databases', 'eltata.db'),
+      );
+    } catch (_) {}
+
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      candidatos.add(join(docs.path, 'eltata.db'));
+      candidatos.add(
+        join(docs.path, '.dart_tool', 'sqflite_common_ffi', 'databases', 'eltata.db'),
+      );
+    } catch (_) {}
+
+    for (final legacy in candidatos) {
+      try {
+        final f = File(legacy);
+        if (await f.exists()) {
+          await f.copy(primary);
+          debugPrint('DB migrada desde $legacy → $primary');
+          return;
+        }
+      } catch (e) {
+        debugPrint('No se pudo migrar DB desde $legacy: $e');
+      }
+    }
+  }
+
+  Future<Database> _initDatabase() async {
+    final path = await dbFilePath;
 
     debugPrint('Base de datos: $path');
 
-    return openDatabase(
+    final db = await openDatabase(
       path,
       version: 23,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+    // Por si la tabla existe vacía o se perdió el admin.
+    await _crearTablaUsuarios(db);
+    return db;
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -305,22 +378,48 @@ CREATE TABLE IF NOT EXISTS usuarios(
 )
 ''');
 
-    final count = Sqflite.firstIntValue(
-      await db.rawQuery('SELECT COUNT(*) FROM usuarios'),
-    )!;
-    if (count == 0) {
-      final ahora = DateTime.now().toIso8601String();
+    const hashAdmin123 =
+        '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
+    final ahora = DateTime.now().toIso8601String();
+
+    final adminRows = await db.query(
+      'usuarios',
+      where: "LOWER(usuario) = 'admin'",
+      limit: 1,
+    );
+
+    if (adminRows.isEmpty) {
       await db.insert('usuarios', {
         'nombre': 'Administrador',
         'usuario': 'admin',
-        'password': '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', // admin123
+        'password': hashAdmin123,
         'rol': 'admin',
         'activo': 1,
-        'debe_cambiar_password': 1,
+        'debe_cambiar_password': 0,
         'email': 'admin@tata-stock.tatastock.app',
         'fechaCreacion': ahora,
         'ultimoAcceso': ahora,
       });
+      return;
+    }
+
+    // Si el admin quedó inactivo o sin clave usable, lo reparamos para
+    // que admin/admin123 vuelva a abrir la app en la PC.
+    final row = adminRows.first;
+    final activo = (row['activo'] as int?) ?? 0;
+    final pass = (row['password'] ?? '').toString();
+    if (activo != 1 || pass.isEmpty) {
+      await db.update(
+        'usuarios',
+        {
+          'activo': 1,
+          'password': hashAdmin123,
+          'rol': 'admin',
+          'debe_cambiar_password': 0,
+        },
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
     }
   }
 
