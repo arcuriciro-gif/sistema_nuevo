@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/proveedor.dart';
 import '../services/proveedor_service.dart';
 import '../theme/app_visuals.dart';
@@ -27,7 +28,20 @@ class _ProveedoresPageState extends State<ProveedoresPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
     cargarProveedores();
+  }
+
+  void _onDatosActualizados() {
+    if (!mounted) return;
+    cargarProveedores();
+  }
+
+  @override
+  void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
+    buscarController.dispose();
+    super.dispose();
   }
 
   Future<void> cargarProveedores() async {

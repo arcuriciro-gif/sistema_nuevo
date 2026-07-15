@@ -501,7 +501,11 @@ class AuthService {
     if (olvidarHuella) {
       await BiometricAuthService.instance.desactivar();
     }
-    if (FirebaseAuthUsuarioService.instance.disponible) {
+    // Si queda huella activa, NO cerramos Firebase Auth: así al volver a
+    // entrar con huella la nube sigue conectada y los clientes del APK suben.
+    final bioSigue =
+        !olvidarHuella && await BiometricAuthService.instance.estaActivada();
+    if (!bioSigue && FirebaseAuthUsuarioService.instance.disponible) {
       try {
         await FirebaseAuthUsuarioService.instance.cerrarSesion();
       } catch (_) {}
@@ -546,11 +550,20 @@ class AuthService {
     await sqlite.actualizar(sesion);
     currentUser = sesion;
 
-    final uidActual = FirebaseAuthUsuarioService.instance.uidActual;
-    if (uidActual != null) {
-      try {
-        await FirestoreSyncService.instance.start();
-      } catch (_) {}
+    if (BackendConfigService.instance.firebaseEnabled) {
+      final uidActual = FirebaseAuthUsuarioService.instance.uidActual;
+      if (uidActual != null) {
+        try {
+          await FirestoreSyncService.instance.start();
+        } catch (e) {
+          debugPrint('Sync post-huella: $e');
+        }
+      } else {
+        FirestoreSyncService.instance.syncStatusLabel = 'Sin nube';
+        FirestoreSyncService.instance.syncStatusDetail =
+            'Entrá una vez con usuario y contraseña para conectar la nube. '
+            'Después la huella mantiene la sync.';
+      }
     }
 
     await _registrarAudit(

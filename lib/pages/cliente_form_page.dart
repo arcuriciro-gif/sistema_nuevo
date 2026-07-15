@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
 import '../core/utils/media_path.dart';
 import '../models/cliente.dart';
@@ -179,6 +180,14 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
     }
 
     if (!mounted) return;
+    final detalle = FirestoreSyncService.instance.syncStatusDetail;
+    if (detalle != null &&
+        detalle.toLowerCase().contains('nube') &&
+        context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(detalle), duration: const Duration(seconds: 5)),
+      );
+    }
     Navigator.pop(context);
   }
 

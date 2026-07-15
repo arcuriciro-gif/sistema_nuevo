@@ -62,6 +62,12 @@ class FirestoreSyncService {
   bool _sincronizandoUsuarios = false;
   bool _sincronizandoBranding = false;
   bool _sincronizandoPermisos = false;
+  QuerySnapshot<Map<String, dynamic>>? _snapClientesPendiente;
+  QuerySnapshot<Map<String, dynamic>>? _snapProveedoresPendiente;
+
+  /// Clientes/proveedores creados sin sesión de nube → se suben al reconectar.
+  final Set<int> _colaClientes = {};
+  final Set<int> _colaProveedores = {};
 
   /// Último estado legible para la UI (sin carteles rojos agresivos).
   String syncStatusLabel = 'Local';
@@ -150,6 +156,8 @@ class FirestoreSyncService {
       unawaited(_reintentarFotosLocalesPendientes());
       // Empuja branding/permisos locales la primera vez si la nube no tiene.
       unawaited(_publicarConfigLocalSiHaceFalta());
+      // Clientes/proveedores creados en el celular sin sesión → ahora sí suben.
+      unawaited(_vaciarColasYSubirPendientes());
 
       syncStatusLabel = 'En la nube';
       DataRefreshHub.instance.notifyTodo();
@@ -157,6 +165,39 @@ class FirestoreSyncService {
       syncStatusLabel = 'Local';
       syncStatusDetail = '$e';
       debugPrint('FirestoreSyncService.start falló: $e\n$st');
+    }
+  }
+
+  Future<void> _vaciarColasYSubirPendientes() async {
+    if (!_puedeEscribirRemoto) return;
+    try {
+      // Primero la cola explícita.
+      final clientesCola = List<int>.from(_colaClientes);
+      _colaClientes.clear();
+      for (final id in clientesCola) {
+        await subirCliente(id, forzar: true);
+      }
+      final proveedoresCola = List<int>.from(_colaProveedores);
+      _colaProveedores.clear();
+      for (final id in proveedoresCola) {
+        await subirProveedor(id, forzar: true);
+      }
+
+      // Además: cualquier cliente local (cubre altas viejas del APK que no subieron).
+      final db = await DatabaseHelper.instance.database;
+      final clientes = await db.query('clientes', columns: ['id']);
+      for (final row in clientes) {
+        final id = (row['id'] as num?)?.toInt();
+        if (id != null) await subirCliente(id, forzar: true);
+      }
+      final proveedores = await db.query('proveedores', columns: ['id']);
+      for (final row in proveedores) {
+        final id = (row['id'] as num?)?.toInt();
+        if (id != null) await subirProveedor(id, forzar: true);
+      }
+    } catch (e) {
+      debugPrint('Vaciar colas sync: $e');
+      syncStatusDetail = 'Pendiente subir locales: $e';
     }
   }
 
@@ -403,8 +444,14 @@ class FirestoreSyncService {
     return syncId;
   }
 
-  Future<void> subirCliente(int clienteId) async {
-    if (!_puedeEscribirRemoto) return;
+  Future<void> subirCliente(int clienteId, {bool forzar = false}) async {
+    if (!_puedeEscribirRemoto) {
+      _colaClientes.add(clienteId);
+      syncStatusDetail =
+          'Cliente guardado acá. Falta sesión de nube para enviarlo a la PC.';
+      debugPrint('subirCliente: sin sesión, en cola id=$clienteId');
+      return;
+    }
     try {
       final syncId = await asegurarSyncIdCliente(clienteId);
       if (syncId.isEmpty) return;
@@ -421,7 +468,10 @@ class FirestoreSyncService {
         ...cliente.toFirestore(),
         'localId': clienteId,
       }, SetOptions(merge: true));
+      _colaClientes.remove(clienteId);
     } catch (e) {
+      _colaClientes.add(clienteId);
+      syncStatusDetail = 'No se pudo subir cliente: $e';
       debugPrint('Firestore subir cliente: $e');
     }
   }
@@ -435,8 +485,14 @@ class FirestoreSyncService {
     }
   }
 
-  Future<void> subirProveedor(int proveedorId) async {
-    if (!_puedeEscribirRemoto) return;
+  Future<void> subirProveedor(int proveedorId, {bool forzar = false}) async {
+    if (!_puedeEscribirRemoto) {
+      _colaProveedores.add(proveedorId);
+      syncStatusDetail =
+          'Proveedor guardado acá. Falta sesión de nube para enviarlo.';
+      debugPrint('subirProveedor: sin sesión, en cola id=$proveedorId');
+      return;
+    }
     try {
       final syncId = await asegurarSyncIdProveedor(proveedorId);
       if (syncId.isEmpty) return;
@@ -453,7 +509,10 @@ class FirestoreSyncService {
         ...proveedor.toFirestore(),
         'localId': proveedorId,
       }, SetOptions(merge: true));
+      _colaProveedores.remove(proveedorId);
     } catch (e) {
+      _colaProveedores.add(proveedorId);
+      syncStatusDetail = 'No se pudo subir proveedor: $e';
       debugPrint('Firestore subir proveedor: $e');
     }
   }
@@ -726,68 +785,79 @@ class FirestoreSyncService {
   Future<void> _aplicarClientesRemotos(
     QuerySnapshot<Map<String, dynamic>> snap,
   ) async {
-    if (_sincronizandoClientes) return;
+    if (_sincronizandoClientes) {
+      _snapClientesPendiente = snap;
+      return;
+    }
     _sincronizandoClientes = true;
     try {
-      final db = await DatabaseHelper.instance.database;
-      for (final doc in snap.docs) {
-        final data = doc.data();
-        final syncId = data['syncId']?.toString().isNotEmpty == true
-            ? data['syncId'].toString()
-            : doc.id;
-        final map = Map<String, dynamic>.from(data)
-          ..remove('localId')
-          ..remove('actualizadoEn')
-          ..remove('id');
-        map['syncId'] = syncId;
+      var actual = snap;
+      while (true) {
+        final db = await DatabaseHelper.instance.database;
+        for (final doc in actual.docs) {
+          final data = doc.data();
+          final syncId = data['syncId']?.toString().isNotEmpty == true
+              ? data['syncId'].toString()
+              : doc.id;
+          final map = Map<String, dynamic>.from(data)
+            ..remove('localId')
+            ..remove('actualizadoEn')
+            ..remove('id');
+          map['syncId'] = syncId;
 
-        final existentes = await db.query(
-          'clientes',
-          where: 'syncId = ?',
-          whereArgs: [syncId],
-          limit: 1,
-        );
-        if (existentes.isEmpty) {
-          final cuit = map['cuit']?.toString() ?? '';
-          final nombre = map['nombre']?.toString() ?? '';
-          final porCuit = cuit.isNotEmpty
-              ? await db.query(
-                  'clientes',
-                  where: 'cuit = ?',
-                  whereArgs: [cuit],
-                  limit: 1,
-                )
-              : <Map<String, dynamic>>[];
-          final porNombre = porCuit.isEmpty && nombre.isNotEmpty
-              ? await db.query(
-                  'clientes',
-                  where: 'nombre = ? AND (syncId IS NULL OR syncId = "")',
-                  whereArgs: [nombre],
-                  limit: 1,
-                )
-              : <Map<String, dynamic>>[];
-          final match =
-              porCuit.isNotEmpty ? porCuit.first : (porNombre.isNotEmpty ? porNombre.first : null);
-          if (match != null) {
+          final existentes = await db.query(
+            'clientes',
+            where: 'syncId = ?',
+            whereArgs: [syncId],
+            limit: 1,
+          );
+          if (existentes.isEmpty) {
+            final cuit = map['cuit']?.toString() ?? '';
+            final nombre = map['nombre']?.toString() ?? '';
+            final porCuit = cuit.isNotEmpty
+                ? await db.query(
+                    'clientes',
+                    where: 'cuit = ?',
+                    whereArgs: [cuit],
+                    limit: 1,
+                  )
+                : <Map<String, dynamic>>[];
+            final porNombre = porCuit.isEmpty && nombre.isNotEmpty
+                ? await db.query(
+                    'clientes',
+                    where: 'nombre = ? AND (syncId IS NULL OR syncId = "")',
+                    whereArgs: [nombre],
+                    limit: 1,
+                  )
+                : <Map<String, dynamic>>[];
+            final match = porCuit.isNotEmpty
+                ? porCuit.first
+                : (porNombre.isNotEmpty ? porNombre.first : null);
+            if (match != null) {
+              await db.update(
+                'clientes',
+                map,
+                where: 'id = ?',
+                whereArgs: [match['id']],
+              );
+            } else {
+              await db.insert('clientes', map..remove('id'));
+            }
+          } else {
             await db.update(
               'clientes',
-              map,
+              map..remove('id'),
               where: 'id = ?',
-              whereArgs: [match['id']],
+              whereArgs: [existentes.first['id']],
             );
-          } else {
-            await db.insert('clientes', map..remove('id'));
           }
-        } else {
-          await db.update(
-            'clientes',
-            map..remove('id'),
-            where: 'id = ?',
-            whereArgs: [existentes.first['id']],
-          );
         }
+        DataRefreshHub.instance.notifyTodo();
+        final pendiente = _snapClientesPendiente;
+        _snapClientesPendiente = null;
+        if (pendiente == null) break;
+        actual = pendiente;
       }
-      DataRefreshHub.instance.notifyTodo();
     } catch (e) {
       debugPrint('Aplicar clientes remotos: $e');
     } finally {
@@ -798,60 +868,70 @@ class FirestoreSyncService {
   Future<void> _aplicarProveedoresRemotos(
     QuerySnapshot<Map<String, dynamic>> snap,
   ) async {
-    if (_sincronizandoProveedores) return;
+    if (_sincronizandoProveedores) {
+      _snapProveedoresPendiente = snap;
+      return;
+    }
     _sincronizandoProveedores = true;
     try {
-      final db = await DatabaseHelper.instance.database;
-      for (final doc in snap.docs) {
-        final data = doc.data();
-        final syncId = data['syncId']?.toString().isNotEmpty == true
-            ? data['syncId'].toString()
-            : doc.id;
-        final map = Map<String, dynamic>.from(data)
-          ..remove('localId')
-          ..remove('actualizadoEn')
-          ..remove('id');
-        map['syncId'] = syncId;
-        if (map['activo'] is bool) {
-          map['activo'] = (map['activo'] as bool) ? 1 : 0;
-        }
+      var actual = snap;
+      while (true) {
+        final db = await DatabaseHelper.instance.database;
+        for (final doc in actual.docs) {
+          final data = doc.data();
+          final syncId = data['syncId']?.toString().isNotEmpty == true
+              ? data['syncId'].toString()
+              : doc.id;
+          final map = Map<String, dynamic>.from(data)
+            ..remove('localId')
+            ..remove('actualizadoEn')
+            ..remove('id');
+          map['syncId'] = syncId;
+          if (map['activo'] is bool) {
+            map['activo'] = (map['activo'] as bool) ? 1 : 0;
+          }
 
-        final existentes = await db.query(
-          'proveedores',
-          where: 'syncId = ?',
-          whereArgs: [syncId],
-          limit: 1,
-        );
-        if (existentes.isEmpty) {
-          final nombre = map['nombre']?.toString() ?? '';
-          final match = nombre.isNotEmpty
-              ? await db.query(
-                  'proveedores',
-                  where: 'nombre = ? AND (syncId IS NULL OR syncId = "")',
-                  whereArgs: [nombre],
-                  limit: 1,
-                )
-              : <Map<String, dynamic>>[];
-          if (match.isNotEmpty) {
+          final existentes = await db.query(
+            'proveedores',
+            where: 'syncId = ?',
+            whereArgs: [syncId],
+            limit: 1,
+          );
+          if (existentes.isEmpty) {
+            final nombre = map['nombre']?.toString() ?? '';
+            final match = nombre.isNotEmpty
+                ? await db.query(
+                    'proveedores',
+                    where: 'nombre = ? AND (syncId IS NULL OR syncId = "")',
+                    whereArgs: [nombre],
+                    limit: 1,
+                  )
+                : <Map<String, dynamic>>[];
+            if (match.isNotEmpty) {
+              await db.update(
+                'proveedores',
+                map,
+                where: 'id = ?',
+                whereArgs: [match.first['id']],
+              );
+            } else {
+              await db.insert('proveedores', map..remove('id'));
+            }
+          } else {
             await db.update(
               'proveedores',
-              map,
+              map..remove('id'),
               where: 'id = ?',
-              whereArgs: [match.first['id']],
+              whereArgs: [existentes.first['id']],
             );
-          } else {
-            await db.insert('proveedores', map..remove('id'));
           }
-        } else {
-          await db.update(
-            'proveedores',
-            map..remove('id'),
-            where: 'id = ?',
-            whereArgs: [existentes.first['id']],
-          );
         }
+        DataRefreshHub.instance.notifyTodo();
+        final pendiente = _snapProveedoresPendiente;
+        _snapProveedoresPendiente = null;
+        if (pendiente == null) break;
+        actual = pendiente;
       }
-      DataRefreshHub.instance.notifyTodo();
     } catch (e) {
       debugPrint('Aplicar proveedores remotos: $e');
     } finally {

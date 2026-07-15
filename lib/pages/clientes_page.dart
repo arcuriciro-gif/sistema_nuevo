@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/chat_mensaje.dart';
 import '../models/cliente.dart';
 import '../services/cliente_service.dart';
@@ -31,7 +32,20 @@ class _ClientesPageState extends State<ClientesPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
     cargar();
+  }
+
+  void _onDatosActualizados() {
+    if (!mounted) return;
+    cargar();
+  }
+
+  @override
+  void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
+    buscarController.dispose();
+    super.dispose();
   }
 
   Future<void> cargar() async {
