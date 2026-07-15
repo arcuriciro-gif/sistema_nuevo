@@ -10,6 +10,7 @@ import '../services/permisos_service.dart';
 import '../services/sidebar_preferencias_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/config/backend_config_service.dart';
+import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../theme/layout_constants.dart';
 import '../theme/module_app_bar.dart';
@@ -86,6 +87,9 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _selectedIndex = 0;
+  /// Id estable del módulo visible (`preferenciaId`) para no saltar a Inicio
+  /// cuando se oculta otro ítem del menú.
+  String? _selectedPreferenciaId;
   bool _recordatorioMostrado = false;
 
   void _onBrandingChanged() {
@@ -124,7 +128,10 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _onSidebarPrefs() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {
+      _selectedIndex = _resolverIndiceSeleccionado(_visibleItems);
+    });
   }
 
   void _onCommsChanged() {
@@ -358,14 +365,46 @@ class _MainShellState extends State<MainShell> {
         .toList();
   }
 
-  int _safeIndex(List<_ShellItem> items) {
+  /// Mantiene la misma pantalla al ocultar/mostrar ítems del menú.
+  int _resolverIndiceSeleccionado(List<_ShellItem> items) {
     if (items.isEmpty) return 0;
-    if (_selectedIndex >= items.length) return 0;
-    return _selectedIndex;
+    final id = _selectedPreferenciaId;
+    if (id != null) {
+      final i = items.indexWhere((e) => e.preferenciaId == id);
+      if (i >= 0) return i;
+    }
+    // La página actual se ocultó: quedarse en Configuración si está, si no Inicio.
+    final cfg = items.indexWhere(
+      (e) => e.preferenciaId == 'configuracion|Configuración',
+    );
+    if (cfg >= 0) {
+      _selectedPreferenciaId = items[cfg].preferenciaId;
+      return cfg;
+    }
+    final ini = items.indexWhere((e) => e.title == 'Inicio');
+    if (ini >= 0) {
+      _selectedPreferenciaId = items[ini].preferenciaId;
+      return ini;
+    }
+    _selectedPreferenciaId = items.first.preferenciaId;
+    return 0;
+  }
+
+  int _safeIndex(List<_ShellItem> items) {
+    return _resolverIndiceSeleccionado(items);
   }
 
   void _select(int index) {
-    if (_selectedIndex != index) setState(() => _selectedIndex = index);
+    final items = _visibleItems;
+    if (index < 0 || index >= items.length) return;
+    if (_selectedIndex == index &&
+        _selectedPreferenciaId == items[index].preferenciaId) {
+      return;
+    }
+    setState(() {
+      _selectedIndex = index;
+      _selectedPreferenciaId = items[index].preferenciaId;
+    });
   }
 
   Future<void> _logout() async {
@@ -598,7 +637,11 @@ class _MainShellState extends State<MainShell> {
                           : IndexedStack(
                               index: index,
                               children: [
-                                for (final item in items) item.builder()
+                                for (final item in items)
+                                  KeyedSubtree(
+                                    key: ValueKey(item.preferenciaId),
+                                    child: item.builder(),
+                                  ),
                               ],
                             ),
                     ),
@@ -727,7 +770,13 @@ class _MainShellState extends State<MainShell> {
               ? const Center(child: Text('Sin módulos disponibles'))
               : IndexedStack(
                   index: index,
-                  children: [for (final item in items) item.builder()],
+                  children: [
+                    for (final item in items)
+                      KeyedSubtree(
+                        key: ValueKey(item.preferenciaId),
+                        child: item.builder(),
+                      ),
+                  ],
                 ),
           bottomNavigationBar: quickItems.isEmpty
               ? null
@@ -1081,38 +1130,50 @@ class _TopBar extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          // Estado de sync (discreto, sin cartel rojo)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1A1A1A),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: _kSidebarHeaderBorder),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  BackendConfigService.instance.firebaseEnabled
-                      ? Icons.cloud_done_outlined
-                      : Icons.cloud_off_outlined,
-                  size: 14,
-                  color: BackendConfigService.instance.firebaseEnabled
-                      ? const Color(0xFF4ADE80)
-                      : _kSidebarSubtext,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  BackendConfigService.instance.firebaseEnabled
+          // Estado de sync real (nube = Firebase + sesión Auth).
+          Builder(
+            builder: (context) {
+              final nubeOn = BackendConfigService.instance.firebaseEnabled;
+              final conAuth =
+                  FirebaseAuthUsuarioService.instance.uidActual != null;
+              final label = !nubeOn
+                  ? 'Solo local'
+                  : (conAuth
                       ? FirestoreSyncService.instance.syncStatusLabel
-                      : 'Solo local',
-                  style: const TextStyle(
-                    color: _kSidebarInactiveText,
-                    fontSize: 11,
-                  ),
+                      : 'Sin sesión nube');
+              final ok = nubeOn && conAuth;
+              return Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A1A1A),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: _kSidebarHeaderBorder),
                 ),
-              ],
-            ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      ok
+                          ? Icons.cloud_done_outlined
+                          : Icons.cloud_off_outlined,
+                      size: 14,
+                      color: ok
+                          ? const Color(0xFF4ADE80)
+                          : _kSidebarSubtext,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: _kSidebarInactiveText,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
           IconButton(
             tooltip: 'Configuración',

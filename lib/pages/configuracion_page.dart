@@ -850,9 +850,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Elegí qué módulos ver en el menú. Podés dejarla llena o vacía; '
-                      'ningún ítem es obligatorio. Si queda vacía, usá el engranaje '
-                      'de la barra superior para volver a Configuración.',
+                      'Elegí qué módulos ver en el menú. Podés dejarla llena o vacía. '
+                      'Al marcar/desmarcar te quedás en Configuración (no te manda al Inicio). '
+                      'Si la barra queda vacía, usá el engranaje de arriba para volver.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                       ),

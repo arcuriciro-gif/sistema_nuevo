@@ -65,9 +65,12 @@ class FirestoreSyncService {
   QuerySnapshot<Map<String, dynamic>>? _snapClientesPendiente;
   QuerySnapshot<Map<String, dynamic>>? _snapProveedoresPendiente;
 
-  /// Clientes/proveedores creados sin sesión de nube → se suben al reconectar.
+  /// Clientes/proveedores/ventas/remitos/productos creados sin sesión de nube.
   final Set<int> _colaClientes = {};
   final Set<int> _colaProveedores = {};
+  final Set<int> _colaVentas = {};
+  final Set<int> _colaRemitos = {};
+  final Set<int> _colaProductos = {};
 
   /// Último estado legible para la UI (sin carteles rojos agresivos).
   String syncStatusLabel = 'Local';
@@ -171,7 +174,6 @@ class FirestoreSyncService {
   Future<void> _vaciarColasYSubirPendientes() async {
     if (!_puedeEscribirRemoto) return;
     try {
-      // Primero la cola explícita.
       final clientesCola = List<int>.from(_colaClientes);
       _colaClientes.clear();
       for (final id in clientesCola) {
@@ -182,8 +184,23 @@ class FirestoreSyncService {
       for (final id in proveedoresCola) {
         await subirProveedor(id, forzar: true);
       }
+      final productosCola = List<int>.from(_colaProductos);
+      _colaProductos.clear();
+      for (final id in productosCola) {
+        await subirProductoPorId(id);
+      }
+      final ventasCola = List<int>.from(_colaVentas);
+      _colaVentas.clear();
+      for (final id in ventasCola) {
+        await subirVenta(id);
+      }
+      final remitosCola = List<int>.from(_colaRemitos);
+      _colaRemitos.clear();
+      for (final id in remitosCola) {
+        await subirRemito(id);
+      }
 
-      // Además: cualquier cliente local (cubre altas viejas del APK que no subieron).
+      // Reenviar locales (cubre altas del APK hechas sin sesión).
       final db = await DatabaseHelper.instance.database;
       final clientes = await db.query('clientes', columns: ['id']);
       for (final row in clientes) {
@@ -194,6 +211,27 @@ class FirestoreSyncService {
       for (final row in proveedores) {
         final id = (row['id'] as num?)?.toInt();
         if (id != null) await subirProveedor(id, forzar: true);
+      }
+      // Ventas/remitos recientes (últimos 200) por si quedaron solo locales.
+      final ventas = await db.query(
+        'ventas',
+        columns: ['id'],
+        orderBy: 'id DESC',
+        limit: 200,
+      );
+      for (final row in ventas) {
+        final id = (row['id'] as num?)?.toInt();
+        if (id != null) await subirVenta(id);
+      }
+      final remitos = await db.query(
+        'remitos',
+        columns: ['id'],
+        orderBy: 'id DESC',
+        limit: 200,
+      );
+      for (final row in remitos) {
+        final id = (row['id'] as num?)?.toInt();
+        if (id != null) await subirRemito(id);
       }
     } catch (e) {
       debugPrint('Vaciar colas sync: $e');
@@ -583,7 +621,12 @@ class FirestoreSyncService {
   }
 
   Future<void> subirVenta(int ventaId) async {
-    if (!_puedeEscribirRemoto) return;
+    if (!_puedeEscribirRemoto) {
+      _colaVentas.add(ventaId);
+      syncStatusDetail =
+          'Venta guardada acá. Falta sesión de nube para enviarla.';
+      return;
+    }
     try {
       final db = await DatabaseHelper.instance.database;
       final rows = await db.rawQuery('''
@@ -637,7 +680,9 @@ class FirestoreSyncService {
         'pagos': pagos,
         'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
       }, SetOptions(merge: true));
+      _colaVentas.remove(ventaId);
     } catch (e) {
+      _colaVentas.add(ventaId);
       debugPrint('Firestore subir venta: $e');
     }
   }
@@ -654,7 +699,12 @@ class FirestoreSyncService {
 
   /// Sube remito + ítems y empuja el stock actualizado de cada producto.
   Future<void> subirRemito(int remitoId) async {
-    if (!_puedeEscribirRemoto) return;
+    if (!_puedeEscribirRemoto) {
+      _colaRemitos.add(remitoId);
+      syncStatusDetail =
+          'Remito guardado acá. Falta sesión de nube para enviarlo.';
+      return;
+    }
     try {
       final db = await DatabaseHelper.instance.database;
       final rows = await db.rawQuery('''
@@ -679,35 +729,31 @@ class FirestoreSyncService {
 
       final numero = remito['numero']?.toString() ?? 'R_$remitoId';
       await _remitosCol.doc(numero).set({
-        'numero': numero,
-        'clienteId': remito['clienteId'],
+        ...Map<String, dynamic>.from(remito)..remove('id'),
+        'localId': remitoId,
         'clienteNombre': remito['clienteNombre'],
         'clienteSyncId': remito['clienteSyncId'],
         'clienteCuit': remito['clienteCuit'],
-        'fecha': remito['fecha'],
-        'total': remito['total'],
-        'descuento': remito['descuento'],
-        'estado': remito['estado'],
-        'estadoPago': remito['estadoPago'],
-        'observaciones': remito['observaciones'],
-        'fechaCreacion': remito['fechaCreacion'],
-        'localId': remitoId,
         'items': items,
         'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
       }, SetOptions(merge: true));
 
-      final productoIds =
-          items.map((e) => e['productoId']).whereType<int>().toSet();
-      for (final pid in productoIds) {
-        await subirProductoPorId(pid);
+      for (final item in items) {
+        final pid = (item['productoId'] as num?)?.toInt();
+        if (pid != null) await subirProductoPorId(pid);
       }
+      _colaRemitos.remove(remitoId);
     } catch (e) {
+      _colaRemitos.add(remitoId);
       debugPrint('Firestore subir remito: $e');
     }
   }
 
   Future<void> subirProductoPorId(int productoId) async {
-    if (!_puedeEscribirRemoto) return;
+    if (!_puedeEscribirRemoto) {
+      _colaProductos.add(productoId);
+      return;
+    }
     try {
       final db = await DatabaseHelper.instance.database;
       final rows = await db.query(
@@ -741,7 +787,9 @@ class FirestoreSyncService {
       }
 
       await _remote.actualizar(producto);
+      _colaProductos.remove(productoId);
     } catch (e) {
+      _colaProductos.add(productoId);
       debugPrint('Firestore subir producto $productoId: $e');
     }
   }
