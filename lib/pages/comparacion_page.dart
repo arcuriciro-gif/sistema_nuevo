@@ -84,9 +84,32 @@ class _ComparacionPageState extends State<ComparacionPage> {
 
     if (!mounted) return;
     setState(() => cargando = true);
-    await csvService.analizarArchivoConProveedor(_proveedorCtrl.text.trim());
+    final meta = await csvService.analizarArchivoConProveedor(
+      _proveedorCtrl.text.trim(),
+    );
     if (!mounted) return;
     await cargar();
+    if (!mounted) return;
+    if (meta.leidas == 0 && meta.validas == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No se leyó el archivo (cancelado o vacío).'),
+        ),
+      );
+      return;
+    }
+    // El informe parte de la lista del proveedor, no de tu catálogo completo.
+    // Una fila del Excel puede generar varias del informe (p. ej. un modelo → varios talles).
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 8),
+        content: Text(
+          'Archivo: ${meta.leidas} filas leídas, ${meta.validas} válidas. '
+          'Informe: ${meta.informe} líneas '
+          '(solo lo del proveedor; no incluye productos tuyos que no estén en su lista).',
+        ),
+      ),
+    );
   }
 
   Color colorEstado(String estado) {
@@ -305,9 +328,10 @@ class _ComparacionPageState extends State<ComparacionPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
             child: Text(
-              'Compara por descripción y costo (no por tu código), para todos los productos. '
-              'Sirve Febo Running, Papi, bases, etc.: color + numeración (39-42 o 3435/3839). '
-              'El informe muestra subas/bajas/nuevos; podés exportarlo a CSV.',
+              'Compara la lista del proveedor contra tu stock (por descripción/costo, no por tu código). '
+              'El número del informe no es tu catálogo completo ni el Excel “tal cual”: '
+              'solo aparecen artículos del proveedor, y un modelo puede abrir varios talles. '
+              'Febo: rangos (39-42). Leal: un precio = todos tus talles del modelo.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: .65),
                 height: 1.35,
@@ -330,7 +354,7 @@ class _ComparacionPageState extends State<ComparacionPage> {
                   ),
                   const Spacer(),
                   Text(
-                    '${lista.length} productos',
+                    '${lista.length} líneas en el informe',
                     style: theme.textTheme.labelMedium,
                   ),
                 ],

@@ -53,37 +53,57 @@ class CsvService {
     'público',
   ];
 
-  Future<int> analizarArchivo() async {
-    return analizarArchivoConProveedor('');
-  }
-
-  Future<int> analizarArchivoConProveedor(String proveedor) async {
-    final productos = await leerArchivo();
+  Future<({int leidas, int validas, int informe})> analizarArchivoConProveedor(
+    String proveedor,
+  ) async {
+    final leidas = await leerArchivoConMeta();
+    final productos = leidas.productos;
     if (productos.isEmpty) {
-      return 0;
+      return (leidas: leidas.filasTotales, validas: 0, informe: 0);
     }
     final existeBase = await produtoService.tieneProductos();
     if (!existeBase) {
       await produtoService.insertarLista(productos);
-    } else {
-      await comparadorService.compararProductos(
-        productos,
-        proveedor: proveedor,
+      return (
+        leidas: leidas.filasTotales,
+        validas: productos.length,
+        informe: productos.length,
       );
     }
-    return productos.length;
+    await comparadorService.compararProductos(
+      productos,
+      proveedor: proveedor,
+    );
+    final informe = await comparadorService.obtenerComparacion();
+    return (
+      leidas: leidas.filasTotales,
+      validas: productos.length,
+      informe: informe.length,
+    );
+  }
+
+  @Deprecated('Usar analizarArchivoConProveedor')
+  Future<int> analizarArchivo() async {
+    final r = await analizarArchivoConProveedor('');
+    return r.validas;
   }
 
   /// Lee CSV o Excel. Requiere columnas de **descripción** y **costo**
   /// (detectadas por encabezado; si no hay encabezado claro, usa posiciones
   /// legacy del CSV largo: desc=col2, costo=col18).
   Future<List<Producto>> leerArchivo() async {
+    final meta = await leerArchivoConMeta();
+    return meta.productos;
+  }
+
+  Future<({List<Producto> productos, int filasTotales, int omitidas})>
+      leerArchivoConMeta() async {
     final resultado = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['csv', 'xlsx', 'xls'],
     );
     if (resultado == null || resultado.files.single.path == null) {
-      return [];
+      return (productos: <Producto>[], filasTotales: 0, omitidas: 0);
     }
     final path = resultado.files.single.path!;
     final ext = p.extension(path).toLowerCase();
@@ -93,7 +113,8 @@ class CsvService {
     return _leerCsv(path);
   }
 
-  Future<List<Producto>> _leerCsv(String path) async {
+  Future<({List<Producto> productos, int filasTotales, int omitidas})>
+      _leerCsv(String path) async {
     final archivo = File(path);
     final contenido = await archivo.readAsString();
     // Detectar delimitador
@@ -103,23 +124,44 @@ class CsvService {
         ? ';'
         : ',';
     final filas = CsvDecoder(fieldDelimiter: delim).convert(contenido);
-    if (filas.isEmpty) return [];
+    if (filas.isEmpty) {
+      return (productos: <Producto>[], filasTotales: 0, omitidas: 0);
+    }
     return _filasAProductos(filas);
   }
 
-  Future<List<Producto>> _leerExcel(String path) async {
+  Future<({List<Producto> productos, int filasTotales, int omitidas})>
+      _leerExcel(String path) async {
     final bytes = await File(path).readAsBytes();
     final excel = Excel.decodeBytes(bytes);
-    final sheet = excel.tables[excel.getDefaultSheet()];
-    if (sheet == null || sheet.rows.isEmpty) return [];
-    final filas = sheet.rows
-        .map((row) => row.map((c) => c?.value?.toString() ?? '').toList())
-        .toList();
-    return _filasAProductos(filas);
+    // Todas las hojas (antes solo la primera → se perdían marcas/listas).
+    final productos = <Producto>[];
+    var filasTotales = 0;
+    var omitidas = 0;
+    for (final name in excel.tables.keys) {
+      final sheet = excel.tables[name];
+      if (sheet == null || sheet.rows.isEmpty) continue;
+      final filas = sheet.rows
+          .map((row) => row.map((c) => c?.value?.toString() ?? '').toList())
+          .toList();
+      final r = _filasAProductos(filas);
+      productos.addAll(r.productos);
+      filasTotales += r.filasTotales;
+      omitidas += r.omitidas;
+    }
+    return (
+      productos: productos,
+      filasTotales: filasTotales,
+      omitidas: omitidas,
+    );
   }
 
-  List<Producto> _filasAProductos(List<List<dynamic>> filas) {
-    if (filas.isEmpty) return [];
+  ({List<Producto> productos, int filasTotales, int omitidas}) _filasAProductos(
+    List<List<dynamic>> filas,
+  ) {
+    if (filas.isEmpty) {
+      return (productos: <Producto>[], filasTotales: 0, omitidas: 0);
+    }
 
     final headers = filas.first.map((e) => e.toString()).toList();
     final mapeo = _detectarColumnas(headers);
@@ -131,10 +173,13 @@ class CsvService {
 
     final productos = <Producto>[];
     final start = (mapeo.isNotEmpty || _pareceEncabezado(headers)) ? 1 : 0;
+    var omitidas = 0;
+    var filasDatos = 0;
 
     for (int i = start; i < filas.length; i++) {
       final fila = filas[i];
       if (fila.every((c) => c.toString().trim().isEmpty)) continue;
+      filasDatos++;
 
       String descripcion;
       double costo;
@@ -164,13 +209,20 @@ class CsvService {
           descripcion = fila[0].toString().trim();
           costo = convertirNumero(fila[1].toString());
         }
+        // Listas sin encabezado claro: col0=código col1=desc col2=precio
+        if (descripcion.isEmpty && fila.length >= 3 && mapeo.isEmpty) {
+          codigo = fila[0].toString().trim();
+          descripcion = fila[1].toString().trim();
+          costo = convertirNumero(fila[2].toString());
+        }
       }
 
-      if (descripcion.isEmpty) continue;
-      if (costo <= 0 && !usarLegacy) {
-        final rawCosto = _cel(fila, mapeo['costo'] ?? mapeo['precio']);
-        if (rawCosto.trim().isEmpty) continue;
+      if (descripcion.isEmpty) {
+        omitidas++;
+        continue;
       }
+      // Antes se descartaba si el costo venía vacío: ahora entra igual
+      // (aparece en el informe; no conviene actualizar costo 0 sin revisar).
 
       productos.add(
         Producto(
@@ -188,7 +240,11 @@ class CsvService {
         ),
       );
     }
-    return productos;
+    return (
+      productos: productos,
+      filasTotales: filasDatos,
+      omitidas: omitidas,
+    );
   }
 
   Map<String, int> _detectarColumnas(List<String> headers) {
