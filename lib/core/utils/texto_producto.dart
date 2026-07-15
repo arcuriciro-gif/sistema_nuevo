@@ -128,6 +128,12 @@ class TextoProducto {
     return textoNormalizado
         .split(' ')
         .where((t) => t.length > 1 && !_stop.contains(t))
+        // Ignorar talles sueltos (35, 39…) para emparejar modelo Leal vs stock por talle.
+        .where((t) {
+          final n = int.tryParse(t);
+          if (n != null && _esTalleCalzado(n)) return false;
+          return true;
+        })
         .toSet();
   }
 

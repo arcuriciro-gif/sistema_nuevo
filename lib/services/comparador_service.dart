@@ -31,7 +31,11 @@ class ComparadorService {
   }
 
   /// Compara la lista del proveedor contra la base por **descripción**
-  /// (no por código interno). Soporta rangos tipo "papi blanco 39-42".
+  /// (no por código interno).
+  ///
+  /// - Rangos (Febo): "papi blanco 39-42" → todos tus talles 39..42 de ese modelo.
+  /// - Un precio / toda la numeración (Leal): "marilyn 39" o "marilyn" →
+  ///   todos tus marilyn (35, 36, 39, …), porque el costo es el mismo.
   Future<void> compararProductos(
     List<Producto> productosImportados, {
     String proveedor = '',
@@ -138,20 +142,16 @@ class ComparadorService {
     final n = TextoProducto.normalizar(descripcionProveedor);
     final rango = TextoProducto.parsearRangoTalle(descripcionProveedor);
 
-    // 1) Match exacto de descripción completa / desc+color+talle
-    final exactos = porDesc[n];
-    if (exactos != null && exactos.isNotEmpty) {
-      return List<Producto>.from(exactos);
-    }
-
-    // 2) Si hay rango de talles: "febo papifutbol 39-42 blanco"
+    // 1) Rango de talles (Febo): "papi blanco 39-42" / "papi negro 39-42"
     if (rango.desde != null && rango.hasta != null) {
       final base = rango.base;
       final bases = <String>{
         base,
-        // Variantes sin ruido típico de listas de proveedor
         base
-            .replaceAll(RegExp(r'\b(x par|por par|en eva|eva|pu|pve|tr|goma)\b'), ' ')
+            .replaceAll(
+              RegExp(r'\b(x par|por par|en eva|eva|pu|pve|tr|goma)\b'),
+              ' ',
+            )
             .replaceAll(RegExp(r'\s+'), ' ')
             .trim(),
       }..removeWhere((e) => e.isEmpty);
@@ -165,15 +165,15 @@ class ComparadorService {
         if (soloDesc != null) candidatos.addAll(soloDesc);
       }
 
-      // Tokens del proveedor vs locales (permite "goma"/"eva" extra; respeta color)
       for (final p in todos) {
         final dc = TextoProducto.textoLocalSinTalle(
           descripcion: p.descripcion,
           color: p.colorProducto,
         );
         if (dc.isEmpty) continue;
-        if (bases.any((b) =>
-            b == dc || TextoProducto.coincidePorTokens(b, dc))) {
+        if (bases.any(
+          (b) => b == dc || TextoProducto.coincidePorTokens(b, dc),
+        )) {
           candidatos.add(p);
         }
       }
@@ -189,40 +189,52 @@ class ComparadorService {
       }).toList();
 
       if (enRango.isNotEmpty) return enRango;
+      // Si el rango no pegó, seguimos con match de modelo (por si el formato vino raro).
     }
 
-    // 3) Match por descripción+color sin talle (un solo costo para todos los talles)
-    final dc = porDescColor[n];
-    if (dc != null && dc.isNotEmpty) return List<Producto>.from(dc);
+    // 2) Un precio para toda la numeración (Leal, etc.):
+    //    "marilyn 39" o "marilyn" → TODOS los talles locales de ese modelo.
+    final baseProv = TextoProducto.quitarTalleFinal(descripcionProveedor);
+    final basesModelo = <String>{
+      baseProv,
+      n,
+      if (baseProv != n) baseProv,
+    }..removeWhere((e) => e.isEmpty);
 
-    // 4) Match por tokens — solo si el proveedor NO trae rango/numeration
-    //    (si trae talles y no matcheamos arriba, no ensuciamos el informe).
-    if (rango.desde != null) {
-      return [];
+    final delModelo = <Producto>{};
+    for (final b in basesModelo) {
+      final porColor = porDescColor[b];
+      if (porColor != null) delModelo.addAll(porColor);
+      final soloDesc = porDesc[b];
+      if (soloDesc != null) delModelo.addAll(soloDesc);
     }
 
-    final suaves = <Producto>[];
     for (final p in todos) {
       final localDc = TextoProducto.textoLocalSinTalle(
         descripcion: p.descripcion,
         color: p.colorProducto,
       );
-      final localFull = TextoProducto.textoLocal(
-        descripcion: p.descripcion,
-        color: p.colorProducto,
-        talle: p.talle,
-      );
       if (localDc.isEmpty) continue;
-      if (n == localFull || n == localDc) {
-        suaves.add(p);
-        continue;
-      }
-      if (TextoProducto.coincidePorTokens(n, localDc) ||
-          TextoProducto.coincidePorTokens(n, localFull)) {
-        suaves.add(p);
+      if (basesModelo.any(
+        (b) =>
+            b == localDc ||
+            TextoProducto.coincidePorTokens(b, localDc),
+      )) {
+        delModelo.add(p);
       }
     }
-    return suaves;
+
+    if (delModelo.isNotEmpty) {
+      return delModelo.toList();
+    }
+
+    // 3) Match exacto del texto completo (último recurso).
+    final exactos = porDesc[n];
+    if (exactos != null && exactos.isNotEmpty) {
+      return List<Producto>.from(exactos);
+    }
+
+    return const [];
   }
 
   /// Actualiza **únicamente el costo** de los productos emparejados (por código local).
