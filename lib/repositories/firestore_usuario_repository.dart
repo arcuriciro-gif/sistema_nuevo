@@ -75,7 +75,14 @@ class FirestoreUsuarioRepository implements UsuarioRepository {
     if (uid == null || uid.isEmpty) {
       throw StateError('firebaseUid requerido para actualizar en Firestore.');
     }
-    await _collection.doc(uid).set(usuario.toFirestore(), SetOptions(merge: true));
+    final data = usuario.toFirestore();
+    // No pisar foto remota con path local vacío o de este dispositivo.
+    final foto = data['foto']?.toString() ?? '';
+    final esHttp = foto.startsWith('http://') || foto.startsWith('https://');
+    if (!esHttp) {
+      data.remove('foto');
+    }
+    await _collection.doc(uid).set(data, SetOptions(merge: true));
     return 1;
   }
 

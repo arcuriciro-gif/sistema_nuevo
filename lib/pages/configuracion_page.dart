@@ -6,6 +6,7 @@ import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/firebase/firebase_safe_mode.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/media_sync_service.dart';
 import '../core/utils/media_path.dart';
 import '../navigation/shell_menu_catalog.dart';
 import '../services/app_log.dart';
@@ -210,7 +211,16 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     if (img == null) return;
     final path =
         await BrandingService.instance.persistirImagen(img.path, 'logo');
+    await BrandingService.instance.aplicarLogoLocal(path);
+    if (!mounted) return;
     setState(() => _logoPath = path);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Logo actualizado en este equipo. Tocá GUARDAR para sincronizar a la nube.',
+        ),
+      ),
+    );
   }
 
   Future<void> _elegirIcono() async {
@@ -224,7 +234,16 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     if (img == null) return;
     final path =
         await BrandingService.instance.persistirImagen(img.path, 'icono_app');
+    await BrandingService.instance.aplicarIconoLocal(path);
+    if (!mounted) return;
     setState(() => _iconoPath = path);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Icono actualizado en este equipo. Tocá GUARDAR para sincronizar a la nube.',
+        ),
+      ),
+    );
   }
 
   Future<void> _guardarBranding() async {
@@ -256,20 +275,32 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
         direccionFiscal: _direccionFiscalCtrl.text.trim(),
       );
       String mensaje =
-          'Datos del negocio guardados (login y menú actualizados)';
+          'Datos del negocio guardados (logo, login y menú actualizados).';
       if (BackendConfigService.instance.firebaseEnabled) {
         try {
           await FirestoreSyncService.instance.subirBranding();
-          mensaje =
-              'Negocio sincronizado en la nube. Logo y descripción llegan a todos los equipos.';
+          final mediaErr = MediaSyncService.instance.lastError;
+          if (mediaErr != null && mediaErr.isNotEmpty) {
+            mensaje =
+                'Guardado en este equipo. La nube no pudo subir la imagen: $mediaErr '
+                'El logo igual se ve acá. En Firebase Console → Storage: creá Storage '
+                'y publicá storage.rules.';
+          } else {
+            mensaje =
+                'Negocio sincronizado. Logo y descripción llegan a todos los equipos.';
+          }
         } catch (e) {
           mensaje =
-              'Guardado local. No se pudo sincronizar: ${AuthService.mensajeUsuario(e)}';
+              'Guardado en este equipo (el logo ya se ve). '
+              'Nube: ${AuthService.mensajeUsuario(e)}';
         }
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mensaje)),
+        SnackBar(
+          content: Text(mensaje),
+          duration: const Duration(seconds: 8),
+        ),
       );
       setState(() {});
     } finally {
@@ -448,6 +479,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                               child: Stack(
                                 children: [
                                   CircleAvatar(
+                                    key: ValueKey('cfg-logo-$_logoPath'),
                                     radius: 44,
                                     backgroundColor: colorScheme.primaryContainer,
                                     backgroundImage:
@@ -488,6 +520,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                               child: Stack(
                                 children: [
                                   CircleAvatar(
+                                    key: ValueKey('cfg-icono-$_iconoPath'),
                                     radius: 44,
                                     backgroundColor:
                                         colorScheme.secondaryContainer,

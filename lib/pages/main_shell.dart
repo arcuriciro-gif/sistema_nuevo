@@ -53,8 +53,6 @@ import '../core/utils/media_path.dart';
 const Color _kSidebarBg = Color(0xFF000000);
 const Color _kSidebarBorder = Color(0xFF1A1A1A);
 const Color _kSidebarHeaderBorder = Color(0xFF2A2A2A);
-const Color _kSidebarSelectedIcon = Colors.white;
-const Color _kSidebarSelectedText = Colors.white;
 const Color _kSidebarInactiveIcon = Color(0xFF9CA3AF);
 const Color _kSidebarInactiveText = Color(0xFFD1D5DB);
 const Color _kSidebarUserBg = Color(0xFF141414);
@@ -808,7 +806,9 @@ class _SidebarContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final branding = BrandingService.instance;
     final logoPath = branding.imagenUiPath;
-    final selectedBg = Theme.of(context).colorScheme.primary;
+    final cs = Theme.of(context).colorScheme;
+    final selectedBg = cs.primary;
+    final selectedFg = cs.onPrimary;
 
     return SafeArea(
       child: Column(
@@ -823,6 +823,9 @@ class _SidebarContent extends StatelessWidget {
             child: Column(
               children: [
                 MediaAvatar(
+                  key: ValueKey(
+                    'sidebar-logo-${branding.logoUiPath.isNotEmpty ? branding.logoUiPath : logoPath}',
+                  ),
                   path: branding.logoUiPath.isNotEmpty
                       ? branding.logoUiPath
                       : logoPath,
@@ -876,7 +879,7 @@ class _SidebarContent extends StatelessWidget {
                       leading: Icon(
                         item.icon,
                         color: selected
-                            ? _kSidebarSelectedIcon
+                            ? selectedFg
                             : _kSidebarInactiveIcon,
                         size: 20,
                       ),
@@ -884,7 +887,7 @@ class _SidebarContent extends StatelessWidget {
                         item.title,
                         style: TextStyle(
                           color: selected
-                              ? _kSidebarSelectedText
+                              ? selectedFg
                               : _kSidebarInactiveText,
                           fontWeight:
                               selected ? FontWeight.w700 : FontWeight.normal,
@@ -1060,6 +1063,7 @@ class _TopBar extends StatelessWidget {
             icon: const Icon(Icons.home_rounded, color: Colors.white),
           ),
           MediaAvatar(
+            key: ValueKey('topbar-logo-$logoPath'),
             path: logoPath,
             radius: 16,
             fallbackLetter:

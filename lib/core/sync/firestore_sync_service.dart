@@ -267,20 +267,24 @@ class FirestoreSyncService {
           uidOrUsuario: u.firebaseUid!,
           file: file,
         );
-        if (url == null) {
-          throw Exception(
-            'No se pudo subir la foto de perfil. '
-            '${MediaSyncService.instance.lastError ?? ""}',
+        if (url != null) {
+          foto = url;
+          u = u.copyWith(foto: foto);
+          await _usuariosLocal.actualizar(u);
+        } else {
+          // Soft-fail: dejamos la foto local en el dispositivo; no bloqueamos sync.
+          debugPrint(
+            'FirestoreSync foto perfil: '
+            '${MediaSyncService.instance.lastError}',
           );
         }
-        foto = url;
-        u = u.copyWith(foto: foto);
-        await _usuariosLocal.actualizar(u);
       } else {
         foto = '';
         u = u.copyWith(foto: '');
       }
     }
+    // A Firestore: URL remota si hay; si la foto quedó solo local, el repo
+    // omite el campo y no borra la foto de la nube.
     await _usuariosRemote.actualizar(u.copyWith(foto: foto));
   }
 

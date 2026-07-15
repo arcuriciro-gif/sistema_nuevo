@@ -113,23 +113,38 @@ class _PerfilUsuarioPageState extends State<PerfilUsuarioPage> {
       final key = u?.firebaseUid?.isNotEmpty == true
           ? u!.firebaseUid!
           : (u?.usuario ?? 'user');
-      final url = await MediaSyncService.instance.subirFotoUsuario(
-        uidOrUsuario: key,
-        file: File(img.path),
+
+      // Siempre guardar copia local primero (así se ve aunque falle la nube).
+      final local = await MediaSyncService.instance.persistirFotoLocal(
+        sourcePath: img.path,
+        codigoProducto: 'user_$key',
       );
+      final localPath = local ?? img.path;
+
+      String? url;
+      if (MediaSyncService.instance.nubeDisponible) {
+        url = await MediaSyncService.instance.subirFotoUsuario(
+          uidOrUsuario: key,
+          file: File(localPath),
+        );
+      }
+
+      if (!mounted) return;
       if (url == null && MediaSyncService.instance.nubeDisponible) {
-        if (!mounted) return;
+        setState(() => _foto = localPath);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
+            duration: const Duration(seconds: 8),
             content: Text(
-              'No se pudo subir la foto: '
-              '${MediaSyncService.instance.lastError ?? "revisá la nube"}',
+              'Foto guardada en este equipo. '
+              'Nube: ${MediaSyncService.instance.lastError ?? "revisá Storage"}. '
+              'En Firebase Console → Storage: creá el servicio y publicá storage.rules.',
             ),
           ),
         );
         return;
       }
-      setState(() => _foto = url ?? img.path);
+      setState(() => _foto = url ?? localPath);
     } finally {
       if (mounted) setState(() => _guardando = false);
     }

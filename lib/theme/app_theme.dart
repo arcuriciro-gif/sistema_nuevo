@@ -3,13 +3,13 @@ import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   static const List<Color> coloresDisponibles = [
-    Color(0xFFFF7A00), // Tata.Manager primary
+    Color(0xFFFF7A00), // Naranja Tata
     Color(0xFFFF9E1B),
     Color(0xFFFFC166),
-    Color(0xFF1E1E1E),
-    Color(0xFF3A3A3A),
-    Color(0xFF2563EB),
-    Color(0xFF16A34A),
+    Color(0xFF6B7280), // Gris
+    Color(0xFF9CA3AF), // Gris claro
+    Color(0xFF2563EB), // Azul
+    Color(0xFF16A34A), // Verde
   ];
 
   static const List<String> fuentesDisponibles = [
@@ -41,19 +41,21 @@ class AppTheme {
     }
   }
 
+  /// El color elegido es el acento real (sin forzar naranja en grises).
+  static Color accentFromSeed(Color seed) => seed;
+
   static ThemeData _buildTheme({
     required Color seed,
     required Brightness brightness,
     required String fuente,
   }) {
+    final accent = accentFromSeed(seed);
+    // Esquema completo desde el acento elegido → primary, containers,
+    // switches, chips y botones van en conjunto.
     final baseScheme = ColorScheme.fromSeed(
-      seedColor: seed,
+      seedColor: accent,
       brightness: brightness,
     );
-    // Usar el color elegido tal cual (sin “filtro” Material del seed).
-    // Gris/negro: acento brillante para que botones e ítems no parezcan apagados.
-    final seedOscuro = seed.computeLuminance() < 0.22;
-    final accent = seedOscuro ? const Color(0xFFFF7A00) : seed;
     final onAccent =
         accent.computeLuminance() > 0.55 ? Colors.black : Colors.white;
     final colorScheme = baseScheme.copyWith(
@@ -61,7 +63,20 @@ class AppTheme {
       onPrimary: onAccent,
       secondary: accent,
       onSecondary: onAccent,
-      tertiary: Color.lerp(accent, baseScheme.tertiary, 0.35)!,
+      tertiary: Color.lerp(accent, baseScheme.tertiary, 0.25)!,
+      primaryContainer: Color.lerp(
+        accent,
+        brightness == Brightness.dark
+            ? Colors.white
+            : Colors.black,
+        brightness == Brightness.dark ? 0.25 : 0.12,
+      )!,
+      secondaryContainer: Color.lerp(
+        accent,
+        brightness == Brightness.dark ? Colors.black : Colors.white,
+        0.55,
+      )!,
+      surfaceTint: accent,
     );
     final textTheme = _textTheme(fuente).apply(
       bodyColor: colorScheme.onSurface,
@@ -112,6 +127,45 @@ class AppTheme {
         backgroundColor: colorScheme.primary,
         foregroundColor: colorScheme.onPrimary,
       ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return colorScheme.onPrimary;
+          }
+          return null;
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return colorScheme.primary;
+          }
+          return null;
+        }),
+        trackOutlineColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return colorScheme.primary;
+          }
+          return null;
+        }),
+      ),
+      checkboxTheme: CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return colorScheme.primary;
+          }
+          return null;
+        }),
+      ),
+      radioTheme: RadioThemeData(
+        fillColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return colorScheme.primary;
+          }
+          return null;
+        }),
+      ),
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        color: colorScheme.primary,
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: colorScheme.surfaceContainerHigh,
@@ -131,7 +185,7 @@ class AppTheme {
       navigationRailTheme: NavigationRailThemeData(
         backgroundColor: colorScheme.surfaceContainerLowest,
         indicatorColor: colorScheme.primaryContainer,
-        selectedIconTheme: IconThemeData(color: colorScheme.primary),
+        selectedIconTheme: IconThemeData(color: colorScheme.onPrimary),
         selectedLabelTextStyle: textTheme.labelMedium?.copyWith(
           color: colorScheme.primary,
           fontWeight: FontWeight.w700,

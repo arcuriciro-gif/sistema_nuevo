@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -173,16 +174,40 @@ class BrandingService extends ChangeNotifier {
   }
 
   /// Copia la imagen a almacenamiento permanente de la app.
+  /// Usa nombre único para romper la caché de Flutter al cambiar el logo.
   Future<String> persistirImagen(String sourcePath, String nombreBase) async {
     final dir = await getApplicationDocumentsDirectory();
     final brandingDir = Directory(p.join(dir.path, 'branding'));
     if (!await brandingDir.exists()) {
       await brandingDir.create(recursive: true);
     }
-    final ext = p.extension(sourcePath).isEmpty ? '.png' : p.extension(sourcePath);
-    final dest = p.join(brandingDir.path, '$nombreBase$ext');
+    final ext =
+        p.extension(sourcePath).isEmpty ? '.png' : p.extension(sourcePath);
+    final dest = p.join(
+      brandingDir.path,
+      '${nombreBase}_${const Uuid().v4()}$ext',
+    );
     await File(sourcePath).copy(dest);
+    try {
+      PaintingBinding.instance.imageCache.evict(FileImage(File(dest)));
+    } catch (_) {}
     return dest;
+  }
+
+  /// Aplica logo ya persistido y refresca menú/top bar al instante.
+  Future<void> aplicarLogoLocal(String path) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyLogo, path);
+    logoPath = path;
+    notifyListeners();
+  }
+
+  /// Aplica icono ya persistido y refresca UI al instante.
+  Future<void> aplicarIconoLocal(String path) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyIcono, path);
+    iconoPath = path;
+    notifyListeners();
   }
 
   Future<void> guardar({
@@ -349,7 +374,11 @@ class BrandingService extends ChangeNotifier {
           file: f,
           contentType: 'image/jpeg',
         );
-        if (url != null) logoUrl = url;
+        if (url != null) {
+          logoUrl = url;
+        }
+        // Si falla Storage, conservamos logoUrl vacío o el remoto previo;
+        // el archivo local sigue en logoPath para este equipo.
       }
     }
     if (iconoPath.isNotEmpty && !esUrlRemota(iconoPath)) {
@@ -363,11 +392,21 @@ class BrandingService extends ChangeNotifier {
           file: f,
           contentType: 'image/jpeg',
         );
-        if (url != null) iconoUrl = url;
+        if (url != null) {
+          iconoUrl = url;
+        }
       }
     }
 
-    return toFirestoreMap(logoUrl: logoUrl, iconoUrl: iconoUrl);
+    // No pisar URLs remotas previas con vacío si la subida falló.
+    final map = toFirestoreMap(logoUrl: logoUrl, iconoUrl: iconoUrl);
+    if (logoUrl.isEmpty && esUrlRemota(logoPath)) {
+      map['logoUrl'] = logoPath;
+    }
+    if (iconoUrl.isEmpty && esUrlRemota(iconoPath)) {
+      map['iconoUrl'] = iconoPath;
+    }
+    return map;
   }
 
   Future<String?> _descargarImagen(String url, String nombreBase) async {
@@ -381,8 +420,14 @@ class BrandingService extends ChangeNotifier {
       }
       var ext = p.extension(Uri.parse(url).path);
       if (ext.isEmpty || ext.length > 5) ext = '.jpg';
-      final dest = p.join(brandingDir.path, '$nombreBase$ext');
+      final dest = p.join(
+        brandingDir.path,
+        '${nombreBase}_${const Uuid().v4()}$ext',
+      );
       await File(dest).writeAsBytes(res.bodyBytes);
+      try {
+        PaintingBinding.instance.imageCache.evict(FileImage(File(dest)));
+      } catch (_) {}
       return dest;
     } catch (e) {
       debugPrint('Branding descargar imagen: $e');
