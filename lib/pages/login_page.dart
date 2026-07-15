@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../core/firebase/firebase_safe_mode.dart';
+import '../core/utils/media_path.dart';
 import '../services/app_log.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_auth_service.dart';
@@ -274,30 +275,35 @@ class _LoginPageState extends State<LoginPage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                if (logoPath.isNotEmpty && File(logoPath).existsSync())
-                  CircleAvatar(
-                    radius: 48,
-                    backgroundImage: FileImage(File(logoPath)),
-                  )
-                else
-                  Container(
-                    width: 96,
-                    height: 96,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: cs.primary,
-                        width: 1.5,
+                Builder(
+                  builder: (context) {
+                    final logo = imageProviderDesdePath(logoPath);
+                    if (logo != null) {
+                      return CircleAvatar(
+                        radius: 48,
+                        backgroundImage: logo,
+                      );
+                    }
+                    return Container(
+                      width: 96,
+                      height: 96,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: cs.primary,
+                          width: 1.5,
+                        ),
                       ),
-                    ),
-                    child: Center(
-                      child: Icon(
-                        Icons.store_rounded,
-                        size: 48,
-                        color: cs.primary,
+                      child: Center(
+                        child: Icon(
+                          Icons.store_rounded,
+                          size: 48,
+                          color: cs.primary,
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
+                ),
                 const SizedBox(height: 16),
                 Text(
                   branding.nombre,

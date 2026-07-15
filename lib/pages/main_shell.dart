@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -49,11 +47,10 @@ import 'ventas_page.dart';
 import 'venta_rapida_page.dart';
 import '../core/utils/media_path.dart';
 
-// ── Paleta fija para la barra lateral oscura ──────────────────────────────────
+// ── Barra lateral oscura; el acento seleccionado sigue el color de Config ─────
 const Color _kSidebarBg = Color(0xFF000000);
 const Color _kSidebarBorder = Color(0xFF1A1A1A);
 const Color _kSidebarHeaderBorder = Color(0xFF2A2A2A);
-const Color _kSidebarSelectedBg = Color(0xFFFF7A00);
 const Color _kSidebarSelectedIcon = Colors.white;
 const Color _kSidebarSelectedText = Colors.white;
 const Color _kSidebarInactiveIcon = Color(0xFF9CA3AF);
@@ -778,6 +775,8 @@ class _SidebarContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final branding = BrandingService.instance;
     final logoPath = branding.imagenUiPath;
+    final logoProvider = imageProviderDesdePath(logoPath);
+    final selectedBg = Theme.of(context).colorScheme.primary;
 
     return SafeArea(
       child: Column(
@@ -791,10 +790,10 @@ class _SidebarContent extends StatelessWidget {
             ),
             child: Column(
               children: [
-                if (logoPath.isNotEmpty)
+                if (logoProvider != null)
                   CircleAvatar(
                     radius: 30,
-                    backgroundImage: FileImage(File(logoPath)),
+                    backgroundImage: logoProvider,
                   )
                 else
                   Container(
@@ -848,8 +847,7 @@ class _SidebarContent extends StatelessWidget {
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 2),
                   child: Material(
-                    color:
-                        selected ? _kSidebarSelectedBg : Colors.transparent,
+                    color: selected ? selectedBg : Colors.transparent,
                     borderRadius: BorderRadius.circular(8),
                     child: ListTile(
                       dense: true,
@@ -1008,7 +1006,10 @@ class _TopBar extends StatelessWidget {
           if (logoPath.isNotEmpty)
             CircleAvatar(
               radius: 16,
-              backgroundImage: FileImage(File(logoPath)),
+              backgroundImage: imageProviderDesdePath(logoPath),
+              child: imageProviderDesdePath(logoPath) == null
+                  ? const Icon(Icons.store_rounded, color: Colors.white70, size: 18)
+                  : null,
             )
           else
             const Icon(Icons.store_rounded, color: Colors.white70, size: 22),

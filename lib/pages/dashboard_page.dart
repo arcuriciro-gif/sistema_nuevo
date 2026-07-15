@@ -146,87 +146,66 @@ class _DashboardPageState extends State<DashboardPage> {
   ) {
     return Card(
       elevation: 3,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor:
-                      AppVisuals.danger(cs).withValues(alpha: .15),
-                  child: Icon(
-                    Icons.account_balance_wallet_rounded,
-                    color: AppVisuals.danger(cs),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text(
-                    'Cuentas por cobrar',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const ClientesDeudoresPage(),
+            ),
+          ).then((_) => cargar());
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor:
+                        AppVisuals.danger(cs).withValues(alpha: .15),
+                    child: Icon(
+                      Icons.account_balance_wallet_rounded,
+                      color: AppVisuals.danger(cs),
                     ),
                   ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Cuentas por cobrar',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '\$${resumen.montoTotalPendiente.toStringAsFixed(2)}',
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: AppVisuals.danger(cs),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text('${resumen.clientesConDeuda} clientes'),
+              Text('${resumen.ventasPendientes} ventas pendientes'),
+              if (resumen.mayorDeudor != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Mayor deuda: ${resumen.mayorDeudor!.nombre} '
+                  '(\$${resumen.mayorDeudor!.saldoPendiente.toStringAsFixed(2)})',
+                  style: TextStyle(color: cs.onSurfaceVariant),
                 ),
               ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '\$${resumen.montoTotalPendiente.toStringAsFixed(2)}',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: AppVisuals.danger(cs),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text('${resumen.clientesConDeuda} clientes'),
-            Text('${resumen.ventasPendientes} ventas pendientes'),
-            if (resumen.mayorDeudor != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Mayor deuda: ${resumen.mayorDeudor!.nombre} '
-                '(\$${resumen.mayorDeudor!.saldoPendiente.toStringAsFixed(2)})',
-                style: TextStyle(color: cs.onSurfaceVariant),
-              ),
             ],
-            if (resumen.proximosVencimientos.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Últimos vencimientos / saldos antiguos:',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: cs.onSurfaceVariant,
-                ),
-              ),
-              ...resumen.proximosVencimientos.take(3).map(
-                    (v) => Text(
-                      '${v.clienteNombre ?? 'Cliente'} · ${v.numero} · '
-                      '\$${v.saldoPendiente.toStringAsFixed(2)}',
-                      style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
-                    ),
-                  ),
-            ],
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ClientesDeudoresPage(),
-                    ),
-                  ).then((_) => cargar());
-                },
-                icon: const Icon(Icons.visibility_rounded),
-                label: const Text('Ver detalle'),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -294,9 +273,11 @@ class _DashboardPageState extends State<DashboardPage> {
     required String valor,
     required IconData icono,
     required Color color,
+    VoidCallback? onTap,
   }) {
     return Card(
       child: ListTile(
+        onTap: onTap,
         leading: CircleAvatar(
           backgroundColor: color.withValues(alpha: .15),
           child: Icon(icono, color: color),
@@ -722,6 +703,14 @@ class _DashboardPageState extends State<DashboardPage> {
                     Card(
                       elevation: 3,
                       child: ListTile(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ProductosPage(),
+                            ),
+                          ).then((_) => cargar());
+                        },
                         leading: CircleAvatar(
                           backgroundColor: stockColor.withValues(alpha: .15),
                           child: Icon(Icons.warehouse_rounded, color: stockColor),
@@ -762,6 +751,14 @@ class _DashboardPageState extends State<DashboardPage> {
                               '\$${((producto['totalMonto'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
                           icono: Icons.sell_rounded,
                           color: topProductosColor,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ProductosPage(),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                       ),
                     const SizedBox(height: 20),
@@ -784,6 +781,14 @@ class _DashboardPageState extends State<DashboardPage> {
                               '\$${((cliente['totalCompras'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
                           icono: Icons.workspace_premium_rounded,
                           color: topClientesColor,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ClientesPage(),
+                              ),
+                            ).then((_) => cargar());
+                          },
                         ),
                       ),
                     if (bajoMargen.isNotEmpty) ...[
@@ -798,6 +803,14 @@ class _DashboardPageState extends State<DashboardPage> {
                       ...bajoMargen.map(
                         (p) => Card(
                           child: ListTile(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ProductosPage(),
+                                ),
+                              ).then((_) => cargar());
+                            },
                             leading: CircleAvatar(
                               backgroundColor:
                                   AppVisuals.warning(colorScheme).withValues(alpha: .15),
@@ -828,6 +841,14 @@ class _DashboardPageState extends State<DashboardPage> {
                       ...sinStock.map(
                         (p) => Card(
                           child: ListTile(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ProductosPage(),
+                                ),
+                              ).then((_) => cargar());
+                            },
                             leading: CircleAvatar(
                               backgroundColor: sinStockColor.withValues(alpha: .15),
                               child: Icon(

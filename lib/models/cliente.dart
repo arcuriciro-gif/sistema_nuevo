@@ -13,6 +13,7 @@ class Cliente {
   String cuit;
   String condicionIva;
   String observaciones;
+  String foto;
   double descuento;
   double saldo;
   double limiteCuenta;
@@ -31,6 +32,7 @@ class Cliente {
     this.cuit = '',
     this.condicionIva = '',
     required this.observaciones,
+    this.foto = '',
     this.descuento = 0.0,
     this.saldo = 0.0,
     this.limiteCuenta = 0.0,
@@ -51,6 +53,7 @@ class Cliente {
       "cuit": cuit,
       "condicionIva": condicionIva,
       "observaciones": observaciones,
+      "foto": foto,
       "descuento": descuento,
       "saldo": saldo,
       "limiteCuenta": limiteCuenta,
@@ -59,6 +62,12 @@ class Cliente {
 
   Map<String, dynamic> toFirestore() {
     final data = Map<String, dynamic>.from(toMap()..remove('id'));
+    // Solo URLs remotas en la nube (nunca paths locales de otra PC).
+    final f = foto.trim();
+    if (f.isNotEmpty &&
+        !(f.startsWith('http://') || f.startsWith('https://'))) {
+      data['foto'] = '';
+    }
     data['actualizadoEn'] = DateTime.now().toUtc().toIso8601String();
     return data;
   }
@@ -78,6 +87,7 @@ class Cliente {
       cuit: map["cuit"] ?? "",
       condicionIva: map["condicionIva"] ?? "",
       observaciones: map["observaciones"] ?? "",
+      foto: map["foto"]?.toString() ?? "",
       descuento: (map["descuento"] ?? 0).toDouble(),
       saldo: (map["saldo"] ?? 0).toDouble(),
       limiteCuenta: (map["limiteCuenta"] ?? 0).toDouble(),
@@ -101,6 +111,7 @@ class Cliente {
     String? cuit,
     String? condicionIva,
     String? observaciones,
+    String? foto,
     double? descuento,
     double? saldo,
     double? limiteCuenta,
@@ -119,6 +130,7 @@ class Cliente {
       cuit: cuit ?? this.cuit,
       condicionIva: condicionIva ?? this.condicionIva,
       observaciones: observaciones ?? this.observaciones,
+      foto: foto ?? this.foto,
       descuento: descuento ?? this.descuento,
       saldo: saldo ?? this.saldo,
       limiteCuenta: limiteCuenta ?? this.limiteCuenta,

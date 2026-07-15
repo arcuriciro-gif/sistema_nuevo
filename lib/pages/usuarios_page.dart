@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/auth/rol_util.dart';
+import '../core/auth/usuario_auth_email.dart';
 import '../models/usuario.dart';
 import '../services/auth_service.dart';
 import '../services/usuario_service.dart';
@@ -108,13 +109,17 @@ class _UsuariosPageState extends State<UsuariosPage> {
     try {
       await _service.restablecerPassword(usuario, ctrl.text.trim());
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Contraseña restablecida para ${usuario.usuario}. Deberá cambiarla al ingresar.',
-          ),
-        ),
-      );
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Contraseña restablecida para ${usuario.usuario}. '
+                'Con nube activa se sincroniza el acceso en otros equipos'
+                '${UsuarioAuthEmail.esEmailReal(usuario.email) ? " y se envió email de restablecimiento" : ""}. '
+                'Deberá cambiarla al ingresar.',
+              ),
+              duration: const Duration(seconds: 6),
+            ),
+          );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

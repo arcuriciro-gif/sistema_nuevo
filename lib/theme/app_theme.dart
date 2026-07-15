@@ -46,9 +46,19 @@ class AppTheme {
     required Brightness brightness,
     required String fuente,
   }) {
-    final colorScheme = ColorScheme.fromSeed(
+    final baseScheme = ColorScheme.fromSeed(
       seedColor: seed,
       brightness: brightness,
+    );
+    // Usar el color elegido tal cual (sin “filtro” Material del seed).
+    final onSeed =
+        seed.computeLuminance() > 0.55 ? Colors.black : Colors.white;
+    final colorScheme = baseScheme.copyWith(
+      primary: seed,
+      onPrimary: onSeed,
+      secondary: seed,
+      onSecondary: onSeed,
+      tertiary: Color.lerp(seed, baseScheme.tertiary, 0.35)!,
     );
     final textTheme = _textTheme(fuente).apply(
       bodyColor: colorScheme.onSurface,

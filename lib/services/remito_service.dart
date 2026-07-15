@@ -7,6 +7,7 @@ import '../models/movimiento_stock.dart';
 import '../models/remito.dart';
 import '../models/remito_detalle.dart';
 import 'auth_service.dart';
+import 'cuenta_corriente_service.dart';
 
 class RemitoService {
   final DatabaseHelper dbHelper = DatabaseHelper.instance;
@@ -98,6 +99,11 @@ class RemitoService {
 
     // Sync a Firebase para que PC/celular se actualicen
     await FirestoreSyncService.instance.subirRemito(remitoId);
+    final clienteIdInt =
+        remito.clienteId != null ? int.tryParse(remito.clienteId!) : null;
+    if (clienteIdInt != null) {
+      await CuentaCorrienteService().recalcularSaldoCliente(clienteIdInt);
+    }
     DataRefreshHub.instance.notifyTodo();
     return remitoId;
   }
@@ -157,12 +163,23 @@ class RemitoService {
 
   Future<void> actualizarEstadoPago(int id, String estadoPago) async {
     final db = await dbHelper.database;
+    final rows = await db.query(
+      'remitos',
+      columns: ['clienteId'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
     await db.update(
       'remitos',
       {'estadoPago': estadoPago},
       where: 'id = ?',
       whereArgs: [id],
     );
+    final clienteId = rows.isNotEmpty ? rows.first['clienteId'] as int? : null;
+    if (clienteId != null) {
+      await CuentaCorrienteService().recalcularSaldoCliente(clienteId);
+    }
     await FirestoreSyncService.instance.subirRemito(id);
     DataRefreshHub.instance.notifyTodo();
   }

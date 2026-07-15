@@ -48,19 +48,16 @@ class ProductoService {
     final urls = fotos.where(esUrlRemota).toList();
     final teniaLocal = entrantes.any((f) => !esUrlRemota(f));
 
-    // Con nube activa, una foto local DEBE subir; si no, avisamos (no “sync silenciosa”).
-    if (MediaSyncService.instance.nubeDisponible &&
-        teniaLocal &&
-        urls.isEmpty) {
-      final detalle =
-          MediaSyncService.instance.lastError ?? 'error desconocido';
-      throw Exception(
-        'No se pudo subir la foto a la nube ($detalle)',
-      );
-    }
-
+    // Si la nube falla (p. ej. Storage sin reglas), igual guardamos local
+    // para que se vea en este equipo; lastError lo muestra el formulario.
     if (urls.isNotEmpty) {
       return producto.copyWith(foto: urls.first, fotos: urls);
+    }
+    if (teniaLocal &&
+        MediaSyncService.instance.nubeDisponible &&
+        MediaSyncService.instance.lastError != null) {
+      // Conservar rutas locales; no bloquear stock/costos.
+      return producto.copyWith(foto: fotos.first, fotos: fotos);
     }
     return producto.copyWith(foto: fotos.first, fotos: fotos);
   }

@@ -85,6 +85,8 @@ class Usuario {
       'firebaseUid': firebaseUid,
       'nombre': nombre,
       'usuario': usuario,
+      // Hash local para que el login funcione en otra PC tras un reset del admin.
+      if (password.isNotEmpty) 'password': password,
       'rol': rol,
       'activo': activo,
       'debeCambiarPassword': debeCambiarPassword,

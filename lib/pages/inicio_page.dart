@@ -330,49 +330,54 @@ class _InicioPageState extends State<InicioPage> {
                     if (_resumenCc != null) ...[
                       const SizedBox(height: 16),
                       Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Cuentas por cobrar',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ClientesDeudoresPage(),
+                              ),
+                            ).then((_) => _cargar());
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Cuentas por cobrar',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                '\$${_fmt(_resumenCc!.montoTotalPendiente)}',
-                                style: TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.bold,
-                                  color: cs.error,
+                                const SizedBox(height: 8),
+                                Text(
+                                  '\$${_fmt(_resumenCc!.montoTotalPendiente)}',
+                                  style: TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                    color: cs.error,
+                                  ),
                                 ),
-                              ),
-                              Text('${_resumenCc!.clientesConDeuda} clientes'),
-                              Text(
-                                '${_resumenCc!.ventasPendientes} ventas pendientes',
-                              ),
-                              const SizedBox(height: 8),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton.icon(
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            const ClientesDeudoresPage(),
-                                      ),
-                                    ).then((_) => _cargar());
-                                  },
-                                  icon: const Icon(Icons.visibility_rounded),
-                                  label: const Text('Ver detalle'),
+                                Text('${_resumenCc!.clientesConDeuda} clientes'),
+                                Text(
+                                  '${_resumenCc!.ventasPendientes} ventas pendientes',
                                 ),
-                              ),
-                            ],
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Text(
+                                    'Ver detalle →',
+                                    style: TextStyle(
+                                      color: cs.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -409,6 +414,14 @@ class _InicioPageState extends State<InicioPage> {
                               ...(_ultimosProductos.map(
                                 (p) => ListTile(
                                   dense: true,
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => const ProductosPage(),
+                                      ),
+                                    ).then((_) => _cargar());
+                                  },
                                   leading: CircleAvatar(
                                     backgroundColor: cs.primaryContainer,
                                     backgroundImage: imageProviderDesdePath(

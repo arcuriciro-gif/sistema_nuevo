@@ -179,13 +179,23 @@ class CuentaCorrienteService {
   Future<void> recalcularSaldoCliente(int clienteId) async {
     final db = await _db.database;
     final rows = await db.rawQuery('''
-      SELECT COALESCE(SUM(saldoPendiente), 0) AS saldo
-      FROM ventas
-      WHERE clienteId = ?
-        AND estado != 'anulada'
-        AND saldoPendiente > 0
-        AND tipo NOT IN ('presupuesto')
-    ''', [clienteId]);
+      SELECT
+        (
+          SELECT COALESCE(SUM(saldoPendiente), 0)
+          FROM ventas
+          WHERE clienteId = ?
+            AND estado != 'anulada'
+            AND saldoPendiente > 0
+            AND tipo NOT IN ('presupuesto')
+        ) + (
+          SELECT COALESCE(SUM(total), 0)
+          FROM remitos
+          WHERE clienteId = ?
+            AND estado != 'anulado'
+            AND COALESCE(estadoPago, 'pendiente') != 'cobrado'
+            AND COALESCE(total, 0) > 0
+        ) AS saldo
+    ''', [clienteId, clienteId]);
     final saldo = (rows.first['saldo'] as num?)?.toDouble() ?? 0;
     await db.update(
       'clientes',
@@ -193,6 +203,53 @@ class CuentaCorrienteService {
       where: 'id = ?',
       whereArgs: [clienteId],
     );
+  }
+
+  Future<List<Map<String, dynamic>>> remitosPendientesDeCliente(
+    int clienteId,
+  ) async {
+    final db = await _db.database;
+    return db.query(
+      'remitos',
+      where:
+          "clienteId = ? AND estado != 'anulado' AND COALESCE(estadoPago, 'pendiente') != 'cobrado' AND COALESCE(total, 0) > 0.009",
+      whereArgs: [clienteId],
+      orderBy: 'fecha ASC, id ASC',
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> remitosDeCliente(int clienteId) async {
+    final db = await _db.database;
+    return db.query(
+      'remitos',
+      where: 'clienteId = ?',
+      whereArgs: [clienteId],
+      orderBy: 'fecha DESC, id DESC',
+    );
+  }
+
+  Future<void> cobrarRemitoCompleto(int remitoId, {int? clienteId}) async {
+    final db = await _db.database;
+    final rows = await db.query(
+      'remitos',
+      where: 'id = ?',
+      whereArgs: [remitoId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final remito = rows.first;
+    await db.update(
+      'remitos',
+      {'estadoPago': 'cobrado'},
+      where: 'id = ?',
+      whereArgs: [remitoId],
+    );
+    final cid = clienteId ?? (remito['clienteId'] as int?);
+    if (cid != null) {
+      await recalcularSaldoCliente(cid);
+    }
+    await FirestoreSyncService.instance.subirRemito(remitoId);
+    DataRefreshHub.instance.notifyTodo();
   }
 
   Future<List<Venta>> ventasDeCliente(int clienteId) async {

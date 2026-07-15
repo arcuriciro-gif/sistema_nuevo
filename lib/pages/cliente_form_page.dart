@@ -1,5 +1,13 @@
-import 'package:flutter/material.dart';
+import 'dart:io';
 
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
+
+import '../core/sync/media_sync_service.dart';
+import '../core/utils/media_path.dart';
 import '../models/cliente.dart';
 import '../services/cliente_service.dart';
 import '../theme/module_app_bar.dart';
@@ -33,6 +41,7 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
   late TextEditingController saldoController;
   late TextEditingController limiteCuentaController;
 
+  String _foto = '';
   bool guardando = false;
 
   bool get esEdicion => widget.cliente != null;
@@ -40,6 +49,7 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
   @override
   void initState() {
     super.initState();
+    _foto = widget.cliente?.foto ?? '';
     nombreController = TextEditingController(text: widget.cliente?.nombre ?? '');
     apellidoController =
         TextEditingController(text: widget.cliente?.apellido ?? '');
@@ -92,6 +102,43 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
   double _parseDbl(String text) =>
       double.tryParse(text.replaceAll(',', '.')) ?? 0;
 
+  Future<void> _elegirFoto() async {
+    final img = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+      maxWidth: 1200,
+    );
+    if (img == null) return;
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      final dir = Directory(p.join(docs.path, 'clientes_fotos'));
+      if (!await dir.exists()) await dir.create(recursive: true);
+      final ext = p.extension(img.path).isEmpty ? '.jpg' : p.extension(img.path);
+      final dest = p.join(dir.path, 'cli_${const Uuid().v4()}$ext');
+      await File(img.path).copy(dest);
+      if (!mounted) return;
+      setState(() => _foto = dest);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _foto = img.path);
+    }
+  }
+
+  Future<String> _fotoParaGuardar(String syncKey) async {
+    if (_foto.isEmpty) return '';
+    if (esUrlRemota(_foto)) return _foto;
+    final file = File(_foto);
+    if (!file.existsSync()) return _foto;
+    if (!MediaSyncService.instance.nubeDisponible) return _foto;
+    final url = await MediaSyncService.instance.subirArchivo(
+      storagePath:
+          'tenants/${MediaSyncService.instance.tenantId}/clientes/$syncKey/foto_${const Uuid().v4()}.jpg',
+      file: file,
+      contentType: 'image/jpeg',
+    );
+    return url ?? _foto;
+  }
+
   Future<void> guardar() async {
     if (!formKey.currentState!.validate()) return;
 
@@ -99,9 +146,15 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
 
     final descuento =
         _parseDbl(descuentoController.text).clamp(0.0, 100.0).toDouble();
+    final syncId = widget.cliente?.syncId.isNotEmpty == true
+        ? widget.cliente!.syncId
+        : const Uuid().v4();
+
+    final fotoFinal = await _fotoParaGuardar(syncId);
 
     final cliente = Cliente(
       id: widget.cliente?.id,
+      syncId: syncId,
       nombre: nombreController.text.trim(),
       apellido: apellidoController.text.trim(),
       telefono: telefonoController.text.trim(),
@@ -113,6 +166,7 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
       cuit: cuitController.text.trim(),
       condicionIva: condicionIvaController.text.trim(),
       observaciones: observacionesController.text.trim(),
+      foto: fotoFinal,
       descuento: descuento,
       saldo: _parseDbl(saldoController.text),
       limiteCuenta: _parseDbl(limiteCuentaController.text),
@@ -152,6 +206,9 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final provider = imageProviderDesdePath(_foto);
+
     return Scaffold(
       appBar: buildModuleAppBar(
         context,
@@ -161,7 +218,8 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
             ComentariosInternosButton(
               entidadTipo: 'cliente',
               entidadId: '${widget.cliente!.id}',
-              titulo: '${widget.cliente!.nombre} ${widget.cliente!.apellido}'.trim(),
+              titulo:
+                  '${widget.cliente!.nombre} ${widget.cliente!.apellido}'.trim(),
             ),
         ],
       ),
@@ -171,6 +229,31 @@ class _ClienteFormPageState extends State<ClienteFormPage> {
           key: formKey,
           child: Column(
             children: [
+              GestureDetector(
+                onTap: guardando ? null : _elegirFoto,
+                child: CircleAvatar(
+                  radius: 48,
+                  backgroundColor: cs.primaryContainer,
+                  backgroundImage: provider,
+                  child: provider == null
+                      ? Icon(Icons.add_a_photo_rounded,
+                          size: 32, color: cs.onPrimaryContainer)
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Foto del cliente (opcional)',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+              ),
+              if (_foto.isNotEmpty)
+                TextButton(
+                  onPressed: () => setState(() => _foto = ''),
+                  child: const Text('Quitar foto'),
+                ),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: nombreController,
                 decoration: const InputDecoration(

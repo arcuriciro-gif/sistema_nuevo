@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 
+import '../core/utils/media_path.dart';
 import '../models/chat_mensaje.dart';
 import '../models/cliente.dart';
 import '../services/cliente_service.dart';
 import '../theme/app_visuals.dart';
+import '../theme/module_app_bar.dart';
 import '../widgets/compartir_chat_dialog.dart';
 import '../widgets/comentarios_internos_sheet.dart';
 import '../widgets/cobrar_dialog.dart';
 import 'cliente_form_page.dart';
 import 'cliente_historial_page.dart';
 import 'cuenta_corriente_cliente_page.dart';
-import '../theme/module_app_bar.dart';
 
 class ClientesPage extends StatefulWidget {
   const ClientesPage({super.key});
@@ -45,6 +46,7 @@ class _ClientesPageState extends State<ClientesPage> {
     texto = texto.toLowerCase();
     filtrados = clientes.where((c) {
       return c.nombre.toLowerCase().contains(texto) ||
+          c.apellido.toLowerCase().contains(texto) ||
           c.telefono.toLowerCase().contains(texto) ||
           c.direccion.toLowerCase().contains(texto);
     }).toList();
@@ -104,6 +106,24 @@ class _ClientesPageState extends State<ClientesPage> {
       ),
     );
     cargar();
+  }
+
+  Widget _avatar(Cliente c, ColorScheme cs) {
+    final provider = imageProviderDesdePath(c.foto);
+    return CircleAvatar(
+      radius: 22,
+      backgroundColor: cs.primaryContainer,
+      backgroundImage: provider,
+      child: provider == null
+          ? Text(
+              c.nombre.isNotEmpty ? c.nombre[0].toUpperCase() : '?',
+              style: TextStyle(
+                color: cs.onPrimaryContainer,
+                fontWeight: FontWeight.bold,
+              ),
+            )
+          : null,
+    );
   }
 
   @override
@@ -169,144 +189,155 @@ class _ClientesPageState extends State<ClientesPage> {
                           final c = filtrados[i];
                           return Card(
                             margin: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 4),
-                            child: ListTile(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            child: InkWell(
                               onTap: () => abrirHistorial(c),
-                              leading: CircleAvatar(
-                                backgroundColor: colorScheme.primaryContainer,
-                                child: Text(
-                                  c.nombre.isNotEmpty
-                                      ? c.nombre[0].toUpperCase()
-                                      : '?',
-                                  style: TextStyle(
-                                    color: colorScheme.onPrimaryContainer,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  10,
+                                  4,
+                                  10,
                                 ),
-                              ),
-                              title: Text(
-                                c.nombreCompleto,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold),
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (c.telefono.isNotEmpty)
-                                    Row(
-                                      children: [
-                                        const Icon(Icons.phone,
-                                             size: 14),
-                                        const SizedBox(width: 4),
-                                        Text(c.telefono),
-                                      ],
-                                    ),
-                                  if (c.direccion.isNotEmpty)
-                                    Row(
-                                      children: [
-                                        const Icon(Icons.location_on,
-                                             size: 14),
-                                        const SizedBox(width: 4),
-                                        Expanded(child: Text(c.direccion)),
-                                      ],
-                                    ),
-                                  if (c.saldo > 0.009)
-                                    Text(
-                                      'Deuda: \$${c.saldo.toStringAsFixed(2)}',
-                                      style: TextStyle(
-                                        color: colorEstadoPago(
-                                          'pendiente',
-                                          colorScheme,
-                                        ),
-                                        fontWeight: FontWeight.w600,
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    _avatar(c, colorScheme),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            c.nombreCompleto,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 15,
+                                            ),
+                                          ),
+                                          if (c.telefono.isNotEmpty)
+                                            Text(
+                                              c.telefono,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color:
+                                                    colorScheme.onSurfaceVariant,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                          if (c.direccion.isNotEmpty)
+                                            Text(
+                                              c.direccion,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color:
+                                                    colorScheme.onSurfaceVariant,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          if (c.saldo > 0.009)
+                                            Text(
+                                              'Deuda: \$${c.saldo.toStringAsFixed(2)}',
+                                              style: TextStyle(
+                                                color: colorEstadoPago(
+                                                  'pendiente',
+                                                  colorScheme,
+                                                ),
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                        ],
                                       ),
                                     ),
-                                ],
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    tooltip: 'Comentarios internos',
-                                    icon: Icon(
-                                      Icons.chat_bubble_outline_rounded,
-                                      color: colorScheme.tertiary,
-                                    ),
-                                    onPressed: () => showComentariosInternos(
-                                      context,
-                                      entidadTipo: 'cliente',
-                                      entidadId: '${c.id}',
-                                      titulo:
-                                          '${c.nombre} ${c.apellido}'.trim(),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Compartir en chat',
-                                    icon: Icon(
-                                      Icons.share_rounded,
-                                      color: colorScheme.secondary,
-                                    ),
-                                    onPressed: () => showCompartirEnChatDialog(
-                                      context,
-                                      compartido: ChatCompartido(
-                                        tipo: 'cliente',
-                                        idRef: '${c.id}',
-                                        titulo:
-                                            '${c.nombre} ${c.apellido}'.trim(),
-                                        subtitulo: [
-                                          if (c.cuit.isNotEmpty) 'CUIT ${c.cuit}',
-                                          if (c.telefono.isNotEmpty) c.telefono,
-                                          if (c.saldo > 0)
-                                            'Saldo \$${c.saldo.toStringAsFixed(2)}',
-                                        ].join(' · '),
-                                        datos: {
-                                          'telefono': c.telefono,
-                                          'email': c.email,
-                                          'cuit': c.cuit,
-                                          'saldo': c.saldo,
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Cuenta corriente',
-                                    icon: Icon(
-                                      Icons.account_balance_wallet_rounded,
-                                      color: colorScheme.primary,
-                                    ),
-                                    onPressed: () => abrirCuentaCorriente(c),
-                                  ),
-                                  IconButton(
-                                    icon: Icon(
-                                      Icons.history_rounded,
-                                      color: colorScheme.primary,
-                                    ),
-                                    onPressed: () => abrirHistorial(c),
-                                  ),
-                                  IconButton(
-                                    icon: Icon(
-                                      Icons.edit_rounded,
-                                      color: colorScheme.primary,
-                                    ),
-                                    onPressed: () async {
-                                      await Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              ClienteFormPage(cliente: c),
+                                    PopupMenuButton<String>(
+                                      tooltip: 'Acciones',
+                                      onSelected: (value) async {
+                                        switch (value) {
+                                          case 'cc':
+                                            await abrirCuentaCorriente(c);
+                                          case 'hist':
+                                            await abrirHistorial(c);
+                                          case 'edit':
+                                            await Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    ClienteFormPage(cliente: c),
+                                              ),
+                                            );
+                                            cargar();
+                                          case 'coment':
+                                            await showComentariosInternos(
+                                              context,
+                                              entidadTipo: 'cliente',
+                                              entidadId: '${c.id}',
+                                              titulo: c.nombreCompleto,
+                                            );
+                                          case 'share':
+                                            await showCompartirEnChatDialog(
+                                              context,
+                                              compartido: ChatCompartido(
+                                                tipo: 'cliente',
+                                                idRef: '${c.id}',
+                                                titulo: c.nombreCompleto,
+                                                subtitulo: [
+                                                  if (c.cuit.isNotEmpty)
+                                                    'CUIT ${c.cuit}',
+                                                  if (c.telefono.isNotEmpty)
+                                                    c.telefono,
+                                                  if (c.saldo > 0)
+                                                    'Saldo \$${c.saldo.toStringAsFixed(2)}',
+                                                ].join(' · '),
+                                                datos: {
+                                                  'telefono': c.telefono,
+                                                  'email': c.email,
+                                                  'cuit': c.cuit,
+                                                  'saldo': c.saldo,
+                                                },
+                                              ),
+                                            );
+                                          case 'del':
+                                            await confirmarEliminar(c);
+                                        }
+                                      },
+                                      itemBuilder: (_) => const [
+                                        PopupMenuItem(
+                                          value: 'cc',
+                                          child: Text('Cuenta corriente'),
                                         ),
-                                      );
-                                      cargar();
-                                    },
-                                  ),
-                                  IconButton(
-                                    icon: Icon(
-                                      Icons.delete_rounded,
-                                      color: AppVisuals.danger(colorScheme),
+                                        PopupMenuItem(
+                                          value: 'hist',
+                                          child: Text('Historial'),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'edit',
+                                          child: Text('Editar'),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'coment',
+                                          child: Text('Comentarios'),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'share',
+                                          child: Text('Compartir en chat'),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'del',
+                                          child: Text('Eliminar'),
+                                        ),
+                                      ],
                                     ),
-                                    onPressed: () => confirmarEliminar(c),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           );

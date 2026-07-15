@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,9 +6,11 @@ import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/firebase/firebase_safe_mode.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/utils/media_path.dart';
 import '../services/app_log.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
+import '../services/permisos_service.dart';
 import '../services/producto_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_provider.dart';
@@ -18,7 +18,6 @@ import 'listas_precio_page.dart';
 import 'plantilla_impresion_page.dart';
 import 'documentos_config_page.dart';
 import '../theme/module_app_bar.dart';
-import '../services/app_icon_build_service.dart';
 
 class ConfiguracionPage extends StatefulWidget {
   const ConfiguracionPage({super.key});
@@ -180,7 +179,29 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     });
   }
 
+  bool get _puedeEditarNegocio {
+    final u = AuthService.instance.currentUser;
+    if (u == null) return false;
+    if (AuthService.instance.esAdministrador()) return true;
+    return PermisosService.instance.puedeEditar(u.rol, 'configuracion');
+  }
+
+  void _avisarSinPermisoNegocio() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Solo el administrador (o quien tenga permiso de Configuración) '
+          'puede cambiar logo y datos del negocio.',
+        ),
+      ),
+    );
+  }
+
   Future<void> _elegirLogo() async {
+    if (!_puedeEditarNegocio) {
+      _avisarSinPermisoNegocio();
+      return;
+    }
     final picker = ImagePicker();
     final img =
         await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
@@ -191,6 +212,10 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   }
 
   Future<void> _elegirIcono() async {
+    if (!_puedeEditarNegocio) {
+      _avisarSinPermisoNegocio();
+      return;
+    }
     final picker = ImagePicker();
     final img =
         await picker.pickImage(source: ImageSource.gallery, imageQuality: 90);
@@ -201,6 +226,10 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   }
 
   Future<void> _guardarBranding() async {
+    if (!_puedeEditarNegocio) {
+      _avisarSinPermisoNegocio();
+      return;
+    }
     setState(() => _guardandoBranding = true);
     try {
       await BrandingService.instance.guardar(
@@ -224,11 +253,13 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
         condicionIva: _condicionIvaCtrl.text.trim(),
         direccionFiscal: _direccionFiscalCtrl.text.trim(),
       );
-      String mensaje = 'Datos del negocio guardados';
+      String mensaje =
+          'Datos del negocio guardados (login y menú actualizados)';
       if (BackendConfigService.instance.firebaseEnabled) {
         try {
           await FirestoreSyncService.instance.subirBranding();
-          mensaje = 'Datos del negocio sincronizados con la nube';
+          mensaje =
+              'Negocio sincronizado en la nube. Logo y descripción llegan a todos los equipos.';
         } catch (e) {
           mensaje =
               'Guardado local. No se pudo sincronizar: ${AuthService.mensajeUsuario(e)}';
@@ -238,6 +269,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(mensaje)),
       );
+      setState(() {});
     } finally {
       if (mounted) setState(() => _guardandoBranding = false);
     }
@@ -376,14 +408,33 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       children: [
                         Icon(Icons.storefront, color: colorScheme.primary),
                         const SizedBox(width: 10),
-                        Text(
-                          'MI NEGOCIO',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
+                        Expanded(
+                          child: Text(
+                            'MI NEGOCIO',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
+                        if (!_puedeEditarNegocio)
+                          Chip(
+                            avatar: const Icon(Icons.lock_outline, size: 16),
+                            label: const Text('Solo lectura'),
+                            visualDensity: VisualDensity.compact,
+                          ),
                       ],
                     ),
+                    if (!_puedeEditarNegocio) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'El logo y la descripción los define el administrador '
+                        'y se sincronizan online. Pedí permiso de Configuración '
+                        'si necesitás editarlos.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -391,31 +442,32 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                         Column(
                           children: [
                             GestureDetector(
-                              onTap: _elegirLogo,
+                              onTap: _puedeEditarNegocio ? _elegirLogo : _avisarSinPermisoNegocio,
                               child: Stack(
                                 children: [
                                   CircleAvatar(
                                     radius: 44,
                                     backgroundColor: colorScheme.primaryContainer,
-                                    backgroundImage: _logoPath.isNotEmpty
-                                        ? FileImage(File(_logoPath))
-                                        : null,
-                                    child: _logoPath.isEmpty
+                                    backgroundImage:
+                                        imageProviderDesdePath(_logoPath),
+                                    child: imageProviderDesdePath(_logoPath) ==
+                                            null
                                         ? Icon(Icons.store,
                                             size: 36,
                                             color: colorScheme.primary)
                                         : null,
                                   ),
-                                  Positioned(
-                                    right: 0,
-                                    bottom: 0,
-                                    child: CircleAvatar(
-                                      radius: 12,
-                                      backgroundColor: colorScheme.primary,
-                                      child: const Icon(Icons.edit,
-                                          size: 14, color: Colors.white),
+                                  if (_puedeEditarNegocio)
+                                    Positioned(
+                                      right: 0,
+                                      bottom: 0,
+                                      child: CircleAvatar(
+                                        radius: 12,
+                                        backgroundColor: colorScheme.primary,
+                                        child: const Icon(Icons.edit,
+                                            size: 14, color: Colors.white),
+                                      ),
                                     ),
-                                  ),
                                 ],
                               ),
                             ),
@@ -430,32 +482,33 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                         Column(
                           children: [
                             GestureDetector(
-                              onTap: _elegirIcono,
+                              onTap: _puedeEditarNegocio ? _elegirIcono : _avisarSinPermisoNegocio,
                               child: Stack(
                                 children: [
                                   CircleAvatar(
                                     radius: 44,
                                     backgroundColor:
                                         colorScheme.secondaryContainer,
-                                    backgroundImage: _iconoPath.isNotEmpty
-                                        ? FileImage(File(_iconoPath))
-                                        : null,
-                                    child: _iconoPath.isEmpty
+                                    backgroundImage:
+                                        imageProviderDesdePath(_iconoPath),
+                                    child: imageProviderDesdePath(_iconoPath) ==
+                                            null
                                         ? Icon(Icons.apps_rounded,
                                             size: 36,
                                             color: colorScheme.secondary)
                                         : null,
                                   ),
-                                  Positioned(
-                                    right: 0,
-                                    bottom: 0,
-                                    child: CircleAvatar(
-                                      radius: 12,
-                                      backgroundColor: colorScheme.secondary,
-                                      child: const Icon(Icons.edit,
-                                          size: 14, color: Colors.white),
+                                  if (_puedeEditarNegocio)
+                                    Positioned(
+                                      right: 0,
+                                      bottom: 0,
+                                      child: CircleAvatar(
+                                        radius: 12,
+                                        backgroundColor: colorScheme.secondary,
+                                        child: const Icon(Icons.edit,
+                                            size: 14, color: Colors.white),
+                                      ),
                                     ),
-                                  ),
                                 ],
                               ),
                             ),
@@ -471,51 +524,21 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'El icono se ve en login y menú al instante. '
-                      'El icono del escritorio/Android se actualiza al generar una nueva versión.',
+                      'El icono y el logo se ven al instante en el login y el menú. '
+                      'Al guardar con la nube activa, se sincronizan a todos los equipos.',
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: colorScheme.onSurfaceVariant),
                       textAlign: TextAlign.center,
                     ),
-                    if (_iconoPath.isNotEmpty)
+                    if (_puedeEditarNegocio && _iconoPath.isNotEmpty)
                       TextButton(
                         onPressed: () => setState(() => _iconoPath = ''),
                         child: const Text('Quitar icono personalizado'),
                       ),
-                    if (_iconoPath.isNotEmpty)
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            try {
-                              final path = await AppIconBuildService.instance
-                                  .prepararDesdeArchivo(_iconoPath);
-                              if (!mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    'Icono preparado para el próximo build.\n$path\n'
-                                    'En el proyecto ejecutá: dart run flutter_launcher_icons',
-                                  ),
-                                  duration: const Duration(seconds: 5),
-                                ),
-                              );
-                            } catch (e) {
-                              if (!mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Error: $e')),
-                              );
-                            }
-                          },
-                          icon: const Icon(Icons.build_rounded),
-                          label: const Text(
-                            'Preparar icono para instalador (próximo build)',
-                          ),
-                        ),
-                      ),
                     const SizedBox(height: 16),
                     TextField(
                       controller: _nombreCtrl,
+                      readOnly: !_puedeEditarNegocio,
                       decoration: const InputDecoration(
                         labelText: 'Nombre del negocio',
                         border: OutlineInputBorder(),
@@ -525,6 +548,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _sloganCtrl,
+                      readOnly: !_puedeEditarNegocio,
                       decoration: const InputDecoration(
                         labelText: 'Slogan / descripción',
                         border: OutlineInputBorder(),
@@ -534,6 +558,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _telefonoCtrl,
+                      readOnly: !_puedeEditarNegocio,
                       keyboardType: TextInputType.phone,
                       decoration: const InputDecoration(
                         labelText: 'Teléfono',
@@ -544,6 +569,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _direccionCtrl,
+                      readOnly: !_puedeEditarNegocio,
                       decoration: const InputDecoration(
                         labelText: 'Dirección',
                         border: OutlineInputBorder(),
@@ -553,6 +579,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _emailCtrl,
+                      readOnly: !_puedeEditarNegocio,
                       keyboardType: TextInputType.emailAddress,
                       decoration: const InputDecoration(
                         labelText: 'Correo electrónico',
@@ -563,6 +590,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _whatsappCtrl,
+                      readOnly: !_puedeEditarNegocio,
                       keyboardType: TextInputType.phone,
                       decoration: const InputDecoration(
                         labelText: 'WhatsApp',
@@ -573,6 +601,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _sitioWebCtrl,
+                      readOnly: !_puedeEditarNegocio,
                       keyboardType: TextInputType.url,
                       decoration: const InputDecoration(
                         labelText: 'Sitio web',
@@ -583,6 +612,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _instagramCtrl,
+                      readOnly: !_puedeEditarNegocio,
                       decoration: const InputDecoration(
                         labelText: 'Instagram (opcional)',
                         border: OutlineInputBorder(),
@@ -592,6 +622,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _facebookCtrl,
+                      readOnly: !_puedeEditarNegocio,
                       decoration: const InputDecoration(
                         labelText: 'Facebook (opcional)',
                         border: OutlineInputBorder(),
@@ -642,6 +673,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _cuitCtrl,
+                      readOnly: !_puedeEditarNegocio,
                       decoration: const InputDecoration(
                         labelText: 'CUIT del negocio',
                         border: OutlineInputBorder(),
@@ -651,6 +683,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _ingresosBrutosCtrl,
+                      readOnly: !_puedeEditarNegocio,
                       decoration: const InputDecoration(
                         labelText: 'Ingresos Brutos',
                         border: OutlineInputBorder(),
@@ -660,6 +693,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _condicionIvaCtrl,
+                      readOnly: !_puedeEditarNegocio,
                       decoration: const InputDecoration(
                         labelText: 'Condición frente al IVA',
                         border: OutlineInputBorder(),
@@ -669,6 +703,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _direccionFiscalCtrl,
+                      readOnly: !_puedeEditarNegocio,
                       decoration: const InputDecoration(
                         labelText: 'Dirección fiscal',
                         border: OutlineInputBorder(),
@@ -723,7 +758,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
-                        onPressed: _guardandoBranding ? null : _guardarBranding,
+                        onPressed: (!_puedeEditarNegocio || _guardandoBranding)
+                            ? null
+                            : _guardarBranding,
                         icon: _guardandoBranding
                             ? const SizedBox(
                                 width: 18,
@@ -732,7 +769,11 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                                     CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Icon(Icons.save),
-                        label: const Text('GUARDAR DATOS DEL NEGOCIO'),
+                        label: Text(
+                          _puedeEditarNegocio
+                              ? 'GUARDAR DATOS DEL NEGOCIO'
+                              : 'SIN PERMISO PARA EDITAR',
+                        ),
                       ),
                     ),
                   ],

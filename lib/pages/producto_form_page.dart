@@ -206,6 +206,20 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
       }
 
       if (!mounted) return;
+      final errFoto = MediaSyncService.instance.lastError;
+      if (errFoto != null &&
+          errFoto.isNotEmpty &&
+          foto.trim().isNotEmpty &&
+          !esUrlRemota(foto)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Producto guardado. La foto quedó en este equipo: $errFoto',
+            ),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
       Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;

@@ -138,6 +138,18 @@ class UsuarioService {
         password: AuthService.hashPassword(nuevaPassword.trim()),
         debeCambiarPassword: true,
       );
+      final email = actualizado.email.trim();
+      if (FirebaseAuthUsuarioService.instance.disponible &&
+          UsuarioAuthEmail.esEmailReal(email)) {
+        try {
+          await FirebaseAuthUsuarioService.instance.enviarRestablecimiento(
+            actualizado.usuario,
+            email: email,
+          );
+        } catch (e) {
+          debugPrint('Email cambio password admin: $e');
+        }
+      }
     }
 
     final resultado = await _repoLocal.actualizar(actualizado);
@@ -209,6 +221,20 @@ class UsuarioService {
       try {
         await FirestoreUsuarioRepository().actualizar(actualizado);
       } catch (_) {}
+    }
+
+    // Email de restablecimiento para alinear también Firebase Auth.
+    final email = usuario.email.trim();
+    if (FirebaseAuthUsuarioService.instance.disponible &&
+        UsuarioAuthEmail.esEmailReal(email)) {
+      try {
+        await FirebaseAuthUsuarioService.instance.enviarRestablecimiento(
+          usuario.usuario,
+          email: email,
+        );
+      } catch (e) {
+        debugPrint('Email restablecer password: $e');
+      }
     }
 
     await AuthService.instance.registrarCambio(
