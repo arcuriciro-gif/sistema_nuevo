@@ -1,31 +1,46 @@
+import '../core/events/data_refresh_hub.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/lista_precio.dart';
 
 class ListaPrecioService {
   final DatabaseHelper dbHelper = DatabaseHelper.instance;
 
+  Future<void> _syncNube() async {
+    try {
+      await FirestoreSyncService.instance.subirListasPrecios();
+      DataRefreshHub.instance.notifyTodo();
+    } catch (_) {}
+  }
+
   Future<int> insertar(ListaPrecio lista) async {
     final db = await dbHelper.database;
-    return db.insert('listas_precios', lista.toMap()..remove('id'));
+    final id = await db.insert('listas_precios', lista.toMap()..remove('id'));
+    await _syncNube();
+    return id;
   }
 
   Future<int> actualizar(ListaPrecio lista) async {
     final db = await dbHelper.database;
-    return db.update(
+    final n = await db.update(
       'listas_precios',
       lista.toMap(),
       where: 'id = ?',
       whereArgs: [lista.id],
     );
+    await _syncNube();
+    return n;
   }
 
   Future<int> eliminar(int id) async {
     final db = await dbHelper.database;
-    return db.delete(
+    final n = await db.delete(
       'listas_precios',
       where: 'id = ?',
       whereArgs: [id],
     );
+    await _syncNube();
+    return n;
   }
 
   Future<List<ListaPrecio>> obtenerTodas() async {

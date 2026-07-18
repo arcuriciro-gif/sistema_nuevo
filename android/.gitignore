@@ -9,6 +9,9 @@ GeneratedPluginRegistrant.java
 
 # Remember to never publicly share your keystore.
 # See https://flutter.dev/to/reference-keystore
+# key.properties / jks del proyecto se versionan a propósito (app privada + CI).
+# No subas keystores de Play Store personales aquí.
+*.jks
+!keystore/tata-manager.jks
 key.properties
-**/*.keystore
-**/*.jks
+!key.properties

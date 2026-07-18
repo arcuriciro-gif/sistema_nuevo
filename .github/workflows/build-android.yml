@@ -51,8 +51,8 @@ jobs:
           4) Con internet: Configuración → Activar sincronización online
              (mismo usuario que en la PC)
 
-          Nota: este APK está firmado en modo debug/release de prueba
-          (sirve para instalar y probar; no es Play Store).
+          Firma estable del proyecto (SHA-1 en docs/FIREBASE_GOOGLE_LOGIN.md).
+          Para Google Login: cargá ese SHA-1 en Firebase Console.
           EOF
           ls -la Instalador_Android
 

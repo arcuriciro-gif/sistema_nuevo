@@ -52,6 +52,8 @@ class FirestoreSyncService {
   StreamSubscription<List<Usuario>>? _usuariosSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _brandingSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _permisosSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _listasSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _categoriasSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _ventasSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _remitosSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _clientesSub;
@@ -138,6 +140,14 @@ class FirestoreSyncService {
       _permisosSub = _configDoc('permisos').snapshots().listen(
         _aplicarPermisosRemotos,
         onError: (Object error) => debugPrint('Sync permisos: $error'),
+      );
+      _listasSub = _configDoc('listas_precios').snapshots().listen(
+        _aplicarListasPreciosRemotas,
+        onError: (Object error) => debugPrint('Sync listas: $error'),
+      );
+      _categoriasSub = _configDoc('categorias').snapshots().listen(
+        _aplicarCategoriasRemotas,
+        onError: (Object error) => debugPrint('Sync categorias: $error'),
       );
       _ventasSub = _ventasCol.snapshots().listen(
         _aplicarVentasRemotas,
@@ -306,6 +316,8 @@ class FirestoreSyncService {
     await _usuariosSub?.cancel();
     await _brandingSub?.cancel();
     await _permisosSub?.cancel();
+    await _listasSub?.cancel();
+    await _categoriasSub?.cancel();
     await _ventasSub?.cancel();
     await _remitosSub?.cancel();
     await _clientesSub?.cancel();
@@ -316,6 +328,8 @@ class FirestoreSyncService {
     _usuariosSub = null;
     _brandingSub = null;
     _permisosSub = null;
+    _listasSub = null;
+    _categoriasSub = null;
     _ventasSub = null;
     _remitosSub = null;
     _clientesSub = null;
@@ -334,6 +348,14 @@ class FirestoreSyncService {
       final permisosSnap = await _configDoc('permisos').get();
       if (!permisosSnap.exists) {
         await subirPermisos();
+      }
+      final listasSnap = await _configDoc('listas_precios').get();
+      if (!listasSnap.exists) {
+        await subirListasPrecios();
+      }
+      final catSnap = await _configDoc('categorias').get();
+      if (!catSnap.exists) {
+        await subirCategorias();
       }
     } catch (e) {
       debugPrint('Publicar config local: $e');
@@ -362,6 +384,108 @@ class FirestoreSyncService {
     } catch (e) {
       debugPrint('Firestore subir permisos: $e');
       rethrow;
+    }
+  }
+
+  Future<void> subirListasPrecios() async {
+    if (!_puedeEscribirRemoto) return;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      final rows = await db.query('listas_precios', orderBy: 'orden ASC');
+      await _configDoc('listas_precios').set({
+        'items': rows.map((r) {
+          final m = Map<String, dynamic>.from(r)..remove('id');
+          if (m['activa'] is bool) {
+            m['activa'] = (m['activa'] as bool) ? 1 : 0;
+          }
+          return m;
+        }).toList(),
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+      });
+    } catch (e) {
+      debugPrint('Firestore subir listas: $e');
+    }
+  }
+
+  Future<void> subirCategorias() async {
+    if (!_puedeEscribirRemoto) return;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      final rows = await db.query('categorias', orderBy: 'nombre ASC');
+      await _configDoc('categorias').set({
+        'items': rows.map((r) {
+          final m = Map<String, dynamic>.from(r)..remove('id');
+          if (m['activa'] is bool) {
+            m['activa'] = (m['activa'] as bool) ? 1 : 0;
+          }
+          return m;
+        }).toList(),
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+      });
+    } catch (e) {
+      debugPrint('Firestore subir categorias: $e');
+    }
+  }
+
+  bool _sincronizandoListas = false;
+  bool _sincronizandoCategorias = false;
+
+  Future<void> _aplicarListasPreciosRemotas(
+    DocumentSnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (_sincronizandoListas || !snap.exists) return;
+    _sincronizandoListas = true;
+    try {
+      final raw = snap.data()?['items'];
+      if (raw is! List) return;
+      final db = await DatabaseHelper.instance.database;
+      await db.delete('listas_precios');
+      for (final item in raw.whereType<Map>()) {
+        final map = Map<String, dynamic>.from(item)..remove('id');
+        if (map['activa'] is bool) {
+          map['activa'] = (map['activa'] as bool) ? 1 : 0;
+        }
+        map['porcentaje'] = _asDouble(map['porcentaje']);
+        map['orden'] = (map['orden'] as num?)?.toInt() ?? 0;
+        map['prioridad'] = (map['prioridad'] as num?)?.toInt() ?? 0;
+        map['nombre'] = (map['nombre'] ?? '').toString();
+        map['color'] = (map['color'] ?? '').toString();
+        await db.insert('listas_precios', map);
+      }
+      DataRefreshHub.instance.notifyTodo();
+    } catch (e) {
+      debugPrint('Aplicar listas remotas: $e');
+    } finally {
+      _sincronizandoListas = false;
+    }
+  }
+
+  Future<void> _aplicarCategoriasRemotas(
+    DocumentSnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (_sincronizandoCategorias || !snap.exists) return;
+    _sincronizandoCategorias = true;
+    try {
+      final raw = snap.data()?['items'];
+      if (raw is! List) return;
+      final db = await DatabaseHelper.instance.database;
+      await db.delete('categorias');
+      for (final item in raw.whereType<Map>()) {
+        final map = Map<String, dynamic>.from(item)..remove('id');
+        if (map['activa'] is bool) {
+          map['activa'] = (map['activa'] as bool) ? 1 : 0;
+        }
+        map['activa'] = _asInt01(map['activa']);
+        map['nombre'] = (map['nombre'] ?? '').toString();
+        map['descripcion'] = (map['descripcion'] ?? '').toString();
+        if ((map['nombre'] as String).trim().isEmpty) continue;
+        await db.insert('categorias', map);
+      }
+      DataRefreshHub.instance.notifyTodo();
+    } catch (e) {
+      debugPrint('Aplicar categorias remotas: $e');
+    } finally {
+      _sincronizandoCategorias = false;
     }
   }
 

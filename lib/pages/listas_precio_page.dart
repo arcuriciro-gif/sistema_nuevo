@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/lista_precio.dart';
 import '../services/lista_precio_service.dart';
 import '../theme/app_visuals.dart';
@@ -21,7 +22,18 @@ class _ListasPrecioPageState extends State<ListasPrecioPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onRemoto);
     _cargar();
+  }
+
+  void _onRemoto() {
+    if (mounted) _cargar();
+  }
+
+  @override
+  void dispose() {
+    DataRefreshHub.instance.removeListener(_onRemoto);
+    super.dispose();
   }
 
   Future<void> _cargar() async {

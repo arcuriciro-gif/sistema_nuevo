@@ -99,7 +99,10 @@ class FirebaseAuthUsuarioService {
     } catch (_) {}
     if (!kIsWeb && Platform.isAndroid) {
       try {
-        await GoogleSignIn().signOut();
+        final webClientId = DefaultFirebaseOptions.googleWebClientId.trim();
+        await GoogleSignIn(
+          serverClientId: webClientId.isEmpty ? null : webClientId,
+        ).signOut();
       } catch (_) {}
     }
   }
@@ -159,8 +162,9 @@ class FirebaseAuthUsuarioService {
     if ((auth.idToken ?? '').isEmpty) {
       throw StateError(
         'Google no devolvió idToken.\n'
-        'Pedile al admin que revise Authentication → Google en Firebase '
-        'y el SHA-1 de la app.',
+        'En Firebase: Authentication → Google (activo) y '
+        'Project settings → app Android → agregar SHA-1 '
+        '(ver docs/FIREBASE_GOOGLE_LOGIN.md).',
       );
     }
 

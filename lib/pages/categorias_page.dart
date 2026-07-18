@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/categoria.dart';
 import '../services/categoria_service.dart';
 import '../theme/app_visuals.dart';
@@ -23,11 +24,17 @@ class _CategoriasPageState extends State<CategoriasPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onRemoto);
     _cargar();
+  }
+
+  void _onRemoto() {
+    if (mounted) _cargar();
   }
 
   @override
   void dispose() {
+    DataRefreshHub.instance.removeListener(_onRemoto);
     _buscarCtrl.dispose();
     super.dispose();
   }

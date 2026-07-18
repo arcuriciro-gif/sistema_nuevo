@@ -251,9 +251,18 @@ class _LoginPageState extends State<LoginPage> {
       await _irDespuesDelLogin();
     } catch (e) {
       if (!mounted) return;
+      final raw = e.toString();
+      final esSha = raw.contains('ApiException: 10') ||
+          raw.contains('sign_in_failed') ||
+          raw.contains('DEVELOPER_ERROR');
       setState(() {
         _loading = false;
-        _error = e.toString().replaceFirst('Bad state: ', '');
+        _error = esSha
+            ? 'Google no está configurado todavía (falta SHA-1 en Firebase).\n'
+                'Mientras tanto entrá con usuario y contraseña.\n'
+                'Pedile al admin que cargue el SHA-1 en Firebase '
+                '(docs/FIREBASE_GOOGLE_LOGIN.md).'
+            : raw.replaceFirst('Bad state: ', '');
       });
     }
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/auth/rol_util.dart';
 import '../core/auth/usuario_auth_email.dart';
+import '../core/events/data_refresh_hub.dart';
 import '../models/usuario.dart';
 import '../services/auth_service.dart';
 import '../services/permisos_service.dart';
@@ -35,11 +36,17 @@ class _UsuariosPageState extends State<UsuariosPage> {
       _cargando = false;
       return;
     }
+    DataRefreshHub.instance.addListener(_onDatosRemotos);
     _cargar();
+  }
+
+  void _onDatosRemotos() {
+    if (mounted && !_sinPermiso) _cargar();
   }
 
   @override
   void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosRemotos);
     _buscarController.dispose();
     super.dispose();
   }
