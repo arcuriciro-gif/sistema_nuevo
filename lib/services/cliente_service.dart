@@ -32,15 +32,17 @@ class ClienteService {
 
   Future<int> insertar(Cliente cliente) async {
     final db = await dbHelper.database;
+    final ahora = DateTime.now().toUtc().toIso8601String();
     final listo = _conSyncId(cliente);
-    final id = await db.insert('clientes', listo.toMap());
+    final map = listo.toMap()..['actualizadoEn'] = ahora;
+    final id = await db.insert('clientes', map);
     await AuthService.instance.registrarCambio(
       'ALTA_CLIENTE',
       'clientes',
       'Nuevo cliente: ${listo.nombreCompleto}',
       valorNuevo: _snapshot(listo.copyWith(id: id)),
     );
-    await FirestoreSyncService.instance.subirCliente(id);
+    await FirestoreSyncService.instance.subirCliente(id, forzar: true);
     DataRefreshHub.instance.notifyTodo();
     return id;
   }
@@ -62,9 +64,10 @@ class ClienteService {
             cliente.copyWith(syncId: clienteAnterior?.syncId ?? ''),
           );
 
+    final ahora = DateTime.now().toUtc().toIso8601String();
     final result = await db.update(
       'clientes',
-      listo.toMap(),
+      listo.toMap()..['actualizadoEn'] = ahora,
       where: 'id=?',
       whereArgs: [listo.id],
     );
@@ -79,7 +82,7 @@ class ClienteService {
     );
 
     if (listo.id != null) {
-      await FirestoreSyncService.instance.subirCliente(listo.id!);
+      await FirestoreSyncService.instance.subirCliente(listo.id!, forzar: true);
     }
     DataRefreshHub.instance.notifyTodo();
     return result;

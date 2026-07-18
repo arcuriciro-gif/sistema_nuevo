@@ -92,7 +92,7 @@ class DatabaseHelper {
 
     final db = await openDatabase(
       path,
-      version: 23,
+      version: 24,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -174,7 +174,8 @@ CREATE TABLE clientes(
   whatsapp TEXT DEFAULT '',
   saldo REAL DEFAULT 0,
   limiteCuenta REAL DEFAULT 0,
-  foto TEXT DEFAULT ''
+  foto TEXT DEFAULT '',
+  actualizadoEn TEXT DEFAULT ''
 )
 ''');
 
@@ -970,6 +971,14 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 23) {
       await _agregarColumnas(db, 'clientes', {
         'foto': "TEXT DEFAULT ''",
+      });
+    }
+    if (oldVersion < 24) {
+      await _agregarColumnas(db, 'clientes', {
+        'actualizadoEn': "TEXT DEFAULT ''",
+      });
+      await _agregarColumnas(db, 'proveedores', {
+        'actualizadoEn': "TEXT DEFAULT ''",
       });
     }
   }

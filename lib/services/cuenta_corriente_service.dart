@@ -199,10 +199,14 @@ class CuentaCorrienteService {
     final saldo = (rows.first['saldo'] as num?)?.toDouble() ?? 0;
     await db.update(
       'clientes',
-      {'saldo': saldo},
+      {
+        'saldo': saldo,
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [clienteId],
     );
+    await FirestoreSyncService.instance.subirCliente(clienteId, forzar: true);
   }
 
   Future<List<Map<String, dynamic>>> remitosPendientesDeCliente(

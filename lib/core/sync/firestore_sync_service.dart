@@ -78,6 +78,8 @@ class FirestoreSyncService {
   QuerySnapshot<Map<String, dynamic>>? _snapComprasPendiente;
   QuerySnapshot<Map<String, dynamic>>? _snapDocumentosPendiente;
   List<Producto>? _productosPendientes;
+  /// syncIds que ya vimos en la nube (para borrar locales solo si desaparecen de ahí).
+  final Set<String> _clientesConfirmadosEnNube = {};
 
   /// Entidades creadas/editadas sin sesión de nube (colas persistentes).
   final Set<int> _colaClientes = {};
@@ -183,10 +185,9 @@ class FirestoreSyncService {
       unawaited(_reintentarFotosLocalesPendientes());
       // Empuja branding/permisos locales la primera vez si la nube no tiene.
       unawaited(_publicarConfigLocalSiHaceFalta());
-      // Pull inicial (por si el snapshot tarda o se perdió un evento).
-      unawaited(_pullInicialCatchUp());
-      // Clientes/proveedores creados en el celular sin sesión → ahora sí suben.
-      unawaited(_vaciarColasYSubirPendientes());
+      // Primero bajar nube, después subir pendientes (evita pisar datos buenos).
+      await _pullInicialCatchUp();
+      await _vaciarColasYSubirPendientes();
 
       syncStatusLabel = 'En la nube';
       DataRefreshHub.instance.notifyTodo();
@@ -288,18 +289,11 @@ class FirestoreSyncService {
         await subirCompra(id);
       }
 
-      // Reenviar locales (cubre altas hechas sin sesión de nube).
+      // Solo subir locales que AÚN NO están en la nube (no reenviar todos:
+      // eso pisaba teléfonos/fotos buenos del otro dispositivo).
       final db = await DatabaseHelper.instance.database;
-      final clientes = await db.query('clientes', columns: ['id']);
-      for (final row in clientes) {
-        final id = (row['id'] as num?)?.toInt();
-        if (id != null) await subirCliente(id, forzar: true);
-      }
-      final proveedores = await db.query('proveedores', columns: ['id']);
-      for (final row in proveedores) {
-        final id = (row['id'] as num?)?.toInt();
-        if (id != null) await subirProveedor(id, forzar: true);
-      }
+      await _subirClientesAusentesEnNube(db);
+      await _subirProveedoresAusentesEnNube(db);
       // Productos: sweep completo para que PC y celular queden alineados.
       final productos = await db.query('productos', columns: ['id']);
       for (final row in productos) {
@@ -337,6 +331,7 @@ class FirestoreSyncService {
         final id = (row['id'] as num?)?.toInt();
         if (id != null) await subirCompra(id);
       }
+
     } catch (e) {
       debugPrint('Vaciar colas sync: $e');
       syncStatusDetail = 'Pendiente subir locales: $e';
@@ -728,29 +723,43 @@ class FirestoreSyncService {
       if (!data.containsKey(k)) continue;
       out[k] = data[k];
     }
-    out['nombre'] = (out['nombre'] ?? '').toString();
-    out['apellido'] = (out['apellido'] ?? '').toString();
-    out['telefono'] = (out['telefono'] ?? '').toString();
-    out['whatsapp'] = (out['whatsapp'] ?? '').toString();
-    out['email'] = (out['email'] ?? '').toString();
-    out['direccion'] = (out['direccion'] ?? '').toString();
-    out['localidad'] = (out['localidad'] ?? '').toString();
-    out['provincia'] = (out['provincia'] ?? '').toString();
-    out['cuit'] = (out['cuit'] ?? '').toString();
-    out['condicionIva'] = (out['condicionIva'] ?? '').toString();
-    out['observaciones'] = (out['observaciones'] ?? '').toString();
-    out['foto'] = (out['foto'] ?? '').toString();
-    out['descuento'] = _asDouble(out['descuento']);
-    out['saldo'] = _asDouble(out['saldo']);
-    out['limiteCuenta'] = _asDouble(out['limiteCuenta']);
+    // Solo normalizar claves presentes (no inventar ''/0: borraría datos locales).
+    for (final k in const [
+      'nombre',
+      'apellido',
+      'telefono',
+      'whatsapp',
+      'email',
+      'direccion',
+      'localidad',
+      'provincia',
+      'cuit',
+      'condicionIva',
+      'observaciones',
+      'fechaCreacion',
+    ]) {
+      if (out.containsKey(k)) out[k] = (out[k] ?? '').toString();
+    }
+    if (!out.containsKey('nombre')) {
+      out['nombre'] = (data['nombre'] ?? '').toString();
+    }
+    for (final k in const ['descuento', 'saldo', 'limiteCuenta']) {
+      if (out.containsKey(k)) out[k] = _asDouble(out[k]);
+    }
     if (out.containsKey('activo')) {
       out['activo'] = _asInt01(out['activo']);
     }
-    // No guardar paths locales de otra PC.
-    final foto = out['foto']?.toString() ?? '';
-    if (foto.isNotEmpty &&
-        !(foto.startsWith('http://') || foto.startsWith('https://'))) {
-      out.remove('foto');
+    if (data.containsKey('actualizadoEn')) {
+      out['actualizadoEn'] = data['actualizadoEn']?.toString() ?? '';
+    }
+    // Foto: solo URLs remotas; si falta o es path local, no tocar la local.
+    if (out.containsKey('foto')) {
+      final foto = out['foto']?.toString() ?? '';
+      if (foto.startsWith('http://') || foto.startsWith('https://')) {
+        out['foto'] = foto;
+      } else {
+        out.remove('foto');
+      }
     }
     return out;
   }
@@ -862,6 +871,75 @@ class FirestoreSyncService {
     return syncId;
   }
 
+  DateTime? _parseUtc(dynamic raw) {
+    if (raw == null) return null;
+    final t = raw.toString().trim();
+    if (t.isEmpty) return null;
+    return DateTime.tryParse(t)?.toUtc();
+  }
+
+  Future<void> _subirClientesAusentesEnNube(Database db) async {
+    try {
+      final remote = await _clientesCol.get();
+      final remoteIds = <String>{};
+      for (final d in remote.docs) {
+        remoteIds.add(d.id);
+        final sid = d.data()['syncId']?.toString();
+        if (sid != null && sid.isNotEmpty) remoteIds.add(sid);
+      }
+      final locales = await db.query(
+        'clientes',
+        columns: ['id', 'syncId', 'activo'],
+      );
+      for (final row in locales) {
+        final id = (row['id'] as num?)?.toInt();
+        if (id == null) continue;
+        if (_asInt01(row['activo'], defaultValue: 1) == 0) continue;
+        var syncId = row['syncId']?.toString() ?? '';
+        if (syncId.isEmpty) {
+          syncId = await asegurarSyncIdCliente(id);
+        }
+        if (syncId.isEmpty) continue;
+        if (!remoteIds.contains(syncId)) {
+          await subirCliente(id, forzar: true);
+        }
+      }
+    } catch (e) {
+      debugPrint('Subir clientes ausentes: $e');
+    }
+  }
+
+  Future<void> _subirProveedoresAusentesEnNube(Database db) async {
+    try {
+      final remote = await _proveedoresCol.get();
+      final remoteIds = <String>{};
+      for (final d in remote.docs) {
+        remoteIds.add(d.id);
+        final sid = d.data()['syncId']?.toString();
+        if (sid != null && sid.isNotEmpty) remoteIds.add(sid);
+      }
+      final locales = await db.query(
+        'proveedores',
+        columns: ['id', 'syncId', 'activo'],
+      );
+      for (final row in locales) {
+        final id = (row['id'] as num?)?.toInt();
+        if (id == null) continue;
+        if (_asInt01(row['activo'], defaultValue: 1) == 0) continue;
+        var syncId = row['syncId']?.toString() ?? '';
+        if (syncId.isEmpty) {
+          syncId = await asegurarSyncIdProveedor(id);
+        }
+        if (syncId.isEmpty) continue;
+        if (!remoteIds.contains(syncId)) {
+          await subirProveedor(id, forzar: true);
+        }
+      }
+    } catch (e) {
+      debugPrint('Subir proveedores ausentes: $e');
+    }
+  }
+
   Future<void> subirCliente(int clienteId, {bool forzar = false}) async {
     if (!_puedeEscribirRemoto) {
       _colaClientes.add(clienteId);
@@ -883,10 +961,36 @@ class FirestoreSyncService {
       );
       if (rows.isEmpty) return;
       final cliente = Cliente.fromMap(rows.first);
-      await _clientesCol.doc(syncId).set({
+      final payload = {
         ...cliente.toFirestore(),
         'localId': clienteId,
-      }, SetOptions(merge: true));
+        'activo': _asInt01(rows.first['activo'], defaultValue: 1),
+      };
+      // Last-write-wins: no pisar un remoto más nuevo (salvo edición forzada).
+      if (!forzar) {
+        final remoto = await _clientesCol.doc(syncId).get();
+        if (remoto.exists) {
+          final remTs = _parseUtc(remoto.data()?['actualizadoEn']);
+          final locTs = _parseUtc(
+            rows.first['actualizadoEn'] ?? payload['actualizadoEn'],
+          );
+          if (remTs != null && locTs != null && remTs.isAfter(locTs)) {
+            debugPrint(
+              'subirCliente: remoto más nuevo, skip id=$clienteId sync=$syncId',
+            );
+            _colaClientes.remove(clienteId);
+            unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
+            return;
+          }
+        }
+      }
+      await _clientesCol.doc(syncId).set(payload, SetOptions(merge: true));
+      await db.update(
+        'clientes',
+        {'actualizadoEn': payload['actualizadoEn']},
+        where: 'id = ?',
+        whereArgs: [clienteId],
+      );
       _colaClientes.remove(clienteId);
       unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
     } catch (e) {
@@ -1252,14 +1356,23 @@ class FirestoreSyncService {
       var hubo = false;
       while (true) {
         final db = await DatabaseHelper.instance.database;
+        final remoteSyncIds = <String>{};
         for (final doc in actual.docs) {
           try {
             final data = doc.data();
             final syncId = data['syncId']?.toString().isNotEmpty == true
                 ? data['syncId'].toString()
                 : doc.id;
+            remoteSyncIds.add(syncId);
             final map = _sanitizarClienteRemoto(data, syncId);
             if ((map['nombre'] as String?)?.trim().isEmpty ?? true) continue;
+
+            // Separar metadata de columnas SQLite.
+            final actualizadoEn = map.remove('actualizadoEn')?.toString();
+            final sqliteMap = Map<String, dynamic>.from(map);
+            if (actualizadoEn != null && actualizadoEn.isNotEmpty) {
+              sqliteMap['actualizadoEn'] = actualizadoEn;
+            }
 
             final existentes = await db.query(
               'clientes',
@@ -1268,43 +1381,40 @@ class FirestoreSyncService {
               limit: 1,
             );
             if (existentes.isEmpty) {
-              final cuit = map['cuit']?.toString() ?? '';
-              final nombre = map['nombre']?.toString() ?? '';
+              // Solo unir por CUIT si el local todavía no tiene syncId propio.
+              final cuit = sqliteMap['cuit']?.toString() ?? '';
               final porCuit = cuit.isNotEmpty
                   ? await db.query(
                       'clientes',
-                      where: 'cuit = ?',
+                      where:
+                          'cuit = ? AND (syncId IS NULL OR syncId = "")',
                       whereArgs: [cuit],
                       limit: 1,
                     )
                   : <Map<String, dynamic>>[];
-              final porNombre = porCuit.isEmpty && nombre.isNotEmpty
-                  ? await db.query(
-                      'clientes',
-                      where: 'nombre = ? AND (syncId IS NULL OR syncId = "")',
-                      whereArgs: [nombre],
-                      limit: 1,
-                    )
-                  : <Map<String, dynamic>>[];
-              final match = porCuit.isNotEmpty
-                  ? porCuit.first
-                  : (porNombre.isNotEmpty ? porNombre.first : null);
-              if (match != null) {
+              if (porCuit.isNotEmpty) {
                 await db.update(
                   'clientes',
-                  map,
+                  sqliteMap,
                   where: 'id = ?',
-                  whereArgs: [match['id']],
+                  whereArgs: [porCuit.first['id']],
                 );
               } else {
-                await db.insert('clientes', map);
+                await db.insert('clientes', sqliteMap);
               }
             } else {
+              final local = existentes.first;
+              final locTs = _parseUtc(local['actualizadoEn']);
+              final remTs = _parseUtc(actualizadoEn);
+              // Si lo local es más nuevo, no pisar (la edición local manda).
+              if (locTs != null && remTs != null && locTs.isAfter(remTs)) {
+                continue;
+              }
               await db.update(
                 'clientes',
-                map,
+                sqliteMap,
                 where: 'id = ?',
-                whereArgs: [existentes.first['id']],
+                whereArgs: [local['id']],
               );
             }
             hubo = true;
@@ -1312,6 +1422,26 @@ class FirestoreSyncService {
             debugPrint('Cliente remoto ${doc.id}: $e');
           }
         }
+
+        // Borrar locales solo si ese syncId YA estuvo en la nube y ahora no está.
+        final removidos =
+            _clientesConfirmadosEnNube.difference(remoteSyncIds);
+        _clientesConfirmadosEnNube.addAll(remoteSyncIds);
+        for (final syncId in removidos) {
+          final rows = await db.query(
+            'clientes',
+            columns: ['id'],
+            where: 'syncId = ?',
+            whereArgs: [syncId],
+            limit: 1,
+          );
+          if (rows.isEmpty) continue;
+          final id = (rows.first['id'] as num?)?.toInt();
+          if (id == null || _colaClientes.contains(id)) continue;
+          await db.delete('clientes', where: 'id = ?', whereArgs: [id]);
+          hubo = true;
+        }
+
         if (hubo) DataRefreshHub.instance.notifyTodo();
         final pendiente = _snapClientesPendiente;
         _snapClientesPendiente = null;
