@@ -123,8 +123,59 @@ class _MainShellState extends State<MainShell> {
       } catch (e) {
         debugPrint('Comunicaciones init: $e');
       }
+      if (mounted) await _ofrecerActivarNubeSiHaceFalta();
       if (mounted) _mostrarRecordatorioCc();
     });
+  }
+
+  /// En Windows la nube es opt-in: sin esto el celular tiene clientes y la PC no.
+  Future<void> _ofrecerActivarNubeSiHaceFalta() async {
+    if (BackendConfigService.instance.firebaseEnabled) {
+      // Ya activa: forzar un reconnect por si quedó a medias.
+      try {
+        await AuthService.instance.conectarFirebaseDespuesDelLogin();
+      } catch (_) {}
+      return;
+    }
+    if (!mounted) return;
+    final activar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sincronizar con el celular'),
+        content: const Text(
+          'Esta PC está en modo solo local.\n\n'
+          'Para ver los mismos clientes, productos y precios que en el '
+          'celular/tablet, activá la sincronización online.\n\n'
+          'Podés hacerlo ahora o después en Configuración.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Después'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Activar ahora'),
+          ),
+        ],
+      ),
+    );
+    if (activar != true || !mounted) return;
+    final r = await AuthService.instance.activarNube();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          r.ok
+              ? 'Nube activada. Los datos se sincronizan entre PC y celular.'
+              : (r.mensaje.isNotEmpty
+                  ? r.mensaje
+                  : 'No se pudo activar la nube.'),
+        ),
+        duration: const Duration(seconds: 6),
+      ),
+    );
+    if (mounted) setState(() {});
   }
 
   void _onSidebarPrefs() {

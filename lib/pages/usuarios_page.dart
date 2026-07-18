@@ -4,6 +4,7 @@ import '../core/auth/rol_util.dart';
 import '../core/auth/usuario_auth_email.dart';
 import '../models/usuario.dart';
 import '../services/auth_service.dart';
+import '../services/permisos_service.dart';
 import '../services/usuario_service.dart';
 import '../theme/app_visuals.dart';
 import '../core/utils/media_path.dart';
@@ -69,13 +70,71 @@ class _UsuariosPageState extends State<UsuariosPage> {
     await _cargar();
   }
 
+  bool get _puedeEliminarUsuarios {
+    final rol = AuthService.instance.currentUser?.rol ?? '';
+    return AuthService.instance.esAdministrador() ||
+        PermisosService.instance.puedeEliminar(rol, 'usuarios');
+  }
+
   Future<void> _toggleActivo(Usuario usuario) async {
-    if (!usuario.activo) {
-      await _service.actualizar(usuario.copyWith(activo: true));
-    } else {
-      await _service.desactivar(usuario.id!);
+    try {
+      if (!usuario.activo) {
+        await _service.actualizar(usuario.copyWith(activo: true));
+      } else {
+        await _service.desactivar(usuario.id!);
+      }
+      await _cargar();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e'.replaceFirst('Bad state: ', ''))),
+      );
     }
-    await _cargar();
+  }
+
+  Future<void> _eliminarUsuario(Usuario usuario) async {
+    if (usuario.id == AuthService.instance.currentUser?.id) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No podés eliminar tu propio usuario.')),
+      );
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar usuario'),
+        content: Text(
+          '¿Desactivar a ${usuario.nombre} (@${usuario.usuario})?\n\n'
+          'No podrá iniciar sesión. Se sincroniza a la nube si está activa.\n'
+          'Podés volver a activarlo después.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await _service.desactivar(usuario.id!);
+      if (!mounted) return;
+      await _cargar();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Usuario ${usuario.usuario} desactivado.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e'.replaceFirst('Bad state: ', ''))),
+      );
+    }
   }
 
   Future<void> _restablecerPassword(Usuario usuario) async {
@@ -291,30 +350,72 @@ class _UsuariosPageState extends State<UsuariosPage> {
                                   ),
                                 ],
                               ),
-                              trailing: Wrap(
-                                spacing: 4,
-                                children: [
-                                  IconButton(
-                                    onPressed: () => _abrirFormulario(usuario: usuario),
-                                    icon: const Icon(Icons.edit_rounded),
-                                    tooltip: 'Editar',
-                                  ),
-                                  IconButton(
-                                    onPressed: () => _restablecerPassword(usuario),
-                                    icon: const Icon(Icons.lock_reset_rounded),
-                                    tooltip: 'Restablecer contraseña',
-                                  ),
-                                  IconButton(
-                                    onPressed: () => _toggleActivo(usuario),
-                                    icon: Icon(
-                                      usuario.activo
-                                          ? Icons.toggle_on_rounded
-                                          : Icons.toggle_off_rounded,
+                              trailing: PopupMenuButton<String>(
+                                tooltip: 'Acciones',
+                                onSelected: (value) async {
+                                  switch (value) {
+                                    case 'editar':
+                                      await _abrirFormulario(usuario: usuario);
+                                    case 'password':
+                                      await _restablecerPassword(usuario);
+                                    case 'toggle':
+                                      await _toggleActivo(usuario);
+                                    case 'eliminar':
+                                      await _eliminarUsuario(usuario);
+                                  }
+                                },
+                                itemBuilder: (ctx) => [
+                                  const PopupMenuItem(
+                                    value: 'editar',
+                                    child: ListTile(
+                                      leading: Icon(Icons.edit_rounded),
+                                      title: Text('Editar'),
+                                      contentPadding: EdgeInsets.zero,
+                                      dense: true,
                                     ),
-                                    tooltip: usuario.activo
-                                        ? 'Desactivar'
-                                        : 'Activar',
                                   ),
+                                  const PopupMenuItem(
+                                    value: 'password',
+                                    child: ListTile(
+                                      leading: Icon(Icons.lock_reset_rounded),
+                                      title: Text('Restablecer contraseña'),
+                                      contentPadding: EdgeInsets.zero,
+                                      dense: true,
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'toggle',
+                                    child: ListTile(
+                                      leading: Icon(
+                                        usuario.activo
+                                            ? Icons.toggle_on_rounded
+                                            : Icons.toggle_off_rounded,
+                                      ),
+                                      title: Text(
+                                        usuario.activo
+                                            ? 'Desactivar'
+                                            : 'Activar',
+                                      ),
+                                      contentPadding: EdgeInsets.zero,
+                                      dense: true,
+                                    ),
+                                  ),
+                                  if (_puedeEliminarUsuarios && usuario.activo)
+                                    const PopupMenuItem(
+                                      value: 'eliminar',
+                                      child: ListTile(
+                                        leading: Icon(
+                                          Icons.delete_forever_rounded,
+                                          color: Colors.red,
+                                        ),
+                                        title: Text(
+                                          'Eliminar',
+                                          style: TextStyle(color: Colors.red),
+                                        ),
+                                        contentPadding: EdgeInsets.zero,
+                                        dense: true,
+                                      ),
+                                    ),
                                 ],
                               ),
                               isThreeLine: true,
