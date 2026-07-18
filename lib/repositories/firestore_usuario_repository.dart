@@ -6,9 +6,13 @@ import 'usuario_repository.dart';
 
 class FirestoreUsuarioRepository implements UsuarioRepository {
   FirestoreUsuarioRepository({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+      : _firestoreOverride = firestore;
 
-  final FirebaseFirestore _firestore;
+  final FirebaseFirestore? _firestoreOverride;
+
+  /// Lazy: no tocar Firebase al construir el repo (login local en Windows).
+  FirebaseFirestore get _firestore =>
+      _firestoreOverride ?? FirebaseFirestore.instance;
 
   CollectionReference<Map<String, dynamic>> get _collection {
     final tenant = BackendConfigService.instance.tenantId;

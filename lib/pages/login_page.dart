@@ -168,22 +168,50 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     Usuario? user;
+    String? errorDetalle;
     try {
-      user = await AuthService.instance.login(
+      // Separar construcción de AuthService del login: si algo de sync
+      // tocara Firebase, no debe impedir el ingreso local.
+      final auth = AuthService.instance;
+      user = await auth.login(
         _usuarioCtrl.text.trim(),
         _passwordCtrl.text,
       );
+      errorDetalle = auth.lastLoginError;
     } catch (e, st) {
       debugPrint('Login crash: $e\n$st');
       await appendAppLog('Login UI crash: $e\n$st');
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error =
-            'Error al iniciar sesión: $e\n'
-            'Probá admin / admin123 o abrí con ABRIR_TATA_MANAGER.bat.';
-      });
-      return;
+      final msg = e.toString();
+      if (msg.contains('no-app') || msg.contains('Firebase')) {
+        // Último recurso: login 100% SQLite sin pasar por AuthService.instance
+        // si el singleton falló al construirse.
+        try {
+          user = await AuthService.loginLocalSoloSqlite(
+            _usuarioCtrl.text.trim(),
+            _passwordCtrl.text,
+          );
+        } catch (e2, st2) {
+          debugPrint('Login local fallback: $e2\n$st2');
+          await appendAppLog('Login local fallback: $e2\n$st2');
+          if (!mounted) return;
+          setState(() {
+            _loading = false;
+            _error =
+                'No se pudo iniciar sesión en esta PC.\n'
+                'Probá admin / admin123 o abrí con ABRIR_TATA_MANAGER.bat.';
+          });
+          return;
+        }
+      } else {
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _error =
+              'No se pudo iniciar sesión.\n'
+              'Probá admin / admin123 o abrí con ABRIR_TATA_MANAGER.bat.';
+        });
+        return;
+      }
     }
 
     if (!mounted) return;
@@ -191,7 +219,8 @@ class _LoginPageState extends State<LoginPage> {
 
     if (user == null) {
       setState(() {
-        _error = AuthService.instance.lastLoginError ??
+        _error = errorDetalle ??
+            AuthService.instance.lastLoginError ??
             'Usuario o contraseña incorrectos.';
       });
       return;

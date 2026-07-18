@@ -37,9 +37,15 @@ class FirestoreSyncService {
   void Function(Usuario remoto)? onUsuarioRemoto;
 
   final SqliteProductoRepository _cache = SqliteProductoRepository();
-  final FirestoreProductoRepository _remote = FirestoreProductoRepository();
-  final FirestoreUsuarioRepository _usuariosRemote = FirestoreUsuarioRepository();
   final SqliteUsuarioRepository _usuariosLocal = SqliteUsuarioRepository();
+
+  // Lazy: construir repos Firestore recién cuando hay nube (evita [core/no-app]).
+  FirestoreProductoRepository? _remoteOrNull;
+  FirestoreUsuarioRepository? _usuariosRemoteOrNull;
+  FirestoreProductoRepository get _remote =>
+      _remoteOrNull ??= FirestoreProductoRepository();
+  FirestoreUsuarioRepository get _usuariosRemote =>
+      _usuariosRemoteOrNull ??= FirestoreUsuarioRepository();
 
   StreamSubscription<List<Producto>>? _productosSub;
   StreamSubscription<List<Usuario>>? _usuariosSub;

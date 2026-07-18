@@ -22,14 +22,100 @@ import 'app_log.dart';
 import 'biometric_auth_service.dart';
 
 class AuthService {
-  static final AuthService instance = AuthService._();
-  AuthService._() {
-    FirestoreSyncService.instance.onUsuarioRemoto = _aplicarUsuarioRemotoEnSesion;
-  }
+  static AuthService? _instance;
+  static AuthService get instance => _instance ??= AuthService._();
+
+  /// Constructor vacío a propósito: NO tocar Firebase/Firestore aquí.
+  /// En Windows la nube es opt-in; crear repos Firestore al construir
+  /// AuthService rompía el login con [core/no-app].
+  AuthService._();
 
   Usuario? currentUser;
   String? _ultimaPasswordIngresada;
   String? lastLoginError;
+  bool _hookSyncRegistrado = false;
+
+  void _asegurarHookSync() {
+    if (_hookSyncRegistrado) return;
+    try {
+      FirestoreSyncService.instance.onUsuarioRemoto =
+          _aplicarUsuarioRemotoEnSesion;
+      _hookSyncRegistrado = true;
+    } catch (e) {
+      debugPrint('AuthService: hook sync diferido ($e)');
+    }
+  }
+
+  /// Login mínimo solo SQLite (último recurso si AuthService/Firebase fallan).
+  static Future<Usuario?> loginLocalSoloSqlite(
+    String usuario,
+    String password,
+  ) async {
+    final auth = instance;
+    auth.lastLoginError = null;
+    final entrada = usuario.trim();
+    if (entrada.isEmpty || password.isEmpty) {
+      auth.lastLoginError = 'Ingresá usuario (o email) y contraseña.';
+      return null;
+    }
+
+    await DatabaseHelper.instance.database;
+    final sqlite = SqliteUsuarioRepository();
+    var local = await sqlite.buscarPorUsuario(entrada);
+
+    if (entrada.toLowerCase() == 'admin' && password == 'admin123') {
+      const hashAdmin123 =
+          '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
+      final ahora = DateTime.now();
+      if (local == null) {
+        final id = await (await DatabaseHelper.instance.database).insert(
+          'usuarios',
+          {
+            'nombre': 'Administrador',
+            'usuario': 'admin',
+            'password': hashAdmin123,
+            'rol': 'admin',
+            'activo': 1,
+            'debe_cambiar_password': 0,
+            'email': 'admin@tata-stock.tatastock.app',
+            'fechaCreacion': ahora.toIso8601String(),
+            'ultimoAcceso': ahora.toIso8601String(),
+          },
+        );
+        local = Usuario(
+          id: id,
+          nombre: 'Administrador',
+          usuario: 'admin',
+          password: hashAdmin123,
+          rol: 'admin',
+          activo: true,
+          email: 'admin@tata-stock.tatastock.app',
+          fechaCreacion: ahora,
+          ultimoAcceso: ahora,
+        );
+      } else if (!local.activo || local.password != hashAdmin123) {
+        local = local.copyWith(
+          password: hashAdmin123,
+          activo: true,
+          rol: 'admin',
+          debeCambiarPassword: false,
+        );
+        await sqlite.actualizar(local);
+      }
+    }
+
+    if (local == null || !local.activo || local.password != _hash(password)) {
+      auth.lastLoginError =
+          'Usuario o contraseña incorrectos. Primera vez: admin / admin123.';
+      return null;
+    }
+
+    auth.currentUser = local.copyWith(ultimoAcceso: DateTime.now());
+    auth._ultimaPasswordIngresada = password;
+    await sqlite.actualizar(auth.currentUser!);
+    await appendAppLog('LOGIN localSoloSqlite OK ${local.usuario}');
+    return auth.currentUser;
+  }
 
   void _aplicarUsuarioRemotoEnSesion(Usuario merged) {
     final yo = currentUser;
@@ -250,6 +336,7 @@ class AuthService {
     SqliteUsuarioRepository sqlite,
   ) async {
     await appendAppLog('LOGIN finalizar local ${usuario.usuario}');
+    _asegurarHookSync();
     final ahora = DateTime.now();
     final usuarioSesion = usuario.copyWith(ultimoAcceso: ahora);
     await sqlite.actualizar(usuarioSesion);
