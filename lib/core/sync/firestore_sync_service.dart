@@ -945,6 +945,7 @@ class FirestoreSyncService {
   Future<void> subirProductoPorId(int productoId) async {
     if (!_puedeEscribirRemoto) {
       _colaProductos.add(productoId);
+      unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
       return;
     }
     try {
@@ -981,8 +982,10 @@ class FirestoreSyncService {
 
       await _remote.actualizar(producto);
       _colaProductos.remove(productoId);
+      unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
     } catch (e) {
       _colaProductos.add(productoId);
+      unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
       debugPrint('Firestore subir producto $productoId: $e');
     }
   }
