@@ -2,6 +2,33 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sistema_nuevo/core/utils/texto_producto.dart';
 
 void main() {
+  group('familia hermanos / alias color PDF', () {
+    test('NEG se normaliza a negro', () {
+      expect(TextoProducto.normalizar('PICTO CUERO 500CC NEG'), contains('negro'));
+      expect(
+        TextoProducto.coloresEnTexto('PICTO CUERO 500CC NEG'),
+        contains('negro'),
+      );
+    });
+
+    test('clave familia no cruza modelos parecidos', () {
+      final cueroNeg =
+          TextoProducto.claveFamiliaHermanos('PICTO CUERO 500CC NEGRO');
+      final gamuzNeg =
+          TextoProducto.claveFamiliaHermanos('PICTO GAMUZ 500CC NEGRO');
+      final ternaNeg40 =
+          TextoProducto.claveFamiliaHermanos('TERNA NEGRA 40');
+      final ternaNeg42 =
+          TextoProducto.claveFamiliaHermanos('TERNA NEGRA 42');
+      final ternaToalla =
+          TextoProducto.claveFamiliaHermanos('TERNA TOALLA 3.5 MM 42');
+
+      expect(cueroNeg, isNot(equals(gamuzNeg)));
+      expect(ternaNeg40, equals(ternaNeg42));
+      expect(ternaNeg40, isNot(equals(ternaToalla)));
+    });
+  });
+
   group('articuloBase / precio único por modelo', () {
     test('quita talle y color del proveedor', () {
       expect(TextoProducto.articuloBase('marilyn 39'), 'marilyn');

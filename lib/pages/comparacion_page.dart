@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../models/comparacion.dart';
+import '../models/proveedor.dart';
 import '../services/comparador_service.dart';
 import '../services/csv_service.dart';
+import '../services/proveedor_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
 
@@ -15,11 +17,14 @@ class ComparacionPage extends StatefulWidget {
 class _ComparacionPageState extends State<ComparacionPage> {
   final CsvService csvService = CsvService();
   final ComparadorService comparadorService = ComparadorService();
+  final ProveedorService proveedorService = ProveedorService();
   final TextEditingController _proveedorCtrl = TextEditingController();
 
   List<Comparacion> lista = [];
+  List<Proveedor> _proveedores = [];
   bool cargando = true;
   String filtro = 'TODOS';
+  bool _ultimoFuePdf = false;
 
   int aumentos = 0;
   int bajas = 0;
@@ -30,12 +35,22 @@ class _ComparacionPageState extends State<ComparacionPage> {
   void initState() {
     super.initState();
     cargar();
+    _cargarProveedores();
   }
 
   @override
   void dispose() {
     _proveedorCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _cargarProveedores() async {
+    try {
+      await proveedorService.cargarProveedoresIniciales();
+      final todos = await proveedorService.obtenerTodos();
+      if (!mounted) return;
+      setState(() => _proveedores = todos);
+    } catch (_) {}
   }
 
   Future<void> cargar() async {
@@ -49,46 +64,96 @@ class _ComparacionPageState extends State<ComparacionPage> {
     setState(() => cargando = false);
   }
 
-  Future<void> analizarNuevaLista() async {
-    if (_proveedorCtrl.text.trim().isEmpty) {
-      await showDialog<void>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Nombre del proveedor'),
-          content: TextField(
-            controller: _proveedorCtrl,
-            autofocus: true,
-            decoration: const InputDecoration(
-              hintText: 'Ej: Febo, Leal, Profeta...',
-              labelText: 'Proveedor',
+  Future<bool> _pedirProveedor() async {
+    final nombres = _proveedores
+        .map((p) => p.nombre.trim())
+        .where((n) => n.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Proveedor de la lista'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Elegí el proveedor para buscar en tu stock. '
+                  'Sirve Excel/CSV o PDF de presupuesto/remito (ej. Cuero Sur).',
+                ),
+                const SizedBox(height: 12),
+                if (nombres.isNotEmpty) ...[
+                  DropdownButtonFormField<String>(
+                    initialValue: nombres.contains(_proveedorCtrl.text.trim())
+                        ? _proveedorCtrl.text.trim()
+                        : null,
+                    decoration: const InputDecoration(
+                      labelText: 'Proveedor cargado',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      for (final n in nombres)
+                        DropdownMenuItem(value: n, child: Text(n)),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) _proveedorCtrl.text = v;
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('O escribí otro nombre:'),
+                  const SizedBox(height: 6),
+                ],
+                TextField(
+                  controller: _proveedorCtrl,
+                  autofocus: nombres.isEmpty,
+                  decoration: const InputDecoration(
+                    hintText: 'Ej: Cuero Sur, Febo, Leal...',
+                    labelText: 'Proveedor',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
             ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(ctx, false),
               child: const Text('Cancelar'),
             ),
             ElevatedButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Continuar'),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Elegir archivo'),
             ),
           ],
-        ),
-      );
-    }
+        );
+      },
+    );
+    return ok == true && _proveedorCtrl.text.trim().isNotEmpty;
+  }
 
-    if (!mounted) return;
+  Future<void> analizarNuevaLista() async {
+    final listo = await _pedirProveedor();
+    if (!listo || !mounted) return;
+
     setState(() => cargando = true);
     final meta = await csvService.analizarArchivoConProveedor(
       _proveedorCtrl.text.trim(),
     );
     if (!mounted) return;
+    _ultimoFuePdf = meta.desdePdf;
     await cargar();
     if (!mounted) return;
     if (meta.leidas == 0 && meta.validas == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('No se leyó el archivo (cancelado o vacío).'),
+          content: Text(
+            'No se leyó el archivo (cancelado, vacío o PDF sin ítems).',
+          ),
         ),
       );
       return;
@@ -97,9 +162,12 @@ class _ComparacionPageState extends State<ComparacionPage> {
       SnackBar(
         duration: const Duration(seconds: 8),
         content: Text(
-          'Archivo: ${meta.leidas} filas leídas, ${meta.validas} válidas. '
-          'Informe: ${meta.informe} líneas. '
-          'Los NUEVO no se crean solos: tocá cada uno si querés darlo de alta.',
+          meta.desdePdf
+              ? 'PDF: ${meta.validas} productos leídos · Informe: ${meta.informe}. '
+                  'Revisá SUBIÓ/BAJÓ. Nada se actualiza sin tu confirmación.'
+              : 'Archivo: ${meta.leidas} filas leídas, ${meta.validas} válidas. '
+                  'Informe: ${meta.informe} líneas. '
+                  'Los NUEVO no se crean solos.',
         ),
       ),
     );
@@ -217,34 +285,80 @@ class _ComparacionPageState extends State<ComparacionPage> {
     final aActualizar = lista
         .where((e) => e.estado != 'IGUAL' && e.estado != 'NUEVO')
         .length;
+
+    // Hermanos de talle (mismo modelo+color) solo si vino de PDF y hay candidatos.
+    List<Comparacion> hermanos = const [];
+    if (_ultimoFuePdf && aActualizar > 0) {
+      hermanos = await comparadorService.sugerirHermanosTalle();
+    }
+
+    if (!mounted) return;
+    var incluirHermanos = false;
+
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Actualizar costos'),
-        content: Text(
-          aActualizar == 0
-              ? 'No hay costos para actualizar (solo iguales o nuevos sin alta).'
-              : '¿Actualizar el costo de $aActualizar productos?\n\n'
-                  'Solo se modifica el COSTO de artículos que ya tenés.\n'
-                  'Los NUEVO no se crean solos: dalos de alta uno por uno si te interesan.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          if (aActualizar > 0)
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Confirmar'),
-            ),
-        ],
-      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return AlertDialog(
+              title: const Text('Actualizar costos'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      aActualizar == 0
+                          ? 'No hay costos para actualizar (solo iguales o nuevos sin alta).'
+                          : '¿Actualizar el costo de $aActualizar productos del informe?\n\n'
+                              'Solo se modifica el COSTO. Nada se aplica sin tu OK.',
+                    ),
+                    if (hermanos.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: incluirHermanos,
+                        onChanged: (v) =>
+                            setLocal(() => incluirHermanos = v ?? false),
+                        title: Text(
+                          'También actualizar ${hermanos.length} talles hermanos '
+                          'que no vinieron en el PDF',
+                        ),
+                        subtitle: Text(
+                          hermanos
+                              .take(8)
+                              .map((h) => '· ${h.descripcion.split('  ←  ').first}')
+                              .join('\n'),
+                          style: Theme.of(ctx).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancelar'),
+                ),
+                if (aActualizar > 0)
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('Confirmar'),
+                  ),
+              ],
+            );
+          },
+        );
+      },
     );
 
     if (ok != true) return;
 
     setState(() => cargando = true);
+    if (incluirHermanos && hermanos.isNotEmpty) {
+      await comparadorService.agregarComparaciones(hermanos);
+    }
     await comparadorService.actualizarProductos();
     // Dejamos los NUEVO en el informe por si querés crearlos después;
     // limpiamos el resto.
@@ -255,16 +369,20 @@ class _ComparacionPageState extends State<ComparacionPage> {
     }
     if (quedanNuevos.isEmpty) {
       _proveedorCtrl.clear();
+      _ultimoFuePdf = false;
     }
     if (!mounted) return;
     await cargar();
     if (!mounted) return;
+    final extra = incluirHermanos && hermanos.isNotEmpty
+        ? ' (+${hermanos.length} hermanos)'
+        : '';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           quedanNuevos.isEmpty
-              ? 'Costos actualizados correctamente.'
-              : 'Costos actualizados. Quedan ${quedanNuevos.length} NUEVO '
+              ? 'Costos actualizados correctamente$extra.'
+              : 'Costos actualizados$extra. Quedan ${quedanNuevos.length} NUEVO '
                   'para crear o ignorar.',
         ),
       ),
@@ -434,7 +552,7 @@ class _ComparacionPageState extends State<ComparacionPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.upload_file_rounded),
-            tooltip: 'Cargar Excel/CSV del proveedor',
+            tooltip: 'Cargar Excel/CSV/PDF del proveedor',
             onPressed: analizarNuevaLista,
           ),
           if (lista.isNotEmpty)
@@ -465,9 +583,9 @@ class _ComparacionPageState extends State<ComparacionPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
             child: Text(
-              'Tocá SUBIÓ / BAJÓ / NUEVO / IGUAL para filtrar la lista. '
-              'Los NUEVO no se crean solos: solo si los das de alta vos '
-              '(con el código que elijas).',
+              'Excel/CSV o PDF de presupuesto/remito. '
+              'Elegí el proveedor, revisá el informe y confirmá antes de actualizar. '
+              'Los NUEVO no se crean solos.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: .65),
                 height: 1.35,
@@ -558,8 +676,8 @@ class _ComparacionPageState extends State<ComparacionPage> {
                             const SizedBox(height: 12),
                             Text(
                               lista.isEmpty
-                                  ? 'Cargá el Excel o CSV del proveedor\n'
-                                      '(columnas: descripción + costo/precio)'
+                                  ? 'Cargá Excel, CSV o PDF del proveedor\n'
+                                      '(ej. presupuesto/remito de Cuero Sur)'
                                   : 'No hay ítems con el filtro ${_etiquetaFiltro(filtro)}.',
                               style: theme.textTheme.bodyLarge?.copyWith(
                                 color: theme.colorScheme.onSurface
@@ -572,7 +690,7 @@ class _ComparacionPageState extends State<ComparacionPage> {
                               FilledButton.icon(
                                 onPressed: analizarNuevaLista,
                                 icon: const Icon(Icons.upload_file_rounded),
-                                label: const Text('Cargar Excel/CSV'),
+                                label: const Text('Cargar Excel/CSV/PDF'),
                               ),
                             ],
                           ],

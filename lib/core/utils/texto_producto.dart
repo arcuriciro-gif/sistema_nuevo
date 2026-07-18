@@ -79,6 +79,30 @@ class TextoProducto {
     'avorio',
   };
 
+  /// Abreviaturas frecuentes en PDFs de proveedor (Cuero Sur, etc.).
+  static const _aliasColor = {
+    'neg': 'negro',
+    'nigro': 'negro',
+    'bco': 'blanco',
+    'bl': 'blanco',
+    'bla': 'blanco',
+    'az': 'azul',
+    'roj': 'rojo',
+    'marr': 'marron',
+    'mar': 'marron',
+  };
+
+  /// Clave de familia para talles hermanos: mismo artículo + mismo color.
+  /// No cruza PICTO CUERO con PICTO GAMUZ ni TERNA NEGRA con TERNA TOALLA.
+  static String claveFamiliaHermanos(String descripcion, {String color = ''}) {
+    final art = articuloBase(descripcion);
+    final cols = coloresEnTexto('$descripcion $color');
+    if (art.isEmpty) return '';
+    if (cols.isEmpty) return art;
+    final sorted = cols.toList()..sort();
+    return '$art|${sorted.join('+')}';
+  }
+
   /// Minúsculas, sin acentos, espacios colapsados, sin signos raros.
   static String normalizar(String raw) {
     var t = raw.trim().toLowerCase();
@@ -89,6 +113,12 @@ class TextoProducto {
     }
     t = buf.toString();
     t = t.replaceAll(RegExp(r'[^\w\s\-/]'), ' ');
+    t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
+    // Abreviaturas de color → forma canónica (NEG → negro).
+    t = t
+        .split(' ')
+        .map((w) => _aliasColor[w] ?? w)
+        .join(' ');
     t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
     // "39 al 45" / "39 a 45" / "39 hasta 45" → "39-45"
     t = t.replaceAllMapped(

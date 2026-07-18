@@ -31,18 +31,18 @@ class ComparadorService {
   }
 
   /// Compara la lista del proveedor contra la base por **descripción**
-  /// (no por código interno).
+  /// (no por código interno), salvo [matchPrecisoPorCodigo].
   ///
-  /// Dos modos (según cómo venga la línea del proveedor):
+  /// Modos:
   /// 1) **Rango de talles** (Febo): "papi blanco 39-42" → solo ese color y
-  ///    talles 39..42. El precio sí depende de color/rango.
-  /// 2) **Precio único por modelo** (Leal, Profeta, etc.): "marilyn" /
-  ///    "marilyn 39" → **todos** tus color×talle de ese artículo. Vos
-  ///    separás artículo/color/talle solo para el conteo de stock; el costo
-  ///    del proveedor no cambia por color ni talle.
+  ///    talles 39..42.
+  /// 2) **Precio único por modelo** (Leal, Profeta, etc.).
+  /// 3) **Preciso** (PDF presupuesto/remito Cuero Sur): código local o
+  ///    mismo artículo+color+talle. No cruza colores ni inventa hermanos.
   Future<void> compararProductos(
     List<Producto> productosImportados, {
     String proveedor = '',
+    bool matchPrecisoPorCodigo = false,
   }) async {
     await limpiarComparaciones();
     final locales = await productoService.obtenerTodos();
@@ -106,14 +106,20 @@ class ComparadorService {
       final descProv = importado.descripcion.trim();
       if (descProv.isEmpty) continue;
 
-      final matches = _buscarLocales(
-        descripcionProveedor: descProv,
-        proveedorLista: proveedor,
-        porArticulo: porArticulo,
-        porDesc: porDesc,
-        porDescColor: porDescColor,
-        todos: locales,
-      );
+      final matches = matchPrecisoPorCodigo
+          ? _buscarLocalesPreciso(
+              importado: importado,
+              proveedorLista: proveedor,
+              todos: locales,
+            )
+          : _buscarLocales(
+              descripcionProveedor: descProv,
+              proveedorLista: proveedor,
+              porArticulo: porArticulo,
+              porDesc: porDesc,
+              porDescColor: porDescColor,
+              todos: locales,
+            );
 
       if (matches.isEmpty) {
         nuevos.add(
@@ -169,6 +175,150 @@ class ComparadorService {
     }
 
     for (final c in [...porCodigoLocal.values, ...nuevosUnicos.values]) {
+      await guardarComparacion(c);
+    }
+  }
+
+  /// Match conservador para PDF: código → mismo modelo+color+talle.
+  List<Producto> _buscarLocalesPreciso({
+    required Producto importado,
+    required String proveedorLista,
+    required List<Producto> todos,
+  }) {
+    final universo = todos
+        .where(
+          (p) => TextoProducto.proveedorCompatible(
+            proveedorLista,
+            p.proveedor,
+          ),
+        )
+        .toList();
+
+    final cod = importado.codigo.trim();
+    if (cod.isNotEmpty) {
+      final porCodigo = universo
+          .where((p) => p.codigo.trim().toLowerCase() == cod.toLowerCase())
+          .toList();
+      if (porCodigo.isNotEmpty) return porCodigo;
+    }
+
+    final descProv = importado.descripcion.trim();
+    final artProv = TextoProducto.articuloBase(descProv);
+    final coloresProv = TextoProducto.coloresEnTexto(descProv);
+    final talleProv = TextoProducto.parsearTalleAlFinal(descProv) ??
+        TextoProducto.parsearRangoTalle(descProv).desde;
+
+    final out = <Producto>[];
+    for (final p in universo) {
+      if (!TextoProducto.mismoArticulo(
+        artProv,
+        p.modelo.trim().isNotEmpty ? p.modelo : p.descripcion,
+      )) {
+        if (!TextoProducto.mismoArticulo(artProv, p.descripcion)) continue;
+      }
+
+      if (!TextoProducto.localCoincideColorProveedor(
+        descripcionLocal: p.descripcion,
+        colorLocal: p.colorProducto,
+        textoProveedorSinTalle: TextoProducto.quitarTalleFinal(descProv),
+      )) {
+        continue;
+      }
+      // Si el proveedor trae color, exigimos color en el local (no genéricos).
+      if (coloresProv.isNotEmpty) {
+        final colsLoc =
+            TextoProducto.coloresEnTexto('${p.descripcion} ${p.colorProducto}');
+        if (colsLoc.intersection(coloresProv).isEmpty) continue;
+      }
+
+      if (talleProv != null) {
+        final okTalle = TextoProducto.localEnRangoProveedor(
+          descripcionLocal: p.descripcion,
+          colorLocal: p.colorProducto,
+          talleLocal: p.talle,
+          desde: talleProv,
+          hasta: talleProv,
+        );
+        // Pares tipo 34/35 en el PDF: aceptar si el local cae en ese par.
+        final rangoProv = TextoProducto.parsearRangoTalle(descProv);
+        final okPar = rangoProv.desde != null &&
+            rangoProv.hasta != null &&
+            TextoProducto.localEnRangoProveedor(
+              descripcionLocal: p.descripcion,
+              colorLocal: p.colorProducto,
+              talleLocal: p.talle,
+              desde: rangoProv.desde!,
+              hasta: rangoProv.hasta!,
+            );
+        if (!okTalle && !okPar) continue;
+      }
+
+      out.add(p);
+    }
+    return out;
+  }
+
+  /// Sugiere talles hermanos (mismo artículo+color) no presentes en el PDF.
+  /// Siempre para revisión manual: no aplica solo.
+  Future<List<Comparacion>> sugerirHermanosTalle() async {
+    final informe = await obtenerComparacion();
+    final conCambio = informe
+        .where((c) => c.estado == 'SUBIO' || c.estado == 'BAJO')
+        .toList();
+    if (conCambio.isEmpty) return const [];
+
+    final locales = await productoService.obtenerTodos();
+    final codigosEnInforme = informe.map((c) => c.codigo).toSet();
+    final sugeridos = <String, Comparacion>{};
+
+    for (final fila in conCambio) {
+      final local = await productoService.buscarPorCodigo(fila.codigo);
+      if (local == null) continue;
+      final clave = TextoProducto.claveFamiliaHermanos(
+        local.descripcion,
+        color: local.colorProducto,
+      );
+      if (clave.isEmpty) continue;
+
+      for (final p in locales) {
+        if (codigosEnInforme.contains(p.codigo)) continue;
+        if (sugeridos.containsKey(p.codigo)) continue;
+        if (!TextoProducto.proveedorCompatible(fila.proveedor, p.proveedor)) {
+          continue;
+        }
+        final claveP = TextoProducto.claveFamiliaHermanos(
+          p.descripcion,
+          color: p.colorProducto,
+        );
+        if (claveP != clave) continue;
+
+        var estado = 'IGUAL';
+        if (fila.precioNuevo > p.costo) {
+          estado = 'SUBIO';
+        } else if (fila.precioNuevo < p.costo) {
+          estado = 'BAJO';
+        }
+        if (estado == 'IGUAL') continue;
+
+        final etiqueta =
+            '${p.descripcion}${p.colorProducto.isNotEmpty ? ' ${p.colorProducto}' : ''}${p.talle.isNotEmpty ? ' ${p.talle}' : ''}';
+        sugeridos[p.codigo] = Comparacion(
+          codigo: p.codigo,
+          descripcion: '$etiqueta  ←  hermano de ${fila.descripcion}',
+          precioViejo: p.costo,
+          precioNuevo: fila.precioNuevo,
+          estado: estado,
+          marca: p.marca,
+          proveedor: fila.proveedor,
+        );
+      }
+    }
+    return sugeridos.values.toList()
+      ..sort((a, b) => a.descripcion.compareTo(b.descripcion));
+  }
+
+  Future<void> agregarComparaciones(List<Comparacion> filas) async {
+    for (final c in filas) {
       await guardarComparacion(c);
     }
   }

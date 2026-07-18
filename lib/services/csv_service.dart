@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/producto.dart';
 import 'comparador_service.dart';
 import 'producto_service.dart';
+import 'proveedor_pdf_service.dart';
 
 class CsvService {
   final ProductoService produtoService = ProductoService();
@@ -53,13 +54,19 @@ class CsvService {
     'público',
   ];
 
-  Future<({int leidas, int validas, int informe})> analizarArchivoConProveedor(
+  Future<({int leidas, int validas, int informe, bool desdePdf})>
+      analizarArchivoConProveedor(
     String proveedor,
   ) async {
     final leidas = await leerArchivoConMeta();
     final productos = leidas.productos;
     if (productos.isEmpty) {
-      return (leidas: leidas.filasTotales, validas: 0, informe: 0);
+      return (
+        leidas: leidas.filasTotales,
+        validas: 0,
+        informe: 0,
+        desdePdf: leidas.desdePdf,
+      );
     }
     final existeBase = await produtoService.tieneProductos();
     if (!existeBase) {
@@ -68,15 +75,51 @@ class CsvService {
         leidas: leidas.filasTotales,
         validas: productos.length,
         informe: productos.length,
+        desdePdf: leidas.desdePdf,
+      );
+    }
+    // PDF presupuesto/remito: match preciso (código / modelo+color+talle).
+    // Excel/CSV de lista: mantiene expansión por modelo (Leal/Profeta/Febo).
+    await comparadorService.compararProductos(
+      productos,
+      proveedor: proveedor,
+      matchPrecisoPorCodigo: leidas.desdePdf,
+    );
+    final informe = await comparadorService.obtenerComparacion();
+    return (
+      leidas: leidas.filasTotales,
+      validas: productos.length,
+      informe: informe.length,
+      desdePdf: leidas.desdePdf,
+    );
+  }
+
+  /// Analiza productos ya parseados (p. ej. tests o flujos internos).
+  Future<({int leidas, int validas, int informe})> analizarProductosConProveedor(
+    List<Producto> productos, {
+    required String proveedor,
+    bool matchPrecisoPorCodigo = false,
+  }) async {
+    if (productos.isEmpty) {
+      return (leidas: 0, validas: 0, informe: 0);
+    }
+    final existeBase = await produtoService.tieneProductos();
+    if (!existeBase) {
+      await produtoService.insertarLista(productos);
+      return (
+        leidas: productos.length,
+        validas: productos.length,
+        informe: productos.length,
       );
     }
     await comparadorService.compararProductos(
       productos,
       proveedor: proveedor,
+      matchPrecisoPorCodigo: matchPrecisoPorCodigo,
     );
     final informe = await comparadorService.obtenerComparacion();
     return (
-      leidas: leidas.filasTotales,
+      leidas: productos.length,
       validas: productos.length,
       informe: informe.length,
     );
@@ -88,29 +131,58 @@ class CsvService {
     return r.validas;
   }
 
-  /// Lee CSV o Excel. Requiere columnas de **descripción** y **costo**
-  /// (detectadas por encabezado; si no hay encabezado claro, usa posiciones
-  /// legacy del CSV largo: desc=col2, costo=col18).
+  /// Lee CSV, Excel o PDF de presupuesto/remito.
   Future<List<Producto>> leerArchivo() async {
     final meta = await leerArchivoConMeta();
     return meta.productos;
   }
 
-  Future<({List<Producto> productos, int filasTotales, int omitidas})>
-      leerArchivoConMeta() async {
+  Future<
+      ({
+        List<Producto> productos,
+        int filasTotales,
+        int omitidas,
+        bool desdePdf,
+      })> leerArchivoConMeta() async {
     final resultado = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['csv', 'xlsx', 'xls'],
+      allowedExtensions: ['csv', 'xlsx', 'xls', 'pdf'],
     );
     if (resultado == null || resultado.files.single.path == null) {
-      return (productos: <Producto>[], filasTotales: 0, omitidas: 0);
+      return (
+        productos: <Producto>[],
+        filasTotales: 0,
+        omitidas: 0,
+        desdePdf: false,
+      );
     }
     final path = resultado.files.single.path!;
     final ext = p.extension(path).toLowerCase();
-    if (ext == '.xlsx' || ext == '.xls') {
-      return _leerExcel(path);
+    if (ext == '.pdf') {
+      final r = await ProveedorPdfService().leerArchivo(path);
+      return (
+        productos: r.productos,
+        filasTotales: r.filasTotales,
+        omitidas: r.omitidas,
+        desdePdf: true,
+      );
     }
-    return _leerCsv(path);
+    if (ext == '.xlsx' || ext == '.xls') {
+      final r = await _leerExcel(path);
+      return (
+        productos: r.productos,
+        filasTotales: r.filasTotales,
+        omitidas: r.omitidas,
+        desdePdf: false,
+      );
+    }
+    final r = await _leerCsv(path);
+    return (
+      productos: r.productos,
+      filasTotales: r.filasTotales,
+      omitidas: r.omitidas,
+      desdePdf: false,
+    );
   }
 
   Future<({List<Producto> productos, int filasTotales, int omitidas})>
