@@ -73,13 +73,19 @@ class FirestoreSyncService {
   bool _sincronizandoPermisos = false;
   QuerySnapshot<Map<String, dynamic>>? _snapClientesPendiente;
   QuerySnapshot<Map<String, dynamic>>? _snapProveedoresPendiente;
+  QuerySnapshot<Map<String, dynamic>>? _snapVentasPendiente;
+  QuerySnapshot<Map<String, dynamic>>? _snapRemitosPendiente;
+  QuerySnapshot<Map<String, dynamic>>? _snapComprasPendiente;
+  QuerySnapshot<Map<String, dynamic>>? _snapDocumentosPendiente;
+  List<Producto>? _productosPendientes;
 
-  /// Clientes/proveedores/ventas/remitos/productos creados sin sesión de nube.
+  /// Entidades creadas/editadas sin sesión de nube (colas persistentes).
   final Set<int> _colaClientes = {};
   final Set<int> _colaProveedores = {};
   final Set<int> _colaVentas = {};
   final Set<int> _colaRemitos = {};
   final Set<int> _colaProductos = {};
+  final Set<int> _colaCompras = {};
 
   /// Último estado legible para la UI (sin carteles rojos agresivos).
   String syncStatusLabel = 'Local';
@@ -215,6 +221,30 @@ class FirestoreSyncService {
     } catch (e) {
       debugPrint('Pull inicial productos: $e');
     }
+    try {
+      final ventas = await _ventasCol.get();
+      await _aplicarVentasRemotas(ventas);
+    } catch (e) {
+      debugPrint('Pull inicial ventas: $e');
+    }
+    try {
+      final remitos = await _remitosCol.get();
+      await _aplicarRemitosRemotos(remitos);
+    } catch (e) {
+      debugPrint('Pull inicial remitos: $e');
+    }
+    try {
+      final compras = await _comprasCol.get();
+      await _aplicarComprasRemotas(compras);
+    } catch (e) {
+      debugPrint('Pull inicial compras: $e');
+    }
+    try {
+      final docs = await _documentosCol.get();
+      await _aplicarDocumentosRemotos(docs);
+    } catch (e) {
+      debugPrint('Pull inicial documentos: $e');
+    }
   }
 
   Future<void> _vaciarColasYSubirPendientes() async {
@@ -241,16 +271,24 @@ class FirestoreSyncService {
       }
       final ventasCola = List<int>.from(_colaVentas);
       _colaVentas.clear();
+      await _persistirCola(_prefsColaVentas, _colaVentas);
       for (final id in ventasCola) {
         await subirVenta(id);
       }
       final remitosCola = List<int>.from(_colaRemitos);
       _colaRemitos.clear();
+      await _persistirCola(_prefsColaRemitos, _colaRemitos);
       for (final id in remitosCola) {
         await subirRemito(id);
       }
+      final comprasCola = List<int>.from(_colaCompras);
+      _colaCompras.clear();
+      await _persistirCola(_prefsColaCompras, _colaCompras);
+      for (final id in comprasCola) {
+        await subirCompra(id);
+      }
 
-      // Reenviar locales (cubre altas del APK hechas sin sesión).
+      // Reenviar locales (cubre altas hechas sin sesión de nube).
       final db = await DatabaseHelper.instance.database;
       final clientes = await db.query('clientes', columns: ['id']);
       for (final row in clientes) {
@@ -262,7 +300,13 @@ class FirestoreSyncService {
         final id = (row['id'] as num?)?.toInt();
         if (id != null) await subirProveedor(id, forzar: true);
       }
-      // Ventas/remitos recientes (últimos 200) por si quedaron solo locales.
+      // Productos: sweep completo para que PC y celular queden alineados.
+      final productos = await db.query('productos', columns: ['id']);
+      for (final row in productos) {
+        final id = (row['id'] as num?)?.toInt();
+        if (id != null) await subirProductoPorId(id);
+      }
+      // Ventas/remitos/compras recientes por si quedaron solo locales.
       final ventas = await db.query(
         'ventas',
         columns: ['id'],
@@ -282,6 +326,16 @@ class FirestoreSyncService {
       for (final row in remitos) {
         final id = (row['id'] as num?)?.toInt();
         if (id != null) await subirRemito(id);
+      }
+      final compras = await db.query(
+        'compras',
+        columns: ['id'],
+        orderBy: 'id DESC',
+        limit: 200,
+      );
+      for (final row in compras) {
+        final id = (row['id'] as num?)?.toInt();
+        if (id != null) await subirCompra(id);
       }
     } catch (e) {
       debugPrint('Vaciar colas sync: $e');
@@ -607,6 +661,9 @@ class FirestoreSyncService {
   static const _prefsColaClientes = 'sync_cola_clientes_ids';
   static const _prefsColaProveedores = 'sync_cola_proveedores_ids';
   static const _prefsColaProductos = 'sync_cola_productos_ids';
+  static const _prefsColaVentas = 'sync_cola_ventas_ids';
+  static const _prefsColaRemitos = 'sync_cola_remitos_ids';
+  static const _prefsColaCompras = 'sync_cola_compras_ids';
 
   static const _colsCliente = {
     'syncId',
@@ -748,6 +805,18 @@ class FirestoreSyncService {
         final id = int.tryParse(s);
         if (id != null) _colaProductos.add(id);
       }
+      for (final s in prefs.getStringList(_prefsColaVentas) ?? const []) {
+        final id = int.tryParse(s);
+        if (id != null) _colaVentas.add(id);
+      }
+      for (final s in prefs.getStringList(_prefsColaRemitos) ?? const []) {
+        final id = int.tryParse(s);
+        if (id != null) _colaRemitos.add(id);
+      }
+      for (final s in prefs.getStringList(_prefsColaCompras) ?? const []) {
+        final id = int.tryParse(s);
+        if (id != null) _colaCompras.add(id);
+      }
     } catch (_) {}
   }
 
@@ -882,7 +951,13 @@ class FirestoreSyncService {
   }
 
   Future<void> subirCompra(int compraId) async {
-    if (!_puedeEscribirRemoto) return;
+    if (!_puedeEscribirRemoto) {
+      _colaCompras.add(compraId);
+      unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
+      syncStatusDetail =
+          'Compra guardada acá. Falta sesión de nube para enviarla.';
+      return;
+    }
     try {
       final db = await DatabaseHelper.instance.database;
       final rows = await db.query(
@@ -918,9 +993,17 @@ class FirestoreSyncService {
 
       for (final item in items) {
         final pid = item['productoId'];
-        if (pid is int) await subirProductoPorId(pid);
+        if (pid is int) {
+          await subirProductoPorId(pid);
+        } else if (pid is num) {
+          await subirProductoPorId(pid.toInt());
+        }
       }
+      _colaCompras.remove(compraId);
+      unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
     } catch (e) {
+      _colaCompras.add(compraId);
+      unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
       debugPrint('Firestore subir compra: $e');
     }
   }
@@ -940,6 +1023,7 @@ class FirestoreSyncService {
   Future<void> subirVenta(int ventaId) async {
     if (!_puedeEscribirRemoto) {
       _colaVentas.add(ventaId);
+      unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
       syncStatusDetail =
           'Venta guardada acá. Falta sesión de nube para enviarla.';
       return;
@@ -998,8 +1082,10 @@ class FirestoreSyncService {
         'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
       }, SetOptions(merge: true));
       _colaVentas.remove(ventaId);
+      unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
     } catch (e) {
       _colaVentas.add(ventaId);
+      unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
       debugPrint('Firestore subir venta: $e');
     }
   }
@@ -1018,6 +1104,7 @@ class FirestoreSyncService {
   Future<void> subirRemito(int remitoId) async {
     if (!_puedeEscribirRemoto) {
       _colaRemitos.add(remitoId);
+      unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
       syncStatusDetail =
           'Remito guardado acá. Falta sesión de nube para enviarlo.';
       return;
@@ -1060,8 +1147,10 @@ class FirestoreSyncService {
         if (pid != null) await subirProductoPorId(pid);
       }
       _colaRemitos.remove(remitoId);
+      unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
     } catch (e) {
       _colaRemitos.add(remitoId);
+      unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
       debugPrint('Firestore subir remito: $e');
     }
   }
@@ -1313,11 +1402,16 @@ class FirestoreSyncService {
   Future<void> _aplicarComprasRemotas(
     QuerySnapshot<Map<String, dynamic>> snap,
   ) async {
-    if (_sincronizandoCompras) return;
+    if (_sincronizandoCompras) {
+      _snapComprasPendiente = snap;
+      return;
+    }
     _sincronizandoCompras = true;
     try {
+      var actual = snap;
+      while (true) {
       final db = await DatabaseHelper.instance.database;
-      for (final doc in snap.docs) {
+      for (final doc in actual.docs) {
         final data = doc.data();
         final numero = data['numero']?.toString() ?? doc.id;
         final existentes = await db.query(
@@ -1400,6 +1494,11 @@ class FirestoreSyncService {
         // Stock llega por sync de productos.
       }
       DataRefreshHub.instance.notifyTodo();
+      final pendiente = _snapComprasPendiente;
+      _snapComprasPendiente = null;
+      if (pendiente == null) break;
+      actual = pendiente;
+      }
     } catch (e) {
       debugPrint('Aplicar compras remotas: $e');
     } finally {
@@ -1410,11 +1509,16 @@ class FirestoreSyncService {
   Future<void> _aplicarDocumentosRemotos(
     QuerySnapshot<Map<String, dynamic>> snap,
   ) async {
-    if (_sincronizandoDocumentos) return;
+    if (_sincronizandoDocumentos) {
+      _snapDocumentosPendiente = snap;
+      return;
+    }
     _sincronizandoDocumentos = true;
     try {
+      var actual = snap;
+      while (true) {
       final db = await DatabaseHelper.instance.database;
-      for (final doc in snap.docs) {
+      for (final doc in actual.docs) {
         final data = doc.data();
         final id = data['id']?.toString() ?? doc.id;
         final map = Map<String, dynamic>.from(data)
@@ -1439,6 +1543,11 @@ class FirestoreSyncService {
         }
       }
       DataRefreshHub.instance.notifyTodo();
+      final pendiente = _snapDocumentosPendiente;
+      _snapDocumentosPendiente = null;
+      if (pendiente == null) break;
+      actual = pendiente;
+      }
     } catch (e) {
       debugPrint('Aplicar documentos remotos: $e');
     } finally {
@@ -1449,11 +1558,16 @@ class FirestoreSyncService {
   Future<void> _aplicarRemitosRemotos(
     QuerySnapshot<Map<String, dynamic>> snap,
   ) async {
-    if (_sincronizandoRemitos) return;
+    if (_sincronizandoRemitos) {
+      _snapRemitosPendiente = snap;
+      return;
+    }
     _sincronizandoRemitos = true;
     try {
+      var actual = snap;
+      while (true) {
       final db = await DatabaseHelper.instance.database;
-      for (final doc in snap.docs) {
+      for (final doc in actual.docs) {
         final data = doc.data();
         final numero = data['numero']?.toString() ?? doc.id;
         final existentes = await db.query(
@@ -1532,6 +1646,11 @@ class FirestoreSyncService {
         }
       }
       DataRefreshHub.instance.notifyTodo();
+      final pendiente = _snapRemitosPendiente;
+      _snapRemitosPendiente = null;
+      if (pendiente == null) break;
+      actual = pendiente;
+      }
     } catch (e) {
       debugPrint('Aplicar remitos remotos: $e');
     } finally {
@@ -1542,12 +1661,17 @@ class FirestoreSyncService {
   Future<void> _aplicarVentasRemotas(
     QuerySnapshot<Map<String, dynamic>> snap,
   ) async {
-    if (_sincronizandoVentas) return;
+    if (_sincronizandoVentas) {
+      _snapVentasPendiente = snap;
+      return;
+    }
     _sincronizandoVentas = true;
     try {
+      var actual = snap;
+      while (true) {
       final db = await DatabaseHelper.instance.database;
       var huboCambios = false;
-      for (final doc in snap.docs) {
+      for (final doc in actual.docs) {
         try {
           final data = doc.data();
           final numero = data['numero']?.toString() ?? doc.id;
@@ -1664,6 +1788,11 @@ class FirestoreSyncService {
       if (huboCambios) {
         DataRefreshHub.instance.notifyVentas();
       }
+      final pendiente = _snapVentasPendiente;
+      _snapVentasPendiente = null;
+      if (pendiente == null) break;
+      actual = pendiente;
+      }
     } catch (e) {
       debugPrint('Aplicar ventas remotas: $e');
     } finally {
@@ -1702,45 +1831,74 @@ class FirestoreSyncService {
     return remoto.copyWith(id: local?.id, foto: '', fotos: <String>[]);
   }
 
+  bool _mapasDoublesIguales(Map<String, double> a, Map<String, double> b) {
+    if (a.length != b.length) return false;
+    for (final e in a.entries) {
+      if ((b[e.key] ?? double.nan) != e.value) return false;
+    }
+    return true;
+  }
+
+  bool _productoSinCambiosRelevantes(Producto local, Producto merged) {
+    return local.costo == merged.costo &&
+        local.precio == merged.precio &&
+        local.precio2 == merged.precio2 &&
+        local.precio3 == merged.precio3 &&
+        local.stock == merged.stock &&
+        local.stockMinimo == merged.stockMinimo &&
+        local.fotoPrincipal == merged.fotoPrincipal &&
+        local.descripcion == merged.descripcion &&
+        local.marca == merged.marca &&
+        local.categoria == merged.categoria &&
+        local.favorito == merged.favorito &&
+        (local.deletedAt ?? '') == (merged.deletedAt ?? '') &&
+        _mapasDoublesIguales(local.preciosListas, merged.preciosListas);
+  }
+
   Future<void> _aplicarProductosRemotos(List<Producto> remotos) async {
-    if (_sincronizando) return;
+    if (_sincronizando) {
+      _productosPendientes = remotos;
+      return;
+    }
     _sincronizando = true;
     try {
-      final db = await DatabaseHelper.instance.database;
-      final batch = db.batch();
-      var huboCambios = false;
-      for (final producto in remotos) {
-        final local = await _cache.buscarPorCodigo(producto.codigo);
-        final merged = _fusionarProductoRemoto(producto, local);
-        // Evitar pisar datos locales idénticos (reduce flicker).
-        if (local != null &&
-            local.costo == merged.costo &&
-            local.precio == merged.precio &&
-            local.stock == merged.stock &&
-            local.fotoPrincipal == merged.fotoPrincipal &&
-            local.descripcion == merged.descripcion) {
-          continue;
+      var actual = remotos;
+      while (true) {
+        final db = await DatabaseHelper.instance.database;
+        final batch = db.batch();
+        var huboCambios = false;
+        for (final producto in actual) {
+          final local = await _cache.buscarPorCodigo(producto.codigo);
+          final merged = _fusionarProductoRemoto(producto, local);
+          // Evitar pisar datos locales idénticos (reduce flicker).
+          if (local != null && _productoSinCambiosRelevantes(local, merged)) {
+            continue;
+          }
+          huboCambios = true;
+          final data = merged.toMap();
+          if (local?.id != null) {
+            batch.update(
+              'productos',
+              data..remove('id'),
+              where: 'id = ?',
+              whereArgs: [local!.id],
+            );
+          } else {
+            batch.insert(
+              'productos',
+              data..remove('id'),
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
         }
-        huboCambios = true;
-        final data = merged.toMap();
-        if (local?.id != null) {
-          batch.update(
-            'productos',
-            data..remove('id'),
-            where: 'id = ?',
-            whereArgs: [local!.id],
-          );
-        } else {
-          batch.insert(
-            'productos',
-            data..remove('id'),
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
+        if (huboCambios) {
+          await batch.commit(noResult: true);
+          DataRefreshHub.instance.notifyProductos();
         }
-      }
-      if (huboCambios) {
-        await batch.commit(noResult: true);
-        DataRefreshHub.instance.notifyProductos();
+        final pendiente = _productosPendientes;
+        _productosPendientes = null;
+        if (pendiente == null) break;
+        actual = pendiente;
       }
     } finally {
       _sincronizando = false;

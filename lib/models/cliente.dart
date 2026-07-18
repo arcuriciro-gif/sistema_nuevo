@@ -62,11 +62,13 @@ class Cliente {
 
   Map<String, dynamic> toFirestore() {
     final data = Map<String, dynamic>.from(toMap()..remove('id'));
-    // Solo URLs remotas en la nube (nunca paths locales de otra PC).
+    // Solo URLs https en la nube. Si aún no subió, NO mandar foto vacía
+    // (merge:true borraría la foto buena del otro dispositivo).
     final f = foto.trim();
-    if (f.isNotEmpty &&
-        !(f.startsWith('http://') || f.startsWith('https://'))) {
-      data['foto'] = '';
+    if (f.startsWith('http://') || f.startsWith('https://')) {
+      data['foto'] = f;
+    } else {
+      data.remove('foto');
     }
     data['actualizadoEn'] = DateTime.now().toUtc().toIso8601String();
     return data;

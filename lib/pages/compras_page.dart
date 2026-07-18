@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/events/data_refresh_hub.dart';
 import '../models/chat_mensaje.dart';
 import '../services/compra_service.dart';
 import '../theme/app_visuals.dart';
@@ -30,11 +31,18 @@ class _ComprasPageState extends State<ComprasPage> {
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_onDatosRemotos);
+    cargar();
+  }
+
+  void _onDatosRemotos() {
+    if (!mounted) return;
     cargar();
   }
 
   @override
   void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosRemotos);
     buscarController.dispose();
     super.dispose();
   }

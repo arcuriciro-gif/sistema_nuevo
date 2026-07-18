@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import '../core/events/data_refresh_hub.dart';
@@ -100,6 +101,12 @@ class ProductoService {
     return actualizados;
   }
 
+  void _asegurarSyncProducto(int? id) {
+    if (id == null) return;
+    // Si no hay sesión de nube, entra en cola persistente; si hay, re-empuja.
+    unawaited(FirestoreSyncService.instance.subirProductoPorId(id));
+  }
+
   Future<int> insertar(Producto producto) async {
     final conFotos = await _conFotosEnNube(producto);
     final preparado = await _precioCalculador.aplicarListasDesdeCosto(conFotos);
@@ -112,6 +119,7 @@ class ProductoService {
       'Nuevo producto: ${guardado.descripcion}',
       valorNuevo: _snapshot(guardado),
     );
+    _asegurarSyncProducto(id);
     DataRefreshHub.instance.notifyProductos();
 
     return id;
@@ -123,6 +131,13 @@ class ProductoService {
       preparados.add(await _precioCalculador.aplicarListasDesdeCosto(producto));
     }
     await _repo.insertarLista(preparados);
+    // Tras import masivo, encolar los recién cargados (si no hay sesión nube).
+    try {
+      for (final p in preparados) {
+        final local = await buscarPorCodigo(p.codigo);
+        _asegurarSyncProducto(local?.id);
+      }
+    } catch (_) {}
     DataRefreshHub.instance.notifyProductos();
   }
 
@@ -177,6 +192,7 @@ class ProductoService {
     try {
       await _repo.actualizar(producto.copyWith(favorito: nuevo));
     } catch (_) {}
+    _asegurarSyncProducto(producto.id);
     DataRefreshHub.instance.notifyProductos();
   }
 
@@ -238,6 +254,7 @@ class ProductoService {
           valorAnterior: _snapshot(anteriorProducto),
           valorNuevo: _snapshot(actualizado),
         );
+        _asegurarSyncProducto(actualizado.id);
         DataRefreshHub.instance.notifyProductos();
         return result;
       }
@@ -250,6 +267,7 @@ class ProductoService {
       'Producto actualizado: ${conFotos.descripcion}',
       valorNuevo: _snapshot(conFotos),
     );
+    _asegurarSyncProducto(conFotos.id);
     DataRefreshHub.instance.notifyProductos();
     return result;
   }
@@ -278,6 +296,7 @@ class ProductoService {
         ),
       );
     }
+    _asegurarSyncProducto(id);
     DataRefreshHub.instance.notifyProductos();
 
     return result;
@@ -303,6 +322,7 @@ class ProductoService {
     try {
       await _repo.actualizar(restaurado);
     } catch (_) {}
+    _asegurarSyncProducto(id);
     await AuthService.instance.registrarCambio(
       'RESTAURAR_PRODUCTO',
       'productos',

@@ -128,7 +128,7 @@ class _MainShellState extends State<MainShell> {
     });
   }
 
-  /// En Windows la nube es opt-in: sin esto el celular tiene clientes y la PC no.
+  /// Sin nube PC y celular se desalinean. En Windows se activa sola al entrar.
   Future<void> _ofrecerActivarNubeSiHaceFalta() async {
     if (BackendConfigService.instance.firebaseEnabled) {
       // Ya activa: forzar un reconnect por si quedó a medias.
@@ -138,41 +138,23 @@ class _MainShellState extends State<MainShell> {
       return;
     }
     if (!mounted) return;
-    final activar = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Sincronizar con el celular'),
-        content: const Text(
-          'Esta PC está en modo solo local.\n\n'
-          'Para ver los mismos clientes, productos y precios que en el '
-          'celular/tablet, activá la sincronización online.\n\n'
-          'Podés hacerlo ahora o después en Configuración.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Después'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Activar ahora'),
-          ),
-        ],
-      ),
-    );
-    if (activar != true || !mounted) return;
+    // Activación automática: el sistema tiene que funcionar online sin pasos
+    // fáciles de omitir. Si Firebase falla, queda Solo local y se avisa.
     final r = await AuthService.instance.activarNube();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           r.ok
-              ? 'Nube activada. Los datos se sincronizan entre PC y celular.'
+              ? 'Nube activada. Clientes, productos, precios y fotos se '
+                  'sincronizan en tiempo real entre PC y celular.'
               : (r.mensaje.isNotEmpty
-                  ? r.mensaje
-                  : 'No se pudo activar la nube.'),
+                  ? 'No se pudo activar la nube: ${r.mensaje}. '
+                      'Reintentá en Configuración → Activar sincronización.'
+                  : 'No se pudo activar la nube. '
+                      'Reintentá en Configuración → Activar sincronización.'),
         ),
-        duration: const Duration(seconds: 6),
+        duration: const Duration(seconds: 7),
       ),
     );
     if (mounted) setState(() {});
