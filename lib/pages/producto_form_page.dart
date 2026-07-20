@@ -187,6 +187,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
                 descripcion: '',
                 marca: '',
                 categoria: '',
+                proveedor: '',
               ))
           .copyWith(
             id: base?.id,
