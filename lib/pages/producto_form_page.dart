@@ -180,43 +180,43 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
       final fotosLista = foto.trim().isEmpty
           ? <String>[]
           : <String>[foto.trim()];
-      final base = widget.producto;
-      final producto = (base ??
-              Producto(
-                codigo: '',
-                descripcion: '',
-                marca: '',
-                categoria: '',
-                proveedor: '',
-              ))
-          .copyWith(
-            id: base?.id,
-            codigo: codigoController.text.trim(),
-            codigoBarras: codigoBarrasController.text.trim(),
-            descripcion: descripcionController.text.trim(),
-            marca: marcaController.text.trim(),
-            categoria: categoriaController.text.trim(),
-            proveedor: proveedorController.text.trim(),
-            ubicacion: base?.ubicacion ?? '',
-            stock: int.tryParse(stockController.text) ?? 0,
-            stockMinimo: base?.stockMinimo ?? 0,
-            costo: _parseDbl(costoController.text),
-            precio: _parseDbl(precioController.text),
-            precio2: _parseDbl(precio2Controller.text),
-            precio3: _parseDbl(precio3Controller.text),
-            observaciones: observacionesController.text.trim(),
-            foto: foto,
-            fotos: fotosLista,
-            favorito: base?.favorito ?? false,
-            preciosListas: base?.preciosListas,
-            preciosBloqueados: base?.preciosBloqueados,
-            modelo: base?.modelo,
-            colorProducto: base?.colorProducto,
-            talle: base?.talle,
-            subcategoria: base?.subcategoria,
-            unidadVenta: base?.unidadVenta,
-            notasInternas: base?.notasInternas,
-          );
+      final Producto producto;
+      if (widget.producto != null) {
+        producto = widget.producto!.copyWith(
+          codigo: codigoController.text.trim(),
+          codigoBarras: codigoBarrasController.text.trim(),
+          descripcion: descripcionController.text.trim(),
+          marca: marcaController.text.trim(),
+          categoria: categoriaController.text.trim(),
+          proveedor: proveedorController.text.trim(),
+          stock: int.tryParse(stockController.text) ?? 0,
+          costo: _parseDbl(costoController.text),
+          precio: _parseDbl(precioController.text),
+          precio2: _parseDbl(precio2Controller.text),
+          precio3: _parseDbl(precio3Controller.text),
+          observaciones: observacionesController.text.trim(),
+          foto: foto,
+          fotos: fotosLista,
+        );
+      } else {
+        producto = Producto(
+          codigo: codigoController.text.trim(),
+          codigoBarras: codigoBarrasController.text.trim(),
+          descripcion: descripcionController.text.trim(),
+          marca: marcaController.text.trim(),
+          categoria: categoriaController.text.trim(),
+          proveedor: proveedorController.text.trim(),
+          ubicacion: '',
+          stock: int.tryParse(stockController.text) ?? 0,
+          costo: _parseDbl(costoController.text),
+          precio: _parseDbl(precioController.text),
+          precio2: _parseDbl(precio2Controller.text),
+          precio3: _parseDbl(precio3Controller.text),
+          observaciones: observacionesController.text.trim(),
+          foto: foto,
+          fotos: fotosLista,
+        );
+      }
 
       if (widget.producto == null) {
         await service.insertar(producto);
