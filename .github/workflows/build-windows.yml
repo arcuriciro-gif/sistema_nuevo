@@ -9,6 +9,7 @@ on:
       - cursor/comparador-descripcion-costo-e44b
       - cursor/release-mejoras-e44b
       - cursor/ui-shell-fotos-bio-e44b
+      - cursor/productos-busqueda-eliminar-e44b
 
 jobs:
   build-windows:
