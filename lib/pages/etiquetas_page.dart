@@ -4,6 +4,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../models/lista_precio.dart';
 import '../models/producto.dart';
+import '../core/utils/busqueda_texto.dart';
 import '../services/lista_precio_service.dart';
 import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
@@ -54,11 +55,18 @@ class _EtiquetasPageState extends State<EtiquetasPage> {
   }
 
   void _filtrar(String texto) {
-    texto = texto.toLowerCase();
     filtrados = productos
-        .where((p) =>
-            p.descripcion.toLowerCase().contains(texto) ||
-            p.codigo.toLowerCase().contains(texto))
+        .where(
+          (p) => BusquedaTexto.coincide(texto, [
+            p.descripcion,
+            p.codigo,
+            p.codigoBarras,
+            p.marca,
+            p.modelo,
+            p.colorProducto,
+            p.talle,
+          ]),
+        )
         .toList();
     setState(() {});
   }

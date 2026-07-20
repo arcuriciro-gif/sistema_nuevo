@@ -4,8 +4,10 @@ import 'package:share_plus/share_plus.dart';
 
 import '../core/events/data_refresh_hub.dart';
 import '../models/chat_mensaje.dart';
+import '../services/auth_service.dart';
 import '../services/documento_cliente_service.dart';
 import '../services/pdf_service.dart';
+import '../services/permisos_service.dart';
 import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
 import '../widgets/compartir_chat_dialog.dart';
@@ -50,6 +52,9 @@ class _RemitosPageState extends State<RemitosPage> {
 
   Future<void> cargar() async {
     setState(() => cargando = true);
+    try {
+      await PermisosService.instance.cargar();
+    } catch (_) {}
     remitosOriginales = await service.obtenerTodosConCliente();
     _filtrarRemitos(buscarController.text, actualizarEstado: false);
     if (!mounted) return;
@@ -256,12 +261,52 @@ class _RemitosPageState extends State<RemitosPage> {
     }
   }
 
+  bool get _puedeEliminarRemitos {
+    final rol = AuthService.instance.currentUser?.rol ?? '';
+    return AuthService.instance.esAdministrador() ||
+        PermisosService.instance.puedeEliminar(rol, 'remitos');
+  }
+
+  Future<void> confirmarEliminar(Map<String, dynamic> remito) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Eliminar remito'),
+        content: Text(
+          '¿Eliminar definitivamente el remito ${remito['numero']}?\n\n'
+          'Se anula el stock si hacía falta y se borra de este equipo y de la nube.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppVisuals.danger(Theme.of(context).colorScheme),
+            ),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await service.eliminar(remito['id'] as int);
+      await cargar();
+    }
+  }
+
   Future<void> _manejarAccionRemito(
     Map<String, dynamic> remito,
     String accion,
   ) async {
     if (accion == 'anular') {
       await confirmarAnular(remito);
+      return;
+    }
+    if (accion == 'eliminar') {
+      await confirmarEliminar(remito);
       return;
     }
 
@@ -487,23 +532,44 @@ class _RemitosPageState extends State<RemitosPage> {
                                                     remito,
                                                     value,
                                                   ),
-                                                  enabled: estado != 'anulado',
-                                                  itemBuilder: (_) => const [
-                                                    PopupMenuItem(
-                                                      value: 'cobrado',
-                                                      child: Text(
-                                                        'Marcar como cobrado',
-                                                      ),
-                                                    ),
-                                                    PopupMenuItem(
-                                                      value: 'parcial',
-                                                      child: Text('Pago parcial'),
-                                                    ),
-                                                    PopupMenuItem(
-                                                      value: 'anular',
-                                                      child: Text('Anular'),
-                                                    ),
-                                                  ],
+                                                  itemBuilder: (_) {
+                                                    final items =
+                                                        <PopupMenuEntry<String>>[
+                                                      if (estado != 'anulado')
+                                                        const PopupMenuItem(
+                                                          value: 'cobrado',
+                                                          child: Text(
+                                                            'Marcar como cobrado',
+                                                          ),
+                                                        ),
+                                                      if (estado != 'anulado')
+                                                        const PopupMenuItem(
+                                                          value: 'parcial',
+                                                          child: Text(
+                                                            'Pago parcial',
+                                                          ),
+                                                        ),
+                                                      if (estado != 'anulado')
+                                                        const PopupMenuItem(
+                                                          value: 'anular',
+                                                          child: Text('Anular'),
+                                                        ),
+                                                    ];
+                                                    if (_puedeEliminarRemitos) {
+                                                      items.add(
+                                                        const PopupMenuItem(
+                                                          value: 'eliminar',
+                                                          child: Text(
+                                                            'Eliminar',
+                                                            style: TextStyle(
+                                                              color: Colors.red,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      );
+                                                    }
+                                                    return items;
+                                                  },
                                                 ),
                                               ],
                                             ),

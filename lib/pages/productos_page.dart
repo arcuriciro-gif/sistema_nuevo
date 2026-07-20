@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/utils/busqueda_texto.dart';
 import '../models/chat_mensaje.dart';
 import '../models/lista_precio.dart';
 import '../models/producto.dart';
@@ -100,15 +101,18 @@ class _ProductosPageState extends State<ProductosPage> {
   }
 
   void _aplicarFiltros() {
-    final query = _filtroBusqueda.toLowerCase();
     filtrados = productos.where((p) {
-      final matchBusqueda = query.isEmpty ||
-          p.descripcion.toLowerCase().contains(query) ||
-          p.codigo.toLowerCase().contains(query) ||
-          p.codigoBarras.toLowerCase().contains(query) ||
-          p.marca.toLowerCase().contains(query) ||
-          p.categoria.toLowerCase().contains(query) ||
-          p.proveedor.toLowerCase().contains(query);
+      final matchBusqueda = BusquedaTexto.coincide(_filtroBusqueda, [
+        p.descripcion,
+        p.codigo,
+        p.codigoBarras,
+        p.marca,
+        p.categoria,
+        p.proveedor,
+        p.modelo,
+        p.colorProducto,
+        p.talle,
+      ]);
 
       final matchMarca = _filtroMarca == null || p.marca == _filtroMarca;
       final matchProveedor =

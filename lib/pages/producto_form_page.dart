@@ -180,25 +180,42 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
       final fotosLista = foto.trim().isEmpty
           ? <String>[]
           : <String>[foto.trim()];
-      final producto = Producto(
-        id: widget.producto?.id,
-        codigo: codigoController.text.trim(),
-        codigoBarras: codigoBarrasController.text.trim(),
-        descripcion: descripcionController.text.trim(),
-        marca: marcaController.text.trim(),
-        categoria: categoriaController.text.trim(),
-        proveedor: proveedorController.text.trim(),
-        ubicacion: widget.producto?.ubicacion ?? '',
-        stock: int.tryParse(stockController.text) ?? 0,
-        costo: _parseDbl(costoController.text),
-        precio: _parseDbl(precioController.text),
-        precio2: _parseDbl(precio2Controller.text),
-        precio3: _parseDbl(precio3Controller.text),
-        observaciones: observacionesController.text.trim(),
-        foto: foto,
-        fotos: fotosLista,
-        favorito: widget.producto?.favorito ?? false,
-      );
+      final base = widget.producto;
+      final producto = (base ??
+              Producto(
+                codigo: '',
+                descripcion: '',
+                marca: '',
+                categoria: '',
+              ))
+          .copyWith(
+            id: base?.id,
+            codigo: codigoController.text.trim(),
+            codigoBarras: codigoBarrasController.text.trim(),
+            descripcion: descripcionController.text.trim(),
+            marca: marcaController.text.trim(),
+            categoria: categoriaController.text.trim(),
+            proveedor: proveedorController.text.trim(),
+            ubicacion: base?.ubicacion ?? '',
+            stock: int.tryParse(stockController.text) ?? 0,
+            stockMinimo: base?.stockMinimo ?? 0,
+            costo: _parseDbl(costoController.text),
+            precio: _parseDbl(precioController.text),
+            precio2: _parseDbl(precio2Controller.text),
+            precio3: _parseDbl(precio3Controller.text),
+            observaciones: observacionesController.text.trim(),
+            foto: foto,
+            fotos: fotosLista,
+            favorito: base?.favorito ?? false,
+            preciosListas: base?.preciosListas,
+            preciosBloqueados: base?.preciosBloqueados,
+            modelo: base?.modelo,
+            colorProducto: base?.colorProducto,
+            talle: base?.talle,
+            subcategoria: base?.subcategoria,
+            unidadVenta: base?.unidadVenta,
+            notasInternas: base?.notasInternas,
+          );
 
       if (widget.producto == null) {
         await service.insertar(producto);
@@ -333,7 +350,7 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
             15,
             15,
             15,
-            24 + MediaQuery.paddingOf(context).bottom,
+            24 + MediaQuery.viewPaddingOf(context).bottom,
           ),
           child: Column(
             children: [

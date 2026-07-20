@@ -13,6 +13,7 @@ const EdgeInsets kPagePadding = EdgeInsets.fromLTRB(16, 16, 16, 16);
 
 /// Padding de scroll con espacio inferior para no pisar la barra del sistema.
 EdgeInsets pageScrollPadding(BuildContext context, {double extraBottom = 32}) {
-  final bottom = MediaQuery.paddingOf(context).bottom;
+  // viewPadding incluye gesture/nav bar del APK; padding a veces da 0.
+  final bottom = MediaQuery.viewPaddingOf(context).bottom;
   return EdgeInsets.fromLTRB(16, 16, 16, 16 + bottom + extraBottom);
 }

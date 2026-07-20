@@ -210,11 +210,10 @@ class ProductoService {
       );
       if (anterior.isNotEmpty) {
         anteriorProducto = Producto.fromMap(anterior.first);
-        final costoCambio = anteriorProducto.costo != conFotos.costo;
-        var actualizado = conFotos;
-        if (costoCambio) {
-          actualizado = await _precioCalculador.aplicarListasDesdeCosto(conFotos);
-        }
+        // El formulario ya manda precios finales (y recalcula al cambiar costo).
+        // No pisar precio/precio2/precio3 con listas automáticas.
+        final actualizado = conFotos;
+        final costoCambio = anteriorProducto.costo != actualizado.costo;
 
         final costoAnterior = anteriorProducto.costo;
         final precioAnterior = anteriorProducto.precio;

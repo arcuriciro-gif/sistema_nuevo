@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/utils/busqueda_texto.dart';
 import '../database/database_helper.dart';
 import '../models/producto.dart';
 import '../theme/module_app_bar.dart';
@@ -58,58 +59,78 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
 
     setState(() => _cargando = true);
     final db = await DatabaseHelper.instance.database;
-    final like = '%$query%';
+    final tokens = BusquedaTexto.tokens(query);
 
-    final productos = await db.rawQuery(
+    // Productos: traer candidatos amplios y filtrar por tokens (papi ⊆ papifutbol).
+    final productosRaw = await db.rawQuery(
       '''
       SELECT * FROM productos
       WHERE (deleted_at IS NULL OR deleted_at = '')
-        AND (
-          codigo LIKE ? OR codigo_barras LIKE ? OR descripcion LIKE ?
-          OR marca LIKE ? OR categoria LIKE ?
-        )
       ORDER BY favorito DESC, descripcion
-      LIMIT 15
+      LIMIT 800
       ''',
-      [like, like, like, like, like],
     );
+    final productos = productosRaw
+        .where(
+          (row) => BusquedaTexto.coincideMapa(query, row, [
+            'descripcion',
+            'codigo',
+            'codigo_barras',
+            'marca',
+            'categoria',
+            'modelo',
+            'color_producto',
+            'talle',
+            'proveedor',
+          ]),
+        )
+        .take(15)
+        .toList();
+
+    String likeClause(String col) {
+      if (tokens.isEmpty) return '1=1';
+      return tokens.map((_) => '$col LIKE ?').join(' AND ');
+    }
+
+    List<String> likeArgs() => tokens.map((t) => '%$t%').toList();
+
     final clientes = await db.rawQuery(
       '''
       SELECT * FROM clientes
-      WHERE nombre LIKE ? OR apellido LIKE ? OR cuit LIKE ?
+      WHERE (${likeClause('nombre')} OR ${likeClause('apellido')} OR ${likeClause('cuit')})
       ORDER BY nombre
       LIMIT 10
       ''',
-      [like, like, like],
+      [...likeArgs(), ...likeArgs(), ...likeArgs()],
     );
     final proveedores = await db.rawQuery(
       '''
       SELECT * FROM proveedores
-      WHERE nombre LIKE ?
+      WHERE ${likeClause('nombre')}
       ORDER BY nombre
       LIMIT 10
       ''',
-      [like],
+      likeArgs(),
     );
     final remitos = await db.rawQuery(
       '''
       SELECT r.*, c.nombre AS clienteNombre
       FROM remitos r
       LEFT JOIN clientes c ON c.id = r.clienteId
-      WHERE r.numero LIKE ?
+      WHERE ${likeClause('r.numero')} OR ${likeClause('c.nombre')}
       ORDER BY datetime(r.fecha) DESC
       LIMIT 10
       ''',
-      [like],
+      [...likeArgs(), ...likeArgs()],
     );
     final compras = await db.rawQuery(
       '''
       SELECT * FROM compras
-      WHERE numero LIKE ?
+      WHERE ${likeClause('numero')}
       ORDER BY datetime(fecha) DESC
       LIMIT 10
       ''',
-      [like],
+      likeArgs(),
     );
 
     if (!mounted) return;

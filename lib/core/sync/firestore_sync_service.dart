@@ -1204,6 +1204,15 @@ class FirestoreSyncService {
     }
   }
 
+  Future<void> eliminarRemitoRemoto(String numero) async {
+    if (!_puedeEscribirRemoto || numero.isEmpty) return;
+    try {
+      await _remitosCol.doc(numero).delete();
+    } catch (e) {
+      debugPrint('Firestore eliminar remito: $e');
+    }
+  }
+
   /// Sube remito + ítems y empuja el stock actualizado de cada producto.
   Future<void> subirRemito(int remitoId) async {
     if (!_puedeEscribirRemoto) {

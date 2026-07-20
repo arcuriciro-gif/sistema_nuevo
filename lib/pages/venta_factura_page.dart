@@ -7,6 +7,7 @@ import '../models/pago.dart';
 import '../models/producto.dart';
 import '../models/venta.dart';
 import '../models/venta_item.dart';
+import '../core/utils/busqueda_texto.dart';
 import '../services/afip_service.dart';
 import '../services/branding_service.dart';
 import '../services/cliente_service.dart';
@@ -155,12 +156,19 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
     }
     setState(() => _buscando = true);
     final todos = await _prodSvc.obtenerTodos();
-    final q = query.toLowerCase();
-    _resultados = todos.where((p) {
-      return p.descripcion.toLowerCase().contains(q) ||
-          p.codigo.toLowerCase().contains(q) ||
-          p.marca.toLowerCase().contains(q);
-    }).take(20).toList();
+    _resultados = todos
+        .where(
+          (p) => BusquedaTexto.coincide(query, [
+            p.descripcion,
+            p.codigo,
+            p.marca,
+            p.modelo,
+            p.colorProducto,
+            p.talle,
+          ]),
+        )
+        .take(40)
+        .toList();
     if (!mounted) return;
     setState(() => _buscando = false);
   }

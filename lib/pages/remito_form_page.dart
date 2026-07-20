@@ -6,6 +6,7 @@ import '../models/cliente.dart';
 import '../models/producto.dart';
 import '../models/remito.dart';
 import '../models/remito_detalle.dart';
+import '../core/utils/busqueda_texto.dart';
 import '../services/cliente_service.dart';
 import '../services/documento_cliente_service.dart';
 import '../services/pdf_service.dart';
@@ -83,11 +84,18 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
   }
 
   void filtrarProductos(String texto) {
-    texto = texto.toLowerCase();
     productosFiltrados = productos
-        .where((p) =>
-            p.descripcion.toLowerCase().contains(texto) ||
-            p.codigo.toLowerCase().contains(texto))
+        .where(
+          (p) => BusquedaTexto.coincide(texto, [
+            p.descripcion,
+            p.codigo,
+            p.codigoBarras,
+            p.marca,
+            p.modelo,
+            p.colorProducto,
+            p.talle,
+          ]),
+        )
         .toList();
     setState(() {});
   }

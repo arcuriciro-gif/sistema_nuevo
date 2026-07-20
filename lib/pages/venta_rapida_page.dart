@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/utils/busqueda_texto.dart';
 import '../models/producto.dart';
 import '../models/remito.dart';
 import '../models/remito_detalle.dart';
@@ -91,13 +92,20 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
       }
     }
     final todos = await _prodSvc.obtenerTodos();
-    final q = query.toLowerCase();
-    final filtrados = todos.where((p) {
-      return p.descripcion.toLowerCase().contains(q) ||
-          p.codigo.toLowerCase().contains(q) ||
-          p.codigoBarras.toLowerCase().contains(q) ||
-          p.marca.toLowerCase().contains(q);
-    }).take(20).toList();
+    final filtrados = todos
+        .where(
+          (p) => BusquedaTexto.coincide(query, [
+            p.descripcion,
+            p.codigo,
+            p.codigoBarras,
+            p.marca,
+            p.modelo,
+            p.colorProducto,
+            p.talle,
+          ]),
+        )
+        .take(40)
+        .toList();
     if (!mounted) return;
     setState(() {
       _resultados = filtrados;

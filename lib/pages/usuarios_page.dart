@@ -53,6 +53,9 @@ class _UsuariosPageState extends State<UsuariosPage> {
 
   Future<void> _cargar() async {
     setState(() => _cargando = true);
+    try {
+      await PermisosService.instance.cargar();
+    } catch (_) {}
     _usuarios = await _service.obtenerTodos();
     _filtrar(_buscarController.text, refrescar: false);
     if (!mounted) return;
@@ -407,7 +410,7 @@ class _UsuariosPageState extends State<UsuariosPage> {
                                       dense: true,
                                     ),
                                   ),
-                                  if (_puedeEliminarUsuarios && usuario.activo)
+                                  if (_puedeEliminarUsuarios)
                                     const PopupMenuItem(
                                       value: 'eliminar',
                                       child: ListTile(

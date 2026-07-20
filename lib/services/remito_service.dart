@@ -258,6 +258,29 @@ class RemitoService {
     DataRefreshHub.instance.notifyTodo();
   }
 
+  /// Anula (si hace falta) y borra el remito de este equipo y de la nube.
+  Future<void> eliminar(int id) async {
+    final db = await dbHelper.database;
+    final rows = await db.query(
+      'remitos',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final remito = rows.first;
+    final numero = remito['numero']?.toString() ?? '';
+    if (remito['estado'] != 'anulado') {
+      await anular(id);
+    }
+    await db.delete('remito_items', where: 'remitoId = ?', whereArgs: [id]);
+    await db.delete('remitos', where: 'id = ?', whereArgs: [id]);
+    if (numero.isNotEmpty) {
+      await FirestoreSyncService.instance.eliminarRemitoRemoto(numero);
+    }
+    DataRefreshHub.instance.notifyTodo();
+  }
+
   Future<int> cantidad() async {
     final db = await dbHelper.database;
     final r = await db.rawQuery('SELECT COUNT(*) total FROM remitos');
