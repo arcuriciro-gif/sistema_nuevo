@@ -37,14 +37,29 @@ class UsuarioService {
     bool enviarEmailConfirmacion = false,
   }) async {
     _requiereAdministrador();
+    final usuarioNombre = usuario.usuario.trim();
+    if (usuarioNombre.isEmpty) {
+      throw StateError('El usuario no puede estar vacío.');
+    }
+
+    final existente = await _repoLocal.buscarPorUsuario(usuarioNombre);
+    if (existente != null) {
+      throw StateError(
+        'Ya existe el usuario "$usuarioNombre".\n\n'
+        'En Usuarios: editalo, cambiá la clave, o eliminalo si querés '
+        'crearlo de nuevo con otro permiso.',
+      );
+    }
+
     final ahora = DateTime.now();
     final rol = RolUtil.normalizar(usuario.rol);
     final passwordPlano = usuario.password;
     final emailReal = usuario.email.trim();
     final emailAuth = UsuarioAuthEmail.esEmailReal(emailReal)
         ? emailReal
-        : UsuarioAuthEmail.paraUsuario(usuario.usuario);
+        : UsuarioAuthEmail.paraUsuario(usuarioNombre);
     var nuevo = usuario.copyWith(
+      usuario: usuarioNombre,
       rol: rol,
       email: emailAuth,
       fechaCreacion: usuario.fechaCreacion ?? ahora,
@@ -57,22 +72,34 @@ class UsuarioService {
     var emailEnviado = false;
     String? aviso;
     if (firebase.disponible) {
-      final uid = await firebase.crearCuenta(
-        usuario.usuario,
-        passwordPlano,
-        email: emailAuth,
-        // No pisar la sesión Firebase del administrador.
-        iniciarSesionDespues: false,
-      );
-      nuevo = nuevo.copyWith(firebaseUid: uid);
+      try {
+        final uid = await firebase.crearCuenta(
+          usuarioNombre,
+          passwordPlano,
+          email: emailAuth,
+          // No pisar la sesión Firebase del administrador.
+          iniciarSesionDespues: false,
+        );
+        nuevo = nuevo.copyWith(firebaseUid: uid);
+      } catch (e) {
+        final texto = '$e';
+        if (texto.contains('email-already-in-use')) {
+          throw StateError(
+            'Ese usuario ya tiene cuenta en la nube.\n\n'
+            'Si es "$usuarioNombre", buscalo en la lista de Usuarios '
+            '(puede estar inactivo) y editalo o eliminalo.',
+          );
+        }
+        rethrow;
+      }
       await FirestoreUsuarioRepository().insertar(nuevo);
 
       final memberOk =
           await TenantMembershipService.instance.invitarOActualizarMiembro(
-        uid: uid,
+        uid: nuevo.firebaseUid!,
         rol: rol,
         email: emailAuth,
-        usuario: usuario.usuario,
+        usuario: usuarioNombre,
         activo: nuevo.activo,
       );
       if (!memberOk) {
@@ -84,13 +111,13 @@ class UsuarioService {
       if (enviarEmailConfirmacion && UsuarioAuthEmail.esEmailReal(emailReal)) {
         try {
           await firebase.enviarConfirmacionAlta(
-            usuario: usuario.usuario,
+            usuario: usuarioNombre,
             email: emailReal,
           );
           emailEnviado = true;
           aviso =
               'Usuario creado. Se envió un email a $emailReal para que elija clave.\n'
-              'Si no usa el email, puede entrar con usuario ${usuario.usuario} '
+              'Si no usa el email, puede entrar con usuario $usuarioNombre '
               'y la clave que definiste.';
         } catch (e) {
           debugPrint('Email confirmación alta: $e');
@@ -100,9 +127,9 @@ class UsuarioService {
         }
       } else {
         aviso ??=
-            'Usuario "${usuario.usuario}" creado.\n\n'
+            'Usuario "$usuarioNombre" creado.\n\n'
             'En el celular (misma empresa tata_stock / código de empresa):\n'
-            '• Usuario: ${usuario.usuario}\n'
+            '• Usuario: $usuarioNombre\n'
             '• Clave: la que definiste\n'
             '• Rol: ${RolUtil.etiqueta(rol)}\n\n'
             'No hace falta Google.';
@@ -114,7 +141,41 @@ class UsuarioService {
           'si debe entrar desde otro equipo.';
     }
 
-    final id = await _repoLocal.insertar(nuevo);
+    int id;
+    try {
+      id = await _repoLocal.insertar(nuevo);
+    } catch (e) {
+      final texto = '$e';
+      // Carrera con sync u otro alta: reutilizar fila local.
+      if (texto.contains('UNIQUE constraint failed') &&
+          texto.contains('usuarios.usuario')) {
+        final local = await _repoLocal.buscarPorUsuario(usuarioNombre);
+        if (local?.id != null) {
+          final merged = local!.copyWith(
+            firebaseUid: nuevo.firebaseUid ?? local.firebaseUid,
+            nombre: nuevo.nombre,
+            password: nuevo.password,
+            rol: nuevo.rol,
+            activo: true,
+            debeCambiarPassword: nuevo.debeCambiarPassword,
+            email: nuevo.email,
+          );
+          await _repoLocal.actualizar(merged);
+          id = local.id!;
+          aviso =
+              'El usuario "$usuarioNombre" ya estaba en este equipo; '
+              'se actualizó con la clave y el rol nuevos.\n\n'
+              'En el celular: usuario $usuarioNombre + la clave que definiste.';
+        } else {
+          throw StateError(
+            'Ya existe el usuario "$usuarioNombre". '
+            'Editalo o eliminalo desde la lista de Usuarios.',
+          );
+        }
+      } else {
+        rethrow;
+      }
+    }
 
     await AuthService.instance.registrarCambio(
       'CREAR_USUARIO',

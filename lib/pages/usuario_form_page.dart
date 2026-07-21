@@ -72,7 +72,13 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
           widget.usuario!.usuario.toLowerCase() != usuarioTexto.toLowerCase();
       if (cambiaUsuario && await _service.existeUsuario(usuarioTexto)) {
         messenger.showSnackBar(
-          const SnackBar(content: Text('Ya existe un usuario con ese nombre.')),
+          SnackBar(
+            content: Text(
+              'Ya existe el usuario "$usuarioTexto". '
+              'Editalo o eliminalo desde la lista.',
+            ),
+            duration: const Duration(seconds: 5),
+          ),
         );
         setState(() => _guardando = false);
         return;
@@ -129,7 +135,16 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
       }
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('No se pudo guardar: $e')));
+      final raw = '$e'.replaceFirst('Bad state: ', '');
+      final amigable = raw.contains('UNIQUE constraint failed')
+          ? 'Ese nombre de usuario ya existe. Editalo o eliminalo desde la lista.'
+          : raw;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(amigable),
+          duration: const Duration(seconds: 8),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _guardando = false);
     }
