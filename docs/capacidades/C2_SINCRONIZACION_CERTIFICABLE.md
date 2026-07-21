@@ -36,7 +36,7 @@
 
 ## Limitaciones conocidas
 
-1. Catch-up sigue limitando a 2000 docs recientes (paginación completa = mejora posterior).
+1. Catch-up de ventas/remitos/compras: ver Capacidad 9 (`docs/capacidades/C9_CATCHUP_PAGINADO.md`).
 2. Soft-delete cloud (`deletedAt`) no hard-borra el doc (auditoría); limpieza TTL opcional.
 3. Custom claims Admin SDK siguen pendientes (C1).
 4. Pruebas multi-dispositivo automatizadas E2E requieren Firebase emulator (no en este PR).
@@ -45,3 +45,5 @@
 
 Capacidad 2 **certificada condicionalmente** para avanzar a Capacidad 3.  
 Certificación plena de sync sigue exigiendo las pruebas de campo del checklist.
+
+> **Update 2026-07-21:** Capacidad 9 cierra el techo de catch-up 2000 (B6).

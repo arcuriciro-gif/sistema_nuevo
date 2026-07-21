@@ -14,6 +14,7 @@ import '../firebase/firebase_auth_usuario_service.dart';
 import '../firebase/firebase_bootstrap.dart';
 import '../utils/media_path.dart';
 import 'media_sync_service.dart';
+import 'sync_catchup.dart';
 import 'sync_health.dart';
 import 'sync_outbox.dart';
 import 'sync_tombstone.dart';
@@ -329,47 +330,28 @@ class FirestoreSyncService {
       await _subirProductosAusentesEnNube(db);
       await _flushColaStockOps();
 
-      final ventas = await db.query(
-        'ventas',
-        columns: ['id'],
-        orderBy: 'id DESC',
-        limit: 2000,
+      // Capacidad 9: catch-up paginado (sin techo fijo de 2000 recientes).
+      final nVentas = await SyncCatchup.instance.enqueueDocumentCatchup(
+        db: db,
+        table: 'ventas',
+        entityType: 'venta',
       );
-      for (final row in ventas) {
-        final id = (row['id'] as num?)?.toInt();
-        if (id != null) {
-          await SyncOutbox.instance
-              .enqueueUpsert(entityType: 'venta', localId: id);
-        }
-      }
-      final remitos = await db.query(
-        'remitos',
-        columns: ['id'],
-        orderBy: 'id DESC',
-        limit: 2000,
+      final nRemitos = await SyncCatchup.instance.enqueueDocumentCatchup(
+        db: db,
+        table: 'remitos',
+        entityType: 'remito',
       );
-      for (final row in remitos) {
-        final id = (row['id'] as num?)?.toInt();
-        if (id != null) {
-          await SyncOutbox.instance
-              .enqueueUpsert(entityType: 'remito', localId: id);
-        }
-      }
-      final compras = await db.query(
-        'compras',
-        columns: ['id'],
-        orderBy: 'id DESC',
-        limit: 2000,
+      final nCompras = await SyncCatchup.instance.enqueueDocumentCatchup(
+        db: db,
+        table: 'compras',
+        entityType: 'compra',
       );
-      for (final row in compras) {
-        final id = (row['id'] as num?)?.toInt();
-        if (id != null) {
-          await SyncOutbox.instance
-              .enqueueUpsert(entityType: 'compra', localId: id);
-        }
-      }
+      SyncHealthService.instance.markCollection(
+        'catchup',
+        'ventas=$nVentas remitos=$nRemitos compras=$nCompras',
+      );
 
-      await _procesarOutboxBatch();
+      await _procesarOutboxDrain(maxBatches: 25);
       SyncHealthService.instance.markCollection('outbox', 'flushed');
     } catch (e) {
       cycleError = '$e';
@@ -398,6 +380,37 @@ class FirestoreSyncService {
         await SyncOutbox.instance.fail(opId, e);
         SyncHealthService.instance.recordFail();
         debugPrint('Outbox fail $opId: $e');
+      }
+    }
+  }
+
+  /// Drena varios batches por ciclo (Capacidad 9).
+  Future<void> _procesarOutboxDrain({int maxBatches = 20}) async {
+    for (var i = 0; i < maxBatches; i++) {
+      final before = await SyncOutbox.instance.countByStatus(
+        SyncOutboxStatus.pending,
+      );
+      if (before == 0) {
+        final inflight = await SyncOutbox.instance.countByStatus(
+          SyncOutboxStatus.inflight,
+        );
+        if (inflight == 0) break;
+      }
+      final batch = await SyncOutbox.instance.claimBatch(limit: 80);
+      if (batch.isEmpty) break;
+      for (final op in batch) {
+        final opId = op['op_id']?.toString() ?? '';
+        if (opId.isEmpty) continue;
+        try {
+          await _ejecutarOutboxOp(op);
+          await SyncOutbox.instance.ack(opId);
+          SyncHealthService.instance.recordAck();
+          _syncMemoryColaTrasAck(op);
+        } catch (e) {
+          await SyncOutbox.instance.fail(opId, e);
+          SyncHealthService.instance.recordFail();
+          debugPrint('Outbox fail $opId: $e');
+        }
       }
     }
   }
@@ -1283,8 +1296,26 @@ class FirestoreSyncService {
   /// Solo productos que aún no tienen doc en la nube (incluye papelera local).
   Future<void> _subirProductosAusentesEnNube(Database db) async {
     try {
-      final remote = await _remote.obtenerTodos(limit: 10000);
-      final remoteCodigos = remote.map((p) => p.codigo.trim()).toSet();
+      // Capacidad 9: recorrer remoto por páginas (sin techo 10k oculto).
+      final remoteCodigos = <String>{};
+      DocumentSnapshot<Map<String, dynamic>>? cursor;
+      const pageSize = 500;
+      while (true) {
+        Query<Map<String, dynamic>> q =
+            _col('productos').orderBy(FieldPath.documentId).limit(pageSize);
+        if (cursor != null) {
+          q = q.startAfterDocument(cursor);
+        }
+        final snap = await q.get();
+        if (snap.docs.isEmpty) break;
+        for (final d in snap.docs) {
+          final codigo = d.data()['codigo']?.toString().trim() ?? d.id.trim();
+          if (codigo.isNotEmpty) remoteCodigos.add(codigo);
+        }
+        cursor = snap.docs.last;
+        if (snap.docs.length < pageSize) break;
+      }
+
       final locales = await db.query('productos', columns: ['id', 'codigo']);
       for (final row in locales) {
         final id = (row['id'] as num?)?.toInt();
