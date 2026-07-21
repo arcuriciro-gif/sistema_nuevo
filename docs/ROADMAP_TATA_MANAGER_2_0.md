@@ -1,10 +1,10 @@
 # Roadmap Tata.Manager 2.0 — De aplicación a plataforma
 
 Basado en `docs/AUDITORIA_CERTIFICACION_2026-07.md`.  
-Gobernado por `docs/ARCHITECTURE_PLATFORM.md` (**ADR vinculante**) y `docs/PLATFORM_CHARTER.md`.
+Gobernado por `docs/ARCHITECTURE_PLATFORM.md` (**ADR vinculante**), `docs/PLATFORM_CHARTER.md` y `docs/ENGINEERING_GOVERNANCE.md` (**simplicidad + métricas + NFRs**).
 
 **Filtro de toda fase:** ¿Funciona con 500 empresas, 5.000 usuarios simultáneos, millones de movimientos, multi-dispositivo y 10 años?  
-Si no → la entrega de esa fase se rediseña; no se “simplifica” violando el ADR.
+Si no → la entrega de esa fase se rediseña; no se “simplifica” violando el ADR ni se “complejiza” sin beneficio medible.
 
 Prioridad fija: **integridad > seguridad > consistencia > escala > simplicidad operacional > mantenibilidad > features**.
 
@@ -183,17 +183,15 @@ Cualquier feature nueva (UX, módulos) **se pospone** si abre huecos en A–C.
 
 ---
 
-## Decisión de producto requerida (bloquea Fase C)
+## Decisión de dominio (Fase C) — RESUELTA
 
-**Pregunta al negocio:** ¿La salida de mercadería real es el **Remito**, la **Venta/Factura**, o ambos?
+**Resuelta** por `ARCHITECTURE_PLATFORM.md` §2:
 
-| Respuesta | Implicación técnica |
-|---|---|
-| Solo remito | Ventas = documento comercial sin stock; UI debe dejarlo claro |
-| Solo venta | Remitos alineados o deprecados como movimiento |
-| Ambos | Motor único de stock; doble documento = doble evento = prohibido sin vínculo |
+- Venta / Remito / Factura **no** bajan stock.
+- Solo eventos de dominio: `MERCADERIA_ENTREGADA`, `DEVOLUCION_RECIBIDA`, `TRANSFERENCIA_CONFIRMADA`, `AJUSTE_INVENTARIO`, `MERCADERIA_RECIBIDA`, …
+- Un hecho físico = un `eventId`; dos documentos no pueden generar el mismo movimiento.
 
-Sin esta decisión, cualquier “fix de stock” será cosmética.
+Pendiente operativo: política por tenant de *cuándo* se emite `MERCADERIA_ENTREGADA` (configuración, no hardcode en `Tata.Core`).
 
 ---
 
@@ -203,12 +201,12 @@ Sin esta decisión, cualquier “fix de stock” será cosmética.
 |---|---|---|
 | A | Alta (rules + onboarding) | Firebase deploy + migración members |
 | B | Alta (sync core) | Refactor colas / tombstones |
-| C | Muy alta (dominio) | Decisión remito vs venta |
+| C | Muy alta (dominio) | ADR eventos/ledgers; Event Bus; no acoplar docs→stock |
 | D | Media | Tras A |
 | E | Media | Tras B |
 | F | Media | Tras tests mínimos |
 | G | Media-baja | Tras B/C |
-| H | Alta | Solo post-certificación núcleo |
+| H | Alta | Solo post-certificación núcleo (`Tata.Core` + plugins) |
 
 ---
 

@@ -3,6 +3,7 @@
 Documento de gobernanza del **estado actual en campo**. **No cambiar estos contratos sin migración versionada y aprobación.**
 
 **Arquitectura oficial de destino (VINCULANTE):** `ARCHITECTURE_PLATFORM.md`.  
+**Gobernanza de ingeniería (VINCULANTE, complementaria):** `ENGINEERING_GOVERNANCE.md`.  
 Doctrina CTO: `PLATFORM_CHARTER.md`.  
 Checklist de PRs: `PR_ARCHITECTURE_CHECKLIST.md`.
 

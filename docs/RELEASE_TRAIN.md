@@ -1,13 +1,16 @@
 # Release train — consolidación a main
 
-Gobernado por `ARCHITECTURE_PLATFORM.md` + `PLATFORM_CHARTER.md`:  
+Gobernado por `ARCHITECTURE_PLATFORM.md` + `PLATFORM_CHARTER.md` + `ENGINEERING_GOVERNANCE.md`:  
 sin release masivo mientras fallen aislamiento, integridad, ledgers o firma.  
 Todo PR de producto debe incluir `PR_ARCHITECTURE_CHECKLIST.md`.
 
 ## Objetivo
 Un instalador “oficial” desde `main`, sin depender de drafts eternos.  
 Piloto controlado ≠ venta a miles de clientes.  
-Release **no** se publica si fallan pruebas de migraciones/sync/stock/permisos/backup.
+Release **no** se publica si fallan pruebas de migraciones/sync/stock/permisos/backup, o si hay pérdida potencial de datos / vulnerabilidades críticas (`ENGINEERING_GOVERNANCE.md` §11).
+
+### North Star (release no debe degradar sin justificación)
+Ver objetivos en `ENGINEERING_GOVERNANCE.md` §3 (sync &lt;2s, búsqueda &lt;300ms, login &lt;1s, apertura &lt;3s, restore &lt;5min, pérdida de datos = 0).
 
 ## Criterio para merge a main
 1. CI Android + Windows en verde

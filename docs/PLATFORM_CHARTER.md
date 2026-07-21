@@ -202,6 +202,7 @@ Preferir lo aburrido y observable:
 | Documento | Rol |
 |---|---|
 | **`ARCHITECTURE_PLATFORM.md`** | **ADR oficial vinculante** (dominio, eventos, Core, plugins, DR, calidad) |
+| **`ENGINEERING_GOVERNANCE.md`** | **Gobernanza oficial** (simplicidad, métricas, NFRs, límites, calidad de código, release) — complementa, no modifica el ADR |
 | **Esta carta** | Filtro CTO + diseños descartados |
 | `ROADMAP_TATA_MANAGER_2_0.md` | Plan de migración a plataforma (Fases A–H) |
 | `AUDITORIA_CERTIFICACION_2026-07.md` | Diagnóstico del estado aplicación actual |
@@ -209,7 +210,7 @@ Preferir lo aburrido y observable:
 | `RELEASE_TRAIN.md` | Consolidar releases sin drafts eternos |
 | `PR_ARCHITECTURE_CHECKLIST.md` | Gate obligatorio de PRs |
 
-Ante conflicto entre “hacer que compile hoy” y estos docs: gana **`ARCHITECTURE_PLATFORM.md`**, luego esta carta.
+Ante conflicto entre “hacer que compile hoy” y estos docs: gana **`ARCHITECTURE_PLATFORM.md`**, luego esta carta, aplicando siempre **`ENGINEERING_GOVERNANCE.md`** (simplicidad medible).
 
 ---
 

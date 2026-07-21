@@ -2,7 +2,7 @@
 
 Pegar en la descripción de todo PR que toque `lib/`, rules, sync, schema o seguridad.
 
-Gobernado por: `docs/ARCHITECTURE_PLATFORM.md` + `docs/PLATFORM_CHARTER.md`.
+Gobernado por: `docs/ARCHITECTURE_PLATFORM.md` + `docs/PLATFORM_CHARTER.md` + `docs/ENGINEERING_GOVERNANCE.md`.
 
 ## Filtro de escala
 - [ ] ¿Sigue correcto con 500 empresas, 5.000 usuarios simultáneos, millones de movimientos, multi-dispositivo y 10 años?
@@ -30,11 +30,21 @@ Gobernado por: `docs/ARCHITECTURE_PLATFORM.md` + `docs/PLATFORM_CHARTER.md`.
 - [ ] ¿Outbox con ACK (no borrar cola antes de confirmar)?
 - [ ] ¿Compatibilidad de versiones de dominio/sync detectada?
 
+## Gobernanza de ingeniería
+- [ ] ¿Abstracción nueva justificada (problema, alternativas, beneficio medible)?
+- [ ] ¿Solución más simple que cumple ADR + NFRs?
+- [ ] ¿Clasificada Core / Vertical / Plugin?
+- [ ] ¿Dentro de product boundaries (no CRM/CMS/contable pleno/marketplace/…)?
+- [ ] ¿Métricas North Star citadas si toca rendimiento/sync?
+- [ ] ¿Documentación de contrato actualizada?
+- [ ] ¿Calidad de código no degradada?
+- [ ] ¿Regla de oro (segura/simple/mantenible/escalable/entendible/menos deuda/10 años)?
+
 ## Calidad
 - [ ] ¿Tests automatizados cubren el riesgo introducido?
 - [ ] ¿No degrada integridad/seguridad/escala existente?
 - [ ] ¿Otro equipo podría mantener esto en 5–10 años con docs/runbook?
 
 ## Veredicto
-- [ ] **APROBAR** — cumple ADR  
-- [ ] **RECHAZAR** — viola ADR (indicar ítem)
+- [ ] **APROBAR** — cumple ADR + gobernanza  
+- [ ] **RECHAZAR** — viola ADR o gobernanza (indicar ítem)

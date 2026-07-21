@@ -378,12 +378,14 @@ Construir una **plataforma ERP** moderna, escalable, segura, auditable, desacopl
 |---|---|---|
 | 1 | **Este ADR** (`ARCHITECTURE_PLATFORM.md`) | Dominio, eventos, core, plugins, calidad, DR — **VINCULANTE** |
 | 2 | `PLATFORM_CHARTER.md` | Filtro CTO, diseños descartados, SoT |
-| 3 | `ROADMAP_TATA_MANAGER_2_0.md` | Secuencia de migración |
-| 4 | `AUDITORIA_CERTIFICACION_2026-07.md` | Gap vs legado |
-| 5 | `ARCHITECTURE_CONTRACTS.md` | Contratos congelados del legado en campo |
+| 3 | `ENGINEERING_GOVERNANCE.md` | Gobernanza: simplicidad, métricas, NFRs, límites de producto, calidad, release |
+| 4 | `ROADMAP_TATA_MANAGER_2_0.md` | Secuencia de migración |
+| 5 | `AUDITORIA_CERTIFICACION_2026-07.md` | Gap vs legado |
+| 6 | `ARCHITECTURE_CONTRACTS.md` | Contratos congelados del legado en campo |
 | — | `PR_ARCHITECTURE_CHECKLIST.md` | Gate obligatorio de todo PR de producto |
 
-Ante conflicto entre legado y este ADR: el legado se **migra**; no se usa como excusa para violar el ADR en código nuevo.
+Ante conflicto entre legado y este ADR: el legado se **migra**; no se usa como excusa para violar el ADR en código nuevo.  
+Ante tensión ADR ↔ simplicidad: cumplir el ADR con la implementación **más simple** (`ENGINEERING_GOVERNANCE.md`).
 
 ---
 
