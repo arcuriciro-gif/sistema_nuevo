@@ -86,33 +86,12 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
   }
 
   Future<void> _cobrarRemito(Map<String, dynamic> remito) async {
-    final id = remito['id'] as int?;
-    if (id == null) return;
-    final total = (remito['total'] as num?)?.toDouble() ?? 0;
-    final ok = await showDialog<bool>(
+    final ok = await mostrarDialogoCobrarRemito(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Cobrar remito'),
-        content: Text(
-          '¿Marcar el remito ${remito['numero']} como cobrado '
-          '(\$${total.toStringAsFixed(2)})?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Cobrar'),
-          ),
-        ],
-      ),
+      remito: remito,
+      service: _service,
     );
-    if (ok == true) {
-      await _service.cobrarRemitoCompleto(id, clienteId: widget.clienteId);
-      await _cargar();
-    }
+    if (ok) await _cargar();
   }
 
   Future<void> _cobrarCualquiera() async {
@@ -125,9 +104,11 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
     }
     final remitosPend = _remitos.where((r) {
       final estado = (r['estado'] ?? '').toString();
-      final pago = (r['estadoPago'] ?? 'pendiente').toString();
       final total = (r['total'] as num?)?.toDouble() ?? 0;
-      return estado != 'anulado' && pago != 'cobrado' && total > 0.009;
+      final pagado = (r['totalPagado'] as num?)?.toDouble() ?? 0;
+      final saldo = (r['saldoPendiente'] as num?)?.toDouble() ??
+          (total - pagado).clamp(0, total).toDouble();
+      return estado != 'anulado' && saldo > 0.009;
     }).toList();
     if (remitosPend.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -324,10 +305,12 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
         final estado = (r['estado'] ?? '').toString();
         final pago = (r['estadoPago'] ?? 'pendiente').toString();
         final total = (r['total'] as num?)?.toDouble() ?? 0;
+        final pagado = (r['totalPagado'] as num?)?.toDouble() ?? 0;
+        final saldo = (r['saldoPendiente'] as num?)?.toDouble() ??
+            (total - pagado).clamp(0, total).toDouble();
         final fecha =
             DateTime.tryParse(r['fecha']?.toString() ?? '') ?? DateTime.now();
-        final puedeCobrar =
-            estado != 'anulado' && pago != 'cobrado' && total > 0.009;
+        final puedeCobrar = estado != 'anulado' && saldo > 0.009;
         return Card(
           child: InkWell(
             onTap: () async {
@@ -359,7 +342,8 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
                           ),
                         ),
                         Text(
-                          'Total \$${total.toStringAsFixed(2)}',
+                          'Total \$${total.toStringAsFixed(2)}'
+                          '${saldo < total - 0.009 ? ' · Debe \$${saldo.toStringAsFixed(2)}' : ''}',
                           style: TextStyle(
                             fontSize: 13,
                             color: cs.onSurfaceVariant,
@@ -414,7 +398,7 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
             title: Text('\$${p.monto.toStringAsFixed(2)}'),
             subtitle: Text(
               '${_fmtFecha(p.fecha)} · ${Pago.labelMedio(p.medioPago)}\n'
-              'Comp. ${p.ventaNumero ?? p.ventaId}'
+              '${p.comprobanteLabel}'
               '${p.observaciones.isNotEmpty ? ' · ${p.observaciones}' : ''}',
             ),
             isThreeLine: true,

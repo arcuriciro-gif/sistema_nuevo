@@ -21,6 +21,7 @@ on:
       - cursor/tenant-codigo-empresa-e44b
       - cursor/fix-nube-eliminar-usuarios-e44b
       - cursor/capacidad-6-integridad-stock-cc-e44b
+      - cursor/pagos-parciales-remitos-e44b
 
 jobs:
   build-android:

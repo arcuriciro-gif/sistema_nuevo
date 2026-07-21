@@ -10,6 +10,8 @@ class Remito {
   
   String estado; // 'pendiente', 'confirmado', 'anulado'
   String estadoPago; // 'pendiente', 'parcial', 'cobrado'
+  double totalPagado;
+  double saldoPendiente;
   String observaciones;
 
   double total;
@@ -24,10 +26,12 @@ class Remito {
     this.clienteId,
     required this.estado,
     this.estadoPago = 'pendiente',
+    this.totalPagado = 0,
+    double? saldoPendiente,
     required this.observaciones,
     required this.total,
     this.descuento = 0.0,
-  });
+  }) : saldoPendiente = saldoPendiente ?? total;
 
   Map<String, dynamic> toMap() {
     return {
@@ -39,6 +43,8 @@ class Remito {
       'clienteId': clienteId,
       'estado': estado,
       'estadoPago': estadoPago,
+      'totalPagado': totalPagado,
+      'saldoPendiente': saldoPendiente,
       'observaciones': observaciones,
       'total': total,
       'descuento': descuento,
@@ -46,46 +52,32 @@ class Remito {
   }
 
   factory Remito.fromMap(Map<String, dynamic> map) {
+    final total = (map['total'] ?? 0).toDouble();
+    final pagado = (map['totalPagado'] ?? 0).toDouble();
+    final saldoRaw = map['saldoPendiente'];
+    final saldo = saldoRaw == null
+        ? (total - pagado).clamp(0, total).toDouble()
+        : (saldoRaw as num).toDouble();
     return Remito(
       id: map['id'],
       numero: map['numero'] ?? '',
       fecha: DateTime.parse(map['fecha']),
       tipo: map['tipo'] ?? 'entrada',
       proveedorId: map['proveedorId'],
-      clienteId: map['clienteId'],
+      clienteId: map['clienteId']?.toString(),
       estado: map['estado'] ?? 'pendiente',
       estadoPago: map['estadoPago'] ?? 'pendiente',
+      totalPagado: pagado,
+      saldoPendiente: saldo,
       observaciones: map['observaciones'] ?? '',
-      total: (map['total'] ?? 0).toDouble(),
+      total: total,
       descuento: (map['descuento'] ?? 0).toDouble(),
     );
   }
 
-  Remito copyWith({
-    int? id,
-    String? numero,
-    DateTime? fecha,
-    String? tipo,
-    String? proveedorId,
-    String? clienteId,
-    String? estado,
-    String? estadoPago,
-    String? observaciones,
-    double? total,
-    double? descuento,
-  }) {
-    return Remito(
-      id: id ?? this.id,
-      numero: numero ?? this.numero,
-      fecha: fecha ?? this.fecha,
-      tipo: tipo ?? this.tipo,
-      proveedorId: proveedorId ?? this.proveedorId,
-      clienteId: clienteId ?? this.clienteId,
-      estado: estado ?? this.estado,
-      estadoPago: estadoPago ?? this.estadoPago,
-      observaciones: observaciones ?? this.observaciones,
-      total: total ?? this.total,
-      descuento: descuento ?? this.descuento,
-    );
+  static String estadoDesdeMontos(double total, double pagado) {
+    if (pagado <= 0.009) return 'pendiente';
+    if (pagado >= total - 0.009) return 'cobrado';
+    return 'parcial';
   }
 }

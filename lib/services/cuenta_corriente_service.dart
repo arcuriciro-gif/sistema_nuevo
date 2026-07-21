@@ -262,12 +262,11 @@ class CuentaCorrienteService {
             AND saldoPendiente > 0
             AND tipo NOT IN ('presupuesto')
         ) + (
-          SELECT COALESCE(SUM(total), 0)
+          SELECT COALESCE(SUM(COALESCE(saldoPendiente, total)), 0)
           FROM remitos
           WHERE clienteId = ?
             AND estado != 'anulado'
-            AND COALESCE(estadoPago, 'pendiente') != 'cobrado'
-            AND COALESCE(total, 0) > 0
+            AND COALESCE(saldoPendiente, total) > 0.009
         ) AS saldo
     ''', [clienteId, clienteId]);
     final saldo = (rows.first['saldo'] as num?)?.toDouble() ?? 0;
@@ -290,7 +289,7 @@ class CuentaCorrienteService {
     return db.query(
       'remitos',
       where:
-          "clienteId = ? AND estado != 'anulado' AND COALESCE(estadoPago, 'pendiente') != 'cobrado' AND COALESCE(total, 0) > 0.009",
+          "clienteId = ? AND estado != 'anulado' AND COALESCE(saldoPendiente, total) > 0.009",
       whereArgs: [clienteId],
       orderBy: 'fecha ASC, id ASC',
     );
@@ -307,12 +306,6 @@ class CuentaCorrienteService {
   }
 
   Future<void> cobrarRemitoCompleto(int remitoId, {int? clienteId}) async {
-    AuthorizationService.instance.require(
-      AuthModules.remitos,
-      AuthzAction.editar,
-      operacion: 'cobrar remito',
-    );
-    DomainBootstrap.ensureInitialized();
     final db = await _db.database;
     final rows = await db.query(
       'remitos',
@@ -321,41 +314,113 @@ class CuentaCorrienteService {
       limit: 1,
     );
     if (rows.isEmpty) return;
-    final remito = rows.first;
-    final anterior =
-        (remito['estadoPago']?.toString() ?? 'pendiente').trim();
-    if (anterior == 'cobrado') return;
+    final saldo = (rows.first['saldoPendiente'] as num?)?.toDouble() ??
+        (rows.first['total'] as num?)?.toDouble() ??
+        0;
+    if (saldo <= 0.009) return;
+    await registrarPagoRemito(
+      remitoId: remitoId,
+      monto: saldo,
+      medioPago: 'efectivo',
+      observaciones: 'Cobro total',
+    );
+  }
 
-    await db.update(
+  /// Registra un pago (parcial o total) sobre un remito.
+  Future<Pago> registrarPagoRemito({
+    required int remitoId,
+    required double monto,
+    required String medioPago,
+    String observaciones = '',
+    DateTime? fecha,
+  }) async {
+    AuthorizationService.instance.require(
+      AuthModules.remitos,
+      AuthzAction.editar,
+      operacion: 'registrar pago de remito',
+    );
+    if (monto <= 0) {
+      throw ArgumentError('El monto debe ser mayor a 0');
+    }
+    DomainBootstrap.ensureInitialized();
+    final db = await _db.database;
+    final rows = await db.query(
       'remitos',
-      {'estadoPago': 'cobrado'},
       where: 'id = ?',
       whereArgs: [remitoId],
+      limit: 1,
     );
-    final cid = clienteId ?? (remito['clienteId'] as int?);
+    if (rows.isEmpty) {
+      throw StateError('Remito no encontrado');
+    }
+    final remito = rows.first;
+    if (remito['estado']?.toString() == 'anulado') {
+      throw StateError('No se puede cobrar un remito anulado');
+    }
     final total = (remito['total'] as num?)?.toDouble() ?? 0;
+    final pagadoAntes = (remito['totalPagado'] as num?)?.toDouble() ?? 0;
+    final saldoRaw = (remito['saldoPendiente'] as num?)?.toDouble();
+    final saldo =
+        saldoRaw ?? (total - pagadoAntes).clamp(0, total).toDouble();
+    if (saldo <= 0.009) {
+      throw StateError('El remito ya está pagado');
+    }
+
+    final montoAplicado = monto > saldo ? saldo : monto;
+    final clienteId = remito['clienteId'] as int?;
     final numero = remito['numero']?.toString() ?? '$remitoId';
-    if (cid != null && total > 0.009) {
+    final pago = Pago(
+      remitoId: remitoId,
+      clienteId: clienteId,
+      fecha: fecha ?? DateTime.now(),
+      monto: montoAplicado,
+      medioPago: medioPago,
+      observaciones: observaciones,
+      remitoNumero: numero,
+    );
+
+    final pagoId = await db.transaction((txn) async {
+      final id = await txn.insert('pagos', pago.toMap()..remove('id'));
+      final nuevoPagado = pagadoAntes + montoAplicado;
+      final nuevoSaldo =
+          (total - nuevoPagado).clamp(0, total).toDouble();
+      await txn.update(
+        'remitos',
+        {
+          'totalPagado': nuevoPagado,
+          'saldoPendiente': nuevoSaldo,
+          'estadoPago': estadoDesdeMontos(total, nuevoPagado),
+        },
+        where: 'id = ?',
+        whereArgs: [remitoId],
+      );
+      return id;
+    });
+    pago.id = pagoId;
+
+    if (clienteId != null) {
+      await recalcularSaldoCliente(clienteId);
       final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
       await DomainEventBus.instance.publish(
         DomainEvent(
-          eventId: 'money:remito_cobrado:$remitoId',
+          eventId: 'money:remito_pago:$pagoId',
           type: DomainEventType.remitoCobrado,
           aggregateType: 'remito',
           aggregateId: '$remitoId',
           createdBy: user,
           payload: {
-            'clienteId': cid,
+            'clienteId': clienteId,
             'remitoId': remitoId,
-            'total': total,
-            'motivo': 'Remito $numero cobrado',
+            'pagoId': pagoId,
+            'total': montoAplicado,
+            'motivo': 'Pago remito $numero',
           },
         ),
       );
-      await recalcularSaldoCliente(cid);
     }
     await FirestoreSyncService.instance.subirRemito(remitoId);
     DataRefreshHub.instance.notifyTodo();
+    return pago;
   }
 
   Future<List<Venta>> ventasDeCliente(int clienteId) async {
@@ -389,9 +454,13 @@ class CuentaCorrienteService {
   Future<List<Pago>> pagosDeCliente(int clienteId) async {
     final db = await _db.database;
     final rows = await db.rawQuery('''
-      SELECT p.*, v.numero AS ventaNumero, c.nombre AS clienteNombre
+      SELECT p.*,
+             v.numero AS ventaNumero,
+             r.numero AS remitoNumero,
+             c.nombre AS clienteNombre
       FROM pagos p
       LEFT JOIN ventas v ON v.id = p.ventaId
+      LEFT JOIN remitos r ON r.id = p.remitoId
       LEFT JOIN clientes c ON c.id = p.clienteId
       WHERE p.clienteId = ?
       ORDER BY p.fecha DESC, p.id DESC
@@ -413,9 +482,13 @@ class CuentaCorrienteService {
   Future<List<Pago>> pagosPorPeriodo(DateTime desde, DateTime hasta) async {
     final db = await _db.database;
     final rows = await db.rawQuery('''
-      SELECT p.*, v.numero AS ventaNumero, c.nombre AS clienteNombre
+      SELECT p.*,
+             v.numero AS ventaNumero,
+             r.numero AS remitoNumero,
+             c.nombre AS clienteNombre
       FROM pagos p
       LEFT JOIN ventas v ON v.id = p.ventaId
+      LEFT JOIN remitos r ON r.id = p.remitoId
       LEFT JOIN clientes c ON c.id = p.clienteId
       WHERE p.fecha >= ? AND p.fecha <= ?
       ORDER BY p.fecha DESC, p.id DESC
@@ -425,7 +498,6 @@ class CuentaCorrienteService {
 
   Future<List<ClienteDeudor>> clientesDeudores() async {
     final db = await _db.database;
-    // Une deudas de facturas/ventas + remitos no cobrados
     final rows = await db.rawQuery('''
       SELECT
         clienteId,
@@ -452,14 +524,13 @@ class CuentaCorrienteService {
           c.id AS clienteId,
           TRIM(c.nombre || ' ' || COALESCE(c.apellido, '')) AS nombre,
           COALESCE(c.telefono, '') AS telefono,
-          COALESCE(r.total, 0) AS saldoPendiente,
+          COALESCE(r.saldoPendiente, r.total, 0) AS saldoPendiente,
           1 AS ops,
           r.fecha AS ultimaCompra
         FROM clientes c
         INNER JOIN remitos r ON r.clienteId = c.id
         WHERE r.estado != 'anulado'
-          AND COALESCE(r.estadoPago, 'pendiente') != 'cobrado'
-          AND COALESCE(r.total, 0) > 0.009
+          AND COALESCE(r.saldoPendiente, r.total, 0) > 0.009
       )
       GROUP BY clienteId
       HAVING saldoPendiente > 0.009
@@ -484,10 +555,10 @@ class CuentaCorrienteService {
   Future<double> _montoRemitosPendientes() async {
     final db = await _db.database;
     final rows = await db.rawQuery('''
-      SELECT COALESCE(SUM(total), 0) AS total
+      SELECT COALESCE(SUM(COALESCE(saldoPendiente, total)), 0) AS total
       FROM remitos
       WHERE estado != 'anulado'
-        AND COALESCE(estadoPago, 'pendiente') != 'cobrado'
+        AND COALESCE(saldoPendiente, total) > 0.009
         AND clienteId IS NOT NULL
     ''');
     return (rows.first['total'] as num?)?.toDouble() ?? 0;
@@ -499,7 +570,7 @@ class CuentaCorrienteService {
       SELECT COUNT(*) AS c
       FROM remitos
       WHERE estado != 'anulado'
-        AND COALESCE(estadoPago, 'pendiente') != 'cobrado'
+        AND COALESCE(saldoPendiente, total) > 0.009
         AND clienteId IS NOT NULL
     ''');
     return (rows.first['c'] as int?) ?? 0;

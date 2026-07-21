@@ -51,7 +51,14 @@ class RemitoService {
           'total': remito.total,
           'descuento': remito.descuento,
           'estado': remito.estado,
-          'estadoPago': remito.estadoPago,
+          'estadoPago': Remito.estadoDesdeMontos(
+            remito.total,
+            remito.totalPagado,
+          ),
+          'totalPagado': remito.totalPagado,
+          'saldoPendiente': (remito.total - remito.totalPagado)
+              .clamp(0, remito.total)
+              .toDouble(),
           'observaciones': remito.observaciones,
           'fechaCreacion': DateTime.now().toIso8601String(),
         },
@@ -125,9 +132,7 @@ class RemitoService {
     if (clienteIdInt != null) {
       await CuentaCorrienteService().recalcularSaldoCliente(clienteIdInt);
       // Capacidad 6: remito cobrable → money ledger (además del stock).
-      final estadoPago =
-          (remito.estadoPago).trim().isEmpty ? 'pendiente' : remito.estadoPago;
-      if (remito.total > 0.009 && estadoPago != 'cobrado') {
+      if (remito.total > 0.009) {
         final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
         await DomainEventBus.instance.publish(
           DomainEvent(
@@ -144,6 +149,23 @@ class RemitoService {
             },
           ),
         );
+        if (remito.totalPagado > 0.009) {
+          await DomainEventBus.instance.publish(
+            DomainEvent(
+              eventId: 'money:remito_cobrado_inicial:$remitoId',
+              type: DomainEventType.remitoCobrado,
+              aggregateType: 'remito',
+              aggregateId: '$remitoId',
+              createdBy: user,
+              payload: {
+                'clienteId': clienteIdInt,
+                'remitoId': remitoId,
+                'total': remito.totalPagado,
+                'motivo': 'Pago inicial remito ${remito.numero}',
+              },
+            ),
+          );
+        }
       }
     }
     DataRefreshHub.instance.notifyTodo();
@@ -213,50 +235,78 @@ class RemitoService {
     final db = await dbHelper.database;
     final rows = await db.query(
       'remitos',
-      columns: ['clienteId', 'total', 'numero', 'estadoPago', 'estado'],
+      columns: [
+        'clienteId',
+        'total',
+        'numero',
+        'estadoPago',
+        'estado',
+        'totalPagado',
+        'saldoPendiente',
+      ],
       where: 'id = ?',
       whereArgs: [id],
       limit: 1,
     );
     if (rows.isEmpty) return;
+    final total = (rows.first['total'] as num?)?.toDouble() ?? 0;
     final anterior =
         (rows.first['estadoPago']?.toString() ?? 'pendiente').trim();
     final nuevo = estadoPago.trim().isEmpty ? 'pendiente' : estadoPago.trim();
-    if (anterior == nuevo) return;
+    if (anterior == nuevo && nuevo != 'cobrado') return;
+
+    // Solo atajos de estado: cobrado = pagar todo el saldo; pendiente = reset.
+    // Para montos parciales usar CuentaCorrienteService.registrarPagoRemito.
+    double totalPagado;
+    double saldoPendiente;
+    if (nuevo == 'cobrado') {
+      totalPagado = total;
+      saldoPendiente = 0;
+    } else if (nuevo == 'pendiente') {
+      totalPagado = 0;
+      saldoPendiente = total;
+    } else {
+      // 'parcial' sin monto: no cambia cifras (usar diálogo de cobro).
+      return;
+    }
 
     await db.update(
       'remitos',
-      {'estadoPago': nuevo},
+      {
+        'estadoPago': nuevo,
+        'totalPagado': totalPagado,
+        'saldoPendiente': saldoPendiente,
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
     final clienteId = rows.first['clienteId'] as int?;
-    final total = (rows.first['total'] as num?)?.toDouble() ?? 0;
     final numero = rows.first['numero']?.toString() ?? '$id';
     final anulado = rows.first['estado']?.toString() == 'anulado';
+    final pagadoAntes = (rows.first['totalPagado'] as num?)?.toDouble() ?? 0;
 
-    if (!anulado &&
-        clienteId != null &&
-        total > 0.009 &&
-        (anterior == 'cobrado') != (nuevo == 'cobrado')) {
+    if (!anulado && clienteId != null && total > 0.009) {
       final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
-      if (nuevo == 'cobrado') {
-        await DomainEventBus.instance.publish(
-          DomainEvent(
-            eventId: 'money:remito_cobrado:$id',
-            type: DomainEventType.remitoCobrado,
-            aggregateType: 'remito',
-            aggregateId: '$id',
-            createdBy: user,
-            payload: {
-              'clienteId': clienteId,
-              'remitoId': id,
-              'total': total,
-              'motivo': 'Remito $numero cobrado',
-            },
-          ),
-        );
-      } else if (anterior == 'cobrado') {
+      if (nuevo == 'cobrado' && anterior != 'cobrado') {
+        final delta = (total - pagadoAntes).clamp(0, total).toDouble();
+        if (delta > 0.009) {
+          await DomainEventBus.instance.publish(
+            DomainEvent(
+              eventId: 'money:remito_cobrado:$id:${DateTime.now().millisecondsSinceEpoch}',
+              type: DomainEventType.remitoCobrado,
+              aggregateType: 'remito',
+              aggregateId: '$id',
+              createdBy: user,
+              payload: {
+                'clienteId': clienteId,
+                'remitoId': id,
+                'total': delta,
+                'motivo': 'Remito $numero cobrado',
+              },
+            ),
+          );
+        }
+      } else if (anterior == 'cobrado' && nuevo == 'pendiente') {
         await DomainEventBus.instance.publish(
           DomainEvent(
             eventId: 'money:remito_cobro_rev:$id',
@@ -267,7 +317,7 @@ class RemitoService {
             payload: {
               'clienteId': clienteId,
               'remitoId': id,
-              'total': total,
+              'total': pagadoAntes > 0.009 ? pagadoAntes : total,
               'motivo': 'Cobro remito $numero revertido',
             },
           ),
@@ -294,7 +344,7 @@ class RemitoService {
     String? numero;
     int? clienteId;
     double total = 0;
-    var estadoPago = 'pendiente';
+    double saldoPendiente = 0;
     final lines = <Map<String, dynamic>>[];
 
     await db.transaction((txn) async {
@@ -316,7 +366,10 @@ class RemitoService {
       numero = remito['numero']?.toString();
       clienteId = remito['clienteId'] as int?;
       total = (remito['total'] as num?)?.toDouble() ?? 0;
-      estadoPago = (remito['estadoPago']?.toString() ?? 'pendiente').trim();
+      final pagado = (remito['totalPagado'] as num?)?.toDouble() ?? 0;
+      final saldoRaw = (remito['saldoPendiente'] as num?)?.toDouble();
+      saldoPendiente = saldoRaw ??
+          (total - pagado).clamp(0, total).toDouble();
 
       final items = await txn.query(
         'remito_items',
@@ -364,7 +417,7 @@ class RemitoService {
       );
     }
 
-    if (clienteId != null && total > 0.009 && estadoPago != 'cobrado') {
+    if (clienteId != null && saldoPendiente > 0.009) {
       final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
       await DomainEventBus.instance.publish(
         DomainEvent(
@@ -376,8 +429,8 @@ class RemitoService {
           payload: {
             'clienteId': clienteId,
             'remitoId': id,
-            'total': total,
-            'motivo': 'Remito ${numero ?? id} anulado',
+            'total': saldoPendiente,
+            'motivo': 'Remito ${numero ?? id} anulado (saldo pendiente)',
           },
         ),
       );
