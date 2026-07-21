@@ -15,7 +15,8 @@ Varias filas de este documento son **legado tolerado en migración**, no el dise
 Última actualización: 2026-07-21 · Schema SQLite: **v29** · Tenant default: **`tata_stock`** (legado — a eliminar en Roadmap 2.0 Fase A)
 
 > Capacidad 7 (deletes durables): sin bump de schema — reutiliza `sync_outbox` (+ `stock_op`) y tombstones remotos. Ver `docs/capacidades/C7_DELETES_CONVERGENCIA.md`.  
-> Capacidad 8 (reconciliación): v29 `integrity_alarms` / `integrity_scan_meta`. Ver `docs/capacidades/C8_RECONCILIACION_ALARMAS.md`.
+> Capacidad 8 (reconciliación): v29 `integrity_alarms` / `integrity_scan_meta`. Ver `docs/capacidades/C8_RECONCILIACION_ALARMAS.md`.  
+> Capacidad 9 (catch-up): cursores en `sync_watermarks` (`catchup_cursor:*`), sin bump. Ver `docs/capacidades/C9_CATCHUP_PAGINADO.md`.
 
 ---
 

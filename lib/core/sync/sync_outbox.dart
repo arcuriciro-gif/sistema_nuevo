@@ -338,6 +338,26 @@ class SyncOutbox {
     return rows.isNotEmpty;
   }
 
+  /// Capacidad 9: ¿hace falta encolar catch-up?
+  /// true si nunca estuvo en outbox o quedó `dead` (no reabre `acked`).
+  Future<bool> needsCatchupUpsert({
+    required String entityType,
+    required int localId,
+  }) async {
+    final db = await _db;
+    final opId = 'upsert:$entityType:$localId';
+    final rows = await db.query(
+      'sync_outbox',
+      columns: ['status'],
+      where: 'op_id = ?',
+      whereArgs: [opId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return true;
+    final status = rows.first['status']?.toString() ?? '';
+    return status == SyncOutboxStatus.dead;
+  }
+
   /// Migra colas legacy de SharedPreferences (IDs) al outbox.
   Future<void> migrateLegacyIdSet({
     required String entityType,
