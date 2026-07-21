@@ -28,6 +28,7 @@ import 'compras_page.dart';
 import 'comunicaciones_page.dart';
 import 'configuracion_page.dart';
 import 'dashboard_page.dart';
+import 'panel_tecnico_page.dart';
 import 'etiquetas_page.dart';
 import 'inicio_page.dart';
 import 'importacion_page.dart';
@@ -65,6 +66,7 @@ class _ShellItem {
   final String modulo;
   final Widget Function() builder;
   final bool quickAccess;
+  final bool soloAdmin;
 
   const _ShellItem({
     required this.icon,
@@ -72,6 +74,7 @@ class _ShellItem {
     required this.modulo,
     required this.builder,
     this.quickAccess = false,
+    this.soloAdmin = false,
   });
 
   /// Id estable para preferencias de barra lateral.
@@ -386,6 +389,13 @@ class _MainShellState extends State<MainShell> {
           builder: () => const BackupPage(),
         ),
         _ShellItem(
+          icon: Icons.monitor_heart_rounded,
+          title: 'Panel técnico',
+          modulo: 'auditoria',
+          builder: () => const PanelTecnicoPage(),
+          soloAdmin: true,
+        ),
+        _ShellItem(
           icon: Icons.menu_book_rounded,
           title: 'Manual de usuario',
           modulo: 'dashboard',
@@ -402,7 +412,9 @@ class _MainShellState extends State<MainShell> {
   List<_ShellItem> get _visibleItems {
     final rol = AuthService.instance.currentUser?.rol ?? 'empleado';
     final prefs = SidebarPreferenciasService.instance;
+    final isAdmin = AuthService.instance.esAdministrador();
     return _items
+        .where((item) => !item.soloAdmin || isAdmin)
         .where((item) => PermisosService.instance.puedeVer(rol, item.modulo))
         .where((item) => prefs.estaVisible(item.preferenciaId))
         .toList();

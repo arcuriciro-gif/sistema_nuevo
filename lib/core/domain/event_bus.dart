@@ -36,7 +36,7 @@ class DomainEventBus {
     }
   }
 
-  @visibleForTesting
+  /// Solo para tests / DomainBootstrap.resetForTests.
   void resetForTests() {
     _handlers.clear();
     _any.clear();

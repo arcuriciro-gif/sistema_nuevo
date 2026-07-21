@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../models/cliente.dart';
-import '../services/cliente_service.dart';
 import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';

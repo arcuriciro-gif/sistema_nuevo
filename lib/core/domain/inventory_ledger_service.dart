@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:sqflite/sqflite.dart';
 
 import '../../database/database_helper.dart';
 import '../../models/movimiento_stock.dart';
@@ -29,7 +28,6 @@ class InventoryLedgerService {
     bus.subscribe(DomainEventType.ajusteInventario, _onAjuste);
   }
 
-  @visibleForTesting
   void resetForTests() {
     _registered = false;
   }

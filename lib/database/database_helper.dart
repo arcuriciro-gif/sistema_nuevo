@@ -102,15 +102,55 @@ class DatabaseHelper {
 
     debugPrint('Base de datos: $path');
 
-    final db = await openDatabase(
-      path,
-      version: 27,
-      onCreate: _onCreate,
-      onUpgrade: _onUpgrade,
-    );
-    // Por si la tabla existe vacía o se perdió el admin.
-    await _crearTablaUsuarios(db);
-    return db;
+    try {
+      final db = await openDatabase(
+        path,
+        version: 27,
+        onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
+      );
+      await _verificarIntegridadOQuarentena(db, path);
+      // Por si la tabla existe vacía o se perdió el admin.
+      await _crearTablaUsuarios(db);
+      return db;
+    } catch (e) {
+      debugPrint('DB open/integrity falló: $e — intentando cuarentena');
+      await _cuarentenaDb(path);
+      final db = await openDatabase(
+        path,
+        version: 27,
+        onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
+      );
+      await _crearTablaUsuarios(db);
+      return db;
+    }
+  }
+
+  Future<void> _verificarIntegridadOQuarentena(Database db, String path) async {
+    final rows = await db.rawQuery('PRAGMA integrity_check');
+    final result = rows.isEmpty ? '' : rows.first.values.first?.toString();
+    if (result?.toLowerCase() == 'ok') return;
+    await db.close();
+    _database = null;
+    throw StateError('PRAGMA integrity_check falló: $result');
+  }
+
+  Future<void> _cuarentenaDb(String path) async {
+    final file = File(path);
+    if (!await file.exists()) return;
+    final stamp = DateTime.now().toUtc().millisecondsSinceEpoch;
+    final bad = '$path.bad.$stamp';
+    try {
+      await file.rename(bad);
+      debugPrint('DB en cuarentena: $bad');
+    } catch (e) {
+      debugPrint('No se pudo cuarentenaear DB: $e');
+      try {
+        await file.copy(bad);
+        await file.delete();
+      } catch (_) {}
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -691,8 +731,14 @@ CREATE TABLE IF NOT EXISTS ventas_items(
         await db.execute(
           'ALTER TABLE $tabla ADD COLUMN ${entry.key} ${entry.value}',
         );
-      } catch (_) {
-        // column already exists
+      } catch (e) {
+        final msg = e.toString().toLowerCase();
+        // Solo tolerar columna ya existente; cualquier otro error es fatal.
+        if (msg.contains('duplicate column') ||
+            msg.contains('already exists')) {
+          continue;
+        }
+        rethrow;
       }
     }
   }
@@ -1219,4 +1265,7 @@ CREATE TABLE IF NOT EXISTS comentarios_internos(
     }
     _database = null;
   }
+
+  /// Versión de schema declarada por la app (Capacidad 5 / panel técnico).
+  static const int schemaVersion = 27;
 }

@@ -1,8 +1,6 @@
 @echo off
 REM Copia el build Windows listo a la carpeta raiz Instalador_Windows
 REM Uso (despues de compilar):
-REM   scripts\preparar_instalador_windows.bat
-REM o:
 REM   flutter build windows --release
 REM   scripts\preparar_instalador_windows.bat
 
@@ -10,10 +8,12 @@ setlocal
 set "ROOT=%~dp0.."
 set "SRC=%ROOT%\build\windows\x64\runner\Release"
 set "DST=%ROOT%\Instalador_Windows"
+set "EXE=Tata.Manager.exe"
 
-if not exist "%SRC%\sistema_nuevo.exe" (
+if not exist "%SRC%\%EXE%" (
   echo.
-  echo [ERROR] No encontre el .exe.
+  echo [ERROR] No encontre %EXE% en:
+  echo   %SRC%
   echo Primero compilá con:
   echo   flutter build windows --release
   echo.
@@ -40,21 +40,23 @@ if errorlevel 1 (
   exit /b 1
 )
 
-REM Asegurar PDF del manual
+if exist "%ROOT%\packaging\windows\ABRIR_TATA_MANAGER.bat" (
+  copy /Y "%ROOT%\packaging\windows\ABRIR_TATA_MANAGER.bat" "%DST%\" >nul
+)
+if exist "%ROOT%\packaging\windows\LEEME.txt" (
+  copy /Y "%ROOT%\packaging\windows\LEEME.txt" "%DST%\" >nul
+)
 if exist "%ROOT%\assets\docs\MANUAL_DE_USO.pdf" (
-  copy /Y "%ROOT%\assets\docs\MANUAL_DE_USO.pdf" "%DST%\MANUAL_DE_USO.pdf" >nul
+  copy /Y "%ROOT%\assets\docs\MANUAL_DE_USO.pdf" "%DST%\" >nul
 )
 
-REM Accesos faciles
-copy /Y "%~dp0..\packaging\windows\ABRIR_TATA_MANAGER.bat" "%DST%\ABRIR_TATA_MANAGER.bat" >nul
-copy /Y "%~dp0..\packaging\windows\LEEME.txt" "%DST%\LEEME.txt" >nul
+echo Generando SHA256SUMS.txt ...
+powershell -NoProfile -Command ^
+  "Get-ChildItem -File '%DST%' | ForEach-Object { $h=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(); '{0}  {1}' -f $h, $_.Name } | Set-Content -Encoding ascii '%DST%\SHA256SUMS.txt'"
 
 echo.
-echo Listo. Carpeta lista para copiar a otra PC:
-echo   %DST%
+echo Listo: %DST%\%EXE%
+dir /b "%DST%"
 echo.
-echo Abrí ABRIR_TATA_MANAGER.bat o sistema_nuevo.exe
-echo NO muevas solo el .exe: tiene que ir toda la carpeta.
-echo.
-explorer "%DST%"
+pause
 endlocal
