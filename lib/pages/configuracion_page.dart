@@ -139,6 +139,45 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     );
   }
 
+  Future<void> _mostrarCodigoRecuperacionAdmin() async {
+    var codigo = await AuthService.instance.codigoRecuperacionAdminVisible();
+    codigo ??= await AuthService.instance.asegurarCodigoRecuperacionAdmin();
+    if (!mounted) return;
+    if (codigo == null || codigo.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No hay código visible. Cambiá la clave de admin para generar uno nuevo.',
+          ),
+        ),
+      );
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Código de recuperación'),
+        content: Text(
+          'Guardalo fuera de esta PC.\n\nCódigo: $codigo\n\n'
+          'En el login: «Recuperar admin con código».',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await AuthService.instance.ocultarCodigoRecuperacionAdmin();
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            },
+            child: const Text('Ocultar de la app'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     themeProvider.removeListener(_onThemeChanged);
@@ -426,6 +465,31 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                         color: colorScheme.onSurfaceVariant,
                       ),
                     ),
+                    if (AuthService.instance.esAdministrador()) ...[
+                      const SizedBox(height: 16),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Seguridad admin',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'El código de recuperación reemplaza a admin123 después '
+                        'de cambiar la clave. Guardalo fuera de la PC.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: _mostrarCodigoRecuperacionAdmin,
+                        icon: const Icon(Icons.vpn_key_outlined),
+                        label: const Text('Ver código de recuperación'),
+                      ),
+                    ],
                   ],
                 ),
               ),

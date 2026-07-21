@@ -25,5 +25,6 @@ Proyecto Firebase: `tata-stock-8631e`
 4. Authentication → Sign-in method → **Google** → Enabled
 5. Descargá de nuevo `google-services.json` y reemplazá `android/app/google-services.json` (opcional pero recomendado)
 6. Esperá 5–10 minutos, reinstalá el APK nuevo
+7. (Fase 1) Publicá también `firestore.rules` y `storage.rules` del repo — sin membership las lecturas/escrituras de sync fallan
 
 Sin este paso, Google en el celular **siempre** falla con error 10.

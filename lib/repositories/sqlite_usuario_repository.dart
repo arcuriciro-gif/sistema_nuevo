@@ -77,7 +77,8 @@ class SqliteUsuarioRepository implements UsuarioRepository {
       firebaseUid: usuario.firebaseUid ?? existente.firebaseUid,
       nombre: usuario.nombre.isNotEmpty ? usuario.nombre : existente.nombre,
       usuario: usuario.usuario.isNotEmpty ? usuario.usuario : existente.usuario,
-      password: usuario.password.isNotEmpty ? usuario.password : existente.password,
+      // Fase 1: la contraseña NUNCA viene de la nube (solo local / Auth).
+      password: existente.password,
       rol: usuario.rol,
       activo: usuario.activo,
       debeCambiarPassword: usuario.debeCambiarPassword,

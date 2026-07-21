@@ -48,6 +48,32 @@ class _CambiarPasswordObligatorioPageState
     try {
       await AuthService.instance.completarCambioPasswordObligatorio(nueva);
       if (!mounted) return;
+      final codigo =
+          await AuthService.instance.codigoRecuperacionAdminVisible();
+      if (!mounted) return;
+      if (codigo != null && codigo.isNotEmpty) {
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Código de recuperación'),
+            content: Text(
+              'Guardá este código en un lugar seguro. Si olvidás la clave '
+              'de admin, lo usás en el login.\n\n'
+              'Código: $codigo\n\n'
+              'No se vuelve a mostrar completo después de cerrar este aviso '
+              '(podés verlo una vez más en Configuración).',
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Ya lo guardé'),
+              ),
+            ],
+          ),
+        );
+      }
+      if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const MainShell()),
       );

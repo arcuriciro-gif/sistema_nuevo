@@ -70,6 +70,11 @@ class FirestoreUsuarioRepository implements UsuarioRepository {
       throw StateError('firebaseUid requerido para guardar en Firestore.');
     }
     await _collection.doc(uid).set(usuario.toFirestore(), SetOptions(merge: true));
+    // Limpiar hash legado si existía.
+    await _collection.doc(uid).set(
+      {'password': FieldValue.delete()},
+      SetOptions(merge: true),
+    );
     return uid.hashCode;
   }
 
@@ -86,6 +91,8 @@ class FirestoreUsuarioRepository implements UsuarioRepository {
     if (!esHttp) {
       data.remove('foto');
     }
+    // Fase 1: borrar hashes antiguos si quedaron en la nube.
+    data['password'] = FieldValue.delete();
     await _collection.doc(uid).set(data, SetOptions(merge: true));
     return 1;
   }

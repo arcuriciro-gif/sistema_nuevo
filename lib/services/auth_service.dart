@@ -11,6 +11,8 @@ import '../core/events/data_refresh_hub.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/firebase/firebase_bootstrap.dart';
 import '../core/firebase/firebase_safe_mode.dart';
+import '../core/firebase/tenant_membership_service.dart';
+import '../core/security/admin_access_policy.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
 import '../core/utils/media_path.dart';
@@ -64,8 +66,14 @@ class AuthService {
     var local = await sqlite.buscarPorUsuario(entrada);
 
     if (entrada.toLowerCase() == 'admin' && password == 'admin123') {
-      const hashAdmin123 =
-          '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
+      final policy = AdminAccessPolicy.instance;
+      if (!await policy.isDefaultRecoveryEnabled()) {
+        auth.lastLoginError =
+            'La clave inicial admin123 ya no está habilitada.\n'
+            'Usá tu contraseña o el código de recuperación (Configuración).';
+        return null;
+      }
+      const hashAdmin123 = AdminAccessPolicy.hashAdmin123;
       final ahora = DateTime.now();
       if (local == null) {
         final id = await (await DatabaseHelper.instance.database).insert(
@@ -76,7 +84,7 @@ class AuthService {
             'password': hashAdmin123,
             'rol': 'admin',
             'activo': 1,
-            'debe_cambiar_password': 0,
+            'debe_cambiar_password': 1,
             'email': 'admin@tata-stock.tatastock.app',
             'fechaCreacion': ahora.toIso8601String(),
             'ultimoAcceso': ahora.toIso8601String(),
@@ -89,6 +97,7 @@ class AuthService {
           password: hashAdmin123,
           rol: 'admin',
           activo: true,
+          debeCambiarPassword: true,
           email: 'admin@tata-stock.tatastock.app',
           fechaCreacion: ahora,
           ultimoAcceso: ahora,
@@ -98,10 +107,14 @@ class AuthService {
           password: hashAdmin123,
           activo: true,
           rol: 'admin',
-          debeCambiarPassword: false,
+          debeCambiarPassword: true,
         );
         await sqlite.actualizar(local);
+      } else {
+        local = local.copyWith(debeCambiarPassword: true);
+        await sqlite.actualizar(local);
       }
+      await policy.ensureRecoveryCode();
     }
 
     if (local == null || !local.activo || local.password != _hash(password)) {
@@ -174,50 +187,60 @@ class AuthService {
       localUser = await sqlite.buscarPorEmail(entrada);
     }
 
-    // Recuperación: admin / admin123 siempre debe poder entrar en local.
-    if (entrada.toLowerCase() == 'admin' &&
-        password == 'admin123' &&
-        (localUser == null ||
-            !localUser.activo ||
-            localUser.password != _hash(password))) {
-      final db = await DatabaseHelper.instance.database;
-      const hashAdmin123 =
-          '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
-      final ahora = DateTime.now();
-      if (localUser == null) {
-        final id = await db.insert('usuarios', {
-          'nombre': 'Administrador',
-          'usuario': 'admin',
-          'password': hashAdmin123,
-          'rol': 'admin',
-          'activo': 1,
-          'debe_cambiar_password': 0,
-          'email': 'admin@tata-stock.tatastock.app',
-          'fechaCreacion': ahora.toIso8601String(),
-          'ultimoAcceso': ahora.toIso8601String(),
-        });
-        localUser = Usuario(
-          id: id,
-          nombre: 'Administrador',
-          usuario: 'admin',
-          password: hashAdmin123,
-          rol: 'admin',
-          activo: true,
-          debeCambiarPassword: false,
-          email: 'admin@tata-stock.tatastock.app',
-          fechaCreacion: ahora,
-          ultimoAcceso: ahora,
-        );
+    // Recuperación controlada: admin/admin123 solo si la política lo permite.
+    if (entrada.toLowerCase() == 'admin' && password == 'admin123') {
+      final policy = AdminAccessPolicy.instance;
+      if (!await policy.isDefaultRecoveryEnabled()) {
+        lastLoginError =
+            'La clave inicial admin123 ya no está habilitada.\n'
+            'Usá tu contraseña o recuperá con el código de seguridad.';
+        return null;
+      }
+      if (localUser == null ||
+          !localUser.activo ||
+          localUser.password != _hash(password)) {
+        final db = await DatabaseHelper.instance.database;
+        const hashAdmin123 = AdminAccessPolicy.hashAdmin123;
+        final ahora = DateTime.now();
+        if (localUser == null) {
+          final id = await db.insert('usuarios', {
+            'nombre': 'Administrador',
+            'usuario': 'admin',
+            'password': hashAdmin123,
+            'rol': 'admin',
+            'activo': 1,
+            'debe_cambiar_password': 1,
+            'email': 'admin@tata-stock.tatastock.app',
+            'fechaCreacion': ahora.toIso8601String(),
+            'ultimoAcceso': ahora.toIso8601String(),
+          });
+          localUser = Usuario(
+            id: id,
+            nombre: 'Administrador',
+            usuario: 'admin',
+            password: hashAdmin123,
+            rol: 'admin',
+            activo: true,
+            debeCambiarPassword: true,
+            email: 'admin@tata-stock.tatastock.app',
+            fechaCreacion: ahora,
+            ultimoAcceso: ahora,
+          );
+        } else {
+          localUser = localUser.copyWith(
+            password: hashAdmin123,
+            activo: true,
+            rol: 'admin',
+            debeCambiarPassword: true,
+          );
+          await sqlite.actualizar(localUser);
+        }
+        await appendAppLog('LOGIN admin local reparado (recovery default)');
       } else {
-        localUser = localUser.copyWith(
-          password: hashAdmin123,
-          activo: true,
-          rol: 'admin',
-          debeCambiarPassword: false,
-        );
+        localUser = localUser.copyWith(debeCambiarPassword: true);
         await sqlite.actualizar(localUser);
       }
-      await appendAppLog('LOGIN admin local reparado');
+      await policy.ensureRecoveryCode();
     }
 
     final firebase = FirebaseAuthUsuarioService.instance;
@@ -337,8 +360,15 @@ class AuthService {
   ) async {
     await appendAppLog('LOGIN finalizar local ${usuario.usuario}');
     _asegurarHookSync();
+    var sesion = usuario;
+    // Clave inicial: siempre obligar cambio.
+    if (password == 'admin123' &&
+        usuario.usuario.toLowerCase() == 'admin') {
+      sesion = sesion.copyWith(debeCambiarPassword: true);
+      await AdminAccessPolicy.instance.ensureRecoveryCode();
+    }
     final ahora = DateTime.now();
-    final usuarioSesion = usuario.copyWith(ultimoAcceso: ahora);
+    final usuarioSesion = sesion.copyWith(ultimoAcceso: ahora);
     await sqlite.actualizar(usuarioSesion);
 
     currentUser = usuarioSesion;
@@ -457,6 +487,15 @@ class AuthService {
           await FirestoreUsuarioRepository().actualizar(currentUser!);
         } catch (e) {
           debugPrint('Firestore usuario post-login: $e');
+        }
+        try {
+          await TenantMembershipService.instance.asegurarMembresia(
+            rol: currentUser!.rol,
+            email: currentUser!.email,
+            usuario: currentUser!.usuario,
+          );
+        } catch (e) {
+          debugPrint('Membership post-login: $e');
         }
         try {
           await FirestoreSyncService.instance.start();
@@ -627,6 +666,15 @@ class AuthService {
         debugPrint('Firestore usuario Google login: $e');
       }
       try {
+        await TenantMembershipService.instance.asegurarMembresia(
+          rol: sesion.rol,
+          email: sesion.email,
+          usuario: sesion.usuario,
+        );
+      } catch (e) {
+        debugPrint('Membership Google login: $e');
+      }
+      try {
         await FirestoreSyncService.instance.start();
       } catch (e) {
         debugPrint('Sync start Google login: $e');
@@ -645,6 +693,63 @@ class AuthService {
     );
 
     return sesion;
+  }
+
+  /// Recupera el admin local con el código de un solo uso.
+  /// Devuelve una contraseña temporal; el login siguiente exige cambio.
+  Future<String?> recuperarAdminConCodigo(String codigo) async {
+    final policy = AdminAccessPolicy.instance;
+    if (!await policy.validateRecoveryCode(codigo)) {
+      return null;
+    }
+
+    await DatabaseHelper.instance.database;
+    final sqlite = SqliteUsuarioRepository();
+    var admin = await sqlite.buscarPorUsuario('admin');
+    if (admin == null) {
+      return null;
+    }
+
+    final temp = _generarPasswordTemporal();
+    admin = admin.copyWith(
+      password: _hash(temp),
+      debeCambiarPassword: true,
+      activo: true,
+      rol: 'admin',
+      ultimoAcceso: DateTime.now(),
+    );
+    await sqlite.actualizar(admin);
+    await policy.disableDefaultRecovery();
+    await policy.rotateRecoveryCode();
+
+    await _registrarAudit(
+      'ADMIN_RECOVERY',
+      'Recuperación de admin con código',
+      tablaAfectada: 'usuarios',
+      valorNuevo: jsonEncode({'usuario': 'admin'}),
+    );
+    return temp;
+  }
+
+  Future<String?> codigoRecuperacionAdminVisible() =>
+      AdminAccessPolicy.instance.peekRecoveryCodePlain();
+
+  Future<String?> asegurarCodigoRecuperacionAdmin() =>
+      AdminAccessPolicy.instance.ensureRecoveryCode();
+
+  Future<void> ocultarCodigoRecuperacionAdmin() =>
+      AdminAccessPolicy.instance.clearRecoveryCodePlain();
+
+  String _generarPasswordTemporal() {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    final rnd = DateTime.now().microsecondsSinceEpoch;
+    final buf = StringBuffer('Tmp');
+    var x = rnd;
+    for (var i = 0; i < 9; i++) {
+      buf.write(alphabet[x % alphabet.length]);
+      x = (x ~/ alphabet.length) + 17 + i * 31;
+    }
+    return buf.toString();
   }
 
   Future<void> logout({bool olvidarHuella = false}) async {
@@ -846,6 +951,14 @@ class AuthService {
     currentUser = actualizado;
     _ultimaPasswordIngresada = passwordNueva;
 
+    // Tras salir de admin123, cerrar el backdoor por defecto.
+    if (usuario.usuario.toLowerCase() == 'admin' &&
+        passwordActual == 'admin123' &&
+        passwordNueva != 'admin123') {
+      await AdminAccessPolicy.instance.disableDefaultRecovery();
+      await AdminAccessPolicy.instance.ensureRecoveryCode();
+    }
+
     await registrarCambio(
       'CAMBIO_PASSWORD',
       'usuarios',
@@ -1019,7 +1132,11 @@ class AuthService {
     String? valorNuevo,
   }) async {
     try {
-      if (currentUser == null && accion != 'LOGIN') return;
+      if (currentUser == null &&
+          accion != 'LOGIN' &&
+          accion != 'ADMIN_RECOVERY') {
+        return;
+      }
       final db = await DatabaseHelper.instance.database;
       await db.insert('audit_log', {
         'usuario': currentUser?.usuario ?? 'sistema',

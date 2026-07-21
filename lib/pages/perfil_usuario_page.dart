@@ -204,9 +204,33 @@ class _PerfilUsuarioPageState extends State<PerfilUsuarioPage> {
       _passActualCtrl.clear();
       _passNuevaCtrl.clear();
       _passConfirmCtrl.clear();
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Contraseña actualizada')),
-      );
+      final codigo =
+          await AuthService.instance.codigoRecuperacionAdminVisible();
+      if (!mounted) return;
+      if (codigo != null &&
+          codigo.isNotEmpty &&
+          AuthService.instance.esAdministrador()) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Código de recuperación'),
+            content: Text(
+              'Guardá este código. Sirve si olvidás la clave de admin.\n\n'
+              'Código: $codigo',
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Entendido'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Contraseña actualizada')),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('$e')));

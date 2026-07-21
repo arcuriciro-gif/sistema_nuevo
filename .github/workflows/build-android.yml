@@ -7,6 +7,7 @@ on:
       - cursor/release-mejoras-e44b
       - cursor/ui-shell-fotos-bio-e44b
       - cursor/productos-busqueda-eliminar-e44b
+      - cursor/fase0-fase1-seguridad-e44b
 
 jobs:
   build-android:

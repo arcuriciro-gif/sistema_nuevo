@@ -396,7 +396,8 @@ CREATE TABLE IF NOT EXISTS usuarios(
         'password': hashAdmin123,
         'rol': 'admin',
         'activo': 1,
-        'debe_cambiar_password': 0,
+        // Fase 1: forzar cambio de clave en el primer ingreso.
+        'debe_cambiar_password': 1,
         'email': 'admin@tata-stock.tatastock.app',
         'fechaCreacion': ahora,
         'ultimoAcceso': ahora,
@@ -405,7 +406,8 @@ CREATE TABLE IF NOT EXISTS usuarios(
     }
 
     // Si el admin quedó inactivo o sin clave usable, lo reparamos para
-    // que admin/admin123 vuelva a abrir la app en la PC.
+    // que admin/admin123 vuelva a abrir la app en la PC (si la política
+    // de recovery default sigue habilitada en AuthService).
     final row = adminRows.first;
     final activo = (row['activo'] as int?) ?? 0;
     final pass = (row['password'] ?? '').toString();
@@ -416,7 +418,7 @@ CREATE TABLE IF NOT EXISTS usuarios(
           'activo': 1,
           'password': hashAdmin123,
           'rol': 'admin',
-          'debe_cambiar_password': 0,
+          'debe_cambiar_password': 1,
         },
         where: 'id = ?',
         whereArgs: [row['id']],

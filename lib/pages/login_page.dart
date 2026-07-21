@@ -302,6 +302,83 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _recuperarAdminCodigo() async {
+    final codigoCtrl = TextEditingController();
+    final codigo = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Recuperar administrador'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Ingresá el código de 8 caracteres que guardaste al cambiar '
+              'la clave de admin. Se genera una contraseña temporal.',
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: codigoCtrl,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Código de recuperación',
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (_) =>
+                  Navigator.of(ctx).pop(codigoCtrl.text.trim()),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(codigoCtrl.text.trim()),
+            child: const Text('Recuperar'),
+          ),
+        ],
+      ),
+    );
+    codigoCtrl.dispose();
+    if (codigo == null || codigo.isEmpty || !mounted) return;
+
+    setState(() {
+      _loading = true;
+      _error = null;
+      _info = null;
+    });
+    try {
+      final temp = await AuthService.instance.recuperarAdminConCodigo(codigo);
+      if (!mounted) return;
+      if (temp == null) {
+        setState(() {
+          _loading = false;
+          _error =
+              'Código inválido. Revisá el código guardado o pedí ayuda '
+              'si lo perdiste.';
+        });
+        return;
+      }
+      _usuarioCtrl.text = 'admin';
+      _passwordCtrl.text = temp;
+      setState(() {
+        _loading = false;
+        _info =
+            'Admin recuperado. Contraseña temporal: $temp\n'
+            'Entrá ahora y cambiá la clave. El código anterior ya no sirve.';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.toString().replaceFirst('StateError: ', '');
+      });
+    }
+  }
+
   Future<void> _salirModoSeguro() async {
     await FirebaseSafeMode.desactivar();
     if (!mounted) return;
@@ -541,6 +618,13 @@ class _LoginPageState extends State<LoginPage> {
                                     ),
                                   )
                                 : const Text('Olvidé mi contraseña'),
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: _loading ? null : _recuperarAdminCodigo,
+                            child: const Text('Recuperar admin con código'),
                           ),
                         ),
                         if (FirebaseSafeMode.enabled)

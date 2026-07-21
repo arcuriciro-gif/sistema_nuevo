@@ -585,8 +585,7 @@ class FirestoreSyncService {
     _sincronizandoUsuarios = true;
     try {
       for (final remoto in remotos) {
-        // Si el remoto trae hash de password (p. ej. reset del admin), se aplica.
-        // Si viene vacío, upsertDesdeRemoto conserva el hash local.
+        // Fase 1: password ya no viaja por Firestore.
         final merged = await _usuariosLocal.upsertDesdeRemoto(remoto);
         onUsuarioRemoto?.call(merged);
       }

@@ -1,14 +1,28 @@
 rules_version = '2';
-// OBLIGATORIO: Firebase Console → Build → Storage → Rules → pegar esto → Publish
-// (o: firebase deploy --only storage)
-// Sin Storage habilitado + estas reglas, las fotos fallan con object-not-found /
-// permission-denied. Firestore (costos/stock) puede seguir funcionando igual.
+// Tata.Manager — Storage Rules (Fase 1)
+// Requiere membresía en Firestore: tenants/{tenantId}/members/{uid}
+// Deploy: firebase deploy --only storage
 service firebase.storage {
   match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isMember(tenantId) {
+      return signedIn()
+        && firestore.exists(
+          /databases/(default)/documents/tenants/$(tenantId)/members/$(request.auth.uid)
+        )
+        && firestore.get(
+          /databases/(default)/documents/tenants/$(tenantId)/members/$(request.auth.uid)
+        ).data.activo == true;
+    }
+
     match /tenants/{tenantId}/{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
-                   && request.resource.size < 15 * 1024 * 1024;
+      allow read: if isMember(tenantId);
+      allow write: if isMember(tenantId)
+                   && request.resource.size < 15 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*|application/pdf|application/octet-stream');
     }
   }
 }

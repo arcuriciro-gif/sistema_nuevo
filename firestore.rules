@@ -1,0 +1,116 @@
+rules_version = '2';
+
+// Tata.Manager — Firestore Security Rules (Fase 1)
+// Deploy: firebase deploy --only firestore:rules
+//
+// Modelo:
+// - tenants/{tenantId} con ownerUid + allowSelfJoin (migración)
+// - tenants/{tenantId}/members/{uid} con rol + activo
+// - Datos de negocio: solo miembros activos
+//
+// Compat: allowSelfJoin=true permite que dispositivos existentes
+// creen su membership al conectar. En Fase 2 se puede poner false
+// y exigir invitación admin.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function tenantPath(tenantId) {
+      return /databases/$(database)/documents/tenants/$(tenantId);
+    }
+
+    function memberPath(tenantId, uid) {
+      return /databases/$(database)/documents/tenants/$(tenantId)/members/$(uid);
+    }
+
+    function tenantExists(tenantId) {
+      return exists(tenantPath(tenantId));
+    }
+
+    function tenantData(tenantId) {
+      return get(tenantPath(tenantId)).data;
+    }
+
+    function isOwner(tenantId) {
+      return signedIn()
+        && tenantExists(tenantId)
+        && tenantData(tenantId).ownerUid == request.auth.uid;
+    }
+
+    function isMember(tenantId) {
+      return signedIn()
+        && exists(memberPath(tenantId, request.auth.uid))
+        && get(memberPath(tenantId, request.auth.uid)).data.activo == true;
+    }
+
+    function isTenantAdmin(tenantId) {
+      return isMember(tenantId)
+        && get(memberPath(tenantId, request.auth.uid)).data.rol == 'admin';
+    }
+
+    function selfJoinAllowed(tenantId) {
+      return !tenantExists(tenantId)
+        || !('allowSelfJoin' in tenantData(tenantId))
+        || tenantData(tenantId).allowSelfJoin == true;
+    }
+
+    // Documento raíz del tenant
+    match /tenants/{tenantId} {
+      allow read: if isMember(tenantId) || isOwner(tenantId);
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.keys().hasAll(['ownerUid', 'allowSelfJoin', 'creadoEn']);
+      allow update: if isOwner(tenantId) || isTenantAdmin(tenantId);
+      allow delete: if false;
+
+      // Membresías
+      match /members/{uid} {
+        allow read: if isMember(tenantId) || (signedIn() && request.auth.uid == uid);
+        allow create: if signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasAll(['rol', 'activo', 'actualizadoEn'])
+          && request.resource.data.activo == true
+          && (
+            isOwner(tenantId)
+            || isTenantAdmin(tenantId)
+            || selfJoinAllowed(tenantId)
+          );
+        allow update: if isOwner(tenantId)
+          || isTenantAdmin(tenantId)
+          || (signedIn() && request.auth.uid == uid);
+        allow delete: if isOwner(tenantId) || isTenantAdmin(tenantId);
+      }
+
+      // Config del negocio
+      match /config/{docId} {
+        allow read: if isMember(tenantId);
+        allow write: if isMember(tenantId);
+      }
+
+      // Colecciones operativas
+      match /{collection}/{docId} {
+        allow read, write: if isMember(tenantId)
+          && collection in [
+            'productos',
+            'clientes',
+            'proveedores',
+            'usuarios',
+            'ventas',
+            'remitos',
+            'compras',
+            'documentos',
+            'chats',
+            'notificaciones'
+          ];
+      }
+
+      // Subcolecciones de chat (mensajes)
+      match /chats/{chatId}/{sub}/{subId} {
+        allow read, write: if isMember(tenantId);
+      }
+    }
+  }
+}
