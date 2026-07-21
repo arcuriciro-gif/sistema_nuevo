@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../core/integrity/integrity_policy.dart';
+import '../core/integrity/integrity_reconcile_service.dart';
 import '../core/ops/technical_health_service.dart';
 import '../core/security/authorization_service.dart';
 import '../services/auth_service.dart';
@@ -16,8 +18,10 @@ class PanelTecnicoPage extends StatefulWidget {
 
 class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
   TechnicalHealthSnapshot? _snap;
+  IntegrityScanReport? _integrity;
   String? _error;
   bool _loading = true;
+  bool _scanning = false;
 
   @override
   void initState() {
@@ -35,9 +39,12 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
         throw StateError('Solo el administrador puede ver el panel técnico');
       }
       final snap = await TechnicalHealthService.instance.snapshot();
+      await IntegrityPolicy.instance.ensureLoaded();
+      final last = await IntegrityReconcileService.instance.lastReport();
       if (!mounted) return;
       setState(() {
         _snap = snap;
+        _integrity = last;
         _loading = false;
       });
     } catch (e) {
@@ -46,6 +53,34 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _escanearIntegridad() async {
+    setState(() => _scanning = true);
+    try {
+      final report =
+          await IntegrityReconcileService.instance.scanAndPersist();
+      if (!mounted) return;
+      setState(() {
+        _integrity = report;
+        _scanning = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            report.ok
+                ? 'Integridad OK — sin alarmas'
+                : '${report.alarms.length} alarma(s) de integridad',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _scanning = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al escanear: $e')),
+      );
     }
   }
 
@@ -76,6 +111,7 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
 
   Widget _buildBody(TechnicalHealthSnapshot s) {
     final sync = s.sync;
+    final integrity = _integrity;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -130,6 +166,61 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
                 .map((e) => _row(e.key, e.value))
                 .toList(),
           ),
+        _section('Integridad (Capacidad 8)', [
+          _row(
+            'Stock negativo permitido',
+            IntegrityPolicy.instance.permitirStockNegativo ? 'sí' : 'no',
+          ),
+          _row(
+            'Último escaneo',
+            integrity?.at.toLocal().toString() ?? 'nunca',
+          ),
+          _row(
+            'Productos / clientes chequeados',
+            integrity == null
+                ? '—'
+                : '${integrity.productsChecked} / ${integrity.clientsChecked}',
+          ),
+          _row(
+            'Stock negativo (conteo)',
+            integrity == null ? '—' : '${integrity.negativeStockCount}',
+          ),
+          _row(
+            'Alarmas abiertas',
+            integrity == null
+                ? '—'
+                : (integrity.ok ? '0 (OK)' : '${integrity.alarms.length}'),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.icon(
+              onPressed: _scanning ? null : _escanearIntegridad,
+              icon: _scanning
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.fact_check_outlined),
+              label: Text(_scanning ? 'Escaneando…' : 'Escanear integridad'),
+            ),
+          ),
+          if (integrity != null && integrity.alarms.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ...integrity.alarms.take(40).map(
+                  (a) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: SelectableText(
+                      '• [${a.kindLabel}] ${a.detail}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ),
+            if (integrity.alarms.length > 40)
+              Text('… y ${integrity.alarms.length - 40} más'),
+          ],
+        ]),
       ],
     );
   }

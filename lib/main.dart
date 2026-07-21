@@ -16,6 +16,7 @@ import 'core/config/platform_capabilities.dart';
 import 'core/domain/domain_bootstrap.dart';
 import 'core/firebase/firebase_bootstrap.dart';
 import 'core/firebase/firebase_safe_mode.dart';
+import 'core/integrity/integrity_policy.dart';
 import 'theme/theme_provider.dart';
 
 void main() async {
@@ -38,6 +39,7 @@ void main() async {
     await DocumentNumberingService.instance.cargar();
     await AfipConfigService.instance.cargar();
     await BackendConfigService.instance.cargar();
+    await IntegrityPolicy.instance.cargar();
     await FirebaseSafeMode.cargar();
 
     const desktopPlatforms = {

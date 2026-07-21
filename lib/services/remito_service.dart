@@ -6,6 +6,7 @@ import '../core/config/device_identity.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
+import '../core/domain/inventory_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
@@ -38,6 +39,22 @@ class RemitoService {
       operacion: 'crear remito',
     );
     final db = await dbHelper.database;
+
+    // Capacidad 8: rechazar remito si dejaría stock negativo (salvo política).
+    final preLines = <InventoryLine>[];
+    for (final item in items) {
+      if (item.cantidad == 0) continue;
+      preLines.add(InventoryLine(
+        productoId: item.productoId,
+        cantidad: item.cantidad,
+      ));
+    }
+    if (preLines.isNotEmpty) {
+      await InventoryLedgerService.instance.assertPuedeAplicar(
+        lines: preLines,
+        sign: -1,
+      );
+    }
 
     final remitoId = await db.transaction((txn) async {
       final id = await txn.insert(

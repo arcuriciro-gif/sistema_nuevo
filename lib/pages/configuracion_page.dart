@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/firebase/firebase_safe_mode.dart';
+import '../core/integrity/integrity_policy.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
 import '../core/utils/media_path.dart';
@@ -31,6 +32,7 @@ class ConfiguracionPage extends StatefulWidget {
 
 class _ConfiguracionPageState extends State<ConfiguracionPage> {
   bool _mostrarImagenes = true;
+  bool _permitirStockNegativo = false;
   bool _nubeActiva = false;
   bool _conectandoNube = false;
   bool _modoSeguro = false;
@@ -506,9 +508,11 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
 
   Future<void> _cargarPreferencias() async {
     final prefs = await SharedPreferences.getInstance();
+    await IntegrityPolicy.instance.ensureLoaded();
     if (!mounted) return;
     setState(() {
       _mostrarImagenes = prefs.getBool('mostrarImagenes') ?? true;
+      _permitirStockNegativo = IntegrityPolicy.instance.permitirStockNegativo;
     });
   }
 
@@ -518,6 +522,23 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     if (!mounted) return;
     setState(() {
       _mostrarImagenes = value;
+    });
+  }
+
+  Future<void> _setPermitirStockNegativo(bool value) async {
+    if (!AuthService.instance.esAdministrador()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Solo el administrador puede cambiar esta opción.'),
+        ),
+      );
+      return;
+    }
+    await IntegrityPolicy.instance.setPermitirStockNegativo(value);
+    if (!mounted) return;
+    setState(() {
+      _permitirStockNegativo = value;
     });
   }
 
@@ -1390,6 +1411,17 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       title: const Text('Mostrar imágenes'),
                       subtitle:
                           const Text('Guardado localmente en el dispositivo'),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: _permitirStockNegativo,
+                      onChanged: AuthService.instance.esAdministrador()
+                          ? _setPermitirStockNegativo
+                          : null,
+                      title: const Text('Permitir stock negativo'),
+                      subtitle: const Text(
+                        'Si está apagado, no se puede remitir más de lo que hay',
+                      ),
                     ),
                     const ListTile(
                       contentPadding: EdgeInsets.zero,
