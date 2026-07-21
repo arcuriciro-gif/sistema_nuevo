@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -15,6 +16,7 @@ import '../utils/media_path.dart';
 import 'media_sync_service.dart';
 import 'sync_health.dart';
 import 'sync_outbox.dart';
+import 'sync_tombstone.dart';
 import 'sync_watermark_store.dart';
 import '../../database/database_helper.dart';
 import '../../models/cliente.dart';
@@ -434,6 +436,16 @@ class FirestoreSyncService {
 
     if (operation == 'delete') {
       await _aplicarTombstoneRemoto(type, remoteId ?? '');
+      await _borrarLocalTrasTombstone(
+        entityType: type,
+        localId: localId,
+        remoteId: remoteId,
+      );
+      return;
+    }
+
+    if (type == 'stock_op') {
+      await _ejecutarStockOpOutbox(op);
       return;
     }
 
@@ -459,14 +471,34 @@ class FirestoreSyncService {
     }
   }
 
+  Future<void> _ejecutarStockOpOutbox(Map<String, dynamic> op) async {
+    final payloadRaw = op['payload']?.toString();
+    if (payloadRaw == null || payloadRaw.isEmpty) {
+      throw StateError('stock_op sin payload');
+    }
+    final payload = jsonDecode(payloadRaw);
+    if (payload is! Map) {
+      throw StateError('stock_op payload inválido');
+    }
+    final map = Map<String, dynamic>.from(payload);
+    final opId =
+        map['opId']?.toString() ?? op['entity_remote_id']?.toString() ?? '';
+    final codigo = map['codigo']?.toString() ?? '';
+    final delta = (map['delta'] as num?)?.toInt() ?? 0;
+    if (opId.isEmpty || codigo.isEmpty || delta == 0) {
+      throw StateError('stock_op incompleto');
+    }
+    if (_stockOpsHechas.contains(opId)) return;
+    await _remote.ajustarStock(codigo: codigo, delta: delta, opId: opId);
+    _stockOpsHechas.add(opId);
+    await _persistirStockOpsHechas();
+  }
+
   Future<void> _aplicarTombstoneRemoto(String entityType, String remoteId) async {
     if (remoteId.isEmpty) return;
     final uid = FirebaseAuthUsuarioService.instance.uidActual ?? '';
-    final tombstone = {
-      'deletedAt': DateTime.now().toUtc().toIso8601String(),
-      'deletedBy': uid,
-      'tombstone': true,
-    };
+    final opId = 'delete:$entityType:$remoteId';
+    final tombstone = buildTombstonePayload(opId: opId, deletedBy: uid);
     switch (entityType) {
       case 'cliente':
         await _clientesCol.doc(remoteId).set(tombstone, SetOptions(merge: true));
@@ -495,6 +527,83 @@ class FirestoreSyncService {
       default:
         throw StateError('Tombstone no soportado: $entityType');
     }
+  }
+
+  /// Si quedó fila local (crash entre enqueue y hard-delete), la limpia tras ACK remoto.
+  Future<void> _borrarLocalTrasTombstone({
+    required String entityType,
+    int? localId,
+    String? remoteId,
+  }) async {
+    final db = await DatabaseHelper.instance.database;
+    switch (entityType) {
+      case 'cliente':
+        if (localId != null) {
+          await db.delete('clientes', where: 'id = ?', whereArgs: [localId]);
+        } else if (remoteId != null && remoteId.isNotEmpty) {
+          await db.delete(
+            'clientes',
+            where: 'syncId = ?',
+            whereArgs: [remoteId],
+          );
+        }
+      case 'proveedor':
+        if (localId != null) {
+          await db
+              .delete('proveedores', where: 'id = ?', whereArgs: [localId]);
+        } else if (remoteId != null && remoteId.isNotEmpty) {
+          await db.delete(
+            'proveedores',
+            where: 'syncId = ?',
+            whereArgs: [remoteId],
+          );
+        }
+      case 'venta':
+        final id = localId ?? await _idPorNumero(db, 'ventas', remoteId);
+        if (id != null) {
+          await db.delete('pagos', where: 'ventaId = ?', whereArgs: [id]);
+          await db
+              .delete('ventas_items', where: 'ventaId = ?', whereArgs: [id]);
+          await db.delete('ventas', where: 'id = ?', whereArgs: [id]);
+        }
+      case 'remito':
+        final id = localId ?? await _idPorNumero(db, 'remitos', remoteId);
+        if (id != null) {
+          await db
+              .delete('remito_items', where: 'remitoId = ?', whereArgs: [id]);
+          await db.delete('remitos', where: 'id = ?', whereArgs: [id]);
+        }
+        if (remoteId != null && remoteId.isNotEmpty) {
+          _remitosConfirmadosEnNube.remove(remoteId);
+          await _persistirWatermarkRemitos();
+        }
+      case 'compra':
+        final id = localId ?? await _idPorNumero(db, 'compras', remoteId);
+        if (id != null) {
+          await db
+              .delete('compra_items', where: 'compraId = ?', whereArgs: [id]);
+          await db.delete('compras', where: 'id = ?', whereArgs: [id]);
+        }
+      default:
+        break;
+    }
+  }
+
+  Future<int?> _idPorNumero(
+    Database db,
+    String table,
+    String? numero,
+  ) async {
+    if (numero == null || numero.isEmpty) return null;
+    final rows = await db.query(
+      table,
+      columns: ['id'],
+      where: 'numero = ?',
+      whereArgs: [numero],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return (rows.first['id'] as num?)?.toInt();
   }
 
   Future<void> _migrateLegacyColasToOutbox() async {
@@ -1211,6 +1320,12 @@ class FirestoreSyncService {
     if (codigo.isEmpty) return;
 
     final token = '$idOp|$codigo|$delta';
+    // Capacidad 7: stock ops viven en outbox SQLite (no solo prefs).
+    await SyncOutbox.instance.enqueueStockOp(
+      opId: idOp,
+      codigo: codigo,
+      delta: delta,
+    );
     if (!_colaStockOps.contains(token)) {
       _colaStockOps.add(token);
       await _persistirColaStockOps();
@@ -1219,17 +1334,8 @@ class FirestoreSyncService {
   }
 
   Future<void> _flushColaStockOps() async {
-    if (!_puedeEscribirRemoto) return;
-    if (_colaStockOps.isEmpty) {
-      try {
-        await _remote.reconcilizarStockOpsPendientes(limit: 30);
-      } catch (e) {
-        debugPrint('reconcilizar stock_ops: $e');
-      }
-      return;
-    }
-    final pendientes = List<String>.from(_colaStockOps);
-    for (final token in pendientes) {
+    // Migrar tokens legacy prefs → outbox (idempotente).
+    for (final token in List<String>.from(_colaStockOps)) {
       final parts = token.split('|');
       if (parts.length < 3) {
         _colaStockOps.remove(token);
@@ -1238,28 +1344,25 @@ class FirestoreSyncService {
       final opId = parts[0];
       final codigo = parts[1];
       final delta = int.tryParse(parts[2]) ?? 0;
-      if (codigo.isEmpty || delta == 0) {
+      if (opId.isEmpty || codigo.isEmpty || delta == 0) {
         _colaStockOps.remove(token);
         continue;
       }
-      if (_stockOpsHechas.contains(opId)) {
-        _colaStockOps.remove(token);
-        continue;
-      }
-      try {
-        await _remote.ajustarStock(codigo: codigo, delta: delta, opId: opId);
-        _stockOpsHechas.add(opId);
-        _colaStockOps.remove(token);
-      } catch (e) {
-        debugPrint('Flush stock op $token: $e');
-      }
+      await SyncOutbox.instance.enqueueStockOp(
+        opId: opId,
+        codigo: codigo,
+        delta: delta,
+      );
+      _colaStockOps.remove(token);
     }
     await _persistirColaStockOps();
-    await _persistirStockOpsHechas();
+
+    if (!_puedeEscribirRemoto) return;
     try {
+      await _procesarOutboxBatch(limit: 40);
       await _remote.reconcilizarStockOpsPendientes(limit: 30);
     } catch (e) {
-      debugPrint('reconcilizar stock_ops: $e');
+      debugPrint('Flush stock ops: $e');
     }
   }
 
@@ -1376,15 +1479,21 @@ class FirestoreSyncService {
     }
   }
 
-  Future<void> eliminarClienteRemoto(String syncId) async {
+  Future<void> eliminarClienteRemoto(String syncId, {int? localId}) async {
     if (syncId.isEmpty) return;
     await SyncOutbox.instance.enqueueDelete(
       entityType: 'cliente',
       remoteId: syncId,
+      localId: localId,
     );
     if (!_puedeEscribirRemoto) return;
     try {
       await _aplicarTombstoneRemoto('cliente', syncId);
+      await _borrarLocalTrasTombstone(
+        entityType: 'cliente',
+        localId: localId,
+        remoteId: syncId,
+      );
       await SyncOutbox.instance.ack('delete:cliente:$syncId');
     } catch (e) {
       await SyncOutbox.instance.fail('delete:cliente:$syncId', e);
@@ -1480,15 +1589,21 @@ class FirestoreSyncService {
     }
   }
 
-  Future<void> eliminarProveedorRemoto(String syncId) async {
+  Future<void> eliminarProveedorRemoto(String syncId, {int? localId}) async {
     if (syncId.isEmpty) return;
     await SyncOutbox.instance.enqueueDelete(
       entityType: 'proveedor',
       remoteId: syncId,
+      localId: localId,
     );
     if (!_puedeEscribirRemoto) return;
     try {
       await _aplicarTombstoneRemoto('proveedor', syncId);
+      await _borrarLocalTrasTombstone(
+        entityType: 'proveedor',
+        localId: localId,
+        remoteId: syncId,
+      );
       await SyncOutbox.instance.ack('delete:proveedor:$syncId');
     } catch (e) {
       await SyncOutbox.instance.fail('delete:proveedor:$syncId', e);
@@ -1668,6 +1783,11 @@ class FirestoreSyncService {
     if (!_puedeEscribirRemoto) return;
     try {
       await _aplicarTombstoneRemoto('venta', docId);
+      await _borrarLocalTrasTombstone(
+        entityType: 'venta',
+        localId: venta.id,
+        remoteId: docId,
+      );
       await SyncOutbox.instance.ack('delete:venta:$docId');
     } catch (e) {
       await SyncOutbox.instance.fail('delete:venta:$docId', e);
@@ -1675,17 +1795,21 @@ class FirestoreSyncService {
     }
   }
 
-  Future<void> eliminarRemitoRemoto(String numero) async {
+  Future<void> eliminarRemitoRemoto(String numero, {int? localId}) async {
     if (numero.isEmpty) return;
     await SyncOutbox.instance.enqueueDelete(
       entityType: 'remito',
       remoteId: numero,
+      localId: localId,
     );
     if (!_puedeEscribirRemoto) return;
     try {
       await _aplicarTombstoneRemoto('remito', numero);
-      _remitosConfirmadosEnNube.remove(numero);
-      await _persistirWatermarkRemitos();
+      await _borrarLocalTrasTombstone(
+        entityType: 'remito',
+        localId: localId,
+        remoteId: numero,
+      );
       await SyncOutbox.instance.ack('delete:remito:$numero');
     } catch (e) {
       await SyncOutbox.instance.fail('delete:remito:$numero', e);
@@ -1928,9 +2052,7 @@ class FirestoreSyncService {
             final syncId = data['syncId']?.toString().isNotEmpty == true
                 ? data['syncId'].toString()
                 : doc.id;
-            final deletedAt = data['deletedAt']?.toString();
-            final isTombstone = data['tombstone'] == true ||
-                (deletedAt != null && deletedAt.isNotEmpty);
+            final isTombstone = isRemoteTombstone(data);
             if (isTombstone) {
               final existentes = await db.query(
                 'clientes',
@@ -2011,25 +2133,9 @@ class FirestoreSyncService {
           }
         }
 
-        // Borrar locales solo si ese syncId YA estuvo en la nube y ahora no está.
-        final removidos =
-            _clientesConfirmadosEnNube.difference(remoteSyncIds);
+        // Capacidad 7: solo tombstones borran locales (no inferir por ausencia).
         _clientesConfirmadosEnNube.addAll(remoteSyncIds);
         await _persistirWatermarkClientes();
-        for (final syncId in removidos) {
-          final rows = await db.query(
-            'clientes',
-            columns: ['id'],
-            where: 'syncId = ?',
-            whereArgs: [syncId],
-            limit: 1,
-          );
-          if (rows.isEmpty) continue;
-          final id = (rows.first['id'] as num?)?.toInt();
-          if (id == null || _colaClientes.contains(id)) continue;
-          await db.delete('clientes', where: 'id = ?', whereArgs: [id]);
-          hubo = true;
-        }
 
         if (hubo) DataRefreshHub.instance.notifyTodo();
         final pendiente = _snapClientesPendiente;
@@ -2063,6 +2169,30 @@ class FirestoreSyncService {
             final syncId = data['syncId']?.toString().isNotEmpty == true
                 ? data['syncId'].toString()
                 : doc.id;
+            if (isRemoteTombstone(data)) {
+              final existentes = await db.query(
+                'proveedores',
+                columns: ['id'],
+                where: 'syncId = ?',
+                whereArgs: [syncId],
+                limit: 1,
+              );
+              if (existentes.isNotEmpty) {
+                final id = (existentes.first['id'] as num?)?.toInt();
+                if (id != null &&
+                    !_colaProveedores.contains(id) &&
+                    !await SyncOutbox.instance
+                        .hasPendingLocalId('proveedor', id)) {
+                  await db.delete(
+                    'proveedores',
+                    where: 'id = ?',
+                    whereArgs: [id],
+                  );
+                  hubo = true;
+                }
+              }
+              continue;
+            }
             final map = _sanitizarProveedorRemoto(data, syncId);
             if ((map['nombre'] as String?)?.trim().isEmpty ?? true) continue;
 
@@ -2139,6 +2269,29 @@ class FirestoreSyncService {
       for (final doc in actual.docs) {
         final data = doc.data();
         final numero = data['numero']?.toString() ?? doc.id;
+        if (isRemoteTombstone(data)) {
+          final existentes = await db.query(
+            'compras',
+            columns: ['id'],
+            where: 'numero = ?',
+            whereArgs: [numero],
+            limit: 1,
+          );
+          if (existentes.isNotEmpty) {
+            final id = (existentes.first['id'] as num?)?.toInt();
+            if (id != null &&
+                !_colaCompras.contains(id) &&
+                !await SyncOutbox.instance.hasPendingLocalId('compra', id)) {
+              await db.delete(
+                'compra_items',
+                where: 'compraId = ?',
+                whereArgs: [id],
+              );
+              await db.delete('compras', where: 'id = ?', whereArgs: [id]);
+            }
+          }
+          continue;
+        }
         final existentes = await db.query(
           'compras',
           where: 'numero = ?',
@@ -2297,10 +2450,7 @@ class FirestoreSyncService {
       for (final doc in actual.docs) {
         final data = doc.data();
         final numero = data['numero']?.toString() ?? doc.id;
-        final deletedAt = data['deletedAt']?.toString();
-        final isTombstone = data['tombstone'] == true ||
-            (deletedAt != null && deletedAt.isNotEmpty);
-        if (isTombstone) {
+        if (isRemoteTombstone(data)) {
           // Tombstone remoto → borrar local (si no hay upsert pendiente).
           final rows = await db.query(
             'remitos',
@@ -2406,26 +2556,9 @@ class FirestoreSyncService {
         }
       }
 
-      // Remitos borrados en la nube → borrar locales (evitar quedar en "anulado").
-      final removidos =
-          _remitosConfirmadosEnNube.difference(remoteNumeros);
+      // Capacidad 7: solo tombstones borran locales (no inferir por ausencia).
       _remitosConfirmadosEnNube.addAll(remoteNumeros);
       await _persistirWatermarkRemitos();
-      for (final numero in removidos) {
-        final rows = await db.query(
-          'remitos',
-          columns: ['id'],
-          where: 'numero = ?',
-          whereArgs: [numero],
-          limit: 1,
-        );
-        if (rows.isEmpty) continue;
-        final id = (rows.first['id'] as num?)?.toInt();
-        if (id == null || _colaRemitos.contains(id)) continue;
-        await db.delete('remito_items', where: 'remitoId = ?', whereArgs: [id]);
-        await db.delete('remitos', where: 'id = ?', whereArgs: [id]);
-        hubo = true;
-      }
 
       if (hubo) DataRefreshHub.instance.notifyTodo();
       final pendiente = _snapRemitosPendiente;
@@ -2458,6 +2591,32 @@ class FirestoreSyncService {
           final data = doc.data();
           final numero = data['numero']?.toString() ?? doc.id;
           if (numero.isEmpty) continue;
+
+          if (isRemoteTombstone(data)) {
+            final existentes = await db.query(
+              'ventas',
+              columns: ['id'],
+              where: 'numero = ?',
+              whereArgs: [numero],
+              limit: 1,
+            );
+            if (existentes.isNotEmpty) {
+              final id = (existentes.first['id'] as num?)?.toInt();
+              if (id != null &&
+                  !_colaVentas.contains(id) &&
+                  !await SyncOutbox.instance.hasPendingLocalId('venta', id)) {
+                await db.delete('pagos', where: 'ventaId = ?', whereArgs: [id]);
+                await db.delete(
+                  'ventas_items',
+                  where: 'ventaId = ?',
+                  whereArgs: [id],
+                );
+                await db.delete('ventas', where: 'id = ?', whereArgs: [id]);
+                huboCambios = true;
+              }
+            }
+            continue;
+          }
 
           final existentes = await db.query(
             'ventas',

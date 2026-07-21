@@ -38,3 +38,5 @@
 ## Veredicto
 
 Capacidad 6 **lista para merge de desarrollo** tras CI verde.
+
+> **Update 2026-07-21:** Capacidad 6 + pagos parciales en `main`. Capacidad 7 en curso: `docs/capacidades/C7_DELETES_CONVERGENCIA.md`.
