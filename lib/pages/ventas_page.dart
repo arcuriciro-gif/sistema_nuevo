@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../models/chat_mensaje.dart';
 import '../models/venta.dart';
 import '../services/venta_service.dart';
@@ -170,17 +171,20 @@ class _VentasPageState extends State<VentasPage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'fab_${widget.titulo}',
-        onPressed: () {
-          if (unSoloTipo) {
-            _nuevaVenta(_tipos.keys.first);
-          } else {
-            _mostrarMenuNueva();
-          }
-        },
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: AuthorizationService.instance.puede(
+              AuthModules.remitos, AuthzAction.crear)
+          ? FloatingActionButton(
+              heroTag: 'fab_${widget.titulo}',
+              onPressed: () {
+                if (unSoloTipo) {
+                  _nuevaVenta(_tipos.keys.first);
+                } else {
+                  _mostrarMenuNueva();
+                }
+              },
+              child: const Icon(Icons.add),
+            )
+          : null,
       body: Column(
         children: [
           Padding(

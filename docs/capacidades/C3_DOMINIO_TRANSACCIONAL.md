@@ -57,3 +57,5 @@
 
 Capacidad 3 **lista para merge de desarrollo** tras CI verde.  
 No iniciar Capacidad 4 hasta este veredicto + checklist CI. Certificación plena de dominio exige las pruebas de campo arriba.
+
+> **Update 2026-07-21:** Capacidad 3 mergeada (#33). Capacidad 4 en curso: `docs/capacidades/C4_AUTORIZACION_REAL.md`.

@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/security/authorization_service.dart';
+
 /// Configuración base para futura integración AFIP/ARCA.
 /// Hoy guarda datos y deja las facturas listas; la autorización real
 /// se conectará cuando se carguen certificados.
@@ -40,6 +42,7 @@ class AfipConfigService {
     String? certPath,
     String? keyPath,
   }) async {
+    AuthorizationService.instance.requireAdmin(operacion: 'configurar AFIP');
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyEnabled, enabled);
     await prefs.setString(_keyAmbiente, ambiente);

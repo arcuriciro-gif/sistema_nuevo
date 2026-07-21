@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../models/proveedor.dart';
 import '../services/proveedor_service.dart';
 import '../theme/app_visuals.dart';
@@ -92,20 +93,23 @@ class _ProveedoresPageState extends State<ProveedoresPage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'fab_proveedores',
-        child: const Icon(Icons.add),
-        onPressed: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const ProveedorFormPage(),
-            ),
-          );
+      floatingActionButton: AuthorizationService.instance.puede(
+              AuthModules.proveedores, AuthzAction.crear)
+          ? FloatingActionButton(
+              heroTag: 'fab_proveedores',
+              child: const Icon(Icons.add),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ProveedorFormPage(),
+                  ),
+                );
 
-          cargarProveedores();
-        },
-      ),
+                cargarProveedores();
+              },
+            )
+          : null,
       body: cargando
           ? const Center(
               child: CircularProgressIndicator(),

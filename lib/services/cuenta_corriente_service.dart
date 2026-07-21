@@ -2,6 +2,7 @@ import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/pago.dart';
@@ -59,6 +60,11 @@ class CuentaCorrienteService {
     String medioPago = 'efectivo',
     String observacionesPago = '',
   }) async {
+    AuthorizationService.instance.require(
+      AuthModules.remitos,
+      AuthzAction.crear,
+      operacion: 'crear venta con pago',
+    );
     final db = await _db.database;
     final abonado = montoAbonado.clamp(0, venta.total).toDouble();
     final saldo = (venta.total - abonado).clamp(0, venta.total).toDouble();
@@ -163,6 +169,11 @@ class CuentaCorrienteService {
     String observaciones = '',
     DateTime? fecha,
   }) async {
+    AuthorizationService.instance.require(
+      AuthModules.remitos,
+      AuthzAction.editar,
+      operacion: 'registrar pago',
+    );
     if (monto <= 0) {
       throw ArgumentError('El monto debe ser mayor a 0');
     }
@@ -296,6 +307,11 @@ class CuentaCorrienteService {
   }
 
   Future<void> cobrarRemitoCompleto(int remitoId, {int? clienteId}) async {
+    AuthorizationService.instance.require(
+      AuthModules.remitos,
+      AuthzAction.editar,
+      operacion: 'cobrar remito',
+    );
     final db = await _db.database;
     final rows = await db.query(
       'remitos',

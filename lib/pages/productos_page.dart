@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../core/utils/busqueda_texto.dart';
 import '../models/chat_mensaje.dart';
 import '../models/lista_precio.dart';
@@ -273,12 +274,15 @@ class _ProductosPageState extends State<ProductosPage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'fab_productos',
-        onPressed: _nuevoProducto,
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Nuevo'),
-      ),
+      floatingActionButton: AuthorizationService.instance.puede(
+              AuthModules.productos, AuthzAction.crear)
+          ? FloatingActionButton.extended(
+              heroTag: 'fab_productos',
+              onPressed: _nuevoProducto,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Nuevo'),
+            )
+          : null,
       body: cargando
           ? const Center(child: CircularProgressIndicator())
           : Column(

@@ -32,6 +32,11 @@ class ProveedorService {
   }
 
   Future<int> insertar(Proveedor proveedor) async {
+    AuthorizationService.instance.require(
+      AuthModules.proveedores,
+      AuthzAction.crear,
+      operacion: 'crear proveedor',
+    );
     final db = await _dbHelper.database;
     final ahora = DateTime.now().toUtc().toIso8601String();
     final creado = _conSyncId(proveedor.copyWith(
@@ -58,6 +63,11 @@ class ProveedorService {
   }
 
   Future<int> actualizar(Proveedor proveedor) async {
+    AuthorizationService.instance.require(
+      AuthModules.proveedores,
+      AuthzAction.editar,
+      operacion: 'editar proveedor',
+    );
     final db = await _dbHelper.database;
     final anterior = await db.query(
       'proveedores',

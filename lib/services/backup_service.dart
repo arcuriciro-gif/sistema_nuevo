@@ -5,10 +5,16 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../core/security/authorization_service.dart';
 import '../database/database_helper.dart';
 
 class BackupService {
   Future<String> exportarBackup() async {
+    AuthorizationService.instance.require(
+      AuthModules.backup,
+      AuthzAction.editar,
+      operacion: 'exportar backup',
+    );
     final origen = File(await DatabaseHelper.instance.dbFilePath);
     if (!await origen.exists()) {
       throw Exception('Base de datos no encontrada');
@@ -34,6 +40,7 @@ class BackupService {
   }
 
   Future<bool> restaurarBackup() async {
+    AuthorizationService.instance.requireAdmin(operacion: 'restaurar backup');
     final result = await FilePicker.pickFiles(
       type: FileType.any,
       allowMultiple: false,

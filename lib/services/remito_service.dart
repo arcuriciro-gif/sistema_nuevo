@@ -32,6 +32,11 @@ class RemitoService {
 
   Future<int> insertar(Remito remito, List<RemitoDetalle> items) async {
     DomainBootstrap.ensureInitialized();
+    AuthorizationService.instance.require(
+      AuthModules.remitos,
+      AuthzAction.crear,
+      operacion: 'crear remito',
+    );
     final db = await dbHelper.database;
 
     final remitoId = await db.transaction((txn) async {
@@ -178,6 +183,11 @@ class RemitoService {
   }
 
   Future<void> actualizarEstadoPago(int id, String estadoPago) async {
+    AuthorizationService.instance.require(
+      AuthModules.remitos,
+      AuthzAction.editar,
+      operacion: 'cambiar estado de pago remito',
+    );
     final db = await dbHelper.database;
     final rows = await db.query(
       'remitos',

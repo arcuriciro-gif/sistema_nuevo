@@ -1,4 +1,5 @@
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/categoria.dart';
@@ -31,6 +32,11 @@ class CategoriaService {
   }
 
   Future<int> crear(Categoria categoria) async {
+    AuthorizationService.instance.require(
+      AuthModules.productos,
+      AuthzAction.crear,
+      operacion: 'crear categoría',
+    );
     final db = await _db.database;
     final map = categoria.toMap()..remove('id');
     final id = await db.insert('categorias', map);
@@ -39,6 +45,11 @@ class CategoriaService {
   }
 
   Future<int> actualizar(Categoria categoria) async {
+    AuthorizationService.instance.require(
+      AuthModules.productos,
+      AuthzAction.editar,
+      operacion: 'editar categoría',
+    );
     final db = await _db.database;
     final n = await db.update(
       'categorias',
@@ -51,6 +62,11 @@ class CategoriaService {
   }
 
   Future<int> eliminar(int id) async {
+    AuthorizationService.instance.require(
+      AuthModules.productos,
+      AuthzAction.eliminar,
+      operacion: 'eliminar categoría',
+    );
     final db = await _db.database;
     final n = await db.delete('categorias', where: 'id = ?', whereArgs: [id]);
     await _syncNube();

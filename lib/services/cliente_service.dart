@@ -32,6 +32,11 @@ class ClienteService {
   }
 
   Future<int> insertar(Cliente cliente) async {
+    AuthorizationService.instance.require(
+      AuthModules.clientes,
+      AuthzAction.crear,
+      operacion: 'crear cliente',
+    );
     final db = await dbHelper.database;
     final ahora = DateTime.now().toUtc().toIso8601String();
     final listo = _conSyncId(cliente);
@@ -49,6 +54,11 @@ class ClienteService {
   }
 
   Future<int> actualizar(Cliente cliente) async {
+    AuthorizationService.instance.require(
+      AuthModules.clientes,
+      AuthzAction.editar,
+      operacion: 'editar cliente',
+    );
     final db = await dbHelper.database;
     final anterior = await db.query(
       'clientes',
