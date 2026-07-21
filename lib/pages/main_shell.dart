@@ -15,6 +15,7 @@ import '../core/sync/firestore_sync_service.dart';
 import '../theme/layout_constants.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/media_avatar.dart';
+import '../widgets/empresa_onboarding_dialog.dart';
 import 'archivo_pdfs_page.dart';
 import 'auditoria_page.dart';
 import 'backup_page.dart';
@@ -126,6 +127,7 @@ class _MainShellState extends State<MainShell> {
       } catch (e) {
         debugPrint('Comunicaciones init: $e');
       }
+      if (mounted) await EmpresaOnboardingDialog.mostrarSiHaceFalta(context);
       if (mounted) await _ofrecerActivarNubeSiHaceFalta();
       if (mounted) _mostrarRecordatorioCc();
     });
@@ -133,6 +135,10 @@ class _MainShellState extends State<MainShell> {
 
   /// Sin nube PC y celular se desalinean. En Windows se activa sola al entrar.
   Future<void> _ofrecerActivarNubeSiHaceFalta() async {
+    // No conectar a una empresa automática vacía: primero elegir código.
+    if (!BackendConfigService.instance.empresaConfirmada) {
+      return;
+    }
     if (BackendConfigService.instance.firebaseEnabled) {
       // Ya activa: forzar un reconnect por si quedó a medias.
       try {
