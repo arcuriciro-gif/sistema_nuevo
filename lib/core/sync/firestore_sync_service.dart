@@ -2346,6 +2346,11 @@ class FirestoreSyncService {
           'descuento': data['descuento'] ?? 0,
           'estado': data['estado'] ?? 'confirmado',
           'estadoPago': data['estadoPago'] ?? 'pendiente',
+          'totalPagado': data['totalPagado'] ?? 0,
+          'saldoPendiente': data['saldoPendiente'] ??
+              ((data['estadoPago']?.toString() == 'cobrado')
+                  ? 0
+                  : (data['total'] ?? 0)),
           'observaciones': data['observaciones'] ?? '',
           'fechaCreacion':
               data['fechaCreacion'] ?? DateTime.now().toIso8601String(),

@@ -105,7 +105,7 @@ class DatabaseHelper {
     try {
       final db = await openDatabase(
         path,
-        version: 27,
+        version: 28,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -118,7 +118,7 @@ class DatabaseHelper {
       await _cuarentenaDb(path);
       final db = await openDatabase(
         path,
-        version: 27,
+        version: 28,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -242,6 +242,8 @@ CREATE TABLE remitos(
   descuento REAL DEFAULT 0,
   estado TEXT,
   estadoPago TEXT DEFAULT 'pendiente',
+  totalPagado REAL DEFAULT 0,
+  saldoPendiente REAL DEFAULT 0,
   observaciones TEXT,
   fechaCreacion TEXT,
   FOREIGN KEY(clienteId) REFERENCES clientes(id)
@@ -652,13 +654,15 @@ CREATE TABLE IF NOT EXISTS ventas(
     await db.execute('''
 CREATE TABLE IF NOT EXISTS pagos(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ventaId INTEGER NOT NULL,
+  ventaId INTEGER,
+  remitoId INTEGER,
   clienteId INTEGER,
   fecha TEXT NOT NULL,
   monto REAL NOT NULL DEFAULT 0,
   medioPago TEXT DEFAULT 'efectivo',
   observaciones TEXT DEFAULT '',
   FOREIGN KEY(ventaId) REFERENCES ventas(id),
+  FOREIGN KEY(remitoId) REFERENCES remitos(id),
   FOREIGN KEY(clienteId) REFERENCES clientes(id)
 )
 ''');
@@ -1056,6 +1060,60 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 27) {
       await _crearTablasDominioTransaccional(db);
     }
+    if (oldVersion < 28) {
+      await _migrarRemitosPagosParcialesV28(db);
+    }
+  }
+
+  /// Capacidad operativa: remitos con saldo / pagos parciales.
+  Future<void> _migrarRemitosPagosParcialesV28(Database db) async {
+    await _agregarColumnas(db, 'remitos', {
+      'totalPagado': 'REAL DEFAULT 0',
+      'saldoPendiente': 'REAL DEFAULT 0',
+    });
+    await db.execute('''
+      UPDATE remitos SET
+        totalPagado = CASE
+          WHEN COALESCE(estadoPago, 'pendiente') = 'cobrado' THEN COALESCE(total, 0)
+          ELSE COALESCE(totalPagado, 0)
+        END,
+        saldoPendiente = CASE
+          WHEN COALESCE(estadoPago, 'pendiente') = 'cobrado' THEN 0
+          WHEN COALESCE(saldoPendiente, 0) > 0.009 THEN saldoPendiente
+          ELSE COALESCE(total, 0) - COALESCE(totalPagado, 0)
+        END
+    ''');
+    await db.execute('''
+      UPDATE remitos SET saldoPendiente = 0 WHERE saldoPendiente < 0
+    ''');
+
+    // pagos.ventaId pasa a nullable + remitoId (recreate).
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS pagos_v28(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ventaId INTEGER,
+  remitoId INTEGER,
+  clienteId INTEGER,
+  fecha TEXT NOT NULL,
+  monto REAL NOT NULL DEFAULT 0,
+  medioPago TEXT DEFAULT 'efectivo',
+  observaciones TEXT DEFAULT '',
+  FOREIGN KEY(ventaId) REFERENCES ventas(id),
+  FOREIGN KEY(remitoId) REFERENCES remitos(id),
+  FOREIGN KEY(clienteId) REFERENCES clientes(id)
+)
+''');
+    final tienePagos = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='pagos'",
+    );
+    if (tienePagos.isNotEmpty) {
+      await db.execute('''
+        INSERT INTO pagos_v28 (id, ventaId, remitoId, clienteId, fecha, monto, medioPago, observaciones)
+        SELECT id, ventaId, NULL, clienteId, fecha, monto, medioPago, observaciones FROM pagos
+      ''');
+      await db.execute('DROP TABLE pagos');
+    }
+    await db.execute('ALTER TABLE pagos_v28 RENAME TO pagos');
   }
 
   Future<void> _crearTablasDominioTransaccional(Database db) async {

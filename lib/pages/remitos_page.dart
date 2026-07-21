@@ -11,6 +11,7 @@ import '../services/pdf_service.dart';
 import '../services/permisos_service.dart';
 import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
+import '../widgets/cobrar_dialog.dart';
 import '../widgets/compartir_chat_dialog.dart';
 import '../widgets/comentarios_internos_sheet.dart';
 import 'remito_form_page.dart';
@@ -318,19 +319,22 @@ class _RemitosPageState extends State<RemitosPage> {
       await confirmarEliminar(remito);
       return;
     }
-
-    await service.actualizarEstadoPago(remito['id'], accion);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          accion == 'cobrado'
-              ? 'Remito marcado como cobrado'
-              : 'Remito marcado con pago parcial',
-        ),
-      ),
-    );
-    await cargar();
+    if (accion == 'cobrar' || accion == 'parcial') {
+      final ok = await mostrarDialogoCobrarRemito(
+        context: context,
+        remito: remito,
+      );
+      if (ok && mounted) await cargar();
+      return;
+    }
+    if (accion == 'cobrado') {
+      await service.actualizarEstadoPago(remito['id'], 'cobrado');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Remito marcado como cobrado')),
+      );
+      await cargar();
+    }
   }
 
   Color colorEstado(String estado) {
@@ -549,16 +553,16 @@ class _RemitosPageState extends State<RemitosPage> {
                                                         <PopupMenuEntry<String>>[
                                                       if (estado != 'anulado')
                                                         const PopupMenuItem(
-                                                          value: 'cobrado',
+                                                          value: 'cobrar',
                                                           child: Text(
-                                                            'Marcar como cobrado',
+                                                            'Registrar pago…',
                                                           ),
                                                         ),
                                                       if (estado != 'anulado')
                                                         const PopupMenuItem(
-                                                          value: 'parcial',
+                                                          value: 'cobrado',
                                                           child: Text(
-                                                            'Pago parcial',
+                                                            'Marcar cobrado (todo)',
                                                           ),
                                                         ),
                                                       if (estado != 'anulado')

@@ -1,23 +1,27 @@
 class Pago {
   int? id;
-  int ventaId;
+  int? ventaId;
+  int? remitoId;
   int? clienteId;
   DateTime fecha;
   double monto;
   String medioPago;
   String observaciones;
   String? ventaNumero;
+  String? remitoNumero;
   String? clienteNombre;
 
   Pago({
     this.id,
-    required this.ventaId,
+    this.ventaId,
+    this.remitoId,
     this.clienteId,
     required this.fecha,
     required this.monto,
     this.medioPago = 'efectivo',
     this.observaciones = '',
     this.ventaNumero,
+    this.remitoNumero,
     this.clienteNombre,
   });
 
@@ -25,6 +29,7 @@ class Pago {
     return {
       'id': id,
       'ventaId': ventaId,
+      'remitoId': remitoId,
       'clienteId': clienteId,
       'fecha': fecha.toIso8601String(),
       'monto': monto,
@@ -36,13 +41,15 @@ class Pago {
   factory Pago.fromMap(Map<String, dynamic> map) {
     return Pago(
       id: map['id'] as int?,
-      ventaId: map['ventaId'] as int,
+      ventaId: (map['ventaId'] as num?)?.toInt(),
+      remitoId: (map['remitoId'] as num?)?.toInt(),
       clienteId: map['clienteId'] as int?,
       fecha: DateTime.tryParse(map['fecha']?.toString() ?? '') ?? DateTime.now(),
       monto: (map['monto'] as num?)?.toDouble() ?? 0,
       medioPago: map['medioPago']?.toString() ?? 'efectivo',
       observaciones: map['observaciones']?.toString() ?? '',
       ventaNumero: map['ventaNumero']?.toString(),
+      remitoNumero: map['remitoNumero']?.toString(),
       clienteNombre: map['clienteNombre']?.toString(),
     );
   }
@@ -50,10 +57,8 @@ class Pago {
   static const mediosPago = [
     'efectivo',
     'transferencia',
-    'tarjeta_debito',
-    'tarjeta_credito',
+    'tarjeta',
     'cheque',
-    'cuenta_corriente',
     'otro',
   ];
 
@@ -63,16 +68,24 @@ class Pago {
         return 'Efectivo';
       case 'transferencia':
         return 'Transferencia';
-      case 'tarjeta_debito':
-        return 'Tarjeta débito';
-      case 'tarjeta_credito':
-        return 'Tarjeta crédito';
+      case 'tarjeta':
+        return 'Tarjeta';
       case 'cheque':
         return 'Cheque';
-      case 'cuenta_corriente':
-        return 'Cuenta corriente';
       default:
         return 'Otro';
     }
+  }
+
+  String get comprobanteLabel {
+    if (remitoNumero != null && remitoNumero!.isNotEmpty) {
+      return 'Remito $remitoNumero';
+    }
+    if (ventaNumero != null && ventaNumero!.isNotEmpty) {
+      return 'Comp. $ventaNumero';
+    }
+    if (remitoId != null) return 'Remito #$remitoId';
+    if (ventaId != null) return 'Comp. #$ventaId';
+    return 'Pago';
   }
 }
