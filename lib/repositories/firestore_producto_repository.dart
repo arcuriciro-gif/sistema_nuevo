@@ -110,7 +110,10 @@ class FirestoreProductoRepository implements ProductoRepository {
     await _collection.doc(_docId(producto)).set(data, SetOptions(merge: true));
   }
 
-  /// Ajuste atómico e idempotente de stock en la nube (Fase 2).
+  /// Ajuste de stock en la nube (Fase 2).
+  /// Usa [FieldValue.increment] (sin runTransaction: en Windows Desktop
+  /// las transacciones pueden cerrar el proceso nativo).
+  /// La idempotencia la garantiza la cola de ops en [FirestoreSyncService].
   Future<void> ajustarStock({
     required String codigo,
     required int delta,
@@ -119,34 +122,12 @@ class FirestoreProductoRepository implements ProductoRepository {
     final cod = codigo.trim();
     if (cod.isEmpty || delta == 0 || opId.isEmpty) return;
     final ref = _collection.doc(cod);
-    await _firestore.runTransaction((tx) async {
-      final snap = await tx.get(ref);
-      final data = snap.data() ?? <String, dynamic>{};
-      final ops = Map<String, dynamic>.from(
-        (data['stockOps'] as Map?)?.map((k, v) => MapEntry(k.toString(), v)) ??
-            {},
-      );
-      if (ops.containsKey(opId)) return;
-      ops[opId] = delta;
-      // Evitar crecimiento infinito del mapa.
-      if (ops.length > 300) {
-        final keys = ops.keys.toList()..sort();
-        for (final k in keys.take(ops.length - 250)) {
-          ops.remove(k);
-        }
-      }
-      final stockActual = (data['stock'] as num?)?.toInt() ?? 0;
-      tx.set(
-        ref,
-        {
-          'stock': stockActual + delta,
-          'stockOps': ops,
-          'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
-          if (!snap.exists) 'codigo': cod,
-        },
-        SetOptions(merge: true),
-      );
-    });
+    await ref.set({
+      'codigo': cod,
+      'stock': FieldValue.increment(delta),
+      'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+      'ultimaStockOp': opId,
+    }, SetOptions(merge: true));
   }
 
   @override
@@ -162,10 +143,17 @@ class FirestoreProductoRepository implements ProductoRepository {
   @override
   Stream<List<Producto>> watchTodos({int limit = 10000}) {
     // Fase 2: incluir soft-deleted para propagar papelera entre dispositivos.
-    return _collection.limit(limit).snapshots().map(
-          (snap) => snap.docs
-              .map((doc) => Producto.fromFirestore(doc.data(), docId: doc.id))
-              .toList(),
-        );
+    return watchSnapshots(limit: limit).map(
+      (snap) => snap.docs
+          .map((doc) => Producto.fromFirestore(doc.data(), docId: doc.id))
+          .toList(),
+    );
+  }
+
+  /// Snapshot crudo para aplicar solo [DocumentChange]s en sync.
+  Stream<QuerySnapshot<Map<String, dynamic>>> watchSnapshots({
+    int limit = 10000,
+  }) {
+    return _collection.limit(limit).snapshots();
   }
 }

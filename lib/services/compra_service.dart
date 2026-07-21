@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:sqflite/sqflite.dart';
 
 import '../core/events/data_refresh_hub.dart';
@@ -119,19 +121,21 @@ class CompraService {
     });
 
     await FirestoreSyncService.instance.subirCompra(compraId);
-    try {
-      final items = await obtenerItems(compraId);
-      for (final item in items) {
-        final pid = (item['productoId'] as num?)?.toInt();
-        final cant = (item['cantidad'] as num?)?.toInt() ?? 0;
-        if (pid == null || cant == 0) continue;
-        await FirestoreSyncService.instance.ajustarStockEnNube(
-          productoId: pid,
-          delta: cant,
-          opId: 'compra_${compraId}_in_$pid',
-        );
-      }
-    } catch (_) {}
+    unawaited(() async {
+      try {
+        final items = await obtenerItems(compraId);
+        for (final item in items) {
+          final pid = (item['productoId'] as num?)?.toInt();
+          final cant = (item['cantidad'] as num?)?.toInt() ?? 0;
+          if (pid == null || cant == 0) continue;
+          await FirestoreSyncService.instance.ajustarStockEnNube(
+            productoId: pid,
+            delta: cant,
+            opId: 'compra_${compraId}_in_$pid',
+          );
+        }
+      } catch (_) {}
+    }());
     DataRefreshHub.instance.notifyTodo();
     return compraId;
   }
@@ -225,19 +229,21 @@ class CompraService {
     });
 
     await FirestoreSyncService.instance.subirCompra(id);
-    try {
-      final items = await obtenerItems(id);
-      for (final item in items) {
-        final pid = (item['productoId'] as num?)?.toInt();
-        final cant = (item['cantidad'] as num?)?.toInt() ?? 0;
-        if (pid == null || cant == 0) continue;
-        await FirestoreSyncService.instance.ajustarStockEnNube(
-          productoId: pid,
-          delta: -cant,
-          opId: 'compra_${id}_rev_$pid',
-        );
-      }
-    } catch (_) {}
+    unawaited(() async {
+      try {
+        final items = await obtenerItems(id);
+        for (final item in items) {
+          final pid = (item['productoId'] as num?)?.toInt();
+          final cant = (item['cantidad'] as num?)?.toInt() ?? 0;
+          if (pid == null || cant == 0) continue;
+          await FirestoreSyncService.instance.ajustarStockEnNube(
+            productoId: pid,
+            delta: -cant,
+            opId: 'compra_${id}_rev_$pid',
+          );
+        }
+      } catch (_) {}
+    }());
     DataRefreshHub.instance.notifyTodo();
   }
 

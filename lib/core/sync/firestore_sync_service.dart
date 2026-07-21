@@ -48,7 +48,7 @@ class FirestoreSyncService {
   FirestoreUsuarioRepository get _usuariosRemote =>
       _usuariosRemoteOrNull ??= FirestoreUsuarioRepository();
 
-  StreamSubscription<List<Producto>>? _productosSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _productosSub;
   StreamSubscription<List<Usuario>>? _usuariosSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _brandingSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _permisosSub;
@@ -135,8 +135,10 @@ class FirestoreSyncService {
       syncStatusLabel = 'Sincronizando…';
       syncStatusDetail = null;
 
-      _productosSub = _remote.watchTodos(limit: 10000).listen(
-        _aplicarProductosRemotos,
+      // Solo cambios del snapshot (no reaplicar 10k productos en cada remito:
+      // en Windows eso podía cerrar el .exe por presión de memoria/UI).
+      _productosSub = _remote.watchSnapshots(limit: 10000).listen(
+        _onProductosSnapshot,
         onError: (Object error) => debugPrint('Sync productos: $error'),
       );
       _usuariosSub = _usuariosRemote.watchTodos().listen(
@@ -383,6 +385,7 @@ class FirestoreSyncService {
     _proveedoresSub = null;
     _comprasSub = null;
     _documentosSub = null;
+    _productosSnapshotInicial = true;
   }
 
   Future<void> _publicarConfigLocalSiHaceFalta() async {
@@ -657,6 +660,9 @@ class FirestoreSyncService {
   static const _prefsColaRemitos = 'sync_cola_remitos_ids';
   static const _prefsColaCompras = 'sync_cola_compras_ids';
   static const _prefsColaStockOps = 'sync_cola_stock_ops_v2';
+  static const _prefsStockOpsHechas = 'sync_stock_ops_hechas_v2';
+  final Set<String> _stockOpsHechas = {};
+  bool _productosSnapshotInicial = true;
 
   static const _colsCliente = {
     'syncId',
@@ -827,6 +833,9 @@ class FirestoreSyncService {
       _colaStockOps
         ..clear()
         ..addAll(prefs.getStringList(_prefsColaStockOps) ?? const []);
+      _stockOpsHechas
+        ..clear()
+        ..addAll(prefs.getStringList(_prefsStockOpsHechas) ?? const []);
     } catch (_) {}
   }
 
@@ -834,6 +843,19 @@ class FirestoreSyncService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(_prefsColaStockOps, List<String>.from(_colaStockOps));
+    } catch (_) {}
+  }
+
+  Future<void> _persistirStockOpsHechas() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Conservar las últimas N para no crecer sin límite.
+      final list = _stockOpsHechas.toList();
+      final trimmed = list.length > 500 ? list.sublist(list.length - 500) : list;
+      _stockOpsHechas
+        ..clear()
+        ..addAll(trimmed);
+      await prefs.setStringList(_prefsStockOpsHechas, trimmed);
     } catch (_) {}
   }
 
@@ -1011,14 +1033,46 @@ class FirestoreSyncService {
         _colaStockOps.remove(token);
         continue;
       }
+      if (_stockOpsHechas.contains(opId)) {
+        _colaStockOps.remove(token);
+        continue;
+      }
       try {
         await _remote.ajustarStock(codigo: codigo, delta: delta, opId: opId);
+        _stockOpsHechas.add(opId);
         _colaStockOps.remove(token);
       } catch (e) {
         debugPrint('Flush stock op $token: $e');
       }
     }
     await _persistirColaStockOps();
+    await _persistirStockOpsHechas();
+  }
+
+  void _onProductosSnapshot(QuerySnapshot<Map<String, dynamic>> snap) {
+    try {
+      final List<Producto> lote;
+      if (_productosSnapshotInicial || snap.docChanges.isEmpty) {
+        _productosSnapshotInicial = false;
+        lote = snap.docs
+            .map((d) => Producto.fromFirestore(d.data(), docId: d.id))
+            .toList();
+      } else {
+        lote = snap.docChanges
+            .where((c) => c.type != DocumentChangeType.removed)
+            .map((c) {
+              final data = c.doc.data();
+              if (data == null) return null;
+              return Producto.fromFirestore(data, docId: c.doc.id);
+            })
+            .whereType<Producto>()
+            .toList();
+      }
+      if (lote.isEmpty) return;
+      unawaited(_aplicarProductosRemotos(lote));
+    } catch (e) {
+      debugPrint('onProductosSnapshot: $e');
+    }
   }
 
   Future<void> subirCliente(int clienteId, {bool forzar = false}) async {

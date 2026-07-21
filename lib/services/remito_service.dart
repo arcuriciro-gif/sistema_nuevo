@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:sqflite/sqflite.dart';
 
 import '../core/events/data_refresh_hub.dart';
@@ -99,21 +101,23 @@ class RemitoService {
 
     // Sync a Firebase para que PC/celular se actualicen
     await FirestoreSyncService.instance.subirRemito(remitoId);
-    try {
-      final items = await obtenerItems(remitoId);
-      for (final item in items) {
-        final pid = (item['productoId'] as num?)?.toInt();
-        final cant = (item['cantidad'] as num?)?.toInt() ?? 0;
-        if (pid == null || cant == 0) continue;
-        await FirestoreSyncService.instance.ajustarStockEnNube(
-          productoId: pid,
-          delta: -cant,
-          opId: 'remito_${remitoId}_out_$pid',
-        );
-      }
-    } catch (e) {
-      // Stock en nube se reintenta en el próximo sync.
-    }
+    // Stock en nube en segundo plano: no bloquear ni tumbar el .exe
+    // si Firebase Desktop falla al ajustar.
+    unawaited(() async {
+      try {
+        final items = await obtenerItems(remitoId);
+        for (final item in items) {
+          final pid = (item['productoId'] as num?)?.toInt();
+          final cant = (item['cantidad'] as num?)?.toInt() ?? 0;
+          if (pid == null || cant == 0) continue;
+          await FirestoreSyncService.instance.ajustarStockEnNube(
+            productoId: pid,
+            delta: -cant,
+            opId: 'remito_${remitoId}_out_$pid',
+          );
+        }
+      } catch (_) {}
+    }());
     final clienteIdInt =
         remito.clienteId != null ? int.tryParse(remito.clienteId!) : null;
     if (clienteIdInt != null) {
@@ -270,19 +274,21 @@ class RemitoService {
     });
 
     await FirestoreSyncService.instance.subirRemito(id);
-    try {
-      final items = await obtenerItems(id);
-      for (final item in items) {
-        final pid = (item['productoId'] as num?)?.toInt();
-        final cant = (item['cantidad'] as num?)?.toInt() ?? 0;
-        if (pid == null || cant == 0) continue;
-        await FirestoreSyncService.instance.ajustarStockEnNube(
-          productoId: pid,
-          delta: cant,
-          opId: 'remito_${id}_rev_$pid',
-        );
-      }
-    } catch (_) {}
+    unawaited(() async {
+      try {
+        final items = await obtenerItems(id);
+        for (final item in items) {
+          final pid = (item['productoId'] as num?)?.toInt();
+          final cant = (item['cantidad'] as num?)?.toInt() ?? 0;
+          if (pid == null || cant == 0) continue;
+          await FirestoreSyncService.instance.ajustarStockEnNube(
+            productoId: pid,
+            delta: cant,
+            opId: 'remito_${id}_rev_$pid',
+          );
+        }
+      } catch (_) {}
+    }());
     DataRefreshHub.instance.notifyTodo();
   }
 
