@@ -201,6 +201,7 @@ Preferir lo aburrido y observable:
 
 | Documento | Rol |
 |---|---|
+| **`PRODUCT_MANIFESTO.md`** | **Prioridad máxima** — misión, principios, DoD; gana conflictos con velocidad/features |
 | **`ARCHITECTURE_PLATFORM.md`** | **ADR oficial vinculante** (dominio, eventos, Core, plugins, DR, calidad) |
 | **`ENGINEERING_GOVERNANCE.md`** | **Gobernanza oficial** (simplicidad, métricas, NFRs, límites, calidad de código, release) — complementa, no modifica el ADR |
 | **Esta carta** | Filtro CTO + diseños descartados |
@@ -210,7 +211,8 @@ Preferir lo aburrido y observable:
 | `RELEASE_TRAIN.md` | Consolidar releases sin drafts eternos |
 | `PR_ARCHITECTURE_CHECKLIST.md` | Gate obligatorio de PRs |
 
-Ante conflicto entre “hacer que compile hoy” y estos docs: gana **`ARCHITECTURE_PLATFORM.md`**, luego esta carta, aplicando siempre **`ENGINEERING_GOVERNANCE.md`** (simplicidad medible).
+Ante conflicto entre “hacer que compile hoy” y estos docs: gana el **manifiesto**, luego **`ARCHITECTURE_PLATFORM.md`**, luego esta carta, aplicando **`ENGINEERING_GOVERNANCE.md`**.  
+Hasta A+B+C + auditoría limpia: **no** nuevos documentos de gobernanza salvo necesidad estricta de un cambio.
 
 ---
 

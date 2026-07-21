@@ -1,10 +1,12 @@
 # Roadmap Tata.Manager 2.0 — De aplicación a plataforma
 
 Basado en `docs/AUDITORIA_CERTIFICACION_2026-07.md`.  
-Gobernado por `docs/ARCHITECTURE_PLATFORM.md` (**ADR vinculante**), `docs/PLATFORM_CHARTER.md` y `docs/ENGINEERING_GOVERNANCE.md` (**simplicidad + métricas + NFRs**).
+Gobernado por `docs/PRODUCT_MANIFESTO.md` (**supremo**), `docs/ARCHITECTURE_PLATFORM.md` (**ADR**), `docs/PLATFORM_CHARTER.md` y `docs/ENGINEERING_GOVERNANCE.md`.
 
 **Filtro de toda fase:** ¿Funciona con 500 empresas, 5.000 usuarios simultáneos, millones de movimientos, multi-dispositivo y 10 años?  
 Si no → la entrega de esa fase se rediseña; no se “simplifica” violando el ADR ni se “complejiza” sin beneficio medible.
+
+**Moratoria:** no nuevos documentos de gobernanza hasta completar Fases **A, B y C** y una auditoría sin hallazgos críticos — salvo necesidad estricta de un cambio concreto. El trabajo siguiente es **implementar**, no redactar más constitución.
 
 Prioridad fija: **integridad > seguridad > consistencia > escala > simplicidad operacional > mantenibilidad > features**.
 

@@ -2,7 +2,14 @@
 
 Pegar en la descripción de todo PR que toque `lib/`, rules, sync, schema o seguridad.
 
-Gobernado por: `docs/ARCHITECTURE_PLATFORM.md` + `docs/PLATFORM_CHARTER.md` + `docs/ENGINEERING_GOVERNANCE.md`.
+Gobernado por: `docs/PRODUCT_MANIFESTO.md` (supremo) + `docs/ARCHITECTURE_PLATFORM.md` + `docs/PLATFORM_CHARTER.md` + `docs/ENGINEERING_GOVERNANCE.md`.
+
+## Manifiesto / DoD
+- [ ] ¿Aumenta calidad del producto (no solo tamaño)?
+- [ ] ¿Cero riesgo de pérdida de datos en update/migración?
+- [ ] ¿Operaciones importantes reconstruibles?
+- [ ] ¿Cumple definición de terminado del manifiesto (tests, docs, ADR, NFR, sync, seguridad, mantenibilidad)?
+- [ ] ¿UX no queda degradada a cambio de arquitectura?
 
 ## Filtro de escala
 - [ ] ¿Sigue correcto con 500 empresas, 5.000 usuarios simultáneos, millones de movimientos, multi-dispositivo y 10 años?

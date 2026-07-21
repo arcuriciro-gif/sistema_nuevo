@@ -310,6 +310,7 @@ Complementa `PR_ARCHITECTURE_CHECKLIST.md`:
 
 | Orden | Documento | Rol |
 |---|---|---|
+| 0 | `PRODUCT_MANIFESTO.md` | Supremo — gana todo conflicto con velocidad/features |
 | 1 | `ARCHITECTURE_PLATFORM.md` | ADR de dominio / core / eventos / ledgers |
 | 2 | `PLATFORM_CHARTER.md` | Filtro 500/5k/millones/10 años; diseños descartados |
 | 3 | **Este documento** | Gobernanza de ingeniería: simplicidad, métricas, NFRs, límites, calidad, release |
@@ -318,7 +319,9 @@ Complementa `PR_ARCHITECTURE_CHECKLIST.md`:
 | 6 | `ARCHITECTURE_CONTRACTS.md` | Contratos legado en campo |
 | — | `PR_ARCHITECTURE_CHECKLIST.md` + §14 aquí | Gates de PR |
 
-Ante tensión “ADR vs simplicidad”: se cumple el ADR con la implementación **más simple posible** — no se elimina el ADR, ni se infla con capas vacías.
+Ante tensión “ADR vs simplicidad”: se cumple el ADR con la implementación **más simple posible** — no se elimina el ADR, ni se infla con capas vacías.  
+Ante tensión con “terminar rápido”: gana el **manifiesto**.  
+**Moratoria documental:** no nuevos docs de gobernanza hasta Fases A–B–C + auditoría sin críticos.
 
 ---
 

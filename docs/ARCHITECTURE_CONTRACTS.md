@@ -2,12 +2,15 @@
 
 Documento de gobernanza del **estado actual en campo**. **No cambiar estos contratos sin migración versionada y aprobación.**
 
+**Manifiesto de producto (SUPREMO):** `PRODUCT_MANIFESTO.md`.  
 **Arquitectura oficial de destino (VINCULANTE):** `ARCHITECTURE_PLATFORM.md`.  
 **Gobernanza de ingeniería (VINCULANTE, complementaria):** `ENGINEERING_GOVERNANCE.md`.  
 Doctrina CTO: `PLATFORM_CHARTER.md`.  
 Checklist de PRs: `PR_ARCHITECTURE_CHECKLIST.md`.
 
 Varias filas de este documento son **legado tolerado en migración**, no el diseño final (p. ej. tenant default `tata_stock`, remito que descuenta stock directo, rules solo por membership, ausencia de ledgers/event bus).
+
+**Moratoria:** no ampliar la constitución documental hasta Fases A–B–C + auditoría sin críticos.
 
 Última actualización: 2026-07-21 · Schema SQLite: **v25** · Tenant default: **`tata_stock`** (legado — a eliminar en Roadmap 2.0 Fase A)
 

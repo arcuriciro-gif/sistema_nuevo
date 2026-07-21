@@ -376,6 +376,7 @@ Construir una **plataforma ERP** moderna, escalable, segura, auditable, desacopl
 
 | Prioridad | Documento | Rol |
 |---|---|---|
+| 0 | **`PRODUCT_MANIFESTO.md`** | **Supremo** — misión, principios, DoD, responsabilidad; gana todo conflicto |
 | 1 | **Este ADR** (`ARCHITECTURE_PLATFORM.md`) | Dominio, eventos, core, plugins, calidad, DR — **VINCULANTE** |
 | 2 | `PLATFORM_CHARTER.md` | Filtro CTO, diseños descartados, SoT |
 | 3 | `ENGINEERING_GOVERNANCE.md` | Gobernanza: simplicidad, métricas, NFRs, límites de producto, calidad, release |
@@ -385,7 +386,9 @@ Construir una **plataforma ERP** moderna, escalable, segura, auditable, desacopl
 | — | `PR_ARCHITECTURE_CHECKLIST.md` | Gate obligatorio de todo PR de producto |
 
 Ante conflicto entre legado y este ADR: el legado se **migra**; no se usa como excusa para violar el ADR en código nuevo.  
-Ante tensión ADR ↔ simplicidad: cumplir el ADR con la implementación **más simple** (`ENGINEERING_GOVERNANCE.md`).
+Ante tensión ADR ↔ simplicidad: cumplir el ADR con la implementación **más simple** (`ENGINEERING_GOVERNANCE.md`).  
+Ante cualquier tensión con velocidad o features: gana el **manifiesto**.  
+**Moratoria:** no nuevos docs de gobernanza hasta cerrar Fases A–B–C + auditoría sin críticos (`PRODUCT_MANIFESTO.md`).
 
 ---
 
