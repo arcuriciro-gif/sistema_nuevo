@@ -70,8 +70,13 @@ class CompraService {
         final stockNuevo = stockAnterior + item.cantidad;
 
         await txn.rawUpdate(
-          'UPDATE productos SET stock = stock + ?, costo = ? WHERE id = ?',
-          [item.cantidad, item.costo, item.productoId],
+          'UPDATE productos SET stock = stock + ?, costo = ?, actualizadoEn = ? WHERE id = ?',
+          [
+            item.cantidad,
+            item.costo,
+            DateTime.now().toUtc().toIso8601String(),
+            item.productoId,
+          ],
         );
 
         if (costoAnterior != item.costo) {
@@ -114,6 +119,19 @@ class CompraService {
     });
 
     await FirestoreSyncService.instance.subirCompra(compraId);
+    try {
+      final items = await obtenerItems(compraId);
+      for (final item in items) {
+        final pid = (item['productoId'] as num?)?.toInt();
+        final cant = (item['cantidad'] as num?)?.toInt() ?? 0;
+        if (pid == null || cant == 0) continue;
+        await FirestoreSyncService.instance.ajustarStockEnNube(
+          productoId: pid,
+          delta: cant,
+          opId: 'compra_${compraId}_in_$pid',
+        );
+      }
+    } catch (_) {}
     DataRefreshHub.instance.notifyTodo();
     return compraId;
   }
@@ -176,8 +194,8 @@ class CompraService {
         final stockNuevo = stockAnterior - cantidad;
 
         await txn.rawUpdate(
-          'UPDATE productos SET stock = stock - ? WHERE id = ?',
-          [cantidad, productoId],
+          'UPDATE productos SET stock = stock - ?, actualizadoEn = ? WHERE id = ?',
+          [cantidad, DateTime.now().toUtc().toIso8601String(), productoId],
         );
 
         final movimiento = MovimientoStock(
@@ -207,6 +225,19 @@ class CompraService {
     });
 
     await FirestoreSyncService.instance.subirCompra(id);
+    try {
+      final items = await obtenerItems(id);
+      for (final item in items) {
+        final pid = (item['productoId'] as num?)?.toInt();
+        final cant = (item['cantidad'] as num?)?.toInt() ?? 0;
+        if (pid == null || cant == 0) continue;
+        await FirestoreSyncService.instance.ajustarStockEnNube(
+          productoId: pid,
+          delta: -cant,
+          opId: 'compra_${id}_rev_$pid',
+        );
+      }
+    } catch (_) {}
     DataRefreshHub.instance.notifyTodo();
   }
 

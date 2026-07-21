@@ -55,8 +55,12 @@ class StockService {
       );
 
       await txn.rawUpdate(
-        'UPDATE productos SET stock = stock + ? WHERE id = ?',
-        [movimiento.cantidad * multiplicador, movimiento.productoId],
+        'UPDATE productos SET stock = stock + ?, actualizadoEn = ? WHERE id = ?',
+        [
+          movimiento.cantidad * multiplicador,
+          DateTime.now().toUtc().toIso8601String(),
+          movimiento.productoId,
+        ],
       );
 
       await AuthService.instance.registrarCambio(
@@ -72,6 +76,11 @@ class StockService {
 
     await FirestoreSyncService.instance
         .subirProductoPorId(movimiento.productoId);
+    await FirestoreSyncService.instance.ajustarStockEnNube(
+      productoId: movimiento.productoId,
+      delta: movimiento.cantidad * (movimiento.tipo == 'salida' ? -1 : 1),
+      opId: 'ajuste_${movimientoId}_${movimiento.productoId}',
+    );
     DataRefreshHub.instance.notifyStock();
     return movimientoId;
   }

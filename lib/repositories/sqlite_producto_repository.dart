@@ -15,6 +15,9 @@ class SqliteProductoRepository implements ProductoRepository {
     final db = await _databaseHelper.database;
     final map = producto.toMap()..remove('id');
     map['deleted_at'] = null;
+    map['actualizadoEn'] = producto.actualizadoEn?.isNotEmpty == true
+        ? producto.actualizadoEn
+        : DateTime.now().toUtc().toIso8601String();
     return db.insert(
       'productos',
       map,
@@ -26,9 +29,12 @@ class SqliteProductoRepository implements ProductoRepository {
   Future<void> insertarLista(List<Producto> productos) async {
     final db = await _databaseHelper.database;
     final batch = db.batch();
+    final ahora = DateTime.now().toUtc().toIso8601String();
     for (final producto in productos) {
       final map = producto.toMap()..remove('id');
       map['deleted_at'] = null;
+      map['actualizadoEn'] =
+          producto.actualizadoEn?.isNotEmpty == true ? producto.actualizadoEn : ahora;
       batch.insert(
         'productos',
         map,
@@ -64,6 +70,21 @@ class SqliteProductoRepository implements ProductoRepository {
     return Producto.fromMap(resultado.first);
   }
 
+  /// Incluye papelera: usado por sync para no duplicar filas.
+  Future<Producto?> buscarPorCodigoIncluyendoEliminados(String codigo) async {
+    final db = await _databaseHelper.database;
+    final resultado = await db.query(
+      'productos',
+      where: 'codigo = ?',
+      whereArgs: [codigo],
+      orderBy:
+          "CASE WHEN deleted_at IS NULL OR deleted_at = '' THEN 0 ELSE 1 END, id DESC",
+      limit: 1,
+    );
+    if (resultado.isEmpty) return null;
+    return Producto.fromMap(resultado.first);
+  }
+
   @override
   Future<Producto?> buscarPorCodigoBarras(String codigoBarras) async {
     if (codigoBarras.trim().isEmpty) return null;
@@ -90,9 +111,13 @@ class SqliteProductoRepository implements ProductoRepository {
   @override
   Future<int> actualizar(Producto producto) async {
     final db = await _databaseHelper.database;
+    final map = producto.toMap();
+    map['actualizadoEn'] = producto.actualizadoEn?.isNotEmpty == true
+        ? producto.actualizadoEn
+        : DateTime.now().toUtc().toIso8601String();
     return db.update(
       'productos',
-      producto.toMap(),
+      map,
       where: 'id = ?',
       whereArgs: [producto.id],
     );
@@ -104,7 +129,11 @@ class SqliteProductoRepository implements ProductoRepository {
     final db = await _databaseHelper.database;
     return db.update(
       'productos',
-      {'deleted_at': DateTime.now().toIso8601String(), 'favorito': 0},
+      {
+        'deleted_at': DateTime.now().toIso8601String(),
+        'favorito': 0,
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [id],
     );

@@ -2,7 +2,7 @@
 
 Documento de gobernanza. **No cambiar estos contratos sin migración versionada y aprobación.**
 
-Última actualización: 2026-07-21 · Schema SQLite: **v24** · Tenant default: **`tata_stock`**
+Última actualización: 2026-07-21 · Schema SQLite: **v25** · Tenant default: **`tata_stock`**
 
 ---
 
@@ -49,7 +49,7 @@ tenants/{tenantId}/
 |------|--------|
 | Archivo | `eltata.db` |
 | Desktop path | Application Support `/databases/eltata.db` |
-| `DatabaseHelper` version | **24** |
+| `DatabaseHelper` version | **25** |
 | Preferencias nube | `backend_firebase_enabled` |
 
 Migraciones: solo incrementales `oldVersion < N`. Nunca wipe en upgrade.
@@ -66,6 +66,7 @@ Migraciones: solo incrementales `oldVersion < N`. Nunca wipe en upgrade.
 | `sync_cola_ventas_ids` | ventas |
 | `sync_cola_remitos_ids` | remitos |
 | `sync_cola_compras_ids` | compras |
+| `sync_cola_stock_ops_v2` | deltas stock idempotentes |
 
 ---
 
@@ -89,7 +90,17 @@ Migraciones: solo incrementales `oldVersion < N`. Nunca wipe en upgrade.
 
 ---
 
-## 7. Release
+## 7. Sync / stock (Fase 2)
+
+- Productos: LWW por `actualizadoEn`; soft-delete (`deleted_at`) se propaga entre dispositivos.
+- No hay sweep completo de productos al conectar (solo ausentes + cola).
+- Stock en nube: ajustes atómicos idempotentes (`stockOps` + suma), no multi-master de absolutos en remitos/compras/ajustes.
+- Catch-up ventas/remitos/compras: hasta 2000 docs recientes.
+- SQLite sigue siendo SoT operativo local; Firestore es bus de sync (stock cloud como autoridad entre dispositivos).
+
+---
+
+## 8. Release
 
 - Builds CI: workflows `Build Android APK` / `Build Windows Instalador`.
 - Artefactos: `Instalador_Android`, `Instalador_Windows`.

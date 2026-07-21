@@ -11,6 +11,7 @@ on:
       - cursor/ui-shell-fotos-bio-e44b
       - cursor/productos-busqueda-eliminar-e44b
       - cursor/fase0-fase1-seguridad-e44b
+      - cursor/fase2-sync-stock-e44b
 
 jobs:
   build-windows:

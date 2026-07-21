@@ -37,6 +37,8 @@ class Producto {
   Set<String> preciosBloqueados;
   bool favorito;
   String? deletedAt;
+  /// Timestamp UTC ISO para LWW entre dispositivos (Fase 2).
+  String? actualizadoEn;
 
   Producto({
     this.id,
@@ -67,6 +69,7 @@ class Producto {
     Set<String>? preciosBloqueados,
     this.favorito = false,
     this.deletedAt,
+    this.actualizadoEn,
   })  : fotos = fotos ?? const [],
         preciosListas = preciosListas ?? const {},
         preciosBloqueados = preciosBloqueados ?? const {};
@@ -118,6 +121,7 @@ class Producto {
       'precios_bloqueados': jsonEncode(preciosBloqueados.toList()),
       'favorito': favorito ? 1 : 0,
       'deleted_at': deletedAt,
+      'actualizadoEn': actualizadoEn ?? '',
     };
   }
 
@@ -156,6 +160,7 @@ class Producto {
       preciosBloqueados: _parseStringSet(map['precios_bloqueados']),
       favorito: (map['favorito'] ?? 0) == 1 || map['favorito'] == true,
       deletedAt: map['deleted_at']?.toString(),
+      actualizadoEn: (map['actualizadoEn'] ?? map['actualizado_en'])?.toString(),
     );
   }
 
@@ -174,7 +179,10 @@ class Producto {
       data.remove('foto');
       data.remove('fotos');
     }
-    data['actualizadoEn'] = DateTime.now().toUtc().toIso8601String();
+    data['actualizadoEn'] =
+        (actualizadoEn != null && actualizadoEn!.isNotEmpty)
+            ? actualizadoEn
+            : DateTime.now().toUtc().toIso8601String();
     return data;
   }
 
@@ -215,6 +223,7 @@ class Producto {
     Set<String>? preciosBloqueados,
     bool? favorito,
     String? deletedAt,
+    String? actualizadoEn,
     bool clearDeletedAt = false,
   }) {
     return Producto(
@@ -246,6 +255,7 @@ class Producto {
       preciosBloqueados: preciosBloqueados ?? this.preciosBloqueados,
       favorito: favorito ?? this.favorito,
       deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
+      actualizadoEn: actualizadoEn ?? this.actualizadoEn,
     );
   }
 

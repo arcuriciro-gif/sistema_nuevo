@@ -92,7 +92,7 @@ class DatabaseHelper {
 
     final db = await openDatabase(
       path,
-      version: 24,
+      version: 25,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -131,7 +131,8 @@ CREATE TABLE productos(
   precios_listas TEXT DEFAULT '{}',
   precios_bloqueados TEXT DEFAULT '[]',
   favorito INTEGER DEFAULT 0,
-  deleted_at TEXT
+  deleted_at TEXT,
+  actualizadoEn TEXT DEFAULT ''
 )
 ''');
 
@@ -980,6 +981,11 @@ CREATE TABLE IF NOT EXISTS ventas_items(
         'actualizadoEn': "TEXT DEFAULT ''",
       });
       await _agregarColumnas(db, 'proveedores', {
+        'actualizadoEn': "TEXT DEFAULT ''",
+      });
+    }
+    if (oldVersion < 25) {
+      await _agregarColumnas(db, 'productos', {
         'actualizadoEn': "TEXT DEFAULT ''",
       });
     }

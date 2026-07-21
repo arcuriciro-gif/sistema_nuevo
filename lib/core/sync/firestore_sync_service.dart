@@ -88,6 +88,8 @@ class FirestoreSyncService {
   final Set<int> _colaRemitos = {};
   final Set<int> _colaProductos = {};
   final Set<int> _colaCompras = {};
+  /// Deltas de stock pendientes: "opId|codigo|delta"
+  final List<String> _colaStockOps = [];
 
   /// Último estado legible para la UI (sin carteles rojos agresivos).
   String syncStatusLabel = 'Local';
@@ -290,22 +292,18 @@ class FirestoreSyncService {
       }
 
       // Solo subir locales que AÚN NO están en la nube (no reenviar todos:
-      // eso pisaba teléfonos/fotos buenos del otro dispositivo).
+      // el sweep completo de productos resucitaba soft-deletes).
       final db = await DatabaseHelper.instance.database;
       await _subirClientesAusentesEnNube(db);
       await _subirProveedoresAusentesEnNube(db);
-      // Productos: sweep completo para que PC y celular queden alineados.
-      final productos = await db.query('productos', columns: ['id']);
-      for (final row in productos) {
-        final id = (row['id'] as num?)?.toInt();
-        if (id != null) await subirProductoPorId(id);
-      }
-      // Ventas/remitos/compras recientes por si quedaron solo locales.
+      await _subirProductosAusentesEnNube(db);
+      await _flushColaStockOps();
+      // Ventas/remitos/compras: catch-up amplio (antes 200 cortaba historial).
       final ventas = await db.query(
         'ventas',
         columns: ['id'],
         orderBy: 'id DESC',
-        limit: 200,
+        limit: 2000,
       );
       for (final row in ventas) {
         final id = (row['id'] as num?)?.toInt();
@@ -315,7 +313,7 @@ class FirestoreSyncService {
         'remitos',
         columns: ['id'],
         orderBy: 'id DESC',
-        limit: 200,
+        limit: 2000,
       );
       for (final row in remitos) {
         final id = (row['id'] as num?)?.toInt();
@@ -325,7 +323,7 @@ class FirestoreSyncService {
         'compras',
         columns: ['id'],
         orderBy: 'id DESC',
-        limit: 200,
+        limit: 2000,
       );
       for (final row in compras) {
         final id = (row['id'] as num?)?.toInt();
@@ -658,6 +656,7 @@ class FirestoreSyncService {
   static const _prefsColaVentas = 'sync_cola_ventas_ids';
   static const _prefsColaRemitos = 'sync_cola_remitos_ids';
   static const _prefsColaCompras = 'sync_cola_compras_ids';
+  static const _prefsColaStockOps = 'sync_cola_stock_ops_v2';
 
   static const _colsCliente = {
     'syncId',
@@ -825,6 +824,16 @@ class FirestoreSyncService {
         final id = int.tryParse(s);
         if (id != null) _colaCompras.add(id);
       }
+      _colaStockOps
+        ..clear()
+        ..addAll(prefs.getStringList(_prefsColaStockOps) ?? const []);
+    } catch (_) {}
+  }
+
+  Future<void> _persistirColaStockOps() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_prefsColaStockOps, List<String>.from(_colaStockOps));
     } catch (_) {}
   }
 
@@ -937,6 +946,79 @@ class FirestoreSyncService {
     } catch (e) {
       debugPrint('Subir proveedores ausentes: $e');
     }
+  }
+
+  /// Solo productos que aún no tienen doc en la nube (incluye papelera local).
+  Future<void> _subirProductosAusentesEnNube(Database db) async {
+    try {
+      final remote = await _remote.obtenerTodos(limit: 10000);
+      final remoteCodigos = remote.map((p) => p.codigo.trim()).toSet();
+      final locales = await db.query('productos', columns: ['id', 'codigo']);
+      for (final row in locales) {
+        final id = (row['id'] as num?)?.toInt();
+        final codigo = row['codigo']?.toString().trim() ?? '';
+        if (id == null || codigo.isEmpty) continue;
+        if (!remoteCodigos.contains(codigo)) {
+          await subirProductoPorId(id, incluirStockAbsoluto: true, forzar: true);
+        }
+      }
+    } catch (e) {
+      debugPrint('Subir productos ausentes: $e');
+    }
+  }
+
+  /// Ajusta stock en la nube de forma atómica e idempotente (Fase 2).
+  Future<void> ajustarStockEnNube({
+    required int productoId,
+    required int delta,
+    String? opId,
+  }) async {
+    if (delta == 0) return;
+    final idOp = (opId == null || opId.isEmpty) ? const Uuid().v4() : opId;
+    final db = await DatabaseHelper.instance.database;
+    final rows = await db.query(
+      'productos',
+      columns: ['codigo'],
+      where: 'id = ?',
+      whereArgs: [productoId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final codigo = rows.first['codigo']?.toString().trim() ?? '';
+    if (codigo.isEmpty) return;
+
+    final token = '$idOp|$codigo|$delta';
+    if (!_colaStockOps.contains(token)) {
+      _colaStockOps.add(token);
+      await _persistirColaStockOps();
+    }
+    await _flushColaStockOps();
+  }
+
+  Future<void> _flushColaStockOps() async {
+    if (!_puedeEscribirRemoto || _colaStockOps.isEmpty) return;
+    final pendientes = List<String>.from(_colaStockOps);
+    for (final token in pendientes) {
+      final parts = token.split('|');
+      if (parts.length < 3) {
+        _colaStockOps.remove(token);
+        continue;
+      }
+      final opId = parts[0];
+      final codigo = parts[1];
+      final delta = int.tryParse(parts[2]) ?? 0;
+      if (codigo.isEmpty || delta == 0) {
+        _colaStockOps.remove(token);
+        continue;
+      }
+      try {
+        await _remote.ajustarStock(codigo: codigo, delta: delta, opId: opId);
+        _colaStockOps.remove(token);
+      } catch (e) {
+        debugPrint('Flush stock op $token: $e');
+      }
+    }
+    await _persistirColaStockOps();
   }
 
   Future<void> subirCliente(int clienteId, {bool forzar = false}) async {
@@ -1267,7 +1349,11 @@ class FirestoreSyncService {
     }
   }
 
-  Future<void> subirProductoPorId(int productoId) async {
+  Future<void> subirProductoPorId(
+    int productoId, {
+    bool incluirStockAbsoluto = false,
+    bool forzar = false,
+  }) async {
     if (!_puedeEscribirRemoto) {
       _colaProductos.add(productoId);
       unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
@@ -1283,6 +1369,16 @@ class FirestoreSyncService {
       );
       if (rows.isEmpty) return;
       var producto = Producto.fromMap(rows.first);
+      final ahora = DateTime.now().toUtc().toIso8601String();
+      if (producto.actualizadoEn == null || producto.actualizadoEn!.isEmpty) {
+        producto = producto.copyWith(actualizadoEn: ahora);
+        await db.update(
+          'productos',
+          {'actualizadoEn': ahora},
+          where: 'id = ?',
+          whereArgs: [productoId],
+        );
+      }
 
       // Subir fotos locales a Storage antes de empujar a Firestore
       // (evita sincronizar rutas C:\... o /data/... al otro dispositivo).
@@ -1293,19 +1389,47 @@ class FirestoreSyncService {
       if (fotos.isNotEmpty &&
           (fotos.first != producto.fotoPrincipal ||
               fotos.length != producto.todasLasFotos.length)) {
-        producto = producto.copyWith(foto: fotos.first, fotos: fotos);
+        producto = producto.copyWith(
+          foto: fotos.first,
+          fotos: fotos,
+          actualizadoEn: ahora,
+        );
         await db.update(
           'productos',
           {
             'foto': producto.fotoPrincipal,
             'fotos': producto.toMap()['fotos'],
+            'actualizadoEn': ahora,
           },
           where: 'id = ?',
           whereArgs: [productoId],
         );
       }
 
-      await _remote.actualizar(producto);
+      if (!forzar) {
+        try {
+          final remoto = await _remote.buscarPorCodigo(producto.codigo);
+          if (remoto != null) {
+            final remTs = _parseUtc(remoto.actualizadoEn);
+            final locTs = _parseUtc(producto.actualizadoEn);
+            if (remTs != null &&
+                locTs != null &&
+                remTs.isAfter(locTs) &&
+                !incluirStockAbsoluto) {
+              // Remoto más nuevo: no pisar metadata (stock va por deltas).
+              _colaProductos.remove(productoId);
+              unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
+              return;
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (incluirStockAbsoluto) {
+        await _remote.actualizar(producto);
+      } else {
+        await _remote.actualizarSinStock(producto);
+      }
       _colaProductos.remove(productoId);
       unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
     } catch (e) {
@@ -1990,6 +2114,7 @@ class FirestoreSyncService {
         local.categoria == merged.categoria &&
         local.favorito == merged.favorito &&
         (local.deletedAt ?? '') == (merged.deletedAt ?? '') &&
+        (local.actualizadoEn ?? '') == (merged.actualizadoEn ?? '') &&
         _mapasDoublesIguales(local.preciosListas, merged.preciosListas);
   }
 
@@ -2006,14 +2131,41 @@ class FirestoreSyncService {
         final batch = db.batch();
         var huboCambios = false;
         for (final producto in actual) {
-          final local = await _cache.buscarPorCodigo(producto.codigo);
-          final merged = _fusionarProductoRemoto(producto, local);
-          // Evitar pisar datos locales idénticos (reduce flicker).
+          final local =
+              await _cache.buscarPorCodigoIncluyendoEliminados(producto.codigo);
+          final locTs = _parseUtc(local?.actualizadoEn);
+          final remTs = _parseUtc(producto.actualizadoEn);
+
+          // LWW metadata: si lo local es más nuevo, solo tomar stock remoto
+          // (Firestore es autoridad de stock vía increments).
+          if (local != null &&
+              locTs != null &&
+              remTs != null &&
+              locTs.isAfter(remTs)) {
+            if (local.stock != producto.stock) {
+              huboCambios = true;
+              batch.update(
+                'productos',
+                {'stock': producto.stock},
+                where: 'id = ?',
+                whereArgs: [local.id],
+              );
+            }
+            continue;
+          }
+
+          var merged = _fusionarProductoRemoto(producto, local);
+          if (producto.estaEliminado) {
+            merged = merged.copyWith(deletedAt: producto.deletedAt);
+          }
           if (local != null && _productoSinCambiosRelevantes(local, merged)) {
             continue;
           }
           huboCambios = true;
           final data = merged.toMap();
+          data['actualizadoEn'] = producto.actualizadoEn ??
+              merged.actualizadoEn ??
+              DateTime.now().toUtc().toIso8601String();
           if (local?.id != null) {
             batch.update(
               'productos',
@@ -2032,6 +2184,7 @@ class FirestoreSyncService {
         if (huboCambios) {
           await batch.commit(noResult: true);
           DataRefreshHub.instance.notifyProductos();
+          DataRefreshHub.instance.notifyStock();
         }
         final pendiente = _productosPendientes;
         _productosPendientes = null;
@@ -2136,7 +2289,8 @@ class _DualProductoRepository implements ProductoRepository {
   Future<int> actualizar(Producto producto) async {
     final result = await local.actualizar(producto);
     try {
-      await remote.actualizar(await _paraFirestore(producto));
+      // Fase 2: no pisar stock absoluto (va por ajustes atómicos).
+      await remote.actualizarSinStock(await _paraFirestore(producto));
     } catch (error) {
       debugPrint('Firestore actualizar producto: $error');
     }
@@ -2153,6 +2307,7 @@ class _DualProductoRepository implements ProductoRepository {
       final producto = Producto.fromMap(rows.first).copyWith(
         deletedAt: DateTime.now().toIso8601String(),
         favorito: false,
+        actualizadoEn: DateTime.now().toUtc().toIso8601String(),
       );
       try {
         await remote.actualizar(producto);

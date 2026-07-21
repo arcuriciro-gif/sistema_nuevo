@@ -311,10 +311,16 @@ class ProductoService {
     );
     if (rows.isEmpty) return;
     final producto = Producto.fromMap(rows.first);
-    final restaurado = producto.copyWith(clearDeletedAt: true);
+    final restaurado = producto.copyWith(
+      clearDeletedAt: true,
+      actualizadoEn: DateTime.now().toUtc().toIso8601String(),
+    );
     await db.update(
       'productos',
-      {'deleted_at': null},
+      {
+        'deleted_at': null,
+        'actualizadoEn': restaurado.actualizadoEn,
+      },
       where: 'id = ?',
       whereArgs: [id],
     );

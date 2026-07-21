@@ -75,8 +75,8 @@ class RemitoService {
         final stockNuevo = stockAnterior - item.cantidad;
 
         await txn.rawUpdate(
-          'UPDATE productos SET stock = stock - ? WHERE id = ?',
-          [item.cantidad, item.productoId],
+          'UPDATE productos SET stock = stock - ?, actualizadoEn = ? WHERE id = ?',
+          [item.cantidad, DateTime.now().toUtc().toIso8601String(), item.productoId],
         );
 
         final movimiento = MovimientoStock(
@@ -99,6 +99,21 @@ class RemitoService {
 
     // Sync a Firebase para que PC/celular se actualicen
     await FirestoreSyncService.instance.subirRemito(remitoId);
+    try {
+      final items = await obtenerItems(remitoId);
+      for (final item in items) {
+        final pid = (item['productoId'] as num?)?.toInt();
+        final cant = (item['cantidad'] as num?)?.toInt() ?? 0;
+        if (pid == null || cant == 0) continue;
+        await FirestoreSyncService.instance.ajustarStockEnNube(
+          productoId: pid,
+          delta: -cant,
+          opId: 'remito_${remitoId}_out_$pid',
+        );
+      }
+    } catch (e) {
+      // Stock en nube se reintenta en el próximo sync.
+    }
     final clienteIdInt =
         remito.clienteId != null ? int.tryParse(remito.clienteId!) : null;
     if (clienteIdInt != null) {
@@ -227,8 +242,8 @@ class RemitoService {
         final stockNuevo = stockAnterior + cantidad;
 
         await txn.rawUpdate(
-          'UPDATE productos SET stock = stock + ? WHERE id = ?',
-          [cantidad, productoId],
+          'UPDATE productos SET stock = stock + ?, actualizadoEn = ? WHERE id = ?',
+          [cantidad, DateTime.now().toUtc().toIso8601String(), productoId],
         );
 
         final movimiento = MovimientoStock(
@@ -255,6 +270,19 @@ class RemitoService {
     });
 
     await FirestoreSyncService.instance.subirRemito(id);
+    try {
+      final items = await obtenerItems(id);
+      for (final item in items) {
+        final pid = (item['productoId'] as num?)?.toInt();
+        final cant = (item['cantidad'] as num?)?.toInt() ?? 0;
+        if (pid == null || cant == 0) continue;
+        await FirestoreSyncService.instance.ajustarStockEnNube(
+          productoId: pid,
+          delta: cant,
+          opId: 'remito_${id}_rev_$pid',
+        );
+      }
+    } catch (_) {}
     DataRefreshHub.instance.notifyTodo();
   }
 
