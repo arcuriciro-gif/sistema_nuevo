@@ -18,6 +18,7 @@ on:
       - cursor/capacidad-3-dominio-transaccional-e44b
       - cursor/capacidad-4-autorizacion-real-e44b
       - cursor/capacidad-5-release-readiness-e44b
+      - cursor/tenant-codigo-empresa-e44b
 
 jobs:
   build-android:

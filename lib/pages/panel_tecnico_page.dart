@@ -89,6 +89,7 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
           _row('Dominio', 'v${s.domainVersion}'),
           _row('Sync', 'v${s.syncVersion}'),
           _row('Eventos', 'v${s.eventsVersion}'),
+          _row('Empresa (tenant)', s.tenantId, copyable: true),
         ]),
         _section('Base de datos', [
           _row('Ruta', s.dbPath, copyable: true),
