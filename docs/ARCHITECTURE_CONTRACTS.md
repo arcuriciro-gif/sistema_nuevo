@@ -12,7 +12,7 @@ Varias filas de este documento son **legado tolerado en migración**, no el dise
 
 **Moratoria:** no ampliar la constitución documental hasta Fases A–B–C + auditoría sin críticos.
 
-Última actualización: 2026-07-21 · Schema SQLite: **v27** · Tenant default: **`tata_stock`** (legado — a eliminar en Roadmap 2.0 Fase A)
+Última actualización: 2026-07-21 · Schema SQLite: **v28** · Tenant default: **`tata_stock`** (legado — a eliminar en Roadmap 2.0 Fase A)
 
 ---
 
@@ -69,6 +69,7 @@ Migraciones: solo incrementales `oldVersion < N`. Nunca wipe en upgrade.
 |---|---|
 | v26 | `sync_outbox`, `sync_watermarks`, `sync_conflicts` (Capacidad 2) |
 | v27 | `domain_events`, `inventory_ledger`, `money_ledger` (Capacidad 3) |
+| v28 | Remitos `totalPagado` / `saldoPendiente`; `pagos.remitoId` |
 
 Dominio (Capacidad 3): documentos publican eventos; `InventoryLedgerService` / `MoneyLedgerService` proyectan. Ver `docs/capacidades/C3_DOMINIO_TRANSACCIONAL.md`.
 
