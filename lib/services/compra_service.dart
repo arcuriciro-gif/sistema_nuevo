@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../core/config/device_identity.dart';
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/compra.dart';
@@ -164,6 +165,11 @@ class CompraService {
   }
 
   Future<void> anular(int id) async {
+    AuthorizationService.instance.require(
+      'compras',
+      AuthzAction.anular,
+      operacion: 'anular compra',
+    );
     final db = await dbHelper.database;
 
     await db.transaction((txn) async {

@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../core/auth/rol_util.dart';
+import '../core/security/authorization_service.dart';
 import '../database/database_helper.dart';
 import '../models/permiso.dart';
 
@@ -70,6 +71,7 @@ class PermisosService {
   }
 
   Future<void> actualizar(Permiso permiso) async {
+    AuthorizationService.instance.requireAdmin(operacion: 'editar permisos');
     final db = await _dbHelper.database;
     final rol = _normalizarRol(permiso.rol);
     final actualizado = Permiso(

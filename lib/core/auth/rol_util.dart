@@ -9,6 +9,7 @@ class RolUtil {
     administrador,
     encargado,
     empleado,
+    'solo_lectura',
   ];
 
   static String normalizar(String rol) {

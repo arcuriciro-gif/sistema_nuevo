@@ -12,6 +12,7 @@ on:
       - cursor/fase3-sync-conflictos-e44b
       - cursor/ficha-cliente-foto-producto-e44b
       - cursor/remitos-eliminar-sync-admin-e44b
+      - cursor/capacidad-1-plataforma-segura-e44b
 
 jobs:
   build-android:
@@ -39,6 +40,20 @@ jobs:
 
       - name: Pub get
         run: flutter pub get
+
+      - name: Restaurar keystore (secreto CI, opcional)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_PROPERTIES: ${{ secrets.ANDROID_KEY_PROPERTIES }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEY_PROPERTIES" ]; then
+            mkdir -p android/keystore
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/keystore/tata-manager.jks
+            printf '%s\n' "$ANDROID_KEY_PROPERTIES" > android/key.properties
+            echo "Keystore restaurado desde secrets"
+          else
+            echo "Sin secrets de firma — release usará debug signing (Capacidad 1)"
+          fi
 
       - name: Build APK release
         run: flutter build apk --release

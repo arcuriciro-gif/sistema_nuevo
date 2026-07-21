@@ -5,6 +5,8 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../core/security/admin_access_policy.dart';
+
 class DatabaseHelper {
   DatabaseHelper._();
 
@@ -403,6 +405,7 @@ CREATE TABLE IF NOT EXISTS usuarios(
         'fechaCreacion': ahora,
         'ultimoAcceso': ahora,
       });
+      await AdminAccessPolicy.instance.enableDefaultRecoveryForBootstrap();
       return;
     }
 

@@ -15,18 +15,20 @@ En Firebase → Project settings → app **`com.example.sistema_nuevo`** (no `co
 - [ ] (Opcional) SHA-1 debug CI: ver `docs/FIREBASE_GOOGLE_LOGIN.md`
 - [ ] Esperar 2–5 minutos tras guardar
 
-## 3. Firestore
+## 3. Firestore (Capacidad 1 — obligatorio republicar)
 - [ ] Firestore Database creado (modo production)
-- [ ] **Antes de publicar rules:** al menos un dispositivo con la app nueva conectado a la nube (crea `members/{uid}`)
+- [ ] **Antes de publicar rules nuevas:** backup / confirmá que el tenant de producción tiene `members` y un `ownerUid`
 - [ ] Publicar reglas de **`firestore.rules`** de este repo  
   `firebase deploy --only firestore:rules`
-  (Fase 3 agrega colección `stock_ops` — hay que republicar si ya tenías rules viejas)
+- [ ] Verificar: self-join cerrado en tenants nuevos (`allowSelfJoin: false`); `config`/`usuarios` solo admin; `solo_lectura` no escribe
+- [ ] Si el tenant legado `tata_stock` aún tiene `allowSelfJoin: true`, planear ponerlo en `false` tras invitar miembros
 - [ ] Indexes: crear los que Console solicite al usar queries
 
 ## 4. Storage (fotos / PDF)
 - [ ] Storage habilitado
 - [ ] Publicar **`storage.rules`** (después de membership)  
   `firebase deploy --only storage`
+- [ ] Sin `application/octet-stream`; `solo_lectura` no sube
 - Detalle: `docs/FIREBASE_STORAGE.md`
 
 ## 5. Instalación en dispositivos

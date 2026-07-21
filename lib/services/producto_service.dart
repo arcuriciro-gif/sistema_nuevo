@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
 import '../core/utils/media_path.dart';
@@ -288,6 +289,11 @@ class ProductoService {
 
   /// Soft-delete → va a la papelera.
   Future<int> eliminar(int id) async {
+    AuthorizationService.instance.require(
+      'productos',
+      AuthzAction.eliminar,
+      operacion: 'eliminar producto',
+    );
     final db = await _databaseHelper.database;
     final anterior = await db.query(
       'productos',

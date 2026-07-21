@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../core/config/device_identity.dart';
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/movimiento_stock.dart';
@@ -208,6 +209,11 @@ class RemitoService {
   }
 
   Future<void> anular(int id) async {
+    AuthorizationService.instance.require(
+      'remitos',
+      AuthzAction.anular,
+      operacion: 'anular remito',
+    );
     final db = await dbHelper.database;
 
     await db.transaction((txn) async {
@@ -298,9 +304,7 @@ class RemitoService {
 
   /// Anula (si hace falta) y borra el remito de este equipo y de la nube.
   Future<void> eliminar(int id) async {
-    if (!AuthService.instance.esAdministrador()) {
-      throw StateError('Solo el administrador puede eliminar remitos.');
-    }
+    AuthorizationService.instance.requireAdmin(operacion: 'eliminar remitos');
     final db = await dbHelper.database;
     final rows = await db.query(
       'remitos',

@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/proveedor.dart';
@@ -99,6 +100,11 @@ class ProveedorService {
   }
 
   Future<int> eliminar(int id) async {
+    AuthorizationService.instance.require(
+      'proveedores',
+      AuthzAction.eliminar,
+      operacion: 'eliminar proveedor',
+    );
     final db = await _dbHelper.database;
     final anterior = await db.query(
       'proveedores',

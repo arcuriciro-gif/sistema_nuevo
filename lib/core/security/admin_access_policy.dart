@@ -25,8 +25,18 @@ class AdminAccessPolicy {
 
   Future<bool> isDefaultRecoveryEnabled() async {
     final prefs = await SharedPreferences.getInstance();
-    // Default true: instalaciones existentes / primera vez.
+    // Compat instalaciones existentes: si nunca se persistió, sigue true.
+    // Tras cambiar clave admin se llama disableDefaultRecovery().
+    // Capacidad 1: nuevas empresas no dependen de esto para aislamiento
+    // (tenant propio + rules). Checklist de release: desactivar en campo.
     return prefs.getBool(_kDefaultRecoveryEnabled) ?? true;
+  }
+
+  /// Marca explícitamente el bootstrap local (seed admin). Idempotente.
+  Future<void> enableDefaultRecoveryForBootstrap() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.containsKey(_kDefaultRecoveryEnabled)) return;
+    await prefs.setBool(_kDefaultRecoveryEnabled, true);
   }
 
   Future<void> disableDefaultRecovery() async {

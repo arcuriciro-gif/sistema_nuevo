@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:uuid/uuid.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/cliente.dart';
@@ -89,6 +90,11 @@ class ClienteService {
   }
 
   Future<int> eliminar(int id) async {
+    AuthorizationService.instance.require(
+      'clientes',
+      AuthzAction.eliminar,
+      operacion: 'eliminar cliente',
+    );
     final db = await dbHelper.database;
     final anterior = await db.query(
       'clientes',

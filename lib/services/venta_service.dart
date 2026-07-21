@@ -1,4 +1,5 @@
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/venta.dart';
@@ -81,6 +82,11 @@ class VentaService {
   }
 
   Future<void> anular(int id) async {
+    AuthorizationService.instance.require(
+      'ventas',
+      AuthzAction.anular,
+      operacion: 'anular venta',
+    );
     final db = await _db.database;
     final venta = await obtenerPorId(id);
     await db.update(
@@ -157,6 +163,11 @@ class VentaService {
   }
 
   Future<void> eliminar(int id) async {
+    AuthorizationService.instance.require(
+      'ventas',
+      AuthzAction.eliminar,
+      operacion: 'eliminar venta',
+    );
     final db = await _db.database;
     final venta = await obtenerPorId(id);
     await db.transaction((txn) async {

@@ -1,16 +1,15 @@
 rules_version = '2';
 
-// Tata.Manager — Firestore Security Rules (Fase 1)
+// Tata.Manager — Firestore Security Rules (Capacidad 1: Plataforma segura)
 // Deploy: firebase deploy --only firestore:rules
 //
-// Modelo:
-// - tenants/{tenantId} con ownerUid + allowSelfJoin (migración)
-// - tenants/{tenantId}/members/{uid} con rol + activo
-// - Datos de negocio: solo miembros activos
-//
-// Compat: allowSelfJoin=true permite que dispositivos existentes
-// creen su membership al conectar. En Fase 2 se puede poner false
-// y exigir invitación admin.
+// Principios:
+// - Aislamiento por tenant (path).
+// - Roles en members/{uid}: admin | encargado | empleado | solo_lectura
+// - Self-join: solo si allowSelfJoin==true EXPLÍCITO, y NUNCA como admin.
+// - Nuevos tenants: allowSelfJoin debe ser false.
+// - config + usuarios: escritura solo admin.
+// - solo_lectura: solo lectura en colecciones operativas.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -34,6 +33,10 @@ service cloud.firestore {
       return get(tenantPath(tenantId)).data;
     }
 
+    function memberData(tenantId) {
+      return get(memberPath(tenantId, request.auth.uid)).data;
+    }
+
     function isOwner(tenantId) {
       return signedIn()
         && tenantExists(tenantId)
@@ -46,58 +49,122 @@ service cloud.firestore {
         && get(memberPath(tenantId, request.auth.uid)).data.activo == true;
     }
 
+    function memberRol(tenantId) {
+      return memberData(tenantId).rol;
+    }
+
     function isTenantAdmin(tenantId) {
-      return isMember(tenantId)
-        && get(memberPath(tenantId, request.auth.uid)).data.rol == 'admin';
+      return isMember(tenantId) && memberRol(tenantId) == 'admin';
     }
 
-    function selfJoinAllowed(tenantId) {
-      return !tenantExists(tenantId)
-        || !('allowSelfJoin' in tenantData(tenantId))
-        || tenantData(tenantId).allowSelfJoin == true;
+    function isReadOnly(tenantId) {
+      return isMember(tenantId) && memberRol(tenantId) == 'solo_lectura';
     }
 
-    // Documento raíz del tenant
+    function canWriteOps(tenantId) {
+      return isMember(tenantId) && !isReadOnly(tenantId);
+    }
+
+    // Self-join solo si el flag está explícitamente en true (legado).
+    function selfJoinExplicit(tenantId) {
+      return tenantExists(tenantId)
+        && ('allowSelfJoin' in tenantData(tenantId))
+        && tenantData(tenantId).allowSelfJoin == true;
+    }
+
+    function validRol(rol) {
+      return rol in ['admin', 'encargado', 'empleado', 'solo_lectura'];
+    }
+
     match /tenants/{tenantId} {
       allow read: if isMember(tenantId) || isOwner(tenantId);
+
+      // Alta de empresa: el creador es owner y self-join queda CERRADO.
       allow create: if signedIn()
         && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.allowSelfJoin == false
         && request.resource.data.keys().hasAll(['ownerUid', 'allowSelfJoin', 'creadoEn']);
+
       allow update: if isOwner(tenantId) || isTenantAdmin(tenantId);
       allow delete: if false;
 
-      // Membresías
       match /members/{uid} {
         allow read: if isMember(tenantId) || (signedIn() && request.auth.uid == uid);
+
+        // Crear membresía:
+        // - Owner/admin invita (cualquier uid).
+        // - Self-join legado: solo propio uid, rol != admin.
         allow create: if signedIn()
-          && request.auth.uid == uid
           && request.resource.data.keys().hasAll(['rol', 'activo', 'actualizadoEn'])
           && request.resource.data.activo == true
+          && validRol(request.resource.data.rol)
           && (
-            isOwner(tenantId)
-            || isTenantAdmin(tenantId)
-            || selfJoinAllowed(tenantId)
+            (isOwner(tenantId) || isTenantAdmin(tenantId))
+            || (
+              request.auth.uid == uid
+              && selfJoinExplicit(tenantId)
+              && request.resource.data.rol in ['empleado', 'encargado', 'solo_lectura']
+            )
           );
-        allow update: if isOwner(tenantId)
-          || isTenantAdmin(tenantId)
-          || (signedIn() && request.auth.uid == uid);
+
+        // Auto-update: no puede tocar rol / activo / uid.
+        allow update: if isOwner(tenantId) || isTenantAdmin(tenantId)
+          || (
+            signedIn()
+            && request.auth.uid == uid
+            && !request.resource.data.diff(resource.data)
+                .affectedKeys()
+                .hasAny(['rol', 'activo', 'uid'])
+          );
+
         allow delete: if isOwner(tenantId) || isTenantAdmin(tenantId);
       }
 
-      // Config del negocio
-      match /config/{docId} {
-        allow read: if isMember(tenantId);
-        allow write: if isMember(tenantId);
+      // Dispositivos de confianza ( Capacidad 1 )
+      match /devices/{deviceId} {
+        allow read: if isTenantAdmin(tenantId)
+          || (isMember(tenantId) && resource.data.uid == request.auth.uid);
+        allow create: if canWriteOps(tenantId)
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.keys().hasAll(['uid', 'deviceId', 'actualizadoEn']);
+        allow update: if canWriteOps(tenantId)
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.uid == request.auth.uid
+          && !request.resource.data.diff(resource.data)
+              .affectedKeys()
+              .hasAny(['uid', 'deviceId']);
+        allow delete: if isTenantAdmin(tenantId);
       }
 
-      // Colecciones operativas
+      match /config/{docId} {
+        allow read: if isMember(tenantId);
+        allow write: if isTenantAdmin(tenantId);
+      }
+
+      match /usuarios/{docId} {
+        allow read: if isMember(tenantId);
+        allow write: if isTenantAdmin(tenantId);
+      }
+
       match /{collection}/{docId} {
-        allow read, write: if isMember(tenantId)
+        allow read: if isMember(tenantId)
           && collection in [
             'productos',
             'clientes',
             'proveedores',
-            'usuarios',
+            'ventas',
+            'remitos',
+            'compras',
+            'documentos',
+            'chats',
+            'notificaciones',
+            'stock_ops'
+          ];
+        allow write: if canWriteOps(tenantId)
+          && collection in [
+            'productos',
+            'clientes',
+            'proveedores',
             'ventas',
             'remitos',
             'compras',
@@ -108,9 +175,9 @@ service cloud.firestore {
           ];
       }
 
-      // Subcolecciones de chat (mensajes)
       match /chats/{chatId}/{sub}/{subId} {
-        allow read, write: if isMember(tenantId);
+        allow read: if isMember(tenantId);
+        allow write: if canWriteOps(tenantId);
       }
     }
   }
