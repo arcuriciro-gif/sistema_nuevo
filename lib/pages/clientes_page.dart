@@ -11,6 +11,7 @@ import '../widgets/compartir_chat_dialog.dart';
 import '../widgets/comentarios_internos_sheet.dart';
 import '../widgets/cobrar_dialog.dart';
 import 'cliente_form_page.dart';
+import 'cliente_detalle_page.dart';
 import 'cliente_historial_page.dart';
 import 'cuenta_corriente_cliente_page.dart';
 
@@ -96,6 +97,16 @@ class _ClientesPageState extends State<ClientesPage> {
       await service.eliminar(cliente.id!);
       cargar();
     }
+  }
+
+  Future<void> abrirDetalle(Cliente cliente) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ClienteDetallePage(cliente: cliente),
+      ),
+    );
+    cargar();
   }
 
   Future<void> abrirHistorial(Cliente cliente) async {
@@ -199,7 +210,7 @@ class _ClientesPageState extends State<ClientesPage> {
                               vertical: 4,
                             ),
                             child: InkWell(
-                              onTap: () => abrirHistorial(c),
+                              onTap: () => abrirDetalle(c),
                               borderRadius: BorderRadius.circular(12),
                               child: Padding(
                                 padding: const EdgeInsets.fromLTRB(
@@ -268,6 +279,8 @@ class _ClientesPageState extends State<ClientesPage> {
                                       tooltip: 'Acciones',
                                       onSelected: (value) async {
                                         switch (value) {
+                                          case 'ficha':
+                                            await abrirDetalle(c);
                                           case 'cc':
                                             await abrirCuentaCorriente(c);
                                           case 'hist':
@@ -316,6 +329,10 @@ class _ClientesPageState extends State<ClientesPage> {
                                         }
                                       },
                                       itemBuilder: (_) => const [
+                                        PopupMenuItem(
+                                          value: 'ficha',
+                                          child: Text('Ver ficha'),
+                                        ),
                                         PopupMenuItem(
                                           value: 'cc',
                                           child: Text('Cuenta corriente'),

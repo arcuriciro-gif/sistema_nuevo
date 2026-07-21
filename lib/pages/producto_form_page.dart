@@ -11,6 +11,7 @@ import '../services/producto_service.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/comentarios_internos_sheet.dart';
 import '../widgets/media_avatar.dart';
+import '../widgets/foto_ampliada.dart';
 import 'historial_precios_page.dart';
 import 'scanner_page.dart';
 
@@ -361,7 +362,20 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
           child: Column(
             children: [
             GestureDetector(
-              onTap: _guardando ? null : elegirFoto,
+              onTap: () async {
+                if (foto.trim().isNotEmpty) {
+                  await showFotoAmpliada(
+                    context,
+                    path: foto,
+                    titulo: descripcionController.text.trim().isEmpty
+                        ? 'Foto del producto'
+                        : descripcionController.text.trim(),
+                  );
+                } else if (!_guardando) {
+                  await elegirFoto();
+                }
+              },
+              onLongPress: _guardando ? null : elegirFoto,
               child: foto.isEmpty
                   ? CircleAvatar(
                       radius: 60,
@@ -380,6 +394,27 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
                     ),
             ),
             const SizedBox(height: 8),
+            if (foto.trim().isNotEmpty)
+              TextButton.icon(
+                onPressed: _guardando ? null : elegirFoto,
+                icon: const Icon(Icons.photo_camera_outlined),
+                label: const Text('Cambiar foto'),
+              ),
+            Text(
+              foto.trim().isEmpty
+                  ? (MediaSyncService.instance.nubeDisponible
+                      ? 'Tocá para cargar una foto'
+                      : 'Tocá para cargar una foto (local)')
+                  : 'Tocá la foto para ampliar · Mantener para cambiar',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: .6),
+              ),
+            ),
+            const SizedBox(height: 12),
             Text(
               MediaSyncService.instance.nubeDisponible
                   ? 'La foto se sincroniza al celular y a la PC al guardar'

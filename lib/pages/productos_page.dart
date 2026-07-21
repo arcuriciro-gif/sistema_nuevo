@@ -9,6 +9,7 @@ import '../services/lista_precio_service.dart';
 import '../services/producto_service.dart';
 import '../theme/app_visuals.dart';
 import '../widgets/media_avatar.dart';
+import '../widgets/foto_ampliada.dart';
 import '../widgets/compartir_chat_dialog.dart';
 import '../widgets/comentarios_internos_sheet.dart';
 import 'papelera_productos_page.dart';
@@ -748,15 +749,24 @@ class _ProductoCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                MediaAvatar(
-                  path: p.fotoPrincipal,
-                  radius: 26,
-                  fallbackLetter: (p.descripcion.isNotEmpty
-                          ? p.descripcion
-                          : p.codigo)
-                      .substring(0, 1),
-                  backgroundColor: colorScheme.primaryContainer,
-                  foregroundColor: colorScheme.onPrimaryContainer,
+                GestureDetector(
+                  onTap: p.fotoPrincipal.trim().isEmpty
+                      ? null
+                      : () => showFotoAmpliada(
+                            context,
+                            path: p.fotoPrincipal,
+                            titulo: p.descripcion,
+                          ),
+                  child: MediaAvatar(
+                    path: p.fotoPrincipal,
+                    radius: 26,
+                    fallbackLetter: (p.descripcion.isNotEmpty
+                            ? p.descripcion
+                            : p.codigo)
+                        .substring(0, 1),
+                    backgroundColor: colorScheme.primaryContainer,
+                    foregroundColor: colorScheme.onPrimaryContainer,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
