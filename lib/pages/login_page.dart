@@ -468,7 +468,8 @@ class _LoginPageState extends State<LoginPage> {
                         const SizedBox(height: 8),
                         Text(
                           'Primera vez: admin / admin123. '
-                          'Empleados: preferí Google con el Gmail que te cargó el admin. '
+                          'Admin: usuario y clave (Google solo si tiene Gmail cargado). '
+                          'Empleados: Google con el Gmail que cargó el admin, o usuario/clave. '
                           'Nube: Configuración → Activar sincronización.',
                           style: textTheme.bodySmall?.copyWith(
                             color: cs.onSurfaceVariant,

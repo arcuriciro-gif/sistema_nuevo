@@ -114,9 +114,9 @@ class _UsuariosPageState extends State<UsuariosPage> {
       builder: (ctx) => AlertDialog(
         title: const Text('Eliminar usuario'),
         content: Text(
-          '¿Desactivar a ${usuario.nombre} (@${usuario.usuario})?\n\n'
-          'No podrá iniciar sesión. Se sincroniza a la nube si está activa.\n'
-          'Podés volver a activarlo después.',
+          '¿Eliminar definitivamente a ${usuario.nombre} (@${usuario.usuario})?\n\n'
+          'Se borra de este dispositivo y de la nube (si está activa).\n'
+          'No se puede deshacer. Para solo bloquear el acceso usá Desactivar.',
         ),
         actions: [
           TextButton(
@@ -124,6 +124,9 @@ class _UsuariosPageState extends State<UsuariosPage> {
             child: const Text('Cancelar'),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Eliminar'),
           ),
@@ -132,12 +135,12 @@ class _UsuariosPageState extends State<UsuariosPage> {
     );
     if (ok != true) return;
     try {
-      await _service.desactivar(usuario.id!);
+      await _service.eliminar(usuario.id!);
       if (!mounted) return;
       await _cargar();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Usuario ${usuario.usuario} desactivado.')),
+        SnackBar(content: Text('Usuario ${usuario.usuario} eliminado.')),
       );
     } catch (e) {
       if (!mounted) return;

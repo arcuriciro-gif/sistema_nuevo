@@ -137,6 +137,16 @@ class SqliteUsuarioRepository implements UsuarioRepository {
   }
 
   @override
+  Future<int> eliminar(int id) async {
+    final db = await _dbHelper.database;
+    return db.delete(
+      'usuarios',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  @override
   Future<bool> existeUsuario(String usuario) async {
     final db = await _dbHelper.database;
     final rows = await db.query(

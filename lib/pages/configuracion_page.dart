@@ -169,7 +169,26 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   Future<void> _activarNube() async {
     setState(() => _conectandoNube = true);
     await appendAppLog('UI activar nube');
-    final r = await AuthService.instance.activarNube();
+    var r = await AuthService.instance.activarNube();
+    if (!r.ok && r.mensaje.startsWith('CUENTA_NUBE_EXISTE:')) {
+      if (!mounted) return;
+      setState(() => _conectandoNube = false);
+      final clavePc = await _pedirClaveNubePc();
+      if (clavePc == null || clavePc.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              r.mensaje.replaceFirst('CUENTA_NUBE_EXISTE: ', ''),
+            ),
+            duration: const Duration(seconds: 8),
+          ),
+        );
+        return;
+      }
+      setState(() => _conectandoNube = true);
+      r = await AuthService.instance.activarNube(passwordOverride: clavePc);
+    }
     var extra = '';
     if (r.ok) {
       try {
@@ -197,9 +216,59 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       _nubeActiva = r.ok;
       _modoSeguro = FirebaseSafeMode.enabled;
     });
+    final mensaje = r.mensaje.replaceFirst('CUENTA_NUBE_EXISTE: ', '');
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${r.mensaje}$extra')),
+      SnackBar(
+        content: Text('$mensaje$extra'),
+        duration: Duration(seconds: r.ok ? 4 : 8),
+      ),
     );
+  }
+
+  Future<String?> _pedirClaveNubePc() async {
+    final ctrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clave de la nube (PC)'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Esta cuenta ya existe en la nube. '
+              'Ingresá la contraseña que usás en la PC '
+              '(puede ser distinta a la del celular).',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              obscureText: true,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Contraseña de la PC',
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (_) => Navigator.pop(ctx, true),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Conectar'),
+          ),
+        ],
+      ),
+    );
+    final valor = ctrl.text.trim();
+    ctrl.dispose();
+    if (ok != true) return null;
+    return valor;
   }
 
   Future<void> _desactivarNube() async {

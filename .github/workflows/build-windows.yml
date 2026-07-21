@@ -22,6 +22,7 @@ on:
       - cursor/capacidad-4-autorizacion-real-e44b
       - cursor/capacidad-5-release-readiness-e44b
       - cursor/tenant-codigo-empresa-e44b
+      - cursor/fix-nube-eliminar-usuarios-e44b
 
 jobs:
   build-windows:

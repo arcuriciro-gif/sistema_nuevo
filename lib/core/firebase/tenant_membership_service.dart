@@ -125,6 +125,20 @@ class TenantMembershipService {
     }
   }
 
+  /// Quita membership (admin/owner). No borra la cuenta de Firebase Auth.
+  Future<bool> eliminarMembresia(String uid) async {
+    if (!FirebaseBootstrap.isReady) return false;
+    final tenantId = BackendConfigService.instance.tenantId;
+    if (tenantId.isEmpty || uid.trim().isEmpty) return false;
+    try {
+      await _memberRef(tenantId, uid.trim()).delete();
+      return true;
+    } catch (e, st) {
+      debugPrint('TenantMembership eliminar: $e\n$st');
+      return false;
+    }
+  }
+
   Future<void> _logClaimsSiExisten() async {
     try {
       final user = FirebaseAuth.instance.currentUser;

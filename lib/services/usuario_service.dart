@@ -6,6 +6,7 @@ import '../core/auth/rol_util.dart';
 import '../core/auth/usuario_auth_email.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
+import '../core/firebase/tenant_membership_service.dart';
 import '../models/usuario.dart';
 import '../repositories/firestore_usuario_repository.dart';
 import '../repositories/sqlite_usuario_repository.dart';
@@ -199,6 +200,66 @@ class UsuarioService {
       'Desactivación de usuario ${usuario.usuario}',
       valorAnterior: jsonEncode({'activo': true}),
       valorNuevo: jsonEncode({'activo': false}),
+    );
+
+    return resultado;
+  }
+
+  /// Elimina el usuario de este dispositivo y de la nube (Firestore + membership).
+  /// No borra la cuenta de Firebase Authentication (hace falta Admin SDK).
+  Future<int> eliminar(int id) async {
+    _requiereAdministrador();
+    final usuarios = await _repoLocal.obtenerTodos();
+    final usuario = usuarios.firstWhere((u) => u.id == id);
+
+    if (usuario.id == AuthService.instance.currentUser?.id) {
+      throw StateError('No podés eliminar tu propio usuario.');
+    }
+
+    final esAdmin = RolUtil.normalizar(usuario.rol) == RolUtil.administrador;
+    if (esAdmin) {
+      final adminsActivos = usuarios
+          .where(
+            (u) =>
+                u.activo &&
+                RolUtil.normalizar(u.rol) == RolUtil.administrador &&
+                u.id != id,
+          )
+          .length;
+      if (adminsActivos < 1) {
+        throw StateError(
+          'No podés eliminar el último administrador activo.',
+        );
+      }
+    }
+
+    final resultado = await _repoLocal.eliminar(id);
+
+    final uid = usuario.firebaseUid;
+    if (BackendConfigService.instance.firebaseEnabled &&
+        uid != null &&
+        uid.isNotEmpty) {
+      try {
+        await FirestoreUsuarioRepository().eliminarPorUid(uid);
+      } catch (e) {
+        debugPrint('Firestore eliminar usuario: $e');
+      }
+      try {
+        await TenantMembershipService.instance.eliminarMembresia(uid);
+      } catch (e) {
+        debugPrint('Membership eliminar usuario: $e');
+      }
+    }
+
+    await AuthService.instance.registrarCambio(
+      'ELIMINAR_USUARIO',
+      'usuarios',
+      'Eliminación de usuario ${usuario.usuario}',
+      valorAnterior: jsonEncode({
+        'usuario': usuario.usuario,
+        'rol': usuario.rol,
+        'email': usuario.email,
+      }),
     );
 
     return resultado;

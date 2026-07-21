@@ -397,15 +397,19 @@ class AuthService {
   }
 
   /// Opt-in del usuario desde Configuración.
-  Future<({bool ok, String mensaje})> activarNube() async {
+  Future<({bool ok, String mensaje})> activarNube({
+    String? passwordOverride,
+  }) async {
     await FirebaseSafeMode.desactivar();
     await BackendConfigService.instance.setFirebaseEnabled(true);
-    return _conectarFirebaseInterno();
+    return _conectarFirebaseInterno(passwordOverride: passwordOverride);
   }
 
-  Future<({bool ok, String mensaje})> _conectarFirebaseInterno() async {
+  Future<({bool ok, String mensaje})> _conectarFirebaseInterno({
+    String? passwordOverride,
+  }) async {
     final usuario = currentUser;
-    final password = _ultimaPasswordIngresada;
+    final password = (passwordOverride ?? _ultimaPasswordIngresada)?.trim();
     if (usuario == null || password == null || password.isEmpty) {
       return (
         ok: false,
@@ -457,6 +461,22 @@ class AuthService {
           }
         } catch (signInError) {
           debugPrint('Firebase signIn post-login: $signInError');
+          final signInTexto = '$signInError';
+          final claveIncorrecta = signInTexto.contains('wrong-password') ||
+              signInTexto.contains('invalid-credential') ||
+              signInTexto.contains('INVALID_LOGIN_CREDENTIALS');
+          if (claveIncorrecta) {
+            await FirebaseSafeMode.marcarFinLoginFirebase();
+            return (
+              ok: false,
+              mensaje:
+                  'CUENTA_NUBE_EXISTE: La contraseña no coincide con la de la nube. '
+                  'Entrá con la MISMA clave que en la PC (o restablecela) '
+                  'y volvé a activar la sincronización.\n\n'
+                  'Google solo sirve si el usuario tiene Gmail real cargado; '
+                  'admin sin Gmail usa usuario/clave.',
+            );
+          }
           try {
             final uid = await firebase.crearCuenta(
               usuario.usuario,
@@ -471,14 +491,25 @@ class AuthService {
           } catch (createError) {
             debugPrint('Firebase crearCuenta post-login: $createError');
             await FirebaseSafeMode.marcarFinLoginFirebase();
+            final texto = '$createError';
+            final yaExiste = texto.contains('email-already-in-use');
             return (
               ok: false,
-              mensaje:
-                  'No se pudo autenticar en la nube. '
-                  'Revisá usuario/clave o el mail de confirmación. ($createError)',
+              mensaje: yaExiste
+                  ? 'CUENTA_NUBE_EXISTE: La cuenta ya existe en la nube '
+                      '(creada en la PC). Usá la MISMA contraseña que en la PC '
+                      'para activar la sincronización.\n\n'
+                      'Google solo funciona si ese usuario tiene un Gmail real '
+                      'cargado por el admin; admin sin Gmail entra con usuario/clave.'
+                  : 'No se pudo autenticar en la nube. '
+                      'Revisá usuario/clave o el mail de confirmación. ($createError)',
             );
           }
         }
+      }
+
+      if (passwordOverride != null && passwordOverride.trim().isNotEmpty) {
+        _ultimaPasswordIngresada = passwordOverride.trim();
       }
 
       final uidActual = firebase.uidActual;

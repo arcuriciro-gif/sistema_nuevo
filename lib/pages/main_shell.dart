@@ -145,15 +145,17 @@ class _MainShellState extends State<MainShell> {
     // fáciles de omitir. Si Firebase falla, queda Solo local y se avisa.
     final r = await AuthService.instance.activarNube();
     if (!mounted) return;
+    final detalle = r.mensaje.replaceFirst('CUENTA_NUBE_EXISTE: ', '');
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           r.ok
               ? 'Nube activada. Clientes, productos, precios y fotos se '
                   'sincronizan en tiempo real entre PC y celular.'
-              : (r.mensaje.isNotEmpty
-                  ? 'No se pudo activar la nube: ${r.mensaje}. '
-                      'Reintentá en Configuración → Activar sincronización.'
+              : (detalle.isNotEmpty
+                  ? 'No se pudo activar la nube: $detalle '
+                      'Reintentá en Configuración → Activar sincronización '
+                      '(ahí podés ingresar la clave de la PC).'
                   : 'No se pudo activar la nube. '
                       'Reintentá en Configuración → Activar sincronización.'),
         ),
