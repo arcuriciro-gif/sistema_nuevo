@@ -1,4 +1,5 @@
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/lista_precio.dart';
@@ -14,6 +15,11 @@ class ListaPrecioService {
   }
 
   Future<int> insertar(ListaPrecio lista) async {
+    AuthorizationService.instance.require(
+      AuthModules.listasPrecios,
+      AuthzAction.crear,
+      operacion: 'crear lista de precios',
+    );
     final db = await dbHelper.database;
     final id = await db.insert('listas_precios', lista.toMap()..remove('id'));
     await _syncNube();
@@ -21,6 +27,11 @@ class ListaPrecioService {
   }
 
   Future<int> actualizar(ListaPrecio lista) async {
+    AuthorizationService.instance.require(
+      AuthModules.listasPrecios,
+      AuthzAction.editar,
+      operacion: 'editar lista de precios',
+    );
     final db = await dbHelper.database;
     final n = await db.update(
       'listas_precios',
@@ -33,6 +44,11 @@ class ListaPrecioService {
   }
 
   Future<int> eliminar(int id) async {
+    AuthorizationService.instance.require(
+      AuthModules.listasPrecios,
+      AuthzAction.eliminar,
+      operacion: 'eliminar lista de precios',
+    );
     final db = await dbHelper.database;
     final n = await db.delete(
       'listas_precios',

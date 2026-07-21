@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/security/authorization_service.dart';
+
 /// Prefijos y próximos números configurables por tipo de documento.
 class DocumentNumberingService {
   DocumentNumberingService._();
@@ -32,6 +34,11 @@ class DocumentNumberingService {
     required Map<String, String> prefijos,
     required Map<String, int> proximos,
   }) async {
+    AuthorizationService.instance.require(
+      AuthModules.configuracion,
+      AuthzAction.editar,
+      operacion: 'guardar numeración de documentos',
+    );
     final prefs = await SharedPreferences.getInstance();
     for (final e in prefijos.entries) {
       final clean = e.value.trim().toUpperCase();

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../models/chat_mensaje.dart';
 import '../services/compra_service.dart';
 import '../theme/app_visuals.dart';
@@ -301,18 +302,21 @@ class _ComprasPageState extends State<ComprasPage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'fab_compras',
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Nueva compra'),
-        onPressed: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const CompraFormPage()),
-          );
-          cargar();
-        },
-      ),
+      floatingActionButton: AuthorizationService.instance.puede(
+              AuthModules.compras, AuthzAction.crear)
+          ? FloatingActionButton.extended(
+              heroTag: 'fab_compras',
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Nueva compra'),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CompraFormPage()),
+                );
+                cargar();
+              },
+            )
+          : null,
       body: Column(
         children: [
           Padding(

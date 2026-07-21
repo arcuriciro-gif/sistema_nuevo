@@ -5,6 +5,7 @@ import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../database/database_helper.dart';
 import '../models/movimiento_stock.dart';
 import '../models/producto.dart';
@@ -28,6 +29,11 @@ class StockService {
   }
 
   Future<int> registrarMovimiento(MovimientoStock movimiento) async {
+    AuthorizationService.instance.require(
+      AuthModules.stock,
+      AuthzAction.editar,
+      operacion: 'ajustar stock',
+    );
     DomainBootstrap.ensureInitialized();
     final user = movimiento.usuario.isNotEmpty
         ? movimiento.usuario

@@ -30,6 +30,11 @@ class CompraService {
 
   Future<int> insertar(Compra compra, List<CompraDetalle> items) async {
     DomainBootstrap.ensureInitialized();
+    AuthorizationService.instance.require(
+      AuthModules.compras,
+      AuthzAction.crear,
+      operacion: 'crear compra',
+    );
     final db = await dbHelper.database;
 
     final compraId = await db.transaction((txn) async {

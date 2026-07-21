@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../models/chat_mensaje.dart';
 import '../models/cliente.dart';
 import '../services/cliente_service.dart';
@@ -159,17 +160,20 @@ class _ClientesPageState extends State<ClientesPage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'fab_clientes',
-        child: const Icon(Icons.add),
-        onPressed: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const ClienteFormPage()),
-          );
-          cargar();
-        },
-      ),
+      floatingActionButton: AuthorizationService.instance.puede(
+              AuthModules.clientes, AuthzAction.crear)
+          ? FloatingActionButton(
+              heroTag: 'fab_clientes',
+              child: const Icon(Icons.add),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ClienteFormPage()),
+                );
+                cargar();
+              },
+            )
+          : null,
       body: Column(
         children: [
           Padding(

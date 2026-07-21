@@ -39,6 +39,11 @@ class VentaService {
     String medioPago = 'efectivo',
     String observacionesPago = '',
   }) async {
+    AuthorizationService.instance.require(
+      AuthModules.remitos,
+      AuthzAction.crear,
+      operacion: 'crear venta',
+    );
     final id = await _cc.crearVentaConPago(
       venta: venta,
       items: items,
@@ -134,6 +139,11 @@ class VentaService {
   }
 
   Future<void> actualizarEstadoPago(int id, String estadoPago) async {
+    AuthorizationService.instance.require(
+      AuthModules.remitos,
+      AuthzAction.editar,
+      operacion: 'cambiar estado de pago venta',
+    );
     final db = await _db.database;
     final venta = await obtenerPorId(id);
     if (venta == null) return;
@@ -175,6 +185,11 @@ class VentaService {
     DateTime? caeVencimiento,
     int puntoVenta = 0,
   }) async {
+    AuthorizationService.instance.require(
+      AuthModules.remitos,
+      AuthzAction.editar,
+      operacion: 'actualizar AFIP venta',
+    );
     final db = await _db.database;
     await db.update(
       'ventas',

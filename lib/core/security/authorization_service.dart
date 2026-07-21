@@ -2,8 +2,25 @@ import '../auth/rol_util.dart';
 import '../../services/auth_service.dart';
 import '../../services/permisos_service.dart';
 
-/// Acciones de autorización (Capacidad 1 — niveles 2/3).
+/// Acciones de autorización (Capacidad 1/4 — niveles 2/3).
 enum AuthzAction { ver, crear, editar, eliminar, anular, administrar }
+
+/// Claves de módulo alineadas al seed SQLite `permisos`.
+/// Ventas/CC usan [remitos] (no hay módulo `ventas` en la matriz).
+class AuthModules {
+  static const productos = 'productos';
+  static const clientes = 'clientes';
+  static const proveedores = 'proveedores';
+  static const remitos = 'remitos';
+  static const compras = 'compras';
+  static const listasPrecios = 'listas_precios';
+  static const stock = 'stock';
+  static const backup = 'backup';
+  static const configuracion = 'configuracion';
+  static const usuarios = 'usuarios';
+  static const comunicaciones = 'comunicaciones';
+  static const auditoria = 'auditoria';
+}
 
 /// Guardas de autorización en casos de uso / servicios.
 /// Nivel 4 (Firestore Rules) es independiente y obligatorio.
@@ -49,4 +66,11 @@ class AuthorizationService {
     if (esAdministrador) return;
     throw StateError('Solo el administrador puede: $operacion');
   }
+
+  /// Atajo UI: ¿puede crear en el módulo?
+  bool get puedeCrearProductos => puede(AuthModules.productos, AuthzAction.crear);
+  bool get puedeEditarProductos =>
+      puede(AuthModules.productos, AuthzAction.editar);
+  bool get puedeEliminarProductos =>
+      puede(AuthModules.productos, AuthzAction.eliminar);
 }

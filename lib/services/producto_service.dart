@@ -118,6 +118,11 @@ class ProductoService {
   }
 
   Future<int> insertar(Producto producto) async {
+    AuthorizationService.instance.require(
+      AuthModules.productos,
+      AuthzAction.crear,
+      operacion: 'crear producto',
+    );
     final conFotos = await _conFotosEnNube(producto);
     final preparado = await _precioCalculador.aplicarListasDesdeCosto(conFotos);
     final id = await _repo.insertar(preparado);
@@ -137,6 +142,11 @@ class ProductoService {
   }
 
   Future<void> insertarLista(List<Producto> productos) async {
+    AuthorizationService.instance.require(
+      AuthModules.productos,
+      AuthzAction.crear,
+      operacion: 'importar productos',
+    );
     final preparados = <Producto>[];
     for (final producto in productos) {
       preparados.add(await _precioCalculador.aplicarListasDesdeCosto(producto));
@@ -183,6 +193,11 @@ class ProductoService {
   }
 
   Future<void> toggleFavorito(Producto producto) async {
+    AuthorizationService.instance.require(
+      AuthModules.productos,
+      AuthzAction.editar,
+      operacion: 'marcar favorito',
+    );
     if (producto.id == null) return;
     final nuevo = !producto.favorito;
     final db = await _databaseHelper.database;
@@ -208,6 +223,11 @@ class ProductoService {
   }
 
   Future<int> actualizar(Producto producto) async {
+    AuthorizationService.instance.require(
+      AuthModules.productos,
+      AuthzAction.editar,
+      operacion: 'editar producto',
+    );
     final conFotos = await _conFotosEnNube(producto);
     final db = await _databaseHelper.database;
     Producto? anteriorProducto;
@@ -323,6 +343,11 @@ class ProductoService {
   }
 
   Future<void> restaurar(int id) async {
+    AuthorizationService.instance.require(
+      AuthModules.productos,
+      AuthzAction.editar,
+      operacion: 'restaurar producto',
+    );
     final db = await _databaseHelper.database;
     final rows = await db.query(
       'productos',
@@ -360,6 +385,11 @@ class ProductoService {
   }
 
   Future<void> eliminarDefinitivo(int id) async {
+    AuthorizationService.instance.require(
+      AuthModules.productos,
+      AuthzAction.eliminar,
+      operacion: 'eliminar producto definitivo',
+    );
     final db = await _databaseHelper.database;
     final rows = await db.query(
       'productos',

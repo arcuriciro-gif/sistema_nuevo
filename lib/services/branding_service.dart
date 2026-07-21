@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/utils/media_path.dart';
+import '../core/security/authorization_service.dart';
 import '../core/sync/media_sync_service.dart';
 
 class BrandingService extends ChangeNotifier {
@@ -242,6 +243,11 @@ class BrandingService extends ChangeNotifier {
     String? leyendaLegal,
     int? diasVencimiento,
   }) async {
+    AuthorizationService.instance.require(
+      AuthModules.configuracion,
+      AuthzAction.editar,
+      operacion: 'guardar branding',
+    );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyNombre, nombre);
     await prefs.setString(_keySlogan, slogan);

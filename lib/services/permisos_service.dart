@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../core/auth/rol_util.dart';
@@ -11,6 +12,16 @@ class PermisosService {
 
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
   final Map<String, Map<String, Permiso>> _cache = {};
+
+  @visibleForTesting
+  void seedCacheForTests(Map<String, Map<String, Permiso>> data) {
+    _cache
+      ..clear()
+      ..addAll(data);
+  }
+
+  @visibleForTesting
+  void clearCacheForTests() => _cache.clear();
 
   String _normalizarRol(String rol) => RolUtil.clavePermisos(rol);
 

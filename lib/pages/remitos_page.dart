@@ -3,6 +3,7 @@ import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../models/chat_mensaje.dart';
 import '../services/auth_service.dart';
 import '../services/documento_cliente_service.dart';
@@ -420,17 +421,20 @@ class _RemitosPageState extends State<RemitosPage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'fab_remitos',
-        child: const Icon(Icons.add),
-        onPressed: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const RemitoFormPage()),
-          );
-          cargar();
-        },
-      ),
+      floatingActionButton: AuthorizationService.instance.puede(
+              AuthModules.remitos, AuthzAction.crear)
+          ? FloatingActionButton(
+              heroTag: 'fab_remitos',
+              child: const Icon(Icons.add),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const RemitoFormPage()),
+                );
+                cargar();
+              },
+            )
+          : null,
       body: Column(
         children: [
           Padding(

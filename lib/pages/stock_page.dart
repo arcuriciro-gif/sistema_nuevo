@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/security/authorization_service.dart';
 import '../models/movimiento_stock.dart';
 import '../models/producto.dart';
 import '../services/producto_service.dart';
@@ -286,11 +287,14 @@ class _StockPageState extends State<StockPage> {
             ],
           ),
         ),
-        floatingActionButton: FloatingActionButton(
-        heroTag: 'fab_stock',
-          onPressed: () => registrarMovimiento(),
-          child: const Icon(Icons.add),
-        ),
+        floatingActionButton: AuthorizationService.instance.puede(
+                AuthModules.stock, AuthzAction.editar)
+            ? FloatingActionButton(
+                heroTag: 'fab_stock',
+                onPressed: () => registrarMovimiento(),
+                child: const Icon(Icons.add),
+              )
+            : null,
         body: cargando
             ? const Center(child: CircularProgressIndicator())
             : TabBarView(
