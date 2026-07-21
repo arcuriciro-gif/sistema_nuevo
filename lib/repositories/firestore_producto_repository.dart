@@ -19,6 +19,11 @@ class FirestoreProductoRepository implements ProductoRepository {
     return _firestore.collection('tenants').doc(tenant).collection('productos');
   }
 
+  CollectionReference<Map<String, dynamic>> get _stockOpsCol {
+    final tenant = BackendConfigService.instance.tenantId;
+    return _firestore.collection('tenants').doc(tenant).collection('stock_ops');
+  }
+
   String _docId(Producto producto) =>
       producto.codigo.trim().isEmpty ? producto.id.toString() : producto.codigo.trim();
 
@@ -110,10 +115,8 @@ class FirestoreProductoRepository implements ProductoRepository {
     await _collection.doc(_docId(producto)).set(data, SetOptions(merge: true));
   }
 
-  /// Ajuste de stock en la nube (Fase 2).
-  /// Usa [FieldValue.increment] (sin runTransaction: en Windows Desktop
-  /// las transacciones pueden cerrar el proceso nativo).
-  /// La idempotencia la garantiza la cola de ops en [FirestoreSyncService].
+  /// Ajuste de stock en la nube (Fase 2/3).
+  /// Idempotente con doc `stock_ops/{opId}` (sin runTransaction: estable en Windows).
   Future<void> ajustarStock({
     required String codigo,
     required int delta,
@@ -121,13 +124,29 @@ class FirestoreProductoRepository implements ProductoRepository {
   }) async {
     final cod = codigo.trim();
     if (cod.isEmpty || delta == 0 || opId.isEmpty) return;
-    final ref = _collection.doc(cod);
-    await ref.set({
+    final opRef = _stockOpsCol.doc(opId);
+    final existing = await opRef.get();
+    if (existing.exists) return;
+
+    await opRef.set({
       'codigo': cod,
-      'stock': FieldValue.increment(delta),
-      'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
-      'ultimaStockOp': opId,
-    }, SetOptions(merge: true));
+      'delta': delta,
+      'at': DateTime.now().toUtc().toIso8601String(),
+    });
+    try {
+      await _collection.doc(cod).set({
+        'codigo': cod,
+        'stock': FieldValue.increment(delta),
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+        'ultimaStockOp': opId,
+      }, SetOptions(merge: true));
+    } catch (e) {
+      // Liberar claim para reintento seguro.
+      try {
+        await opRef.delete();
+      } catch (_) {}
+      rethrow;
+    }
   }
 
   @override

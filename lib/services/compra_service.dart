@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:sqflite/sqflite.dart';
 
+import '../core/config/device_identity.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
@@ -15,11 +16,13 @@ class CompraService {
 
   Future<String> generarNumero() async {
     final db = await dbHelper.database;
+    final tag = await DeviceIdentity.shortTag();
     final r = await db.rawQuery(
-      "SELECT MAX(CAST(SUBSTR(numero,3) AS INTEGER)) AS maxN FROM compras WHERE numero LIKE 'C-%'",
+      "SELECT MAX(CAST(SUBSTR(numero, 3, 5) AS INTEGER)) AS maxN "
+      "FROM compras WHERE numero LIKE 'C-%'",
     );
     final maxN = (r.first['maxN'] as num?)?.toInt() ?? 0;
-    return 'C-${(maxN + 1).toString().padLeft(5, '0')}';
+    return 'C-${(maxN + 1).toString().padLeft(5, '0')}-$tag';
   }
 
   Future<int> insertar(Compra compra, List<CompraDetalle> items) async {

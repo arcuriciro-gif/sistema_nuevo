@@ -103,7 +103,8 @@ service cloud.firestore {
             'compras',
             'documentos',
             'chats',
-            'notificaciones'
+            'notificaciones',
+            'stock_ops'
           ];
       }
 

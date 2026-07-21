@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:sqflite/sqflite.dart';
 
+import '../core/config/device_identity.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
@@ -16,11 +17,14 @@ class RemitoService {
 
   Future<String> generarNumero() async {
     final db = await dbHelper.database;
+    final tag = await DeviceIdentity.shortTag();
     final r = await db.rawQuery(
-      "SELECT MAX(CAST(SUBSTR(numero,3) AS INTEGER)) AS maxN FROM remitos WHERE numero LIKE 'R-%'",
+      "SELECT MAX(CAST(SUBSTR(numero, 3, 5) AS INTEGER)) AS maxN "
+      "FROM remitos WHERE numero LIKE 'R-%'",
     );
     final maxN = (r.first['maxN'] as num?)?.toInt() ?? 0;
-    return 'R-${(maxN + 1).toString().padLeft(5, '0')}';
+    // Sufijo de dispositivo: evita choque PC↔celular con el mismo correlativo.
+    return 'R-${(maxN + 1).toString().padLeft(5, '0')}-$tag';
   }
 
   Future<int> insertar(Remito remito, List<RemitoDetalle> items) async {

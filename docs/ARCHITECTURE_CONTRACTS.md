@@ -33,6 +33,7 @@ tenants/{tenantId}/
   documentos/{id}
   chats/...
   notificaciones/...
+  stock_ops/{opId}         # idempotencia stock (Fase 3)
   config/branding
   config/permisos
   config/listas_precios
@@ -94,13 +95,22 @@ Migraciones: solo incrementales `oldVersion < N`. Nunca wipe en upgrade.
 
 - Productos: LWW por `actualizadoEn`; soft-delete (`deleted_at`) se propaga entre dispositivos.
 - No hay sweep completo de productos al conectar (solo ausentes + cola).
-- Stock en nube: ajustes atómicos idempotentes (`stockOps` + suma), no multi-master de absolutos en remitos/compras/ajustes.
+- Stock en nube: ajustes atómicos idempotentes (`stock_ops/{opId}` + increment), no multi-master de absolutos en remitos/compras/ajustes.
 - Catch-up ventas/remitos/compras: hasta 2000 docs recientes.
 - SQLite sigue siendo SoT operativo local; Firestore es bus de sync (stock cloud como autoridad entre dispositivos).
 
 ---
 
-## 8. Release
+## 8. Conflictos multi-dispositivo (Fase 3)
+
+- Proveedores: LWW por `actualizadoEn` (paridad con clientes).
+- Remitos/compras: número `R-#####-XXXX` / `C-#####-XXXX` con tag de dispositivo.
+- Código de producto inmutable en edición (identidad cloud = `codigo`).
+- Colección `stock_ops` en rules (idempotencia durable).
+
+---
+
+## 9. Release
 
 - Builds CI: workflows `Build Android APK` / `Build Windows Instalador`.
 - Artefactos: `Instalador_Android`, `Instalador_Windows`.

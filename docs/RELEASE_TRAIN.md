@@ -15,7 +15,8 @@ Un instalador “oficial” desde `main`, sin depender de drafts eternos.
 2. Búsqueda / eliminar remitos-usuarios / márgenes (PR #24)
 3. **Este PR: Fase 0+1 seguridad** (rules, membership, passwords, admin recovery)
 4. **Fase 2 sync/stock** (soft-delete, LWW productos, stock atómico, catch-up)
-5. Luego Fase 3+ según prioridad
+5. **Fase 3 conflictos** (LWW proveedores, números únicos, código inmutable, stock_ops)
+6. Luego Fase 4+ según prioridad
 
 ## Qué no mergear a ciegas
 - Renombre de package Android sin plan de migración

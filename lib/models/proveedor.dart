@@ -15,6 +15,7 @@ class Proveedor {
 
   DateTime? fechaCreacion;
   bool activo;
+  String? actualizadoEn;
 
   Proveedor({
     this.id,
@@ -31,6 +32,7 @@ class Proveedor {
     required this.observaciones,
     this.fechaCreacion,
     this.activo = true,
+    this.actualizadoEn,
   });
 
   Map<String, dynamic> toMap() {
@@ -49,12 +51,16 @@ class Proveedor {
       'observaciones': observaciones,
       'fechaCreacion': fechaCreacion?.toIso8601String(),
       'activo': activo ? 1 : 0,
+      'actualizadoEn': actualizadoEn ?? '',
     };
   }
 
   Map<String, dynamic> toFirestore() {
     final data = Map<String, dynamic>.from(toMap()..remove('id'));
-    data['actualizadoEn'] = DateTime.now().toUtc().toIso8601String();
+    data['actualizadoEn'] =
+        (actualizadoEn != null && actualizadoEn!.isNotEmpty)
+            ? actualizadoEn
+            : DateTime.now().toUtc().toIso8601String();
     return data;
   }
 
@@ -73,9 +79,10 @@ class Proveedor {
       tiempoEntrega: map['tiempoEntrega'] ?? '',
       observaciones: map['observaciones'] ?? '',
       fechaCreacion: map['fechaCreacion'] != null
-          ? DateTime.parse(map['fechaCreacion'])
+          ? DateTime.tryParse(map['fechaCreacion'].toString())
           : null,
       activo: (map['activo'] ?? 1) == 1,
+      actualizadoEn: map['actualizadoEn']?.toString(),
     );
   }
 
@@ -94,6 +101,7 @@ class Proveedor {
     String? observaciones,
     DateTime? fechaCreacion,
     bool? activo,
+    String? actualizadoEn,
   }) {
     return Proveedor(
       id: id ?? this.id,
@@ -111,6 +119,7 @@ class Proveedor {
       observaciones: observaciones ?? this.observaciones,
       fechaCreacion: fechaCreacion ?? this.fechaCreacion,
       activo: activo ?? this.activo,
+      actualizadoEn: actualizadoEn ?? this.actualizadoEn,
     );
   }
 }

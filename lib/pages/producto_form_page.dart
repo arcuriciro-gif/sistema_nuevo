@@ -183,7 +183,8 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
       final Producto producto;
       if (widget.producto != null) {
         producto = widget.producto!.copyWith(
-          codigo: codigoController.text.trim(),
+          // Código inmutable: identidad Firestore = codigo.
+          codigo: widget.producto!.codigo,
           codigoBarras: codigoBarrasController.text.trim(),
           descripcion: descripcionController.text.trim(),
           marca: marcaController.text.trim(),
@@ -255,6 +256,8 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
     TextEditingController controller, {
     TextInputType? keyboardType,
     ValueChanged<String>? onChanged,
+    bool readOnly = false,
+    String? helperText,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -262,9 +265,11 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
         controller: controller,
         keyboardType: keyboardType,
         onChanged: onChanged,
+        readOnly: readOnly,
         decoration: InputDecoration(
           labelText: titulo,
           border: const OutlineInputBorder(),
+          helperText: helperText,
         ),
       ),
     );
@@ -388,7 +393,14 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
               ),
             ),
             const SizedBox(height: 20),
-            _campo('Código', codigoController),
+            _campo(
+              'Código',
+              codigoController,
+              readOnly: widget.producto != null,
+              helperText: widget.producto != null
+                  ? 'El código no se puede cambiar (identidad entre dispositivos)'
+                  : null,
+            ),
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: TextField(

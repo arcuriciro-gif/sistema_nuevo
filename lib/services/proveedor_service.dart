@@ -32,8 +32,10 @@ class ProveedorService {
 
   Future<int> insertar(Proveedor proveedor) async {
     final db = await _dbHelper.database;
+    final ahora = DateTime.now().toUtc().toIso8601String();
     final creado = _conSyncId(proveedor.copyWith(
       fechaCreacion: proveedor.fechaCreacion ?? DateTime.now(),
+      actualizadoEn: ahora,
     ));
 
     final id = await db.insert(
@@ -65,11 +67,13 @@ class ProveedorService {
     final proveedorAnterior =
         anterior.isNotEmpty ? Proveedor.fromMap(anterior.first) : null;
 
-    final listo = proveedor.syncId.isNotEmpty
-        ? proveedor
-        : _conSyncId(
-            proveedor.copyWith(syncId: proveedorAnterior?.syncId ?? ''),
-          );
+    final ahora = DateTime.now().toUtc().toIso8601String();
+    final listo = (proveedor.syncId.isNotEmpty
+            ? proveedor
+            : _conSyncId(
+                proveedor.copyWith(syncId: proveedorAnterior?.syncId ?? ''),
+              ))
+        .copyWith(actualizadoEn: ahora);
 
     final result = await db.update(
       'proveedores',

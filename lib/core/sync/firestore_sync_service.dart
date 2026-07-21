@@ -699,6 +699,7 @@ class FirestoreSyncService {
     'web',
     'condicionesComerciales',
     'tiempoEntrega',
+    'actualizadoEn',
   };
 
   double _asDouble(dynamic v) {
@@ -790,6 +791,9 @@ class FirestoreSyncService {
         (out['condicionesComerciales'] ?? '').toString();
     out['tiempoEntrega'] = (out['tiempoEntrega'] ?? '').toString();
     out['activo'] = _asInt01(out['activo'], defaultValue: 1);
+    if (data.containsKey('actualizadoEn')) {
+      out['actualizadoEn'] = data['actualizadoEn']?.toString() ?? '';
+    }
     return out;
   }
 
@@ -1165,11 +1169,38 @@ class FirestoreSyncService {
         limit: 1,
       );
       if (rows.isEmpty) return;
-      final proveedor = Proveedor.fromMap(rows.first);
-      await _proveedoresCol.doc(syncId).set({
+      var proveedor = Proveedor.fromMap(rows.first);
+      if (proveedor.actualizadoEn == null ||
+          proveedor.actualizadoEn!.isEmpty) {
+        final ahora = DateTime.now().toUtc().toIso8601String();
+        proveedor = proveedor.copyWith(actualizadoEn: ahora);
+        await db.update(
+          'proveedores',
+          {'actualizadoEn': ahora},
+          where: 'id = ?',
+          whereArgs: [proveedorId],
+        );
+      }
+      final payload = {
         ...proveedor.toFirestore(),
         'localId': proveedorId,
-      }, SetOptions(merge: true));
+      };
+      if (!forzar) {
+        final remoto = await _proveedoresCol.doc(syncId).get();
+        if (remoto.exists) {
+          final remTs = _parseUtc(remoto.data()?['actualizadoEn']);
+          final locTs = _parseUtc(payload['actualizadoEn']);
+          if (remTs != null && locTs != null && remTs.isAfter(locTs)) {
+            debugPrint(
+              'subirProveedor: remoto más nuevo, skip id=$proveedorId',
+            );
+            _colaProveedores.remove(proveedorId);
+            unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
+            return;
+          }
+        }
+      }
+      await _proveedoresCol.doc(syncId).set(payload, SetOptions(merge: true));
       _colaProveedores.remove(proveedorId);
       unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
     } catch (e) {
@@ -1690,11 +1721,17 @@ class FirestoreSyncService {
                 await db.insert('proveedores', map);
               }
             } else {
+              final local = existentes.first;
+              final locTs = _parseUtc(local['actualizadoEn']);
+              final remTs = _parseUtc(map['actualizadoEn']);
+              if (locTs != null && remTs != null && locTs.isAfter(remTs)) {
+                continue;
+              }
               await db.update(
                 'proveedores',
                 map,
                 where: 'id = ?',
-                whereArgs: [existentes.first['id']],
+                whereArgs: [local['id']],
               );
             }
             hubo = true;

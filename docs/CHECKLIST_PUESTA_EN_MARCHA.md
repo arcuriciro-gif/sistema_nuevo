@@ -20,6 +20,7 @@ En Firebase → Project settings → app **`com.example.sistema_nuevo`** (no `co
 - [ ] **Antes de publicar rules:** al menos un dispositivo con la app nueva conectado a la nube (crea `members/{uid}`)
 - [ ] Publicar reglas de **`firestore.rules`** de este repo  
   `firebase deploy --only firestore:rules`
+  (Fase 3 agrega colección `stock_ops` — hay que republicar si ya tenías rules viejas)
 - [ ] Indexes: crear los que Console solicite al usar queries
 
 ## 4. Storage (fotos / PDF)
