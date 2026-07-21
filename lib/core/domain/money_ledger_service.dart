@@ -22,7 +22,6 @@ class MoneyLedgerService {
     bus.subscribe(DomainEventType.pagoAnulado, _onPagoAnulado);
   }
 
-  @visibleForTesting
   void resetForTests() {
     _registered = false;
   }
