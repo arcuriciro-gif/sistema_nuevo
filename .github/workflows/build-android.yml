@@ -41,6 +41,9 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
+      - name: Tests
+        run: flutter test
+
       - name: Restaurar keystore (secreto CI, opcional)
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
