@@ -14,6 +14,8 @@ Varias filas de este documento son **legado tolerado en migración**, no el dise
 
 Última actualización: 2026-07-21 · Schema SQLite: **v28** · Tenant default: **`tata_stock`** (legado — a eliminar en Roadmap 2.0 Fase A)
 
+> Capacidad 7 (deletes durables): sin bump de schema — reutiliza `sync_outbox` (+ `stock_op`) y tombstones remotos. Ver `docs/capacidades/C7_DELETES_CONVERGENCIA.md`.
+
 ---
 
 ## 1. Identidad de apps

@@ -213,6 +213,10 @@ class VentaService {
     );
     final db = await _db.database;
     final venta = await obtenerPorId(id);
+    // Capacidad 7: outbox/tombstone antes del hard-delete local.
+    if (venta != null) {
+      await FirestoreSyncService.instance.eliminarVentaRemota(venta);
+    }
     await db.transaction((txn) async {
       await txn.delete('pagos', where: 'ventaId = ?', whereArgs: [id]);
       await txn
@@ -221,9 +225,6 @@ class VentaService {
     });
     if (venta?.clienteId != null) {
       await _cc.recalcularSaldoCliente(venta!.clienteId!);
-    }
-    if (venta != null) {
-      await FirestoreSyncService.instance.eliminarVentaRemota(venta);
     }
     DataRefreshHub.instance.notifyVentas();
   }

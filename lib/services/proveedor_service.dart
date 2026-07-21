@@ -125,12 +125,6 @@ class ProveedorService {
     final proveedor =
         anterior.isNotEmpty ? Proveedor.fromMap(anterior.first) : null;
 
-    final result = await db.delete(
-      'proveedores',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-
     if (proveedor != null) {
       await AuthService.instance.registrarCambio(
         'BAJA_PROVEEDOR',
@@ -138,9 +132,19 @@ class ProveedorService {
         'Proveedor eliminado: ${proveedor.nombre}',
         valorAnterior: _snapshot(proveedor),
       );
-      await FirestoreSyncService.instance
-          .eliminarProveedorRemoto(proveedor.syncId);
+      // Capacidad 7: encolar tombstone antes del hard-delete local.
+      final syncId = proveedor.syncId.trim();
+      if (syncId.isNotEmpty) {
+        await FirestoreSyncService.instance
+            .eliminarProveedorRemoto(syncId, localId: id);
+      }
     }
+
+    final result = await db.delete(
+      'proveedores',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
     DataRefreshHub.instance.notifyTodo();
 
     return result;

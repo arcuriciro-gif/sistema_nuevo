@@ -108,6 +108,52 @@ class SyncOutbox {
     );
   }
 
+  /// Stock op durable (Capacidad 7). No usa prefs: sobrevive kill mid-flush.
+  Future<void> enqueueStockOp({
+    required String opId,
+    required String codigo,
+    required int delta,
+  }) async {
+    if (opId.isEmpty || codigo.isEmpty || delta == 0) return;
+    await _upsertPending(
+      SyncOutboxOp(
+        opId: 'stock_op:$opId',
+        entityType: 'stock_op',
+        operation: 'upsert',
+        entityRemoteId: opId,
+        payloadJson: jsonEncode({
+          'opId': opId,
+          'codigo': codigo,
+          'delta': delta,
+        }),
+      ),
+    );
+  }
+
+  /// ¿Hay delete pendiente/inflight para este remoteId?
+  Future<bool> hasPendingDelete({
+    required String entityType,
+    required String remoteId,
+  }) async {
+    if (remoteId.isEmpty) return false;
+    final db = await _db;
+    final rows = await db.query(
+      'sync_outbox',
+      columns: ['id'],
+      where:
+          "entity_type = ? AND entity_remote_id = ? AND operation = ? AND status IN (?, ?)",
+      whereArgs: [
+        entityType,
+        remoteId,
+        'delete',
+        SyncOutboxStatus.pending,
+        SyncOutboxStatus.inflight,
+      ],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
   Future<void> _upsertPending(SyncOutboxOp op) async {
     final db = await _db;
     final existing = await db.query(

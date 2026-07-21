@@ -459,12 +459,13 @@ class RemitoService {
     if (remito['estado'] != 'anulado') {
       await anular(id);
     }
+    // Capacidad 7: encolar tombstone ANTES del hard-delete local.
+    if (numero.isNotEmpty) {
+      await FirestoreSyncService.instance
+          .eliminarRemitoRemoto(numero, localId: id);
+    }
     await db.delete('remito_items', where: 'remitoId = ?', whereArgs: [id]);
     await db.delete('remitos', where: 'id = ?', whereArgs: [id]);
-    if (numero.isNotEmpty) {
-      // Borrar en la nube: el otro dispositivo lo quita al ver que desapareció.
-      await FirestoreSyncService.instance.eliminarRemitoRemoto(numero);
-    }
     DataRefreshHub.instance.notifyTodo();
   }
 

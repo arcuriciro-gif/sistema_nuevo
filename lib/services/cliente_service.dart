@@ -114,12 +114,6 @@ class ClienteService {
     );
     final cliente = anterior.isNotEmpty ? Cliente.fromMap(anterior.first) : null;
 
-    final result = await db.delete(
-      'clientes',
-      where: 'id=?',
-      whereArgs: [id],
-    );
-
     if (cliente != null) {
       await AuthService.instance.registrarCambio(
         'BAJA_CLIENTE',
@@ -127,8 +121,19 @@ class ClienteService {
         'Cliente eliminado: ${cliente.nombreCompleto}',
         valorAnterior: _snapshot(cliente),
       );
-      await FirestoreSyncService.instance.eliminarClienteRemoto(cliente.syncId);
+      // Capacidad 7: encolar tombstone antes del hard-delete local.
+      final syncId = cliente.syncId.trim();
+      if (syncId.isNotEmpty) {
+        await FirestoreSyncService.instance
+            .eliminarClienteRemoto(syncId, localId: id);
+      }
     }
+
+    final result = await db.delete(
+      'clientes',
+      where: 'id=?',
+      whereArgs: [id],
+    );
     DataRefreshHub.instance.notifyTodo();
 
     return result;
