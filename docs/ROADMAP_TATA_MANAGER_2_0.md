@@ -1,22 +1,29 @@
-# Roadmap Tata.Manager 2.0 — Producto comercial certificable
+# Roadmap Tata.Manager 2.0 — De aplicación a plataforma
 
 Basado en `docs/AUDITORIA_CERTIFICACION_2026-07.md`.  
-Principio rector: **estabilidad > seguridad > sync perfecta > escala > features nuevas**.
+Gobernado por `docs/PLATFORM_CHARTER.md` (doctrina CTO).
 
-No se implementa código en este documento. Es el plan de certificación.
+**Filtro de toda fase:** ¿Funciona con 500 empresas, 5.000 usuarios, millones de movimientos y 10 años de soporte?  
+Si no → la entrega de esa fase se rediseña; no se “simplifica” violando la carta.
+
+Prioridad fija: **estabilidad > seguridad > integridad sync/dinero/stock > escala > simplicidad operacional > mantenibilidad > features**.
+
+No se implementa código en este documento. Es el plan de certificación **de plataforma**.
 
 ---
 
 ## Visión 2.0
 
-Tata.Manager pasa de “app Flutter con sync Firebase” a **plataforma ERP multi-tenant** con:
+Tata.Manager deja de ser “app Flutter con sync Firebase” y pasa a ser **plataforma ERP multi-tenant**:
 
-- Inventario y dinero **matemáticamente auditables**
-- Autorización **real** (cliente + server)
-- Sync **at-least-once con ACK** y tombstones
-- Release train firmado (Android + Windows)
-- Observabilidad y panel técnico admin
-- Núcleo estable + plugins (AFIP, marketplaces, API)
+- Control plane (alta de empresas, invitaciones, claims)
+- Núcleo por tenant + **ledgers** de stock y dinero
+- Sync fabric (outbox, ACK, tombstones, watermarks)
+- Clientes Win/APK como **cache + UX**, no como autoridad de seguridad
+- Módulos instalables con contrato (AFIP, marketplaces, API, BI)
+- Release train firmado, observable, operable por otros equipos en 5–10 años
+
+Todo diseño listado como **descartado** en la Carta de plataforma queda fuera de este roadmap.
 
 ---
 

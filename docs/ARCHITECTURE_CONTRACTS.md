@@ -1,8 +1,11 @@
-# Contratos congelados — Tata.Manager (Fase 0)
+# Contratos congelados — Tata.Manager (Fase 0 / legado)
 
-Documento de gobernanza. **No cambiar estos contratos sin migración versionada y aprobación.**
+Documento de gobernanza del **estado actual en campo**. **No cambiar estos contratos sin migración versionada y aprobación.**
 
-Última actualización: 2026-07-21 · Schema SQLite: **v25** · Tenant default: **`tata_stock`**
+Doctrina de destino (plataforma, 500 empresas / 10 años): ver `PLATFORM_CHARTER.md`.  
+Varias filas de este documento son **legado tolerado en migración**, no el diseño final (p. ej. tenant default `tata_stock`, cliente como SoT operativo pleno, rules solo por membership).
+
+Última actualización: 2026-07-21 · Schema SQLite: **v25** · Tenant default: **`tata_stock`** (legado — a eliminar en Roadmap 2.0 Fase A)
 
 ---
 

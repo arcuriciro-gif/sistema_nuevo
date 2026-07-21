@@ -1,7 +1,10 @@
 # Release train — consolidación a main
 
+Gobernado por `PLATFORM_CHARTER.md`: sin release masivo mientras fallen aislamiento, integridad o firma.
+
 ## Objetivo
-Un instalador “oficial” desde `main`, sin depender de drafts eternos.
+Un instalador “oficial” desde `main`, sin depender de drafts eternos.  
+Piloto controlado ≠ venta a miles de clientes.
 
 ## Criterio para merge a main
 1. CI Android + Windows en verde
