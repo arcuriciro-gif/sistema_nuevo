@@ -261,11 +261,8 @@ class _RemitosPageState extends State<RemitosPage> {
     }
   }
 
-  bool get _puedeEliminarRemitos {
-    final rol = AuthService.instance.currentUser?.rol ?? '';
-    return AuthService.instance.esAdministrador() ||
-        PermisosService.instance.puedeEliminar(rol, 'remitos');
-  }
+  bool get _puedeEliminarRemitos =>
+      AuthService.instance.esAdministrador();
 
   Future<void> confirmarEliminar(Map<String, dynamic> remito) async {
     final ok = await showDialog<bool>(
@@ -292,8 +289,19 @@ class _RemitosPageState extends State<RemitosPage> {
       ),
     );
     if (ok == true) {
-      await service.eliminar(remito['id'] as int);
-      await cargar();
+      try {
+        await service.eliminar(remito['id'] as int);
+        await cargar();
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e.toString().replaceFirst(RegExp(r'^[^:]+:\s*'), ''),
+            ),
+          ),
+        );
+      }
     }
   }
 

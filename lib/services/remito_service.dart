@@ -298,6 +298,9 @@ class RemitoService {
 
   /// Anula (si hace falta) y borra el remito de este equipo y de la nube.
   Future<void> eliminar(int id) async {
+    if (!AuthService.instance.esAdministrador()) {
+      throw StateError('Solo el administrador puede eliminar remitos.');
+    }
     final db = await dbHelper.database;
     final rows = await db.query(
       'remitos',
@@ -314,6 +317,7 @@ class RemitoService {
     await db.delete('remito_items', where: 'remitoId = ?', whereArgs: [id]);
     await db.delete('remitos', where: 'id = ?', whereArgs: [id]);
     if (numero.isNotEmpty) {
+      // Borrar en la nube: el otro dispositivo lo quita al ver que desapareció.
       await FirestoreSyncService.instance.eliminarRemitoRemoto(numero);
     }
     DataRefreshHub.instance.notifyTodo();

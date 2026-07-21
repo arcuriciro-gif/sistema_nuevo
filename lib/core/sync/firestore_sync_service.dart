@@ -80,6 +80,8 @@ class FirestoreSyncService {
   List<Producto>? _productosPendientes;
   /// syncIds que ya vimos en la nube (para borrar locales solo si desaparecen de ahí).
   final Set<String> _clientesConfirmadosEnNube = {};
+  /// Números de remito ya vistos en la nube (borrado remoto → borrar local).
+  final Set<String> _remitosConfirmadosEnNube = {};
 
   /// Entidades creadas/editadas sin sesión de nube (colas persistentes).
   final Set<int> _colaClientes = {};
@@ -1920,9 +1922,12 @@ class FirestoreSyncService {
       var actual = snap;
       while (true) {
       final db = await DatabaseHelper.instance.database;
+      final remoteNumeros = <String>{};
+      var hubo = false;
       for (final doc in actual.docs) {
         final data = doc.data();
         final numero = data['numero']?.toString() ?? doc.id;
+        remoteNumeros.add(numero);
         final existentes = await db.query(
           'remitos',
           where: 'numero = ?',
@@ -1967,6 +1972,7 @@ class FirestoreSyncService {
             whereArgs: [remitoId],
           );
         }
+        hubo = true;
 
         final items = (data['items'] as List?) ?? const [];
         for (final raw in items) {
@@ -1998,7 +2004,28 @@ class FirestoreSyncService {
           });
         }
       }
-      DataRefreshHub.instance.notifyTodo();
+
+      // Remitos borrados en la nube → borrar locales (evitar quedar en "anulado").
+      final removidos =
+          _remitosConfirmadosEnNube.difference(remoteNumeros);
+      _remitosConfirmadosEnNube.addAll(remoteNumeros);
+      for (final numero in removidos) {
+        final rows = await db.query(
+          'remitos',
+          columns: ['id'],
+          where: 'numero = ?',
+          whereArgs: [numero],
+          limit: 1,
+        );
+        if (rows.isEmpty) continue;
+        final id = (rows.first['id'] as num?)?.toInt();
+        if (id == null || _colaRemitos.contains(id)) continue;
+        await db.delete('remito_items', where: 'remitoId = ?', whereArgs: [id]);
+        await db.delete('remitos', where: 'id = ?', whereArgs: [id]);
+        hubo = true;
+      }
+
+      if (hubo) DataRefreshHub.instance.notifyTodo();
       final pendiente = _snapRemitosPendiente;
       _snapRemitosPendiente = null;
       if (pendiente == null) break;

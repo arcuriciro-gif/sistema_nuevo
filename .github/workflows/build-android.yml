@@ -11,6 +11,7 @@ on:
       - cursor/fase2-sync-stock-e44b
       - cursor/fase3-sync-conflictos-e44b
       - cursor/ficha-cliente-foto-producto-e44b
+      - cursor/remitos-eliminar-sync-admin-e44b
 
 jobs:
   build-android:
