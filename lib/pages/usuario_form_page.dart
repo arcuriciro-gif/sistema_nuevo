@@ -86,7 +86,8 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
         password: widget.usuario?.password ?? _passwordController.text,
         rol: _rol,
         activo: _activo,
-        debeCambiarPassword: widget.usuario?.debeCambiarPassword ?? !_esEdicion,
+        // El admin define la clave: el empleado puede usarla ya en el celular.
+        debeCambiarPassword: false,
         email: emailTexto,
         foto: widget.usuario?.foto ?? '',
         fechaCreacion: widget.usuario?.fechaCreacion ?? DateTime.now(),
@@ -192,21 +193,28 @@ class _UsuarioFormPageState extends State<UsuarioFormPage> {
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
                 decoration: _decoracion(
-                  'Email (confirmación)',
+                  'Email (opcional)',
                   Icons.email_outlined,
                 ),
                 validator: (value) {
-                  if (_esEdicion) return null;
                   final v = (value ?? '').trim();
-                  if (v.isEmpty) {
-                    return 'Ingresá un email real para enviar la confirmación';
-                  }
+                  if (v.isEmpty) return null;
                   if (!v.contains('@') || !v.contains('.')) {
                     return 'Email inválido';
                   }
                   return null;
                 },
               ),
+              if (!_esEdicion) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Con usuario + clave alcanza para entrar en el celular '
+                  '(misma empresa). El email no es obligatorio.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ],
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 initialValue: _rol,

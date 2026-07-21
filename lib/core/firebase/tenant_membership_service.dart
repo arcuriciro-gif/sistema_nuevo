@@ -139,6 +139,43 @@ class TenantMembershipService {
     }
   }
 
+  /// Admin invita / actualiza member de otro usuario (alta con rol).
+  Future<bool> invitarOActualizarMiembro({
+    required String uid,
+    required String rol,
+    String? email,
+    String? usuario,
+    bool activo = true,
+  }) async {
+    if (!FirebaseBootstrap.isReady) return false;
+    final tenantId = BackendConfigService.instance.tenantId;
+    final target = uid.trim();
+    if (tenantId.isEmpty || target.isEmpty) return false;
+
+    final ahora = DateTime.now().toUtc().toIso8601String();
+    final rolNorm = RolUtil.normalizar(
+      rol.trim().isEmpty ? RolUtil.empleado : rol.trim(),
+    );
+
+    try {
+      await _memberRef(tenantId, target).set({
+        'uid': target,
+        'rol': rolNorm,
+        'activo': activo,
+        if (email != null && email.isNotEmpty) 'email': email,
+        if (usuario != null && usuario.isNotEmpty) 'usuario': usuario,
+        'actualizadoEn': ahora,
+      }, SetOptions(merge: true));
+      debugPrint(
+        'TenantMembership: invitado uid=$target rol=$rolNorm activo=$activo',
+      );
+      return true;
+    } catch (e, st) {
+      debugPrint('TenantMembership invitar: $e\n$st');
+      return false;
+    }
+  }
+
   Future<void> _logClaimsSiExisten() async {
     try {
       final user = FirebaseAuth.instance.currentUser;

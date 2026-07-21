@@ -33,21 +33,24 @@ class UsuarioService {
 
   /// Resultado del alta: id local + si se envió email de confirmación.
   Future<({int id, bool emailEnviado, String? aviso})> insertarConAviso(
-    Usuario usuario,
-  ) async {
+    Usuario usuario, {
+    bool enviarEmailConfirmacion = false,
+  }) async {
     _requiereAdministrador();
     final ahora = DateTime.now();
     final rol = RolUtil.normalizar(usuario.rol);
     final passwordPlano = usuario.password;
     final emailReal = usuario.email.trim();
+    final emailAuth = UsuarioAuthEmail.esEmailReal(emailReal)
+        ? emailReal
+        : UsuarioAuthEmail.paraUsuario(usuario.usuario);
     var nuevo = usuario.copyWith(
       rol: rol,
-      email: emailReal.isNotEmpty
-          ? emailReal
-          : UsuarioAuthEmail.paraUsuario(usuario.usuario),
+      email: emailAuth,
       fechaCreacion: usuario.fechaCreacion ?? ahora,
       password: AuthService.hashPassword(passwordPlano),
-      debeCambiarPassword: true,
+      // Clave definida por el admin: puede entrar ya; opcional forzar cambio.
+      debeCambiarPassword: usuario.debeCambiarPassword,
     );
 
     final firebase = FirebaseAuthUsuarioService.instance;
@@ -57,14 +60,28 @@ class UsuarioService {
       final uid = await firebase.crearCuenta(
         usuario.usuario,
         passwordPlano,
-        email: emailReal,
+        email: emailAuth,
         // No pisar la sesión Firebase del administrador.
         iniciarSesionDespues: false,
       );
       nuevo = nuevo.copyWith(firebaseUid: uid);
       await FirestoreUsuarioRepository().insertar(nuevo);
 
-      if (UsuarioAuthEmail.esEmailReal(emailReal)) {
+      final memberOk =
+          await TenantMembershipService.instance.invitarOActualizarMiembro(
+        uid: uid,
+        rol: rol,
+        email: emailAuth,
+        usuario: usuario.usuario,
+        activo: nuevo.activo,
+      );
+      if (!memberOk) {
+        aviso =
+            'Usuario creado, pero no se pudo registrar el permiso en la nube. '
+            'Revisá que la sincronización esté activa como administrador.';
+      }
+
+      if (enviarEmailConfirmacion && UsuarioAuthEmail.esEmailReal(emailReal)) {
         try {
           await firebase.enviarConfirmacionAlta(
             usuario: usuario.usuario,
@@ -72,23 +89,29 @@ class UsuarioService {
           );
           emailEnviado = true;
           aviso =
-              'Se envió un email a $emailReal con el enlace para definir la contraseña.\n\n'
-              'Importante: el enlace abre el navegador (no la app). '
-              'Después de elegir la clave, volvé a EL TATA Manager e ingresá con el '
-              'USUARIO (${usuario.usuario}) y esa contraseña. '
-              'Funciona en esta PC y en otra (pendrive/instalación).';
+              'Usuario creado. Se envió un email a $emailReal para que elija clave.\n'
+              'Si no usa el email, puede entrar con usuario ${usuario.usuario} '
+              'y la clave que definiste.';
         } catch (e) {
           debugPrint('Email confirmación alta: $e');
           aviso =
-              'Usuario creado, pero no se pudo enviar el email. '
-              'Revisá Authentication > Templates en Firebase y que el email sea válido.';
+              'Usuario creado con clave definida por vos. '
+              'No se pudo enviar el email de confirmación.';
         }
       } else {
-        aviso =
-            'Usuario creado. Para enviar confirmación por mail, cargá un email real.';
+        aviso ??=
+            'Usuario "${usuario.usuario}" creado.\n\n'
+            'En el celular (misma empresa tata_stock / código de empresa):\n'
+            '• Usuario: ${usuario.usuario}\n'
+            '• Clave: la que definiste\n'
+            '• Rol: ${RolUtil.etiqueta(rol)}\n\n'
+            'No hace falta Google.';
       }
     } else {
-      aviso = 'Usuario creado en este dispositivo (Firebase no disponible).';
+      aviso =
+          'Usuario creado solo en este dispositivo (nube no disponible). '
+          'Activá la sincronización e intentá darlo de alta de nuevo '
+          'si debe entrar desde otro equipo.';
     }
 
     final id = await _repoLocal.insertar(nuevo);
@@ -137,20 +160,10 @@ class UsuarioService {
     if (nuevaPassword != null && nuevaPassword.trim().isNotEmpty) {
       actualizado = actualizado.copyWith(
         password: AuthService.hashPassword(nuevaPassword.trim()),
-        debeCambiarPassword: true,
+        debeCambiarPassword: false,
       );
-      final email = actualizado.email.trim();
-      if (FirebaseAuthUsuarioService.instance.disponible &&
-          UsuarioAuthEmail.esEmailReal(email)) {
-        try {
-          await FirebaseAuthUsuarioService.instance.enviarRestablecimiento(
-            actualizado.usuario,
-            email: email,
-          );
-        } catch (e) {
-          debugPrint('Email cambio password admin: $e');
-        }
-      }
+      // La clave la define el admin. No mandamos reset por email porque
+      // invalidaría la contraseña recién asignada.
     }
 
     final resultado = await _repoLocal.actualizar(actualizado);
@@ -160,6 +173,17 @@ class UsuarioService {
       try {
         await FirestoreUsuarioRepository().actualizar(actualizado);
       } catch (_) {}
+      try {
+        await TenantMembershipService.instance.invitarOActualizarMiembro(
+          uid: actualizado.firebaseUid!,
+          rol: actualizado.rol,
+          email: actualizado.email,
+          usuario: actualizado.usuario,
+          activo: actualizado.activo,
+        );
+      } catch (e) {
+        debugPrint('Membership actualizar usuario: $e');
+      }
     }
 
     await AuthService.instance.registrarCambio(
@@ -191,6 +215,15 @@ class UsuarioService {
         (usuario.firebaseUid?.isNotEmpty ?? false)) {
       try {
         await FirestoreUsuarioRepository().desactivarPorUid(usuario.firebaseUid!);
+      } catch (_) {}
+      try {
+        await TenantMembershipService.instance.invitarOActualizarMiembro(
+          uid: usuario.firebaseUid!,
+          rol: usuario.rol,
+          email: usuario.email,
+          usuario: usuario.usuario,
+          activo: false,
+        );
       } catch (_) {}
     }
 
