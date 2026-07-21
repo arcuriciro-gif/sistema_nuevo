@@ -16,7 +16,7 @@ Un instalador “oficial” desde `main`, sin depender de drafts eternos.
 3. **Este PR: Fase 0+1 seguridad** (rules, membership, passwords, admin recovery)
 4. **Fase 2 sync/stock** (soft-delete, LWW productos, stock atómico, catch-up)
 5. **Fase 3 conflictos** (LWW proveedores, números únicos, código inmutable, stock_ops)
-6. Luego Fase 4+ según prioridad
+6. Luego **certificación comercial** — ver `AUDITORIA_CERTIFICACION_2026-07.md` y `ROADMAP_TATA_MANAGER_2_0.md` (Fases A–H). No avanzar a features nuevas (plugins/API/package) sin cerrar hardening A–C.
 
 ## Qué no mergear a ciegas
 - Renombre de package Android sin plan de migración
