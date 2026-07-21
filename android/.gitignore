@@ -1,0 +1,6 @@
+# Remember to never publicly share your keystore.
+# Capacidad 1: keystore y passwords NO se versionan.
+# Usar key.properties.example y secretos de CI / máquina local.
+*.jks
+key.properties
+keystore/*.jks

@@ -1,0 +1,43 @@
+rules_version = '2';
+// Tata.Manager — Storage Rules (Capacidad 1)
+// Deploy: firebase deploy --only storage
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function memberDoc(tenantId) {
+      return firestore.get(
+        /databases/(default)/documents/tenants/$(tenantId)/members/$(request.auth.uid)
+      );
+    }
+
+    function isMember(tenantId) {
+      return signedIn()
+        && firestore.exists(
+          /databases/(default)/documents/tenants/$(tenantId)/members/$(request.auth.uid)
+        )
+        && memberDoc(tenantId).data.activo == true;
+    }
+
+    function isReadOnly(tenantId) {
+      return isMember(tenantId) && memberDoc(tenantId).data.rol == 'solo_lectura';
+    }
+
+    function canWrite(tenantId) {
+      return isMember(tenantId) && !isReadOnly(tenantId);
+    }
+
+    function safeContentType() {
+      return request.resource.contentType.matches('image/.*|application/pdf');
+    }
+
+    match /tenants/{tenantId}/{allPaths=**} {
+      allow read: if isMember(tenantId);
+      allow write: if canWrite(tenantId)
+                   && request.resource.size < 15 * 1024 * 1024
+                   && safeContentType();
+    }
+  }
+}

@@ -1,0 +1,91 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cursor/release-mejoras-e44b
+      - cursor/ui-shell-fotos-bio-e44b
+      - cursor/productos-busqueda-eliminar-e44b
+      - cursor/fase0-fase1-seguridad-e44b
+      - cursor/fase2-sync-stock-e44b
+      - cursor/fase3-sync-conflictos-e44b
+      - cursor/ficha-cliente-foto-producto-e44b
+      - cursor/remitos-eliminar-sync-admin-e44b
+      - cursor/capacidad-1-plataforma-segura-e44b
+      - cursor/capacidad-2-sync-certificable-e44b
+      - cursor/capacidad-3-dominio-transaccional-e44b
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Tests
+        run: flutter test
+
+      - name: Restaurar keystore (secreto CI, opcional)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_PROPERTIES: ${{ secrets.ANDROID_KEY_PROPERTIES }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEY_PROPERTIES" ]; then
+            mkdir -p android/keystore
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/keystore/tata-manager.jks
+            printf '%s\n' "$ANDROID_KEY_PROPERTIES" > android/key.properties
+            echo "Keystore restaurado desde secrets"
+          else
+            echo "Sin secrets de firma — release usará debug signing (Capacidad 1)"
+          fi
+
+      - name: Build APK release
+        run: flutter build apk --release
+
+      - name: Preparar carpeta APK
+        run: |
+          mkdir -p Instalador_Android
+          cp build/app/outputs/flutter-apk/app-release.apk Instalador_Android/TataManager.apk
+          cat > Instalador_Android/LEEME.txt << 'EOF'
+          Tata.Manager — APK Android
+          =========================
+
+          1) Copiá TataManager.apk al celular
+          2) Abrilo e instalá (permití "orígenes desconocidos" si pide)
+          3) Primera vez: admin / admin123 (si es instalación limpia)
+          4) Con internet: Configuración → Activar sincronización online
+             (mismo usuario que en la PC)
+
+          Firma estable del proyecto (SHA-1 en docs/FIREBASE_GOOGLE_LOGIN.md).
+          Para Google Login: cargá ese SHA-1 en Firebase Console.
+          EOF
+          ls -la Instalador_Android
+
+      - name: Subir APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Instalador_Android
+          path: Instalador_Android
+          if-no-files-found: error
+          retention-days: 14

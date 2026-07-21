@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "932698618413",
+    "project_id": "tata-stock-8631e",
+    "storage_bucket": "tata-stock-8631e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:932698618413:android:79f6dd8275b301f21896a4",
+        "android_client_info": {
+          "package_name": "com.example.sistema_nuevo"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "932698618413-hp847sk8q70ofqimjqifsojs3fii2f30.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDIO601iRMJgk_pCERXJj3aalP5sUMRNgE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "932698618413-hp847sk8q70ofqimjqifsojs3fii2f30.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

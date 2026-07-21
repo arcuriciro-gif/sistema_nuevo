@@ -1,0 +1,32 @@
+Tata.Manager — carpeta para instalar en otra PC
+================================================
+Autor: Matias Arcuri
+
+COMO ABRIR / ACCESO DIRECTO
+---------------------------
+1) Descomprimí TODO el ZIP en una carpeta (ej. C:\TataManager)
+2) Preferí abrir con:  ABRIR_TATA_MANAGER.bat
+   (también sirve doble clic en Tata.Manager.exe)
+3) Para acceso directo: clic derecho en ABRIR_TATA_MANAGER.bat
+   → Enviar a → Escritorio (crear acceso directo)
+   Así la app siempre arranca desde la carpeta correcta.
+
+PRIMERA VEZ
+-----------
+Usuario: admin
+Contraseña: admin123
+
+USAR ONLINE (con el celular)
+----------------------------
+1) Entrá a la app
+2) Menú → Configuración
+3) Tocá "Activar sincronización online"
+4) En el celular, mismo usuario/clave e internet
+
+Si no podés entrar, mirá el archivo:
+  tata_manager_error.log
+(en Documentos o en esta carpeta) y avisá.
+
+IMPORTANTE
+----------
+NO muevas solo el .exe: tiene que ir con los .dll y la carpeta data.

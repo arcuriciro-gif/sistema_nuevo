@@ -1,0 +1,184 @@
+rules_version = '2';
+
+// Tata.Manager — Firestore Security Rules (Capacidad 1: Plataforma segura)
+// Deploy: firebase deploy --only firestore:rules
+//
+// Principios:
+// - Aislamiento por tenant (path).
+// - Roles en members/{uid}: admin | encargado | empleado | solo_lectura
+// - Self-join: solo si allowSelfJoin==true EXPLÍCITO, y NUNCA como admin.
+// - Nuevos tenants: allowSelfJoin debe ser false.
+// - config + usuarios: escritura solo admin.
+// - solo_lectura: solo lectura en colecciones operativas.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function tenantPath(tenantId) {
+      return /databases/$(database)/documents/tenants/$(tenantId);
+    }
+
+    function memberPath(tenantId, uid) {
+      return /databases/$(database)/documents/tenants/$(tenantId)/members/$(uid);
+    }
+
+    function tenantExists(tenantId) {
+      return exists(tenantPath(tenantId));
+    }
+
+    function tenantData(tenantId) {
+      return get(tenantPath(tenantId)).data;
+    }
+
+    function memberData(tenantId) {
+      return get(memberPath(tenantId, request.auth.uid)).data;
+    }
+
+    function isOwner(tenantId) {
+      return signedIn()
+        && tenantExists(tenantId)
+        && tenantData(tenantId).ownerUid == request.auth.uid;
+    }
+
+    function isMember(tenantId) {
+      return signedIn()
+        && exists(memberPath(tenantId, request.auth.uid))
+        && get(memberPath(tenantId, request.auth.uid)).data.activo == true;
+    }
+
+    function memberRol(tenantId) {
+      return memberData(tenantId).rol;
+    }
+
+    function isTenantAdmin(tenantId) {
+      return isMember(tenantId) && memberRol(tenantId) == 'admin';
+    }
+
+    function isReadOnly(tenantId) {
+      return isMember(tenantId) && memberRol(tenantId) == 'solo_lectura';
+    }
+
+    function canWriteOps(tenantId) {
+      return isMember(tenantId) && !isReadOnly(tenantId);
+    }
+
+    // Self-join solo si el flag está explícitamente en true (legado).
+    function selfJoinExplicit(tenantId) {
+      return tenantExists(tenantId)
+        && ('allowSelfJoin' in tenantData(tenantId))
+        && tenantData(tenantId).allowSelfJoin == true;
+    }
+
+    function validRol(rol) {
+      return rol in ['admin', 'encargado', 'empleado', 'solo_lectura'];
+    }
+
+    match /tenants/{tenantId} {
+      allow read: if isMember(tenantId) || isOwner(tenantId);
+
+      // Alta de empresa: el creador es owner y self-join queda CERRADO.
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.allowSelfJoin == false
+        && request.resource.data.keys().hasAll(['ownerUid', 'allowSelfJoin', 'creadoEn']);
+
+      allow update: if isOwner(tenantId) || isTenantAdmin(tenantId);
+      allow delete: if false;
+
+      match /members/{uid} {
+        allow read: if isMember(tenantId) || (signedIn() && request.auth.uid == uid);
+
+        // Crear membresía:
+        // - Owner/admin invita (cualquier uid).
+        // - Self-join legado: solo propio uid, rol != admin.
+        allow create: if signedIn()
+          && request.resource.data.keys().hasAll(['rol', 'activo', 'actualizadoEn'])
+          && request.resource.data.activo == true
+          && validRol(request.resource.data.rol)
+          && (
+            (isOwner(tenantId) || isTenantAdmin(tenantId))
+            || (
+              request.auth.uid == uid
+              && selfJoinExplicit(tenantId)
+              && request.resource.data.rol in ['empleado', 'encargado', 'solo_lectura']
+            )
+          );
+
+        // Auto-update: no puede tocar rol / activo / uid.
+        allow update: if isOwner(tenantId) || isTenantAdmin(tenantId)
+          || (
+            signedIn()
+            && request.auth.uid == uid
+            && !request.resource.data.diff(resource.data)
+                .affectedKeys()
+                .hasAny(['rol', 'activo', 'uid'])
+          );
+
+        allow delete: if isOwner(tenantId) || isTenantAdmin(tenantId);
+      }
+
+      // Dispositivos de confianza ( Capacidad 1 )
+      match /devices/{deviceId} {
+        allow read: if isTenantAdmin(tenantId)
+          || (isMember(tenantId) && resource.data.uid == request.auth.uid);
+        allow create: if canWriteOps(tenantId)
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.keys().hasAll(['uid', 'deviceId', 'actualizadoEn']);
+        allow update: if canWriteOps(tenantId)
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.uid == request.auth.uid
+          && !request.resource.data.diff(resource.data)
+              .affectedKeys()
+              .hasAny(['uid', 'deviceId']);
+        allow delete: if isTenantAdmin(tenantId);
+      }
+
+      match /config/{docId} {
+        allow read: if isMember(tenantId);
+        allow write: if isTenantAdmin(tenantId);
+      }
+
+      match /usuarios/{docId} {
+        allow read: if isMember(tenantId);
+        allow write: if isTenantAdmin(tenantId);
+      }
+
+      match /{collection}/{docId} {
+        allow read: if isMember(tenantId)
+          && collection in [
+            'productos',
+            'clientes',
+            'proveedores',
+            'ventas',
+            'remitos',
+            'compras',
+            'documentos',
+            'chats',
+            'notificaciones',
+            'stock_ops'
+          ];
+        allow write: if canWriteOps(tenantId)
+          && collection in [
+            'productos',
+            'clientes',
+            'proveedores',
+            'ventas',
+            'remitos',
+            'compras',
+            'documentos',
+            'chats',
+            'notificaciones',
+            'stock_ops'
+          ];
+      }
+
+      match /chats/{chatId}/{sub}/{subId} {
+        allow read: if isMember(tenantId);
+        allow write: if canWriteOps(tenantId);
+      }
+    }
+  }
+}

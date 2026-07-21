@@ -1,0 +1,119 @@
+name: Build Windows Instalador
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cursor/fix-login-confirmacion-e44b
+      - cursor/fotos-productos-sync-e44b
+      - cursor/comparador-descripcion-costo-e44b
+      - cursor/release-mejoras-e44b
+      - cursor/ui-shell-fotos-bio-e44b
+      - cursor/productos-busqueda-eliminar-e44b
+      - cursor/fase0-fase1-seguridad-e44b
+      - cursor/fase2-sync-stock-e44b
+      - cursor/fase3-sync-conflictos-e44b
+      - cursor/ficha-cliente-foto-producto-e44b
+      - cursor/remitos-eliminar-sync-admin-e44b
+      - cursor/capacidad-1-plataforma-segura-e44b
+      - cursor/capacidad-2-sync-certificable-e44b
+      - cursor/capacidad-3-dominio-transaccional-e44b
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Build Windows release
+        shell: pwsh
+        run: |
+          $env:CL = "/D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
+          flutter build windows --release
+
+      - name: Preparar carpeta Instalador_Windows
+        shell: pwsh
+        run: |
+          $src = "build\windows\x64\runner\Release"
+          $dst = "Instalador_Windows"
+          $exeName = "Tata.Manager.exe"
+          if (-not (Test-Path "$src\$exeName")) {
+            # Compatibilidad si el build viejo aún genera otro nombre
+            $fallback = Get-ChildItem "$src\*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($fallback) {
+              Write-Host "AVISO: no está $exeName; se encontró $($fallback.Name)"
+              $exeName = $fallback.Name
+            } else {
+              throw "No se encontró Tata.Manager.exe en $src"
+            }
+          }
+          if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
+          New-Item -ItemType Directory -Path $dst | Out-Null
+          Copy-Item -Path "$src\*" -Destination $dst -Recurse -Force
+
+          # Si el exe no se llama Tata.Manager.exe, renombrarlo
+          if ($exeName -ne "Tata.Manager.exe" -and (Test-Path "$dst\$exeName")) {
+            Rename-Item "$dst\$exeName" "Tata.Manager.exe" -Force
+            $exeName = "Tata.Manager.exe"
+          }
+
+          # Asegurar sqlite3.dll junto al exe (sqflite_common_ffi en release)
+          $sqliteCandidates = @(
+            "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\sqflite_common_ffi-*\lib\src\windows\sqlite3.dll",
+            "$env:PUB_CACHE\hosted\pub.dev\sqflite_common_ffi-*\lib\src\windows\sqlite3.dll",
+            "$src\sqlite3.dll"
+          )
+          $copiedSqlite = $false
+          foreach ($pattern in $sqliteCandidates) {
+            $hit = Get-Item $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($hit) {
+              Copy-Item $hit.FullName "$dst\sqlite3.dll" -Force
+              Write-Host "sqlite3.dll desde $($hit.FullName)"
+              $copiedSqlite = $true
+              break
+            }
+          }
+          if (-not $copiedSqlite) {
+            Write-Host "AVISO: no se encontró sqlite3.dll en pub-cache; se usa el del build si existe"
+          }
+
+          if (Test-Path "assets\docs\MANUAL_DE_USO.pdf") {
+            Copy-Item "assets\docs\MANUAL_DE_USO.pdf" "$dst\MANUAL_DE_USO.pdf" -Force
+          }
+          if (Test-Path "packaging\windows\ABRIR_TATA_MANAGER.bat") {
+            Copy-Item "packaging\windows\ABRIR_TATA_MANAGER.bat" "$dst\ABRIR_TATA_MANAGER.bat" -Force
+          }
+          if (Test-Path "packaging\windows\LEEME.txt") {
+            Copy-Item "packaging\windows\LEEME.txt" "$dst\LEEME.txt" -Force
+          }
+          Get-ChildItem $dst | Select-Object Name, Length
+          if (-not (Test-Path "$dst\sqlite3.dll")) {
+            Write-Host "WARNING: sqlite3.dll no está en el instalador"
+          } else {
+            Write-Host "OK: sqlite3.dll incluido"
+          }
+      - name: Subir Instalador_Windows (ZIP)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Instalador_Windows
+          path: Instalador_Windows
+          if-no-files-found: error
+          retention-days: 14
