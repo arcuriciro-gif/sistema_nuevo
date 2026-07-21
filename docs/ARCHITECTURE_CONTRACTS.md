@@ -12,7 +12,7 @@ Varias filas de este documento son **legado tolerado en migración**, no el dise
 
 **Moratoria:** no ampliar la constitución documental hasta Fases A–B–C + auditoría sin críticos.
 
-Última actualización: 2026-07-21 · Schema SQLite: **v25** · Tenant default: **`tata_stock`** (legado — a eliminar en Roadmap 2.0 Fase A)
+Última actualización: 2026-07-21 · Schema SQLite: **v26** · Tenant default: **`tata_stock`** (legado — a eliminar en Roadmap 2.0 Fase A)
 
 ---
 

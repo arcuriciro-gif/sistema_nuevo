@@ -94,7 +94,7 @@ class DatabaseHelper {
 
     final db = await openDatabase(
       path,
-      version: 25,
+      version: 26,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -239,6 +239,7 @@ CREATE TABLE comparacion(
     await _crearTablaPagos(db);
     await _crearTablasComunicaciones(db);
     await _crearTablaComentariosInternos(db);
+    await _crearTablasSyncCertificable(db);
     await _migrarSyncCompletoV21(db);
     await _crearIndices(db);
   }
@@ -992,6 +993,52 @@ CREATE TABLE IF NOT EXISTS ventas_items(
         'actualizadoEn': "TEXT DEFAULT ''",
       });
     }
+    if (oldVersion < 26) {
+      await _crearTablasSyncCertificable(db);
+    }
+  }
+
+  Future<void> _crearTablasSyncCertificable(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS sync_outbox(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  op_id TEXT NOT NULL UNIQUE,
+  entity_type TEXT NOT NULL,
+  entity_local_id INTEGER,
+  entity_remote_id TEXT,
+  operation TEXT NOT NULL,
+  payload TEXT,
+  status TEXT NOT NULL,
+  attempts INTEGER DEFAULT 0,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  next_attempt_at TEXT
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sync_outbox_status '
+      'ON sync_outbox(status, next_attempt_at)',
+    );
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS sync_watermarks(
+  collection TEXT PRIMARY KEY,
+  confirmed_ids TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)
+''');
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS sync_conflicts(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  local_revision TEXT,
+  remote_revision TEXT,
+  resolution TEXT,
+  detail TEXT,
+  created_at TEXT NOT NULL
+)
+''');
   }
 
   Future<void> _migrarSyncCompletoV21(Database db) async {

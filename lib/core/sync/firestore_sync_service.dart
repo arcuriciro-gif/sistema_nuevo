@@ -13,6 +13,9 @@ import '../firebase/firebase_auth_usuario_service.dart';
 import '../firebase/firebase_bootstrap.dart';
 import '../utils/media_path.dart';
 import 'media_sync_service.dart';
+import 'sync_health.dart';
+import 'sync_outbox.dart';
+import 'sync_watermark_store.dart';
 import '../../database/database_helper.dart';
 import '../../models/cliente.dart';
 import '../../models/documento_cliente.dart';
@@ -129,11 +132,18 @@ class FirestoreSyncService {
         !FirebaseBootstrap.isReady) {
       syncStatusLabel = 'Solo local';
       syncStatusDetail = null;
+      SyncHealthService.instance.firebaseReady = false;
+      SyncHealthService.instance.canWrite = false;
       return;
     }
     try {
       await stop();
       await _cargarColasPersistidas();
+      await SyncOutbox.instance.reclaimStaleInflight();
+      await _migrateLegacyColasToOutbox();
+      await _cargarWatermarksPersistidos();
+      SyncHealthService.instance.firebaseReady = true;
+      SyncHealthService.instance.canWrite = _puedeEscribirRemoto;
       syncStatusLabel = 'Sincronizando…';
       syncStatusDetail = null;
 
@@ -195,11 +205,25 @@ class FirestoreSyncService {
       await _pullInicialCatchUp();
       await _vaciarColasYSubirPendientes();
 
-      syncStatusLabel = 'En la nube';
+      final health = await SyncHealthService.instance.snapshot();
+      if (health.dead > 0) {
+        syncStatusLabel = 'Sync con errores';
+        syncStatusDetail = '${health.dead} ops fallidas en outbox';
+      } else if (health.pending > 0 || health.inflight > 0) {
+        syncStatusLabel = 'Sincronizando…';
+        syncStatusDetail = '${health.pending} pendientes';
+      } else {
+        syncStatusLabel = 'En la nube';
+        syncStatusDetail = null;
+      }
       DataRefreshHub.instance.notifyTodo();
     } catch (e, st) {
       syncStatusLabel = 'Local';
       syncStatusDetail = '$e';
+      SyncHealthService.instance.recordCycle(
+        durationMs: 0,
+        error: e.toString(),
+      );
       debugPrint('FirestoreSyncService.start falló: $e\n$st');
     }
   }
@@ -255,54 +279,54 @@ class FirestoreSyncService {
   }
 
   Future<void> _vaciarColasYSubirPendientes() async {
-    if (!_puedeEscribirRemoto) return;
+    final sw = Stopwatch()..start();
+    String? cycleError;
     try {
       await _cargarColasPersistidas();
-      final clientesCola = List<int>.from(_colaClientes);
-      _colaClientes.clear();
-      await _persistirCola(_prefsColaClientes, _colaClientes);
-      for (final id in clientesCola) {
-        await subirCliente(id, forzar: true);
+      await SyncOutbox.instance.reclaimStaleInflight();
+      await _migrateLegacyColasToOutbox();
+
+      // Volcar colas en memoria → outbox (idempotente). NO borrar hasta ACK.
+      for (final id in _colaClientes) {
+        await SyncOutbox.instance
+            .enqueueUpsert(entityType: 'cliente', localId: id);
       }
-      final proveedoresCola = List<int>.from(_colaProveedores);
-      _colaProveedores.clear();
-      await _persistirCola(_prefsColaProveedores, _colaProveedores);
-      for (final id in proveedoresCola) {
-        await subirProveedor(id, forzar: true);
+      for (final id in _colaProveedores) {
+        await SyncOutbox.instance
+            .enqueueUpsert(entityType: 'proveedor', localId: id);
       }
-      final productosCola = List<int>.from(_colaProductos);
-      _colaProductos.clear();
-      await _persistirCola(_prefsColaProductos, _colaProductos);
-      for (final id in productosCola) {
-        await subirProductoPorId(id);
+      for (final id in _colaProductos) {
+        await SyncOutbox.instance
+            .enqueueUpsert(entityType: 'producto', localId: id);
       }
-      final ventasCola = List<int>.from(_colaVentas);
-      _colaVentas.clear();
-      await _persistirCola(_prefsColaVentas, _colaVentas);
-      for (final id in ventasCola) {
-        await subirVenta(id);
+      for (final id in _colaVentas) {
+        await SyncOutbox.instance
+            .enqueueUpsert(entityType: 'venta', localId: id);
       }
-      final remitosCola = List<int>.from(_colaRemitos);
-      _colaRemitos.clear();
-      await _persistirCola(_prefsColaRemitos, _colaRemitos);
-      for (final id in remitosCola) {
-        await subirRemito(id);
+      for (final id in _colaRemitos) {
+        await SyncOutbox.instance
+            .enqueueUpsert(entityType: 'remito', localId: id);
       }
-      final comprasCola = List<int>.from(_colaCompras);
-      _colaCompras.clear();
-      await _persistirCola(_prefsColaCompras, _colaCompras);
-      for (final id in comprasCola) {
-        await subirCompra(id);
+      for (final id in _colaCompras) {
+        await SyncOutbox.instance
+            .enqueueUpsert(entityType: 'compra', localId: id);
       }
 
-      // Solo subir locales que AÚN NO están en la nube (no reenviar todos:
-      // el sweep completo de productos resucitaba soft-deletes).
+      if (!_puedeEscribirRemoto) {
+        SyncHealthService.instance.canWrite = false;
+        return;
+      }
+      SyncHealthService.instance.canWrite = true;
+
+      await _procesarOutboxBatch();
+
+      // Catch-up: encolar ausentes (sin wipe de cola).
       final db = await DatabaseHelper.instance.database;
       await _subirClientesAusentesEnNube(db);
       await _subirProveedoresAusentesEnNube(db);
       await _subirProductosAusentesEnNube(db);
       await _flushColaStockOps();
-      // Ventas/remitos/compras: catch-up amplio (antes 200 cortaba historial).
+
       final ventas = await db.query(
         'ventas',
         columns: ['id'],
@@ -311,7 +335,10 @@ class FirestoreSyncService {
       );
       for (final row in ventas) {
         final id = (row['id'] as num?)?.toInt();
-        if (id != null) await subirVenta(id);
+        if (id != null) {
+          await SyncOutbox.instance
+              .enqueueUpsert(entityType: 'venta', localId: id);
+        }
       }
       final remitos = await db.query(
         'remitos',
@@ -321,7 +348,10 @@ class FirestoreSyncService {
       );
       for (final row in remitos) {
         final id = (row['id'] as num?)?.toInt();
-        if (id != null) await subirRemito(id);
+        if (id != null) {
+          await SyncOutbox.instance
+              .enqueueUpsert(entityType: 'remito', localId: id);
+        }
       }
       final compras = await db.query(
         'compras',
@@ -331,13 +361,178 @@ class FirestoreSyncService {
       );
       for (final row in compras) {
         final id = (row['id'] as num?)?.toInt();
-        if (id != null) await subirCompra(id);
+        if (id != null) {
+          await SyncOutbox.instance
+              .enqueueUpsert(entityType: 'compra', localId: id);
+        }
       }
 
+      await _procesarOutboxBatch();
+      SyncHealthService.instance.markCollection('outbox', 'flushed');
     } catch (e) {
+      cycleError = '$e';
       debugPrint('Vaciar colas sync: $e');
       syncStatusDetail = 'Pendiente subir locales: $e';
+      SyncHealthService.instance.markCollection('outbox', 'error');
+    } finally {
+      SyncHealthService.instance.recordCycle(
+        durationMs: sw.elapsedMilliseconds,
+        error: cycleError,
+      );
     }
+  }
+
+  Future<void> _procesarOutboxBatch({int limit = 80}) async {
+    final batch = await SyncOutbox.instance.claimBatch(limit: limit);
+    for (final op in batch) {
+      final opId = op['op_id']?.toString() ?? '';
+      if (opId.isEmpty) continue;
+      try {
+        await _ejecutarOutboxOp(op);
+        await SyncOutbox.instance.ack(opId);
+        SyncHealthService.instance.recordAck();
+        _syncMemoryColaTrasAck(op);
+      } catch (e) {
+        await SyncOutbox.instance.fail(opId, e);
+        SyncHealthService.instance.recordFail();
+        debugPrint('Outbox fail $opId: $e');
+      }
+    }
+  }
+
+  void _syncMemoryColaTrasAck(Map<String, dynamic> op) {
+    final type = op['entity_type']?.toString() ?? '';
+    final localId = (op['entity_local_id'] as num?)?.toInt();
+    if (localId == null) return;
+    switch (type) {
+      case 'cliente':
+        _colaClientes.remove(localId);
+        unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
+      case 'proveedor':
+        _colaProveedores.remove(localId);
+        unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
+      case 'producto':
+        _colaProductos.remove(localId);
+        unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
+      case 'venta':
+        _colaVentas.remove(localId);
+        unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
+      case 'remito':
+        _colaRemitos.remove(localId);
+        unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
+      case 'compra':
+        _colaCompras.remove(localId);
+        unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
+    }
+  }
+
+  Future<void> _ejecutarOutboxOp(Map<String, dynamic> op) async {
+    final type = op['entity_type']?.toString() ?? '';
+    final operation = op['operation']?.toString() ?? '';
+    final localId = (op['entity_local_id'] as num?)?.toInt();
+    final remoteId = op['entity_remote_id']?.toString();
+
+    if (operation == 'delete') {
+      await _aplicarTombstoneRemoto(type, remoteId ?? '');
+      return;
+    }
+
+    if (localId == null) {
+      throw StateError('Outbox upsert sin entity_local_id ($type)');
+    }
+
+    switch (type) {
+      case 'cliente':
+        await subirCliente(localId, forzar: true, desdeOutbox: true);
+      case 'proveedor':
+        await subirProveedor(localId, forzar: true, desdeOutbox: true);
+      case 'producto':
+        await subirProductoPorId(localId, desdeOutbox: true);
+      case 'venta':
+        await subirVenta(localId, desdeOutbox: true);
+      case 'remito':
+        await subirRemito(localId, desdeOutbox: true);
+      case 'compra':
+        await subirCompra(localId, desdeOutbox: true);
+      default:
+        throw StateError('Outbox entity_type desconocido: $type');
+    }
+  }
+
+  Future<void> _aplicarTombstoneRemoto(String entityType, String remoteId) async {
+    if (remoteId.isEmpty) return;
+    final uid = FirebaseAuthUsuarioService.instance.uidActual ?? '';
+    final tombstone = {
+      'deletedAt': DateTime.now().toUtc().toIso8601String(),
+      'deletedBy': uid,
+      'tombstone': true,
+    };
+    switch (entityType) {
+      case 'cliente':
+        await _clientesCol.doc(remoteId).set(tombstone, SetOptions(merge: true));
+      case 'proveedor':
+        await _proveedoresCol
+            .doc(remoteId)
+            .set(tombstone, SetOptions(merge: true));
+      case 'venta':
+        await _ventasCol.doc(remoteId).set({
+          ...tombstone,
+          'numero': remoteId,
+          'estado': 'anulada',
+        }, SetOptions(merge: true));
+      case 'remito':
+        await _remitosCol.doc(remoteId).set({
+          ...tombstone,
+          'numero': remoteId,
+          'estado': 'anulado',
+        }, SetOptions(merge: true));
+      case 'compra':
+        await _comprasCol.doc(remoteId).set({
+          ...tombstone,
+          'numero': remoteId,
+          'estado': 'anulada',
+        }, SetOptions(merge: true));
+      default:
+        throw StateError('Tombstone no soportado: $entityType');
+    }
+  }
+
+  Future<void> _migrateLegacyColasToOutbox() async {
+    final prefs = await SharedPreferences.getInstance();
+    const flag = 'sync_outbox_migrated_v1';
+    if (prefs.getBool(flag) == true) return;
+    await SyncOutbox.instance
+        .migrateLegacyIdSet(entityType: 'cliente', ids: _colaClientes);
+    await SyncOutbox.instance
+        .migrateLegacyIdSet(entityType: 'proveedor', ids: _colaProveedores);
+    await SyncOutbox.instance
+        .migrateLegacyIdSet(entityType: 'producto', ids: _colaProductos);
+    await SyncOutbox.instance
+        .migrateLegacyIdSet(entityType: 'venta', ids: _colaVentas);
+    await SyncOutbox.instance
+        .migrateLegacyIdSet(entityType: 'remito', ids: _colaRemitos);
+    await SyncOutbox.instance
+        .migrateLegacyIdSet(entityType: 'compra', ids: _colaCompras);
+    await prefs.setBool(flag, true);
+  }
+
+  Future<void> _cargarWatermarksPersistidos() async {
+    _clientesConfirmadosEnNube
+      ..clear()
+      ..addAll(await SyncWatermarkStore.instance.loadConfirmed('clientes'));
+    _remitosConfirmadosEnNube
+      ..clear()
+      ..addAll(await SyncWatermarkStore.instance.loadConfirmed('remitos'));
+  }
+
+  Future<void> _persistirWatermarkClientes() async {
+    await SyncWatermarkStore.instance
+        .saveConfirmed('clientes', _clientesConfirmadosEnNube);
+  }
+
+  Future<void> _persistirWatermarkRemitos() async {
+    await SyncWatermarkStore.instance
+        .saveConfirmed('remitos', _remitosConfirmadosEnNube);
   }
 
   Future<void> _reintentarFotosLocalesPendientes() async {
@@ -1081,7 +1276,15 @@ class FirestoreSyncService {
     }
   }
 
-  Future<void> subirCliente(int clienteId, {bool forzar = false}) async {
+  Future<void> subirCliente(
+    int clienteId, {
+    bool forzar = false,
+    bool desdeOutbox = false,
+  }) async {
+    if (!desdeOutbox) {
+      await SyncOutbox.instance
+          .enqueueUpsert(entityType: 'cliente', localId: clienteId);
+    }
     if (!_puedeEscribirRemoto) {
       _colaClientes.add(clienteId);
       unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
@@ -1119,6 +1322,17 @@ class FirestoreSyncService {
             debugPrint(
               'subirCliente: remoto más nuevo, skip id=$clienteId sync=$syncId',
             );
+            await SyncWatermarkStore.instance.recordConflict(
+              entityType: 'cliente',
+              entityId: syncId,
+              localRevision: locTs.toIso8601String(),
+              remoteRevision: remTs.toIso8601String(),
+              resolution: 'remote_wins',
+              detail: 'LWW skip upload',
+            );
+            if (!desdeOutbox) {
+              await SyncOutbox.instance.ack('upsert:cliente:$clienteId');
+            }
             _colaClientes.remove(clienteId);
             unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
             return;
@@ -1132,26 +1346,48 @@ class FirestoreSyncService {
         where: 'id = ?',
         whereArgs: [clienteId],
       );
+      if (!desdeOutbox) {
+        await SyncOutbox.instance.ack('upsert:cliente:$clienteId');
+      }
       _colaClientes.remove(clienteId);
       unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
     } catch (e) {
       _colaClientes.add(clienteId);
       unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
+      if (!desdeOutbox) {
+        await SyncOutbox.instance.fail('upsert:cliente:$clienteId', e);
+      }
       syncStatusDetail = 'No se pudo subir cliente: $e';
       debugPrint('Firestore subir cliente: $e');
+      if (desdeOutbox) rethrow;
     }
   }
 
   Future<void> eliminarClienteRemoto(String syncId) async {
-    if (!_puedeEscribirRemoto || syncId.isEmpty) return;
+    if (syncId.isEmpty) return;
+    await SyncOutbox.instance.enqueueDelete(
+      entityType: 'cliente',
+      remoteId: syncId,
+    );
+    if (!_puedeEscribirRemoto) return;
     try {
-      await _clientesCol.doc(syncId).delete();
+      await _aplicarTombstoneRemoto('cliente', syncId);
+      await SyncOutbox.instance.ack('delete:cliente:$syncId');
     } catch (e) {
+      await SyncOutbox.instance.fail('delete:cliente:$syncId', e);
       debugPrint('Firestore eliminar cliente: $e');
     }
   }
 
-  Future<void> subirProveedor(int proveedorId, {bool forzar = false}) async {
+  Future<void> subirProveedor(
+    int proveedorId, {
+    bool forzar = false,
+    bool desdeOutbox = false,
+  }) async {
+    if (!desdeOutbox) {
+      await SyncOutbox.instance
+          .enqueueUpsert(entityType: 'proveedor', localId: proveedorId);
+    }
     if (!_puedeEscribirRemoto) {
       _colaProveedores.add(proveedorId);
       unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
@@ -1196,6 +1432,17 @@ class FirestoreSyncService {
             debugPrint(
               'subirProveedor: remoto más nuevo, skip id=$proveedorId',
             );
+            await SyncWatermarkStore.instance.recordConflict(
+              entityType: 'proveedor',
+              entityId: syncId,
+              localRevision: locTs.toIso8601String(),
+              remoteRevision: remTs.toIso8601String(),
+              resolution: 'remote_wins',
+              detail: 'LWW skip upload',
+            );
+            if (!desdeOutbox) {
+              await SyncOutbox.instance.ack('upsert:proveedor:$proveedorId');
+            }
             _colaProveedores.remove(proveedorId);
             unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
             return;
@@ -1203,26 +1450,44 @@ class FirestoreSyncService {
         }
       }
       await _proveedoresCol.doc(syncId).set(payload, SetOptions(merge: true));
+      if (!desdeOutbox) {
+        await SyncOutbox.instance.ack('upsert:proveedor:$proveedorId');
+      }
       _colaProveedores.remove(proveedorId);
       unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
     } catch (e) {
       _colaProveedores.add(proveedorId);
       unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
+      if (!desdeOutbox) {
+        await SyncOutbox.instance.fail('upsert:proveedor:$proveedorId', e);
+      }
       syncStatusDetail = 'No se pudo subir proveedor: $e';
       debugPrint('Firestore subir proveedor: $e');
+      if (desdeOutbox) rethrow;
     }
   }
 
   Future<void> eliminarProveedorRemoto(String syncId) async {
-    if (!_puedeEscribirRemoto || syncId.isEmpty) return;
+    if (syncId.isEmpty) return;
+    await SyncOutbox.instance.enqueueDelete(
+      entityType: 'proveedor',
+      remoteId: syncId,
+    );
+    if (!_puedeEscribirRemoto) return;
     try {
-      await _proveedoresCol.doc(syncId).delete();
+      await _aplicarTombstoneRemoto('proveedor', syncId);
+      await SyncOutbox.instance.ack('delete:proveedor:$syncId');
     } catch (e) {
+      await SyncOutbox.instance.fail('delete:proveedor:$syncId', e);
       debugPrint('Firestore eliminar proveedor: $e');
     }
   }
 
-  Future<void> subirCompra(int compraId) async {
+  Future<void> subirCompra(int compraId, {bool desdeOutbox = false}) async {
+    if (!desdeOutbox) {
+      await SyncOutbox.instance
+          .enqueueUpsert(entityType: 'compra', localId: compraId);
+    }
     if (!_puedeEscribirRemoto) {
       _colaCompras.add(compraId);
       unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
@@ -1271,12 +1536,19 @@ class FirestoreSyncService {
           await subirProductoPorId(pid.toInt());
         }
       }
+      if (!desdeOutbox) {
+        await SyncOutbox.instance.ack('upsert:compra:$compraId');
+      }
       _colaCompras.remove(compraId);
       unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
     } catch (e) {
       _colaCompras.add(compraId);
       unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
+      if (!desdeOutbox) {
+        await SyncOutbox.instance.fail('upsert:compra:$compraId', e);
+      }
       debugPrint('Firestore subir compra: $e');
+      if (desdeOutbox) rethrow;
     }
   }
 
@@ -1292,7 +1564,11 @@ class FirestoreSyncService {
     }
   }
 
-  Future<void> subirVenta(int ventaId) async {
+  Future<void> subirVenta(int ventaId, {bool desdeOutbox = false}) async {
+    if (!desdeOutbox) {
+      await SyncOutbox.instance
+          .enqueueUpsert(entityType: 'venta', localId: ventaId);
+    }
     if (!_puedeEscribirRemoto) {
       _colaVentas.add(ventaId);
       unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
@@ -1353,37 +1629,63 @@ class FirestoreSyncService {
         'pagos': pagos,
         'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
       }, SetOptions(merge: true));
+      if (!desdeOutbox) {
+        await SyncOutbox.instance.ack('upsert:venta:$ventaId');
+      }
       _colaVentas.remove(ventaId);
       unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
     } catch (e) {
       _colaVentas.add(ventaId);
       unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
+      if (!desdeOutbox) {
+        await SyncOutbox.instance.fail('upsert:venta:$ventaId', e);
+      }
       debugPrint('Firestore subir venta: $e');
+      if (desdeOutbox) rethrow;
     }
   }
 
   Future<void> eliminarVentaRemota(Venta venta) async {
+    final docId = venta.numero.isNotEmpty ? venta.numero : 'v_${venta.id}';
+    await SyncOutbox.instance.enqueueDelete(
+      entityType: 'venta',
+      remoteId: docId,
+      localId: venta.id,
+    );
     if (!_puedeEscribirRemoto) return;
     try {
-      final docId = venta.numero.isNotEmpty ? venta.numero : 'v_${venta.id}';
-      await _ventasCol.doc(docId).delete();
+      await _aplicarTombstoneRemoto('venta', docId);
+      await SyncOutbox.instance.ack('delete:venta:$docId');
     } catch (e) {
+      await SyncOutbox.instance.fail('delete:venta:$docId', e);
       debugPrint('Firestore eliminar venta: $e');
     }
   }
 
   Future<void> eliminarRemitoRemoto(String numero) async {
-    if (!_puedeEscribirRemoto || numero.isEmpty) return;
+    if (numero.isEmpty) return;
+    await SyncOutbox.instance.enqueueDelete(
+      entityType: 'remito',
+      remoteId: numero,
+    );
+    if (!_puedeEscribirRemoto) return;
     try {
-      await _remitosCol.doc(numero).delete();
+      await _aplicarTombstoneRemoto('remito', numero);
       _remitosConfirmadosEnNube.remove(numero);
+      await _persistirWatermarkRemitos();
+      await SyncOutbox.instance.ack('delete:remito:$numero');
     } catch (e) {
+      await SyncOutbox.instance.fail('delete:remito:$numero', e);
       debugPrint('Firestore eliminar remito: $e');
     }
   }
 
   /// Sube remito + ítems y empuja el stock actualizado de cada producto.
-  Future<void> subirRemito(int remitoId) async {
+  Future<void> subirRemito(int remitoId, {bool desdeOutbox = false}) async {
+    if (!desdeOutbox) {
+      await SyncOutbox.instance
+          .enqueueUpsert(entityType: 'remito', localId: remitoId);
+    }
     if (!_puedeEscribirRemoto) {
       _colaRemitos.add(remitoId);
       unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
@@ -1428,12 +1730,19 @@ class FirestoreSyncService {
         final pid = (item['productoId'] as num?)?.toInt();
         if (pid != null) await subirProductoPorId(pid);
       }
+      if (!desdeOutbox) {
+        await SyncOutbox.instance.ack('upsert:remito:$remitoId');
+      }
       _colaRemitos.remove(remitoId);
       unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
     } catch (e) {
       _colaRemitos.add(remitoId);
       unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
+      if (!desdeOutbox) {
+        await SyncOutbox.instance.fail('upsert:remito:$remitoId', e);
+      }
       debugPrint('Firestore subir remito: $e');
+      if (desdeOutbox) rethrow;
     }
   }
 
@@ -1441,7 +1750,12 @@ class FirestoreSyncService {
     int productoId, {
     bool incluirStockAbsoluto = false,
     bool forzar = false,
+    bool desdeOutbox = false,
   }) async {
+    if (!desdeOutbox) {
+      await SyncOutbox.instance
+          .enqueueUpsert(entityType: 'producto', localId: productoId);
+    }
     if (!_puedeEscribirRemoto) {
       _colaProductos.add(productoId);
       unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
@@ -1505,6 +1819,17 @@ class FirestoreSyncService {
                 remTs.isAfter(locTs) &&
                 !incluirStockAbsoluto) {
               // Remoto más nuevo: no pisar metadata (stock va por deltas).
+              await SyncWatermarkStore.instance.recordConflict(
+                entityType: 'producto',
+                entityId: producto.codigo,
+                localRevision: locTs.toIso8601String(),
+                remoteRevision: remTs.toIso8601String(),
+                resolution: 'remote_wins',
+                detail: 'LWW skip upload',
+              );
+              if (!desdeOutbox) {
+                await SyncOutbox.instance.ack('upsert:producto:$productoId');
+              }
               _colaProductos.remove(productoId);
               unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
               return;
@@ -1518,12 +1843,19 @@ class FirestoreSyncService {
       } else {
         await _remote.actualizarSinStock(producto);
       }
+      if (!desdeOutbox) {
+        await SyncOutbox.instance.ack('upsert:producto:$productoId');
+      }
       _colaProductos.remove(productoId);
       unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
     } catch (e) {
       _colaProductos.add(productoId);
       unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
+      if (!desdeOutbox) {
+        await SyncOutbox.instance.fail('upsert:producto:$productoId', e);
+      }
       debugPrint('Firestore subir producto $productoId: $e');
+      if (desdeOutbox) rethrow;
     }
   }
 
@@ -1583,6 +1915,29 @@ class FirestoreSyncService {
             final syncId = data['syncId']?.toString().isNotEmpty == true
                 ? data['syncId'].toString()
                 : doc.id;
+            final deletedAt = data['deletedAt']?.toString();
+            final isTombstone = data['tombstone'] == true ||
+                (deletedAt != null && deletedAt.isNotEmpty);
+            if (isTombstone) {
+              final existentes = await db.query(
+                'clientes',
+                columns: ['id'],
+                where: 'syncId = ?',
+                whereArgs: [syncId],
+                limit: 1,
+              );
+              if (existentes.isNotEmpty) {
+                final id = (existentes.first['id'] as num?)?.toInt();
+                if (id != null &&
+                    !_colaClientes.contains(id) &&
+                    !await SyncOutbox.instance
+                        .hasPendingLocalId('cliente', id)) {
+                  await db.delete('clientes', where: 'id = ?', whereArgs: [id]);
+                }
+              }
+              _clientesConfirmadosEnNube.remove(syncId);
+              continue;
+            }
             remoteSyncIds.add(syncId);
             final map = _sanitizarClienteRemoto(data, syncId);
             if ((map['nombre'] as String?)?.trim().isEmpty ?? true) continue;
@@ -1647,6 +2002,7 @@ class FirestoreSyncService {
         final removidos =
             _clientesConfirmadosEnNube.difference(remoteSyncIds);
         _clientesConfirmadosEnNube.addAll(remoteSyncIds);
+        await _persistirWatermarkClientes();
         for (final syncId in removidos) {
           final rows = await db.query(
             'clientes',
@@ -1928,6 +2284,32 @@ class FirestoreSyncService {
       for (final doc in actual.docs) {
         final data = doc.data();
         final numero = data['numero']?.toString() ?? doc.id;
+        final deletedAt = data['deletedAt']?.toString();
+        final isTombstone = data['tombstone'] == true ||
+            (deletedAt != null && deletedAt.isNotEmpty);
+        if (isTombstone) {
+          // Tombstone remoto → borrar local (si no hay upsert pendiente).
+          final rows = await db.query(
+            'remitos',
+            columns: ['id'],
+            where: 'numero = ?',
+            whereArgs: [numero],
+            limit: 1,
+          );
+          if (rows.isNotEmpty) {
+            final id = (rows.first['id'] as num?)?.toInt();
+            if (id != null &&
+                !_colaRemitos.contains(id) &&
+                !await SyncOutbox.instance.hasPendingLocalId('remito', id)) {
+              await db.delete('remito_items',
+                  where: 'remitoId = ?', whereArgs: [id]);
+              await db.delete('remitos', where: 'id = ?', whereArgs: [id]);
+              hubo = true;
+            }
+          }
+          _remitosConfirmadosEnNube.remove(numero);
+          continue;
+        }
         remoteNumeros.add(numero);
         final existentes = await db.query(
           'remitos',
@@ -2010,6 +2392,7 @@ class FirestoreSyncService {
       final removidos =
           _remitosConfirmadosEnNube.difference(remoteNumeros);
       _remitosConfirmadosEnNube.addAll(remoteNumeros);
+      await _persistirWatermarkRemitos();
       for (final numero in removidos) {
         final rows = await db.query(
           'remitos',

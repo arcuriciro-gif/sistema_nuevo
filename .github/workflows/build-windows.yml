@@ -16,6 +16,7 @@ on:
       - cursor/ficha-cliente-foto-producto-e44b
       - cursor/remitos-eliminar-sync-admin-e44b
       - cursor/capacidad-1-plataforma-segura-e44b
+      - cursor/capacidad-2-sync-certificable-e44b
 
 jobs:
   build-windows:

@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| Estado | Implementada en código — **requiere deploy de rules + rotación keystore** |
+| Estado | **CERTIFICADA CONDICIONALMENTE** (desarrollo cerrado; ops de producción abiertas) |
 | Rama | `cursor/capacidad-1-plataforma-segura-e44b` |
 | Manifiesto / ADR | Respetados (sin rediseño) |
 
