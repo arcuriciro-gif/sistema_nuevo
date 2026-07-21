@@ -169,7 +169,26 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   Future<void> _activarNube() async {
     setState(() => _conectandoNube = true);
     await appendAppLog('UI activar nube');
-    final r = await AuthService.instance.activarNube();
+    var r = await AuthService.instance.activarNube();
+    if (!r.ok && r.mensaje.startsWith('CUENTA_NUBE_EXISTE:')) {
+      if (!mounted) return;
+      setState(() => _conectandoNube = false);
+      final clavePc = await _pedirClaveNubePc();
+      if (clavePc == null || clavePc.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              r.mensaje.replaceFirst('CUENTA_NUBE_EXISTE: ', ''),
+            ),
+            duration: const Duration(seconds: 8),
+          ),
+        );
+        return;
+      }
+      setState(() => _conectandoNube = true);
+      r = await AuthService.instance.activarNube(passwordOverride: clavePc);
+    }
     var extra = '';
     if (r.ok) {
       try {
@@ -197,9 +216,59 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       _nubeActiva = r.ok;
       _modoSeguro = FirebaseSafeMode.enabled;
     });
+    final mensaje = r.mensaje.replaceFirst('CUENTA_NUBE_EXISTE: ', '');
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${r.mensaje}$extra')),
+      SnackBar(
+        content: Text('$mensaje$extra'),
+        duration: Duration(seconds: r.ok ? 4 : 8),
+      ),
     );
+  }
+
+  Future<String?> _pedirClaveNubePc() async {
+    final ctrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clave de la nube (PC)'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Esta cuenta ya existe en la nube. '
+              'Ingresá la contraseña que usás en la PC '
+              '(puede ser distinta a la del celular).',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              obscureText: true,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Contraseña de la PC',
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (_) => Navigator.pop(ctx, true),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Conectar'),
+          ),
+        ],
+      ),
+    );
+    final valor = ctrl.text.trim();
+    ctrl.dispose();
+    if (ok != true) return null;
+    return valor;
   }
 
   Future<void> _desactivarNube() async {
@@ -546,7 +615,8 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       ),
                     const SizedBox(height: 8),
                     Text(
-                      'Requisito: internet. Usá el mismo usuario/clave en el celular.',
+                      'Requisito: internet. Misma empresa en todos los dispositivos. '
+                      'Cada persona entra con su usuario/clave (o Gmail si está cargado).',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                       ),
@@ -556,31 +626,73 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       const Divider(),
                       const SizedBox(height: 8),
                       Text(
-                        'Código de empresa (tenant)',
+                        'Empresa (todos los dispositivos)',
                         style: theme.textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Si el celular está vacío y la PC tiene productos, '
-                        'poné el mismo código que la PC. Empresa vieja: '
+                        'Una empresa = PC y celulares ven lo mismo y se actualizan juntos. '
+                        'Los usuarios son personas (admin, empleados), no un usuario por dispositivo.\n\n'
+                        'Si el celular está vacío: usá el código de la PC. '
+                        'Empresa actual de la PC vieja: '
                         '${BackendConfigService.legacySharedTenantId}',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(height: 8),
+                      if (!BackendConfigService.instance.empresaConfirmada ||
+                          BackendConfigService.instance.esEmpresaAutogenerada)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Material(
+                            color: colorScheme.errorContainer,
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.all(10),
+                              child: Text(
+                                'Este dispositivo está en una empresa automática vacía. '
+                                'Tocá «Usar tata_stock (PC vieja)» y después Guardar, '
+                                'o vas a seguir sin productos.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: colorScheme.onErrorContainer,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       Text(
-                        'Actual: ${BackendConfigService.instance.tenantId}',
+                        'Activa ahora: ${BackendConfigService.instance.tenantId}',
                         style: theme.textTheme.bodySmall?.copyWith(
                           fontFamily: 'monospace',
                           fontWeight: FontWeight.w600,
+                          color: (_tenantCtrl.text.trim().isNotEmpty &&
+                                  _tenantCtrl.text.trim() !=
+                                      BackendConfigService.instance.tenantId)
+                              ? colorScheme.error
+                              : null,
                         ),
                       ),
+                      if (_tenantCtrl.text.trim().isNotEmpty &&
+                          _tenantCtrl.text.trim() !=
+                              BackendConfigService.instance.tenantId) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Escribiste otro código: todavía NO está guardado. '
+                          'Tocá Guardar código.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.error,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       TextField(
                         controller: _tenantCtrl,
+                        onChanged: (_) => setState(() {}),
                         decoration: const InputDecoration(
                           labelText: 'Código de empresa',
                           border: OutlineInputBorder(),

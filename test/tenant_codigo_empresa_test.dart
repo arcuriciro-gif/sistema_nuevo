@@ -18,10 +18,13 @@ void main() {
     await BackendConfigService.instance.cargar();
     final generado = BackendConfigService.instance.tenantId;
     expect(generado, isNotEmpty);
+    expect(BackendConfigService.esTenantAutogenerado(generado), isTrue);
+    expect(BackendConfigService.instance.empresaConfirmada, isFalse);
 
     await BackendConfigService.instance.setTenantId('tata_stock');
     expect(BackendConfigService.instance.tenantId, 'tata_stock');
     expect(BackendConfigService.instance.isLegacySharedTenant, isTrue);
+    expect(BackendConfigService.instance.empresaConfirmada, isTrue);
 
     expect(
       () => BackendConfigService.instance.setTenantId('  '),

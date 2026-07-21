@@ -110,6 +110,15 @@ class FirestoreUsuarioRepository implements UsuarioRepository {
   }
 
   @override
+  Future<int> eliminar(int id) async {
+    return 0;
+  }
+
+  Future<void> eliminarPorUid(String uid) async {
+    await _collection.doc(uid).delete();
+  }
+
+  @override
   Future<bool> existeUsuario(String usuario) async {
     final encontrado = await buscarPorUsuario(usuario);
     return encontrado != null;

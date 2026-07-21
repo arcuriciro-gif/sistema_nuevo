@@ -13,17 +13,29 @@ class BackendConfigService {
 
   static const _firebaseEnabledKey = 'backend_firebase_enabled';
   static const _tenantIdKey = 'backend_tenant_id';
+  static const _empresaConfirmadaKey = 'backend_empresa_confirmada';
 
   /// Solo legado / migración explícita. No usar como default de instalaciones nuevas.
   static const legacySharedTenantId = 'tata_stock';
 
   bool _firebaseEnabled = false;
   String _tenantId = '';
+  bool _empresaConfirmada = false;
 
   bool get firebaseEnabled => _firebaseEnabled;
   String get tenantId => _tenantId;
 
+  /// true cuando el admin eligió/confirmó el código (no el UUID automático).
+  bool get empresaConfirmada => _empresaConfirmada;
+
   bool get isLegacySharedTenant => _tenantId == legacySharedTenantId;
+
+  /// Tenant generado solo por instalar la app (`t_<hex>`).
+  static bool esTenantAutogenerado(String id) {
+    return RegExp(r'^t_[a-f0-9]{16,}$').hasMatch(id.trim().toLowerCase());
+  }
+
+  bool get esEmpresaAutogenerada => esTenantAutogenerado(_tenantId);
 
   /// Genera un tenantId no adivinable para una empresa nueva.
   static String generarTenantIdNuevo() {
@@ -51,11 +63,22 @@ class BackendConfigService {
       // Instalación nueva: tenant propio (no compartir tata_stock).
       _tenantId = generarTenantIdNuevo();
       await prefs.setString(_tenantIdKey, _tenantId);
+      await prefs.setBool(_empresaConfirmadaKey, false);
+      _empresaConfirmada = false;
       debugPrint('BackendConfig: tenant nuevo asignado $_tenantId');
     }
 
+    if (prefs.containsKey(_empresaConfirmadaKey)) {
+      _empresaConfirmada = prefs.getBool(_empresaConfirmadaKey) ?? false;
+    } else {
+      // Migración: códigos legados / manuales ya son empresa real.
+      _empresaConfirmada = !esTenantAutogenerado(_tenantId);
+      await prefs.setBool(_empresaConfirmadaKey, _empresaConfirmada);
+    }
+
     debugPrint(
-      'BackendConfig firebaseEnabled=$_firebaseEnabled tenant=$_tenantId',
+      'BackendConfig firebaseEnabled=$_firebaseEnabled tenant=$_tenantId '
+      'empresaConfirmada=$_empresaConfirmada',
     );
   }
 
@@ -73,7 +96,16 @@ class BackendConfigService {
       throw ArgumentError('tenantId no puede ser vacío');
     }
     _tenantId = normalized;
+    _empresaConfirmada = true;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_tenantIdKey, normalized);
+    await prefs.setBool(_empresaConfirmadaKey, true);
+  }
+
+  /// Confirma la empresa actual (p. ej. una instalación nueva a propósito).
+  Future<void> confirmarEmpresaActual() async {
+    _empresaConfirmada = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_empresaConfirmadaKey, true);
   }
 }

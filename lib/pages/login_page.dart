@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_safe_mode.dart';
 import '../core/utils/media_path.dart';
 import '../models/usuario.dart';
@@ -23,6 +24,7 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final _usuarioCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
+  final _empresaCtrl = TextEditingController();
   bool _loading = false;
   bool _recuperando = false;
   bool _obscure = true;
@@ -31,14 +33,17 @@ class _LoginPageState extends State<LoginPage> {
   bool _huellaDisponible = false;
   bool _huellaActivada = false;
 
-  bool get _googleDisponible =>
-      !kIsWeb && (Platform.isAndroid || Platform.isWindows);
+  // Google deshabilitado: el alta lo hace el admin con usuario/clave.
+  bool get _googleDisponible => false;
 
   bool get _esAndroid => !kIsWeb && Platform.isAndroid;
 
   @override
   void initState() {
     super.initState();
+    _empresaCtrl.text = BackendConfigService.instance.tenantId.isNotEmpty
+        ? BackendConfigService.instance.tenantId
+        : BackendConfigService.legacySharedTenantId;
     if (FirebaseSafeMode.enabled) {
       _info =
           'Modo seguro: la app se cerró antes al conectar Firebase. '
@@ -68,7 +73,18 @@ class _LoginPageState extends State<LoginPage> {
   void dispose() {
     _usuarioCtrl.dispose();
     _passwordCtrl.dispose();
+    _empresaCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _aplicarEmpresaAntesDeLogin() async {
+    final codigo = _empresaCtrl.text.trim();
+    if (codigo.isEmpty) return;
+    if (codigo == BackendConfigService.instance.tenantId &&
+        BackendConfigService.instance.empresaConfirmada) {
+      return;
+    }
+    await BackendConfigService.instance.setTenantId(codigo);
   }
 
   Future<void> _irDespuesDelLogin({bool ofrecerHuella = true}) async {
@@ -170,6 +186,7 @@ class _LoginPageState extends State<LoginPage> {
     Usuario? user;
     String? errorDetalle;
     try {
+      await _aplicarEmpresaAntesDeLogin();
       // Separar construcción de AuthService del login: si algo de sync
       // tocara Firebase, no debe impedir el ingreso local.
       final auth = AuthService.instance;
@@ -467,18 +484,40 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Primera vez: admin / admin123. '
-                          'Empleados: preferí Google con el Gmail que te cargó el admin. '
-                          'Nube: Configuración → Activar sincronización.',
+                          'Primera vez en este dispositivo: admin / admin123.\n'
+                          'Empleados: el administrador te da de alta con usuario, '
+                          'clave y permiso. Entrá con eso (misma empresa).',
                           style: textTheme.bodySmall?.copyWith(
                             color: cs.onSurfaceVariant,
                           ),
                         ),
                         const SizedBox(height: 20),
                         TextField(
+                          controller: _empresaCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Código de empresa',
+                            hintText: 'tata_stock',
+                            prefixIcon: Icon(Icons.business_outlined),
+                          ),
+                          textInputAction: TextInputAction.next,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          onSubmitted: (_) =>
+                              FocusScope.of(context).nextFocus(),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Misma empresa en PC y celular. Si la PC ya funciona, '
+                          'usá: ${BackendConfigService.legacySharedTenantId}',
+                          style: textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
                           controller: _usuarioCtrl,
                           decoration: const InputDecoration(
-                            labelText: 'Usuario o email',
+                            labelText: 'Usuario',
                             prefixIcon: Icon(Icons.person_outline_rounded),
                           ),
                           textInputAction: TextInputAction.next,
