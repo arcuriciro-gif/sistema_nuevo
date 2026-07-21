@@ -1,12 +1,12 @@
 # Roadmap Tata.Manager 2.0 — De aplicación a plataforma
 
 Basado en `docs/AUDITORIA_CERTIFICACION_2026-07.md`.  
-Gobernado por `docs/PLATFORM_CHARTER.md` (doctrina CTO).
+Gobernado por `docs/ARCHITECTURE_PLATFORM.md` (**ADR vinculante**) y `docs/PLATFORM_CHARTER.md`.
 
-**Filtro de toda fase:** ¿Funciona con 500 empresas, 5.000 usuarios, millones de movimientos y 10 años de soporte?  
-Si no → la entrega de esa fase se rediseña; no se “simplifica” violando la carta.
+**Filtro de toda fase:** ¿Funciona con 500 empresas, 5.000 usuarios simultáneos, millones de movimientos, multi-dispositivo y 10 años?  
+Si no → la entrega de esa fase se rediseña; no se “simplifica” violando el ADR.
 
-Prioridad fija: **estabilidad > seguridad > integridad sync/dinero/stock > escala > simplicidad operacional > mantenibilidad > features**.
+Prioridad fija: **integridad > seguridad > consistencia > escala > simplicidad operacional > mantenibilidad > features**.
 
 No se implementa código en este documento. Es el plan de certificación **de plataforma**.
 
@@ -14,16 +14,18 @@ No se implementa código en este documento. Es el plan de certificación **de pl
 
 ## Visión 2.0
 
-Tata.Manager deja de ser “app Flutter con sync Firebase” y pasa a ser **plataforma ERP multi-tenant**:
+Tata.Manager deja de ser “app Flutter con sync Firebase” y pasa a ser **plataforma ERP multi-tenant** según `ARCHITECTURE_PLATFORM.md`:
 
 - Control plane (alta de empresas, invitaciones, claims)
-- Núcleo por tenant + **ledgers** de stock y dinero
-- Sync fabric (outbox, ACK, tombstones, watermarks)
-- Clientes Win/APK como **cache + UX**, no como autoridad de seguridad
-- Módulos instalables con contrato (AFIP, marketplaces, API, BI)
-- Release train firmado, observable, operable por otros equipos en 5–10 años
+- **`Tata.Core`** desacoplado del rubro + verticales/plugins
+- **Documentos ≠ movimientos**; eventos de dominio → ledgers
+- Event Bus interno (sin cadenas Ventas→Stock→Caja→Firebase)
+- Sync fabric (outbox, ACK, tombstones, watermarks, versionado de contrato)
+- Permisos en 4 niveles (UI → caso de uso → servicio → servidor)
+- Observabilidad + health check + disaster recovery demostrable
+- Release train con tests obligatorios; checklist arquitectónico en cada PR
 
-Todo diseño listado como **descartado** en la Carta de plataforma queda fuera de este roadmap.
+Todo diseño listado como **descartado** en la Carta / incompatible con el ADR queda fuera de este roadmap.
 
 ---
 
@@ -66,18 +68,20 @@ Todo diseño listado como **descartado** en la Carta de plataforma queda fuera d
 
 ### Fase C — Inventario & dinero (bloqueante ERP)
 
-**Objetivo:** stock y cuenta corriente certificables.
+**Objetivo:** ledgers certificables según `ARCHITECTURE_PLATFORM.md` §2–4.
 
 | # | Entrega | Cierra |
 |---|---|---|
-| C1 | Decisión de producto: ¿Venta mueve stock? Unificar motor | C5 |
-| C2 | Event store parcial `stock_events` + proyección; `stock_ops` atómico | C6 |
-| C3 | Toda venta/remito/compra/ajuste/anulación → evento idempotente | C5, A7 |
-| C4 | Invariante reconciliable + alarma divergencia local↔cloud | §5 auditoría |
-| C5 | Ledger de pagos / CC append-only (no solo snapshot embebido) | ES §6 |
-| C6 | Prohibir stock negativo configurable (strict/warn) | concurrencia |
+| C1 | **Hecho (ADR):** documentos no mueven stock; solo eventos de dominio | Decisión de dominio |
+| C2 | Event store `inventory_events` / `money_events` append-only + proyección | C5, C6 auditoría |
+| C3 | Emisión explícita de `MERCADERIA_ENTREGADA` / `RECIBIDA` / etc. (nunca efecto colateral del doc) | filosofía dominio |
+| C4 | Un solo `eventId` por hecho físico; prohibido doble documento → mismo movimiento | §2 ADR |
+| C5 | Ledger CC/pagos/caja reconstructible; anulación = nuevo evento | ES parcial |
+| C6 | Event Bus: listeners Stock/Caja/CC/Audit/Sync desacoplados | §5 ADR |
+| C7 | Política tenant de *cuándo* emitir entrega (configurable, no hardcode en Core) | verticales |
+| C8 | Invariante reconciliable + alarma divergencia; stock negativo configurable | integridad |
 
-**DoD:** simulación 10k ops concurrentes; suma(deltas)=stock; replay reconstruye.
+**DoD:** replay de eventos = saldos; 10k ops concurrentes; ningún `RemitoService`/`VentaService` muta stock directo.
 
 ---
 

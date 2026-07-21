@@ -7,6 +7,7 @@
 | Rol | Auditor externo (CTO / Arquitectura / Seguridad / DevOps / QA) |
 | Postura | **No se asume que el sistema esté terminado.** Se busca lo que puede romperlo. |
 | Código | **Sin cambios de producto en esta entrega** — solo informe + roadmap. |
+| Destino oficial posterior | `ARCHITECTURE_PLATFORM.md` (ADR vinculante) — este informe mide el **gap** respecto a esa arquitectura |
 
 ---
 

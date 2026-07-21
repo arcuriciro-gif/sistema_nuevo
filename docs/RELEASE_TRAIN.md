@@ -1,10 +1,13 @@
 # Release train — consolidación a main
 
-Gobernado por `PLATFORM_CHARTER.md`: sin release masivo mientras fallen aislamiento, integridad o firma.
+Gobernado por `ARCHITECTURE_PLATFORM.md` + `PLATFORM_CHARTER.md`:  
+sin release masivo mientras fallen aislamiento, integridad, ledgers o firma.  
+Todo PR de producto debe incluir `PR_ARCHITECTURE_CHECKLIST.md`.
 
 ## Objetivo
 Un instalador “oficial” desde `main`, sin depender de drafts eternos.  
-Piloto controlado ≠ venta a miles de clientes.
+Piloto controlado ≠ venta a miles de clientes.  
+Release **no** se publica si fallan pruebas de migraciones/sync/stock/permisos/backup.
 
 ## Criterio para merge a main
 1. CI Android + Windows en verde

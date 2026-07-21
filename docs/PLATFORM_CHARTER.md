@@ -6,8 +6,10 @@
 | Audiencia | CTO, arquitectura, seguridad, DevOps, QA, futuros equipos |
 | Pregunta maestra | ¿Este diseño funciona con **500 empresas**, **5.000 usuarios**, **millones de movimientos** y **10 años de soporte**? |
 | Si la respuesta es no | **Se descarta.** Sin excepciones por “es más rápido” o “es más fácil”. |
+| ADR de dominio/core | **`ARCHITECTURE_PLATFORM.md` — VINCULANTE** (documentos ≠ movimientos; ledgers; Tata.Core; 4 niveles de permisos) |
 
-Este documento **manda** sobre conveniencia de implementación, atajos de sync, y features de marketing.
+Este documento **manda** sobre conveniencia de implementación, atajos de sync, y features de marketing.  
+En filosofía de dominio, eventos, Core, plugins y calidad de release, **manda** `ARCHITECTURE_PLATFORM.md`.
 
 No estamos construyendo una aplicación Flutter con Firebase.  
 Estamos construyendo una **plataforma ERP multi-tenant** cuyos clientes (empresas) y módulos deben sobrevivir a cambios de equipo, de dispositivo y de escala.
@@ -197,15 +199,17 @@ Preferir lo aburrido y observable:
 
 ## 8. Relación con documentos existentes
 
-| Documento | Rol bajo esta carta |
+| Documento | Rol |
 |---|---|
-| `AUDITORIA_CERTIFICACION_2026-07.md` | Diagnóstico del estado **aplicación** actual |
-| `ROADMAP_TATA_MANAGER_2_0.md` | Plan para llegar a **plataforma** (Fases A–H) |
-| `ARCHITECTURE_CONTRACTS.md` | Contratos **congelados del legado**; cambiar solo con migración |
-| `RELEASE_TRAIN.md` | Cómo consolidar releases sin drafts eternos |
-| **Esta carta** | **Filtro permanente** de toda decisión futura |
+| **`ARCHITECTURE_PLATFORM.md`** | **ADR oficial vinculante** (dominio, eventos, Core, plugins, DR, calidad) |
+| **Esta carta** | Filtro CTO + diseños descartados |
+| `ROADMAP_TATA_MANAGER_2_0.md` | Plan de migración a plataforma (Fases A–H) |
+| `AUDITORIA_CERTIFICACION_2026-07.md` | Diagnóstico del estado aplicación actual |
+| `ARCHITECTURE_CONTRACTS.md` | Contratos congelados del legado; cambiar solo con migración |
+| `RELEASE_TRAIN.md` | Consolidar releases sin drafts eternos |
+| `PR_ARCHITECTURE_CHECKLIST.md` | Gate obligatorio de PRs |
 
-Ante conflicto entre “hacer que compile hoy” y esta carta: **gana esta carta**.
+Ante conflicto entre “hacer que compile hoy” y estos docs: gana **`ARCHITECTURE_PLATFORM.md`**, luego esta carta.
 
 ---
 
@@ -225,14 +229,15 @@ Hasta entonces: **piloto controlado**, no venta masiva.
 
 ---
 
-## 10. Próxima decisión de negocio (única, bloqueante de ledger)
+## 10. Próxima decisión de negocio (resuelta)
 
-Para el diseño de inventario a 10 años:
+**Resuelta en `ARCHITECTURE_PLATFORM.md` §2:**  
+Los documentos (venta / remito / factura) **no** mueven stock.  
+Solo eventos de dominio (`MERCADERIA_ENTREGADA`, `DEVOLUCION_RECIBIDA`, `TRANSFERENCIA_CONFIRMADA`, `AJUSTE_INVENTARIO`, `MERCADERIA_RECIBIDA`, …).
 
-**¿La salida de mercadería canónica es Remito, Venta, o ambas con vínculo explícito 1 evento = 1 movimiento?**
+Cualquier PR que haga “venta baja stock como remito” o “remito llama StockService directo sin evento” **viola** la arquitectura oficial y se rechaza.
 
-Sin esa decisión de producto, no se implementa el ledger de stock.  
-Cualquier parche que deje dos reglas distintas **queda descartado** por esta carta.
+Siguiente decisión operativa: política por tenant de *cuándo* se emite `MERCADERIA_ENTREGADA` (al confirmar venta, al emitir remito, al despachar, etc.) — siempre como evento explícito, nunca como efecto colateral del documento.
 
 ---
 
