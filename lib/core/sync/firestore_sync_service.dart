@@ -1376,6 +1376,7 @@ class FirestoreSyncService {
     if (!_puedeEscribirRemoto || numero.isEmpty) return;
     try {
       await _remitosCol.doc(numero).delete();
+      _remitosConfirmadosEnNube.remove(numero);
     } catch (e) {
       debugPrint('Firestore eliminar remito: $e');
     }
