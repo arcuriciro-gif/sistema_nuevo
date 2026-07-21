@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| Estado | Implementada en código — certificación sujeta a pruebas multi-dispositivo en campo |
+| Estado | **CERTIFICADA CONDICIONALMENTE** (desarrollo cerrado; campo multi-dispositivo abierto) |
 | Rama | `cursor/capacidad-2-sync-certificable-e44b` |
 | Depende de | Capacidad 1 (certificada condicionalmente) |
 
@@ -43,5 +43,5 @@
 
 ## Veredicto
 
-Capacidad 2 **lista para merge de desarrollo**.  
-Certificación plena de sync exige las pruebas de campo checklist arriba antes de Capacidad 3.
+Capacidad 2 **certificada condicionalmente** para avanzar a Capacidad 3.  
+Certificación plena de sync sigue exigiendo las pruebas de campo del checklist.

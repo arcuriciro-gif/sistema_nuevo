@@ -8,11 +8,11 @@ Documento de gobernanza del **estado actual en campo**. **No cambiar estos contr
 Doctrina CTO: `PLATFORM_CHARTER.md`.  
 Checklist de PRs: `PR_ARCHITECTURE_CHECKLIST.md`.
 
-Varias filas de este documento son **legado tolerado en migración**, no el diseño final (p. ej. tenant default `tata_stock`, remito que descuenta stock directo, rules solo por membership, ausencia de ledgers/event bus).
+Varias filas de este documento son **legado tolerado en migración**, no el diseño final (p. ej. tenant default `tata_stock`, rules solo por membership). Capacidad 3 introduce Event Bus + ledgers (v27); remito/compra ya no deben mutar stock directo.
 
 **Moratoria:** no ampliar la constitución documental hasta Fases A–B–C + auditoría sin críticos.
 
-Última actualización: 2026-07-21 · Schema SQLite: **v26** · Tenant default: **`tata_stock`** (legado — a eliminar en Roadmap 2.0 Fase A)
+Última actualización: 2026-07-21 · Schema SQLite: **v27** · Tenant default: **`tata_stock`** (legado — a eliminar en Roadmap 2.0 Fase A)
 
 ---
 
@@ -60,10 +60,17 @@ tenants/{tenantId}/
 |------|--------|
 | Archivo | `eltata.db` |
 | Desktop path | Application Support `/databases/eltata.db` |
-| `DatabaseHelper` version | **25** |
+| `DatabaseHelper` version | **27** |
 | Preferencias nube | `backend_firebase_enabled` |
 
 Migraciones: solo incrementales `oldVersion < N`. Nunca wipe en upgrade.
+
+| Desde | Tablas / cambio |
+|---|---|
+| v26 | `sync_outbox`, `sync_watermarks`, `sync_conflicts` (Capacidad 2) |
+| v27 | `domain_events`, `inventory_ledger`, `money_ledger` (Capacidad 3) |
+
+Dominio (Capacidad 3): documentos publican eventos; `InventoryLedgerService` / `MoneyLedgerService` proyectan. Ver `docs/capacidades/C3_DOMINIO_TRANSACCIONAL.md`.
 
 ---
 

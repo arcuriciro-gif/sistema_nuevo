@@ -1,7 +1,10 @@
 import 'dart:convert';
 
+import '../core/config/device_identity.dart';
+import '../core/domain/domain_bootstrap.dart';
+import '../core/domain/domain_event.dart';
+import '../core/domain/event_bus.dart';
 import '../core/events/data_refresh_hub.dart';
-import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/movimiento_stock.dart';
 import '../models/producto.dart';
@@ -25,64 +28,46 @@ class StockService {
   }
 
   Future<int> registrarMovimiento(MovimientoStock movimiento) async {
-    final db = await dbHelper.database;
+    DomainBootstrap.ensureInitialized();
+    final user = movimiento.usuario.isNotEmpty
+        ? movimiento.usuario
+        : (AuthService.instance.currentUser?.usuario ?? 'sistema');
+    final tag = await DeviceIdentity.shortTag();
+    final eventId =
+        'inv:ajuste:${DateTime.now().toUtc().microsecondsSinceEpoch}:${movimiento.productoId}';
 
-    final movimientoId = await db.transaction((txn) async {
-      final productoRows = await txn.query(
-        'productos',
-        columns: ['stock'],
-        where: 'id = ?',
-        whereArgs: [movimiento.productoId],
-        limit: 1,
-      );
-      final stockAnterior =
-          (productoRows.isNotEmpty ? productoRows.first['stock'] as num? : 0)
-                  ?.toInt() ??
-              0;
-      final multiplicador = movimiento.tipo == 'salida' ? -1 : 1;
-      final stockNuevo = stockAnterior + (movimiento.cantidad * multiplicador);
-      final movimientoCompleto = movimiento.copyWith(
-        usuario: movimiento.usuario.isNotEmpty
-            ? movimiento.usuario
-            : (AuthService.instance.currentUser?.usuario ?? 'sistema'),
-        stockAnterior: stockAnterior,
-        stockNuevo: stockNuevo,
-      );
-
-      final movimientoId = await txn.insert(
-        'movimientos_stock',
-        movimientoCompleto.toMap()..remove('id'),
-      );
-
-      await txn.rawUpdate(
-        'UPDATE productos SET stock = stock + ?, actualizadoEn = ? WHERE id = ?',
-        [
-          movimiento.cantidad * multiplicador,
-          DateTime.now().toUtc().toIso8601String(),
-          movimiento.productoId,
-        ],
-      );
-
-      await AuthService.instance.registrarCambio(
-        'AJUSTE_STOCK',
-        'movimientos_stock',
-        'Movimiento ${movimiento.tipo} de ${movimiento.cantidad} unidades (producto ${movimiento.productoId})',
-        valorAnterior: jsonEncode({'stock': stockAnterior}),
-        valorNuevo: jsonEncode({'stock': stockNuevo}),
-      );
-
-      return movimientoId;
-    });
-
-    await FirestoreSyncService.instance
-        .subirProductoPorId(movimiento.productoId);
-    await FirestoreSyncService.instance.ajustarStockEnNube(
-      productoId: movimiento.productoId,
-      delta: movimiento.cantidad * (movimiento.tipo == 'salida' ? -1 : 1),
-      opId: 'ajuste_${movimientoId}_${movimiento.productoId}',
+    await DomainEventBus.instance.publish(
+      DomainEvent(
+        eventId: eventId,
+        type: DomainEventType.ajusteInventario,
+        aggregateType: 'producto',
+        aggregateId: '${movimiento.productoId}',
+        createdBy: user,
+        deviceId: tag,
+        payload: {
+          'tipo': movimiento.tipo,
+          'motivo': movimiento.motivo,
+          'documentType': 'ajuste',
+          'documentId': eventId,
+          'lines': [
+            InventoryLine(
+              productoId: movimiento.productoId,
+              cantidad: movimiento.cantidad,
+            ).toJson(),
+          ],
+        },
+      ),
     );
+
+    await AuthService.instance.registrarCambio(
+      'AJUSTE_STOCK',
+      'inventory_ledger',
+      'Movimiento ${movimiento.tipo} de ${movimiento.cantidad} unidades (producto ${movimiento.productoId})',
+      valorNuevo: jsonEncode({'eventId': eventId}),
+    );
+
     DataRefreshHub.instance.notifyStock();
-    return movimientoId;
+    return 0;
   }
 
   Future<List<Producto>> obtenerProductosConStockBajo({int limite = 5}) async {

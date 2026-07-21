@@ -14,6 +14,7 @@ on:
       - cursor/remitos-eliminar-sync-admin-e44b
       - cursor/capacidad-1-plataforma-segura-e44b
       - cursor/capacidad-2-sync-certificable-e44b
+      - cursor/capacidad-3-dominio-transaccional-e44b
 
 jobs:
   build-android:

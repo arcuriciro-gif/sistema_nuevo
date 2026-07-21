@@ -1,9 +1,13 @@
+import '../core/domain/domain_bootstrap.dart';
+import '../core/domain/domain_event.dart';
+import '../core/domain/event_bus.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/pago.dart';
 import '../models/venta.dart';
 import '../models/venta_item.dart';
+import 'auth_service.dart';
 import 'branding_service.dart';
 
 class ClienteDeudor {
@@ -108,6 +112,45 @@ class CuentaCorrienteService {
 
     if (venta.clienteId != null) {
       await recalcularSaldoCliente(venta.clienteId!);
+      DomainBootstrap.ensureInitialized();
+      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+      // Cargo el total; el abono inicial resta vía PAGO_REGISTRADO (neto = saldo).
+      if (venta.total > 0.009) {
+        await DomainEventBus.instance.publish(
+          DomainEvent(
+            eventId: 'money:venta_cc:$ventaId',
+            type: DomainEventType.ventaCargadaCc,
+            aggregateType: 'venta',
+            aggregateId: '$ventaId',
+            createdBy: user,
+            payload: {
+              'clienteId': venta.clienteId,
+              'ventaId': ventaId,
+              'total': venta.total,
+              'saldo': saldo,
+              'motivo': 'Venta ${venta.numero} a cuenta',
+            },
+          ),
+        );
+      }
+      if (abonado > 0.009) {
+        await DomainEventBus.instance.publish(
+          DomainEvent(
+            eventId: 'money:pago_inicial:$ventaId',
+            type: DomainEventType.pagoRegistrado,
+            aggregateType: 'venta',
+            aggregateId: '$ventaId',
+            createdBy: user,
+            payload: {
+              'clienteId': venta.clienteId,
+              'ventaId': ventaId,
+              'pagoId': 'inicial_$ventaId',
+              'monto': abonado,
+              'motivo': 'Pago inicial venta ${venta.numero}',
+            },
+          ),
+        );
+      }
     }
     DataRefreshHub.instance.notifyVentas();
     return ventaId;
@@ -151,8 +194,8 @@ class CuentaCorrienteService {
       observaciones: observaciones,
     );
 
-    await db.transaction((txn) async {
-      await txn.insert('pagos', pago.toMap()..remove('id'));
+    final pagoId = await db.transaction((txn) async {
+      final id = await txn.insert('pagos', pago.toMap()..remove('id'));
       final nuevoPagado = venta.totalPagado + montoAplicado;
       final nuevoSaldo =
           (venta.total - nuevoPagado).clamp(0, venta.total).toDouble();
@@ -166,10 +209,30 @@ class CuentaCorrienteService {
         where: 'id = ?',
         whereArgs: [ventaId],
       );
+      return id;
     });
+    pago.id = pagoId;
 
     if (venta.clienteId != null) {
       await recalcularSaldoCliente(venta.clienteId!);
+      DomainBootstrap.ensureInitialized();
+      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+      await DomainEventBus.instance.publish(
+        DomainEvent(
+          eventId: 'money:pago:$pagoId',
+          type: DomainEventType.pagoRegistrado,
+          aggregateType: 'pago',
+          aggregateId: '$pagoId',
+          createdBy: user,
+          payload: {
+            'clienteId': venta.clienteId,
+            'ventaId': ventaId,
+            'pagoId': pagoId,
+            'monto': montoAplicado,
+            'motivo': 'Pago venta ${venta.numero}',
+          },
+        ),
+      );
     }
     await FirestoreSyncService.instance.subirVenta(ventaId);
     DataRefreshHub.instance.notifyVentas();

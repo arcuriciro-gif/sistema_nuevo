@@ -3,13 +3,15 @@ import 'dart:async';
 import 'package:sqflite/sqflite.dart';
 
 import '../core/config/device_identity.dart';
+import '../core/domain/domain_bootstrap.dart';
+import '../core/domain/domain_event.dart';
+import '../core/domain/event_bus.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/compra.dart';
 import '../models/compra_detalle.dart';
-import '../models/movimiento_stock.dart';
 import 'auth_service.dart';
 
 class CompraService {
@@ -27,6 +29,7 @@ class CompraService {
   }
 
   Future<int> insertar(Compra compra, List<CompraDetalle> items) async {
+    DomainBootstrap.ensureInitialized();
     final db = await dbHelper.database;
 
     final compraId = await db.transaction((txn) async {
@@ -56,7 +59,7 @@ class CompraService {
 
         final productoRows = await txn.query(
           'productos',
-          columns: ['costo', 'precio', 'stock'],
+          columns: ['costo', 'precio'],
           where: 'id = ?',
           whereArgs: [item.productoId],
           limit: 1,
@@ -69,16 +72,11 @@ class CompraService {
             (productoRows.isNotEmpty ? productoRows.first['precio'] as num? : 0)
                     ?.toDouble() ??
                 0;
-        final stockAnterior =
-            (productoRows.isNotEmpty ? productoRows.first['stock'] as num? : 0)
-                    ?.toInt() ??
-                0;
-        final stockNuevo = stockAnterior + item.cantidad;
 
+        // Costo de catálogo (no es movimiento de inventario).
         await txn.rawUpdate(
-          'UPDATE productos SET stock = stock + ?, costo = ?, actualizadoEn = ? WHERE id = ?',
+          'UPDATE productos SET costo = ?, actualizadoEn = ? WHERE id = ?',
           [
-            item.cantidad,
             item.costo,
             DateTime.now().toUtc().toIso8601String(),
             item.productoId,
@@ -102,44 +100,42 @@ class CompraService {
             'motivo': 'Compra ${compra.numero}',
           });
         }
-
-        final movimiento = MovimientoStock(
-          productoId: item.productoId,
-          tipo: 'entrada',
-          cantidad: item.cantidad,
-          fecha: DateTime.now(),
-          remitoId: compraId.toString(),
-          motivo: 'Entrada por compra ${compra.numero}',
-          usuario: AuthService.instance.currentUser?.usuario ?? 'sistema',
-          stockAnterior: stockAnterior,
-          stockNuevo: stockNuevo,
-        );
-
-        await txn.insert(
-          'movimientos_stock',
-          movimiento.toMap()..remove('id'),
-        );
       }
 
       return compraId;
     });
 
+    final lines = <Map<String, dynamic>>[];
+    for (final item in items) {
+      if (item.cantidad == 0) continue;
+      lines.add(InventoryLine(
+        productoId: item.productoId,
+        cantidad: item.cantidad,
+      ).toJson());
+    }
+    if (lines.isNotEmpty) {
+      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+      final tag = await DeviceIdentity.shortTag();
+      await DomainEventBus.instance.publish(
+        DomainEvent(
+          eventId: 'inv:recepcion:compra:$compraId',
+          type: DomainEventType.mercaderiaRecibida,
+          aggregateType: 'compra',
+          aggregateId: '$compraId',
+          createdBy: user,
+          deviceId: tag,
+          payload: {
+            'documentType': 'compra',
+            'documentId': '$compraId',
+            'documentNumero': compra.numero,
+            'motivo': 'Recepción por compra ${compra.numero}',
+            'lines': lines,
+          },
+        ),
+      );
+    }
+
     await FirestoreSyncService.instance.subirCompra(compraId);
-    unawaited(() async {
-      try {
-        final items = await obtenerItems(compraId);
-        for (final item in items) {
-          final pid = (item['productoId'] as num?)?.toInt();
-          final cant = (item['cantidad'] as num?)?.toInt() ?? 0;
-          if (pid == null || cant == 0) continue;
-          await FirestoreSyncService.instance.ajustarStockEnNube(
-            productoId: pid,
-            delta: cant,
-            opId: 'compra_${compraId}_in_$pid',
-          );
-        }
-      } catch (_) {}
-    }());
     DataRefreshHub.instance.notifyTodo();
     return compraId;
   }
@@ -165,12 +161,16 @@ class CompraService {
   }
 
   Future<void> anular(int id) async {
+    DomainBootstrap.ensureInitialized();
     AuthorizationService.instance.require(
       'compras',
       AuthzAction.anular,
       operacion: 'anular compra',
     );
     final db = await dbHelper.database;
+
+    String? numero;
+    final lines = <Map<String, dynamic>>[];
 
     await db.transaction((txn) async {
       final compras = await txn.query(
@@ -183,6 +183,7 @@ class CompraService {
 
       final compra = compras.first;
       if (compra['estado'] == 'anulada') return;
+      numero = compra['numero']?.toString();
 
       final items = await txn.query(
         'compra_items',
@@ -193,40 +194,11 @@ class CompraService {
       for (final item in items) {
         final productoId = item['productoId'] as int;
         final cantidad = item['cantidad'] as int? ?? 0;
-        final productoRows = await txn.query(
-          'productos',
-          columns: ['stock'],
-          where: 'id = ?',
-          whereArgs: [productoId],
-          limit: 1,
-        );
-        final stockAnterior =
-            (productoRows.isNotEmpty ? productoRows.first['stock'] as num? : 0)
-                    ?.toInt() ??
-                0;
-        final stockNuevo = stockAnterior - cantidad;
-
-        await txn.rawUpdate(
-          'UPDATE productos SET stock = stock - ?, actualizadoEn = ? WHERE id = ?',
-          [cantidad, DateTime.now().toUtc().toIso8601String(), productoId],
-        );
-
-        final movimiento = MovimientoStock(
+        if (cantidad == 0) continue;
+        lines.add(InventoryLine(
           productoId: productoId,
-          tipo: 'reversion',
           cantidad: cantidad,
-          fecha: DateTime.now(),
-          remitoId: id.toString(),
-          motivo: 'Reversión de compra ${compra['numero']}',
-          usuario: AuthService.instance.currentUser?.usuario ?? 'sistema',
-          stockAnterior: stockAnterior,
-          stockNuevo: stockNuevo,
-        );
-
-        await txn.insert(
-          'movimientos_stock',
-          movimiento.toMap()..remove('id'),
-        );
+        ).toJson());
       }
 
       await txn.update(
@@ -237,22 +209,29 @@ class CompraService {
       );
     });
 
+    if (lines.isNotEmpty) {
+      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+      final tag = await DeviceIdentity.shortTag();
+      await DomainEventBus.instance.publish(
+        DomainEvent(
+          eventId: 'inv:recepcion_rev:compra:$id',
+          type: DomainEventType.mercaderiaRecepcionRevertida,
+          aggregateType: 'compra',
+          aggregateId: '$id',
+          createdBy: user,
+          deviceId: tag,
+          payload: {
+            'documentType': 'compra',
+            'documentId': '$id',
+            'documentNumero': numero,
+            'motivo': 'Reverso recepción compra ${numero ?? id}',
+            'lines': lines,
+          },
+        ),
+      );
+    }
+
     await FirestoreSyncService.instance.subirCompra(id);
-    unawaited(() async {
-      try {
-        final items = await obtenerItems(id);
-        for (final item in items) {
-          final pid = (item['productoId'] as num?)?.toInt();
-          final cant = (item['cantidad'] as num?)?.toInt() ?? 0;
-          if (pid == null || cant == 0) continue;
-          await FirestoreSyncService.instance.ajustarStockEnNube(
-            productoId: pid,
-            delta: -cant,
-            opId: 'compra_${id}_rev_$pid',
-          );
-        }
-      } catch (_) {}
-    }());
     DataRefreshHub.instance.notifyTodo();
   }
 

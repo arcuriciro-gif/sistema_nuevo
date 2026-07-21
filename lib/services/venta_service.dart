@@ -1,9 +1,13 @@
+import '../core/domain/domain_bootstrap.dart';
+import '../core/domain/domain_event.dart';
+import '../core/domain/event_bus.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../database/database_helper.dart';
 import '../models/venta.dart';
 import '../models/venta_item.dart';
+import 'auth_service.dart';
 import 'cuenta_corriente_service.dart';
 import 'document_numbering_service.dart';
 
@@ -89,6 +93,10 @@ class VentaService {
     );
     final db = await _db.database;
     final venta = await obtenerPorId(id);
+    if (venta == null) return;
+    if (venta.estado == 'anulada') return;
+
+    final saldoAntes = venta.saldoPendiente;
     await db.update(
       'ventas',
       {
@@ -98,8 +106,28 @@ class VentaService {
       where: 'id = ?',
       whereArgs: [id],
     );
-    if (venta?.clienteId != null) {
-      await _cc.recalcularSaldoCliente(venta!.clienteId!);
+    if (venta.clienteId != null) {
+      await _cc.recalcularSaldoCliente(venta.clienteId!);
+      // Anulación = nuevo evento (no borrar historial del ledger).
+      if (saldoAntes > 0.009) {
+        DomainBootstrap.ensureInitialized();
+        final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+        await DomainEventBus.instance.publish(
+          DomainEvent(
+            eventId: 'money:venta_cc_rev:$id',
+            type: DomainEventType.ventaCcRevertida,
+            aggregateType: 'venta',
+            aggregateId: '$id',
+            createdBy: user,
+            payload: {
+              'clienteId': venta.clienteId,
+              'ventaId': id,
+              'monto': saldoAntes,
+              'motivo': 'Anulación venta ${venta.numero}',
+            },
+          ),
+        );
+      }
     }
     await FirestoreSyncService.instance.subirVenta(id);
     DataRefreshHub.instance.notifyVentas();

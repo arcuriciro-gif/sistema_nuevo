@@ -15,6 +15,16 @@ class DatabaseHelper {
   Database? _database;
   String? _dbFilePath;
 
+  /// Forzar ruta de DB (tests Capacidad 3).
+  @visibleForTesting
+  Future<void> resetForTests({required String absolutePath}) async {
+    if (_database != null) {
+      await _database!.close();
+      _database = null;
+    }
+    _dbFilePath = absolutePath;
+  }
+
   /// Ruta absoluta del archivo SQLite (para backup / diagnóstico).
   Future<String> get dbFilePath async {
     _dbFilePath ??= await _resolverRutaDb();
@@ -94,7 +104,7 @@ class DatabaseHelper {
 
     final db = await openDatabase(
       path,
-      version: 26,
+      version: 27,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -240,6 +250,7 @@ CREATE TABLE comparacion(
     await _crearTablasComunicaciones(db);
     await _crearTablaComentariosInternos(db);
     await _crearTablasSyncCertificable(db);
+    await _crearTablasDominioTransaccional(db);
     await _migrarSyncCompletoV21(db);
     await _crearIndices(db);
   }
@@ -996,6 +1007,67 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 26) {
       await _crearTablasSyncCertificable(db);
     }
+    if (oldVersion < 27) {
+      await _crearTablasDominioTransaccional(db);
+    }
+  }
+
+  Future<void> _crearTablasDominioTransaccional(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS domain_events(
+  event_id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  aggregate_type TEXT,
+  aggregate_id TEXT,
+  payload TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT,
+  device_id TEXT
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_domain_events_type '
+      'ON domain_events(type, created_at)',
+    );
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS inventory_ledger(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE,
+  parent_event_id TEXT,
+  product_id INTEGER NOT NULL,
+  product_codigo TEXT,
+  delta INTEGER NOT NULL,
+  reason TEXT,
+  document_type TEXT,
+  document_id TEXT,
+  stock_before INTEGER,
+  stock_after INTEGER,
+  created_at TEXT NOT NULL
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_inventory_ledger_product '
+      'ON inventory_ledger(product_id, created_at)',
+    );
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS money_ledger(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE,
+  account_type TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  delta REAL NOT NULL,
+  currency TEXT DEFAULT 'ARS',
+  reason TEXT,
+  document_type TEXT,
+  document_id TEXT,
+  balance_after REAL,
+  created_at TEXT NOT NULL
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_money_ledger_account '
+      'ON money_ledger(account_type, account_id, created_at)',
+    );
   }
 
   Future<void> _crearTablasSyncCertificable(Database db) async {

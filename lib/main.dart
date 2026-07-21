@@ -13,6 +13,7 @@ import 'services/permisos_service.dart';
 import 'services/sidebar_preferencias_service.dart';
 import 'core/config/backend_config_service.dart';
 import 'core/config/platform_capabilities.dart';
+import 'core/domain/domain_bootstrap.dart';
 import 'core/firebase/firebase_bootstrap.dart';
 import 'core/firebase/firebase_safe_mode.dart';
 import 'theme/theme_provider.dart';
@@ -73,6 +74,7 @@ void main() async {
 
     await appendAppLog('BOOT permisos');
     try {
+      DomainBootstrap.ensureInitialized();
       await PermisosService.instance.cargar();
     } catch (e, st) {
       await appendAppLog('Permisos cargar: $e\n$st');
