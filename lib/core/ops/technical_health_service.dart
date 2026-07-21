@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../database/database_helper.dart';
 import '../../services/auto_backup_service.dart';
+import '../config/backend_config_service.dart';
 import '../sync/sync_health.dart';
 
 /// Versiones de contrato de plataforma (Capacidad 5 / ADR §9).
@@ -25,6 +26,7 @@ class TechnicalHealthSnapshot {
     required this.domainVersion,
     required this.syncVersion,
     required this.eventsVersion,
+    required this.tenantId,
     required this.dbPath,
     required this.sync,
     required this.lastAutoBackup,
@@ -39,6 +41,7 @@ class TechnicalHealthSnapshot {
   final String domainVersion;
   final String syncVersion;
   final String eventsVersion;
+  final String tenantId;
   final String dbPath;
   final SyncHealthSnapshot sync;
   final DateTime? lastAutoBackup;
@@ -76,6 +79,7 @@ class TechnicalHealthService {
       domainVersion: PlatformVersions.domain,
       syncVersion: PlatformVersions.sync,
       eventsVersion: PlatformVersions.events,
+      tenantId: BackendConfigService.instance.tenantId,
       dbPath: dbPath,
       sync: sync,
       lastAutoBackup: await AutoBackupService.instance.ultimoBackup,

@@ -34,6 +34,8 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   bool _nubeActiva = false;
   bool _conectandoNube = false;
   bool _modoSeguro = false;
+  bool _guardandoTenant = false;
+  final _tenantCtrl = TextEditingController();
 
   // Branding
   final _nombreCtrl = TextEditingController();
@@ -78,7 +80,90 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
           fb.disponible &&
           fb.uidActual != null;
       _modoSeguro = FirebaseSafeMode.enabled;
+      _tenantCtrl.text = BackendConfigService.instance.tenantId;
     });
+  }
+
+  Future<void> _guardarCodigoEmpresa() async {
+    if (!AuthService.instance.esAdministrador()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Solo el administrador puede cambiar el código de empresa.')),
+      );
+      return;
+    }
+    final nuevo = _tenantCtrl.text.trim();
+    if (nuevo.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El código de empresa no puede estar vacío.')),
+      );
+      return;
+    }
+    final anterior = BackendConfigService.instance.tenantId;
+    if (nuevo == anterior) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ya estás en la empresa "$nuevo".')),
+      );
+      return;
+    }
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Cambiar código de empresa'),
+        content: Text(
+          'Vas a pasar de:\n$anterior\n\na:\n$nuevo\n\n'
+          'Después: cerrá sesión, volvé a entrar con el mismo usuario/clave '
+          'que en la PC, y activá la sincronización online.\n\n'
+          'Para ver los productos de la PC vieja usá: tata_stock',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    setState(() => _guardandoTenant = true);
+    try {
+      await BackendConfigService.instance.setTenantId(nuevo);
+      // Si la nube estaba activa, conviene re-autenticar con el email del nuevo tenant.
+      if (BackendConfigService.instance.firebaseEnabled) {
+        await AuthService.instance.desactivarNube();
+      }
+      if (!mounted) return;
+      setState(() {
+        _nubeActiva = false;
+        _tenantCtrl.text = BackendConfigService.instance.tenantId;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Empresa "$nuevo" guardada. Cerrá sesión, entrá de nuevo '
+            'y activá sincronización online.',
+          ),
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo guardar: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _guardandoTenant = false);
+    }
+  }
+
+  Future<void> _usarEmpresaCompartidaLegada() async {
+    _tenantCtrl.text = BackendConfigService.legacySharedTenantId;
+    await _guardarCodigoEmpresa();
   }
 
   Future<void> _activarNube() async {
@@ -197,6 +282,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     _ingresosBrutosCtrl.dispose();
     _condicionIvaCtrl.dispose();
     _direccionFiscalCtrl.dispose();
+    _tenantCtrl.dispose();
     super.dispose();
   }
 
@@ -469,6 +555,71 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       const SizedBox(height: 16),
                       const Divider(),
                       const SizedBox(height: 8),
+                      Text(
+                        'Código de empresa (tenant)',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Si el celular está vacío y la PC tiene productos, '
+                        'poné el mismo código que la PC. Empresa vieja: '
+                        '${BackendConfigService.legacySharedTenantId}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Actual: ${BackendConfigService.instance.tenantId}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _tenantCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Código de empresa',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        autocorrect: false,
+                        enableSuggestions: false,
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.icon(
+                            onPressed:
+                                _guardandoTenant ? null : _guardarCodigoEmpresa,
+                            icon: _guardandoTenant
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.save_outlined),
+                            label: Text(
+                              _guardandoTenant ? 'Guardando...' : 'Guardar código',
+                            ),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: _guardandoTenant
+                                ? null
+                                : _usarEmpresaCompartidaLegada,
+                            icon: const Icon(Icons.link_rounded),
+                            label: const Text('Usar tata_stock (PC vieja)'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
                       Text(
                         'Seguridad admin',
                         style: theme.textTheme.titleSmall?.copyWith(
