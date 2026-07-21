@@ -33,6 +33,12 @@ Ver objetivos en `ENGINEERING_GOVERNANCE.md` §3 (sync &lt;2s, búsqueda &lt;300
 - Rules que bloqueen membership sin backfill
 
 ## Artefactos
-Tras merge a `main`, disparar workflows o añadir `main` a `on.push.branches` de:
-- `.github/workflows/build-android.yml`
-- `.github/workflows/build-windows.yml`
+Tras merge a `main`, los workflows corren en **`main`** (Capacidad 5):
+- `.github/workflows/build-android.yml` — analyze + test + APK + `SHA256SUMS.txt`
+- `.github/workflows/build-windows.yml` — analyze + test + ZIP + `SHA256SUMS.txt`
+
+Runbook restore: `docs/runbooks/BACKUP_RESTORE.md`.  
+Auditoría Capacidad 5: `docs/capacidades/C5_RELEASE_READINESS.md`.
+
+Inno Setup (unsigned): `packaging/windows/tata_manager.iss` (compilar en PC Windows con Inno 6).
+Authenticode / package Play rename / R8 = diferidos.

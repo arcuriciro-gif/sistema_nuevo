@@ -55,3 +55,5 @@
 
 Capacidad 4 **lista para merge de desarrollo** tras CI verde.  
 D3 claims y D5 Argon2id no bloquean el cierre de D1/D2 en app. No iniciar Capacidad 5 hasta este veredicto + CI.
+
+> **Update 2026-07-21:** Capacidad 4 mergeada (#34). Capacidad 5 en curso: `docs/capacidades/C5_RELEASE_READINESS.md`.

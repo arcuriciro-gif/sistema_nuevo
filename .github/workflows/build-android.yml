@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - main
       - cursor/release-mejoras-e44b
       - cursor/ui-shell-fotos-bio-e44b
       - cursor/productos-busqueda-eliminar-e44b
@@ -16,6 +17,7 @@ on:
       - cursor/capacidad-2-sync-certificable-e44b
       - cursor/capacidad-3-dominio-transaccional-e44b
       - cursor/capacidad-4-autorizacion-real-e44b
+      - cursor/capacidad-5-release-readiness-e44b
 
 jobs:
   build-android:
@@ -43,6 +45,9 @@ jobs:
 
       - name: Pub get
         run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
 
       - name: Tests
         run: flutter test
@@ -81,7 +86,12 @@ jobs:
           Firma estable del proyecto (SHA-1 en docs/FIREBASE_GOOGLE_LOGIN.md).
           Para Google Login: cargá ese SHA-1 en Firebase Console.
           EOF
+          (
+            cd Instalador_Android
+            sha256sum TataManager.apk LEEME.txt > SHA256SUMS.txt
+          )
           ls -la Instalador_Android
+          cat Instalador_Android/SHA256SUMS.txt
 
       - name: Subir APK
         uses: actions/upload-artifact@v4

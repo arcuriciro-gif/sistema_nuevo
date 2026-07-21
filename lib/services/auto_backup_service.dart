@@ -96,6 +96,7 @@ class AutoBackupService {
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_keyUltimoBackup, ahora.toIso8601String());
+      // Retención: exportarBackup ya poda archivos antiguos.
     } catch (_) {
       // Silent: auto-backup failures should not interrupt the user
     }

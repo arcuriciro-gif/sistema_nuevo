@@ -59,6 +59,7 @@ class _BackupPageState extends State<BackupPage> {
       builder: (_) => AlertDialog(
         title: const Text('Restaurar backup'),
         content: const Text(
+          'Se validará el archivo (integrity check) antes de reemplazar la base. '
           'La app se debe reiniciar después de restaurar. ¿Querés continuar?',
         ),
         actions: [

@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - main
       - cursor/fix-login-confirmacion-e44b
       - cursor/fotos-productos-sync-e44b
       - cursor/comparador-descripcion-costo-e44b
@@ -19,6 +20,7 @@ on:
       - cursor/capacidad-2-sync-certificable-e44b
       - cursor/capacidad-3-dominio-transaccional-e44b
       - cursor/capacidad-4-autorizacion-real-e44b
+      - cursor/capacidad-5-release-readiness-e44b
 
 jobs:
   build-windows:
@@ -44,6 +46,12 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Tests
+        run: flutter test
+
       - name: Build Windows release
         shell: pwsh
         run: |
@@ -57,7 +65,6 @@ jobs:
           $dst = "Instalador_Windows"
           $exeName = "Tata.Manager.exe"
           if (-not (Test-Path "$src\$exeName")) {
-            # Compatibilidad si el build viejo aún genera otro nombre
             $fallback = Get-ChildItem "$src\*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($fallback) {
               Write-Host "AVISO: no está $exeName; se encontró $($fallback.Name)"
@@ -70,13 +77,11 @@ jobs:
           New-Item -ItemType Directory -Path $dst | Out-Null
           Copy-Item -Path "$src\*" -Destination $dst -Recurse -Force
 
-          # Si el exe no se llama Tata.Manager.exe, renombrarlo
           if ($exeName -ne "Tata.Manager.exe" -and (Test-Path "$dst\$exeName")) {
             Rename-Item "$dst\$exeName" "Tata.Manager.exe" -Force
             $exeName = "Tata.Manager.exe"
           }
 
-          # Asegurar sqlite3.dll junto al exe (sqflite_common_ffi en release)
           $sqliteCandidates = @(
             "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\sqflite_common_ffi-*\lib\src\windows\sqlite3.dll",
             "$env:PUB_CACHE\hosted\pub.dev\sqflite_common_ffi-*\lib\src\windows\sqlite3.dll",
@@ -105,12 +110,28 @@ jobs:
           if (Test-Path "packaging\windows\LEEME.txt") {
             Copy-Item "packaging\windows\LEEME.txt" "$dst\LEEME.txt" -Force
           }
+          if (Test-Path "packaging\windows\tata_manager.iss") {
+            Copy-Item "packaging\windows\tata_manager.iss" "$dst\tata_manager.iss" -Force
+          }
+
+          # Capacidad 5: checksums de artefactos principales
+          $sums = @()
+          Get-ChildItem $dst -File | Where-Object {
+            $_.Name -match '\.(exe|dll|bat|txt|pdf|iss)$'
+          } | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            $sums += "$h  $($_.Name)"
+          }
+          $sums | Set-Content -Encoding ascii "$dst\SHA256SUMS.txt"
+          Get-Content "$dst\SHA256SUMS.txt"
+
           Get-ChildItem $dst | Select-Object Name, Length
           if (-not (Test-Path "$dst\sqlite3.dll")) {
             Write-Host "WARNING: sqlite3.dll no está en el instalador"
           } else {
             Write-Host "OK: sqlite3.dll incluido"
           }
+
       - name: Subir Instalador_Windows (ZIP)
         uses: actions/upload-artifact@v4
         with:
