@@ -75,6 +75,7 @@ void main() {
 
       final remitoSvc = RemitoService();
       final numero = await remitoSvc.generarNumero();
+      // Capacidad 8: no permitir remito con cantidad > stock (default).
       final remitoId = await remitoSvc.insertar(
         Remito(
           numero: numero,
@@ -83,15 +84,15 @@ void main() {
           clienteId: '$clienteId',
           estado: 'confirmado',
           observaciones: '',
-          total: 100000,
+          total: 50000,
         ),
         [
           RemitoDetalle(
             remitoId: 0,
             productoId: productoId,
-            cantidad: 100,
+            cantidad: 50,
             precioUnitario: 1000,
-            subtotal: 100000,
+            subtotal: 50000,
           ),
         ],
       );
@@ -103,11 +104,11 @@ void main() {
         where: 'id = ?',
         whereArgs: [clienteId],
       )).first;
-      expect((cliente['saldo'] as num).toDouble(), closeTo(100000, 0.01));
+      expect((cliente['saldo'] as num).toDouble(), closeTo(50000, 0.01));
 
       await cc.registrarPagoRemito(
         remitoId: remitoId,
-        monto: 80000,
+        monto: 30000,
         medioPago: 'efectivo',
       );
 
@@ -117,7 +118,7 @@ void main() {
         whereArgs: [remitoId],
       )).first;
       expect(remito['estadoPago'], 'parcial');
-      expect((remito['totalPagado'] as num).toDouble(), closeTo(80000, 0.01));
+      expect((remito['totalPagado'] as num).toDouble(), closeTo(30000, 0.01));
       expect((remito['saldoPendiente'] as num).toDouble(), closeTo(20000, 0.01));
 
       cliente = (await db.query(
