@@ -101,10 +101,19 @@ class ProductoService {
     return actualizados;
   }
 
-  void _asegurarSyncProducto(int? id) {
+  void _asegurarSyncProducto(
+    int? id, {
+    bool incluirStockAbsoluto = false,
+  }) {
     if (id == null) return;
     // Si no hay sesión de nube, entra en cola persistente; si hay, re-empuja.
-    unawaited(FirestoreSyncService.instance.subirProductoPorId(id));
+    unawaited(
+      FirestoreSyncService.instance.subirProductoPorId(
+        id,
+        incluirStockAbsoluto: incluirStockAbsoluto,
+        forzar: incluirStockAbsoluto,
+      ),
+    );
   }
 
   Future<int> insertar(Producto producto) async {
@@ -119,7 +128,8 @@ class ProductoService {
       'Nuevo producto: ${guardado.descripcion}',
       valorNuevo: _snapshot(guardado),
     );
-    _asegurarSyncProducto(id);
+    // Alta: el stock inicial tiene que ir a la nube.
+    _asegurarSyncProducto(id, incluirStockAbsoluto: true);
     DataRefreshHub.instance.notifyProductos();
 
     return id;
@@ -253,7 +263,13 @@ class ProductoService {
           valorAnterior: _snapshot(anteriorProducto),
           valorNuevo: _snapshot(actualizado),
         );
-        _asegurarSyncProducto(actualizado.id);
+        // Si cambiaron el stock a mano en el formulario, hay que subir el
+        // valor absoluto (los remitos usan deltas aparte).
+        final stockCambio = anteriorProducto.stock != actualizado.stock;
+        _asegurarSyncProducto(
+          actualizado.id,
+          incluirStockAbsoluto: stockCambio,
+        );
         DataRefreshHub.instance.notifyProductos();
         return result;
       }
@@ -266,7 +282,7 @@ class ProductoService {
       'Producto actualizado: ${conFotos.descripcion}',
       valorNuevo: _snapshot(conFotos),
     );
-    _asegurarSyncProducto(conFotos.id);
+    _asegurarSyncProducto(conFotos.id, incluirStockAbsoluto: true);
     DataRefreshHub.instance.notifyProductos();
     return result;
   }
