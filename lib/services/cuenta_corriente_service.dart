@@ -312,6 +312,7 @@ class CuentaCorrienteService {
       AuthzAction.editar,
       operacion: 'cobrar remito',
     );
+    DomainBootstrap.ensureInitialized();
     final db = await _db.database;
     final rows = await db.query(
       'remitos',
@@ -321,6 +322,10 @@ class CuentaCorrienteService {
     );
     if (rows.isEmpty) return;
     final remito = rows.first;
+    final anterior =
+        (remito['estadoPago']?.toString() ?? 'pendiente').trim();
+    if (anterior == 'cobrado') return;
+
     await db.update(
       'remitos',
       {'estadoPago': 'cobrado'},
@@ -328,7 +333,25 @@ class CuentaCorrienteService {
       whereArgs: [remitoId],
     );
     final cid = clienteId ?? (remito['clienteId'] as int?);
-    if (cid != null) {
+    final total = (remito['total'] as num?)?.toDouble() ?? 0;
+    final numero = remito['numero']?.toString() ?? '$remitoId';
+    if (cid != null && total > 0.009) {
+      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+      await DomainEventBus.instance.publish(
+        DomainEvent(
+          eventId: 'money:remito_cobrado:$remitoId',
+          type: DomainEventType.remitoCobrado,
+          aggregateType: 'remito',
+          aggregateId: '$remitoId',
+          createdBy: user,
+          payload: {
+            'clienteId': cid,
+            'remitoId': remitoId,
+            'total': total,
+            'motivo': 'Remito $numero cobrado',
+          },
+        ),
+      );
       await recalcularSaldoCliente(cid);
     }
     await FirestoreSyncService.instance.subirRemito(remitoId);

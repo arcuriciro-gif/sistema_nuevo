@@ -20,6 +20,10 @@ class MoneyLedgerService {
     bus.subscribe(DomainEventType.ventaCcRevertida, _onVentaCcRevertida);
     bus.subscribe(DomainEventType.pagoRegistrado, _onPago);
     bus.subscribe(DomainEventType.pagoAnulado, _onPagoAnulado);
+    bus.subscribe(DomainEventType.remitoCargadoCc, _onRemitoCc);
+    bus.subscribe(DomainEventType.remitoCcRevertido, _onRemitoCcRevertido);
+    bus.subscribe(DomainEventType.remitoCobrado, _onRemitoCobrado);
+    bus.subscribe(DomainEventType.remitoCobroRevertido, _onRemitoCobroRevertido);
   }
 
   void resetForTests() {
@@ -88,6 +92,72 @@ class MoneyLedgerService {
       reason: e.payload['motivo']?.toString() ?? 'Pago anulado',
       documentType: 'pago',
       documentId: e.payload['pagoId']?.toString(),
+    );
+  }
+
+  Future<void> _onRemitoCc(DomainEvent e) async {
+    final clienteId = (e.payload['clienteId'] as num?)?.toInt();
+    final monto = (e.payload['total'] as num?)?.toDouble() ?? 0;
+    if (clienteId == null || monto == 0) return;
+    await _append(
+      event: e,
+      accountType: 'cliente_cc',
+      accountId: '$clienteId',
+      delta: monto.abs(),
+      reason: e.payload['motivo']?.toString() ?? 'Remito a cuenta',
+      documentType: 'remito',
+      documentId: e.payload['remitoId']?.toString(),
+    );
+  }
+
+  Future<void> _onRemitoCcRevertido(DomainEvent e) async {
+    final clienteId = (e.payload['clienteId'] as num?)?.toInt();
+    final monto = (e.payload['total'] as num?)?.toDouble() ??
+        (e.payload['monto'] as num?)?.toDouble() ??
+        0;
+    if (clienteId == null || monto == 0) return;
+    await _append(
+      event: e,
+      accountType: 'cliente_cc',
+      accountId: '$clienteId',
+      delta: -monto.abs(),
+      reason: e.payload['motivo']?.toString() ?? 'Remito CC revertido',
+      documentType: 'remito',
+      documentId: e.payload['remitoId']?.toString(),
+    );
+  }
+
+  Future<void> _onRemitoCobrado(DomainEvent e) async {
+    final clienteId = (e.payload['clienteId'] as num?)?.toInt();
+    final monto = (e.payload['total'] as num?)?.toDouble() ??
+        (e.payload['monto'] as num?)?.toDouble() ??
+        0;
+    if (clienteId == null || monto == 0) return;
+    await _append(
+      event: e,
+      accountType: 'cliente_cc',
+      accountId: '$clienteId',
+      delta: -monto.abs(),
+      reason: e.payload['motivo']?.toString() ?? 'Remito cobrado',
+      documentType: 'remito',
+      documentId: e.payload['remitoId']?.toString(),
+    );
+  }
+
+  Future<void> _onRemitoCobroRevertido(DomainEvent e) async {
+    final clienteId = (e.payload['clienteId'] as num?)?.toInt();
+    final monto = (e.payload['total'] as num?)?.toDouble() ??
+        (e.payload['monto'] as num?)?.toDouble() ??
+        0;
+    if (clienteId == null || monto == 0) return;
+    await _append(
+      event: e,
+      accountType: 'cliente_cc',
+      accountId: '$clienteId',
+      delta: monto.abs(),
+      reason: e.payload['motivo']?.toString() ?? 'Cobro remito revertido',
+      documentType: 'remito',
+      documentId: e.payload['remitoId']?.toString(),
     );
   }
 

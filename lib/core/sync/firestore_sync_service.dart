@@ -1219,7 +1219,15 @@ class FirestoreSyncService {
   }
 
   Future<void> _flushColaStockOps() async {
-    if (!_puedeEscribirRemoto || _colaStockOps.isEmpty) return;
+    if (!_puedeEscribirRemoto) return;
+    if (_colaStockOps.isEmpty) {
+      try {
+        await _remote.reconcilizarStockOpsPendientes(limit: 30);
+      } catch (e) {
+        debugPrint('reconcilizar stock_ops: $e');
+      }
+      return;
+    }
     final pendientes = List<String>.from(_colaStockOps);
     for (final token in pendientes) {
       final parts = token.split('|');
@@ -1248,6 +1256,11 @@ class FirestoreSyncService {
     }
     await _persistirColaStockOps();
     await _persistirStockOpsHechas();
+    try {
+      await _remote.reconcilizarStockOpsPendientes(limit: 30);
+    } catch (e) {
+      debugPrint('reconcilizar stock_ops: $e');
+    }
   }
 
   void _onProductosSnapshot(QuerySnapshot<Map<String, dynamic>> snap) {

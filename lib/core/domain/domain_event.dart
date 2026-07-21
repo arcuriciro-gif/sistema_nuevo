@@ -12,6 +12,11 @@ class DomainEventType {
   static const ventaCcRevertida = 'VENTA_CC_REVERTIDA';
   static const pagoRegistrado = 'PAGO_REGISTRADO';
   static const pagoAnulado = 'PAGO_ANULADO';
+  /// Capacidad 6: remitos cobrables en ledger de dinero.
+  static const remitoCargadoCc = 'REMITO_CARGADO_CC';
+  static const remitoCcRevertido = 'REMITO_CC_REVERTIDO';
+  static const remitoCobrado = 'REMITO_COBRADO';
+  static const remitoCobroRevertido = 'REMITO_COBRO_REVERTIDO';
 }
 
 class DomainEvent {

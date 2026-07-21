@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import '../core/config/backend_config_service.dart';
 import '../models/producto.dart';
@@ -115,8 +116,11 @@ class FirestoreProductoRepository implements ProductoRepository {
     await _collection.doc(_docId(producto)).set(data, SetOptions(merge: true));
   }
 
-  /// Ajuste de stock en la nube (Fase 2/3).
-  /// Idempotente con doc `stock_ops/{opId}` (sin runTransaction: estable en Windows).
+  /// Ajuste de stock en la nube (Capacidad 6).
+  ///
+  /// Idempotente por `stock_ops/{opId}` dentro de una **transacción**
+  /// (claim + increment atómicos). Si la txn no está disponible (p. ej. rare
+  /// Windows), cae a create-condicional + marca `pending_apply` para reintento.
   Future<void> ajustarStock({
     required String codigo,
     required int delta,
@@ -124,29 +128,156 @@ class FirestoreProductoRepository implements ProductoRepository {
   }) async {
     final cod = codigo.trim();
     if (cod.isEmpty || delta == 0 || opId.isEmpty) return;
-    final opRef = _stockOpsCol.doc(opId);
-    final existing = await opRef.get();
-    if (existing.exists) return;
 
-    await opRef.set({
-      'codigo': cod,
-      'delta': delta,
-      'at': DateTime.now().toUtc().toIso8601String(),
+    try {
+      await _ajustarStockEnTransaccion(cod: cod, delta: delta, opId: opId);
+    } catch (e) {
+      debugPrint('stock_ops txn: $e — fallback create');
+      await _ajustarStockConCreate(cod: cod, delta: delta, opId: opId);
+    }
+  }
+
+  Future<void> _ajustarStockEnTransaccion({
+    required String cod,
+    required int delta,
+    required String opId,
+  }) async {
+    final opRef = _stockOpsCol.doc(opId);
+    final prodRef = _collection.doc(cod);
+    final ahora = DateTime.now().toUtc().toIso8601String();
+
+    await _firestore.runTransaction((txn) async {
+      final opSnap = await txn.get(opRef);
+      if (opSnap.exists) {
+        final status = opSnap.data()?['status']?.toString() ?? 'applied';
+        if (status == 'applied') return;
+        // Claim incompleto: completar increment en la misma txn.
+      } else {
+        txn.set(opRef, {
+          'codigo': cod,
+          'delta': delta,
+          'status': 'claimed',
+          'at': ahora,
+        });
+      }
+      txn.set(
+        prodRef,
+        {
+          'codigo': cod,
+          'stock': FieldValue.increment(delta),
+          'actualizadoEn': ahora,
+          'ultimaStockOp': opId,
+        },
+        SetOptions(merge: true),
+      );
+      txn.set(opRef, {
+        'codigo': cod,
+        'delta': delta,
+        'status': 'applied',
+        'at': ahora,
+        'appliedAt': ahora,
+      });
     });
+  }
+
+  Future<void> _ajustarStockConCreate({
+    required String cod,
+    required int delta,
+    required String opId,
+  }) async {
+    final opRef = _stockOpsCol.doc(opId);
+    final ahora = DateTime.now().toUtc().toIso8601String();
+
+    final existing = await opRef.get();
+    if (existing.exists) {
+      final status = existing.data()?['status']?.toString() ?? 'applied';
+      if (status == 'applied') return;
+      // pending_apply / claimed → reintentar solo el increment.
+      await _aplicarIncrementoProducto(
+        cod: cod,
+        delta: delta,
+        opId: opId,
+        opRef: opRef,
+        ahora: ahora,
+      );
+      return;
+    }
+
+    try {
+      await opRef.set({
+        'codigo': cod,
+        'delta': delta,
+        'status': 'claimed',
+        'at': ahora,
+      });
+    } catch (e) {
+      // Carrera: otro device creó el claim.
+      final again = await opRef.get();
+      if (again.exists) {
+        final status = again.data()?['status']?.toString() ?? 'applied';
+        if (status == 'applied') return;
+      } else {
+        rethrow;
+      }
+    }
+
+    await _aplicarIncrementoProducto(
+      cod: cod,
+      delta: delta,
+      opId: opId,
+      opRef: opRef,
+      ahora: ahora,
+    );
+  }
+
+  Future<void> _aplicarIncrementoProducto({
+    required String cod,
+    required int delta,
+    required String opId,
+    required DocumentReference<Map<String, dynamic>> opRef,
+    required String ahora,
+  }) async {
     try {
       await _collection.doc(cod).set({
         'codigo': cod,
         'stock': FieldValue.increment(delta),
-        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+        'actualizadoEn': ahora,
         'ultimaStockOp': opId,
       }, SetOptions(merge: true));
+      await opRef.set({
+        'status': 'applied',
+        'appliedAt': ahora,
+      }, SetOptions(merge: true));
     } catch (e) {
-      // Liberar claim para reintento seguro.
-      try {
-        await opRef.delete();
-      } catch (_) {}
+      await opRef.set({
+        'status': 'pending_apply',
+        'error': '$e',
+        'actualizadoEn': ahora,
+      }, SetOptions(merge: true));
       rethrow;
     }
+  }
+
+  /// Reintenta ops con `status=pending_apply` (crash entre claim e increment).
+  Future<int> reconcilizarStockOpsPendientes({int limit = 50}) async {
+    final snap = await _stockOpsCol
+        .where('status', isEqualTo: 'pending_apply')
+        .limit(limit)
+        .get();
+    var ok = 0;
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final cod = data['codigo']?.toString().trim() ?? '';
+      final delta = (data['delta'] as num?)?.toInt() ?? 0;
+      if (cod.isEmpty || delta == 0) continue;
+      try {
+        await ajustarStock(codigo: cod, delta: delta, opId: doc.id);
+        ok++;
+      } catch (e) {
+        debugPrint('reconcilizar stock_ops ${doc.id}: $e');
+      }
+    }
+    return ok;
   }
 
   @override
