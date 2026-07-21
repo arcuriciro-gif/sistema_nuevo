@@ -124,6 +124,27 @@ class RemitoService {
         remito.clienteId != null ? int.tryParse(remito.clienteId!) : null;
     if (clienteIdInt != null) {
       await CuentaCorrienteService().recalcularSaldoCliente(clienteIdInt);
+      // Capacidad 6: remito cobrable → money ledger (además del stock).
+      final estadoPago =
+          (remito.estadoPago).trim().isEmpty ? 'pendiente' : remito.estadoPago;
+      if (remito.total > 0.009 && estadoPago != 'cobrado') {
+        final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+        await DomainEventBus.instance.publish(
+          DomainEvent(
+            eventId: 'money:remito_cc:$remitoId',
+            type: DomainEventType.remitoCargadoCc,
+            aggregateType: 'remito',
+            aggregateId: '$remitoId',
+            createdBy: user,
+            payload: {
+              'clienteId': clienteIdInt,
+              'remitoId': remitoId,
+              'total': remito.total,
+              'motivo': 'Remito ${remito.numero} a cuenta',
+            },
+          ),
+        );
+      }
     }
     DataRefreshHub.instance.notifyTodo();
     return remitoId;
@@ -188,21 +209,72 @@ class RemitoService {
       AuthzAction.editar,
       operacion: 'cambiar estado de pago remito',
     );
+    DomainBootstrap.ensureInitialized();
     final db = await dbHelper.database;
     final rows = await db.query(
       'remitos',
-      columns: ['clienteId'],
+      columns: ['clienteId', 'total', 'numero', 'estadoPago', 'estado'],
       where: 'id = ?',
       whereArgs: [id],
       limit: 1,
     );
+    if (rows.isEmpty) return;
+    final anterior =
+        (rows.first['estadoPago']?.toString() ?? 'pendiente').trim();
+    final nuevo = estadoPago.trim().isEmpty ? 'pendiente' : estadoPago.trim();
+    if (anterior == nuevo) return;
+
     await db.update(
       'remitos',
-      {'estadoPago': estadoPago},
+      {'estadoPago': nuevo},
       where: 'id = ?',
       whereArgs: [id],
     );
-    final clienteId = rows.isNotEmpty ? rows.first['clienteId'] as int? : null;
+    final clienteId = rows.first['clienteId'] as int?;
+    final total = (rows.first['total'] as num?)?.toDouble() ?? 0;
+    final numero = rows.first['numero']?.toString() ?? '$id';
+    final anulado = rows.first['estado']?.toString() == 'anulado';
+
+    if (!anulado &&
+        clienteId != null &&
+        total > 0.009 &&
+        (anterior == 'cobrado') != (nuevo == 'cobrado')) {
+      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+      if (nuevo == 'cobrado') {
+        await DomainEventBus.instance.publish(
+          DomainEvent(
+            eventId: 'money:remito_cobrado:$id',
+            type: DomainEventType.remitoCobrado,
+            aggregateType: 'remito',
+            aggregateId: '$id',
+            createdBy: user,
+            payload: {
+              'clienteId': clienteId,
+              'remitoId': id,
+              'total': total,
+              'motivo': 'Remito $numero cobrado',
+            },
+          ),
+        );
+      } else if (anterior == 'cobrado') {
+        await DomainEventBus.instance.publish(
+          DomainEvent(
+            eventId: 'money:remito_cobro_rev:$id',
+            type: DomainEventType.remitoCobroRevertido,
+            aggregateType: 'remito',
+            aggregateId: '$id',
+            createdBy: user,
+            payload: {
+              'clienteId': clienteId,
+              'remitoId': id,
+              'total': total,
+              'motivo': 'Cobro remito $numero revertido',
+            },
+          ),
+        );
+      }
+    }
+
     if (clienteId != null) {
       await CuentaCorrienteService().recalcularSaldoCliente(clienteId);
     }
@@ -220,6 +292,9 @@ class RemitoService {
     final db = await dbHelper.database;
 
     String? numero;
+    int? clienteId;
+    double total = 0;
+    var estadoPago = 'pendiente';
     final lines = <Map<String, dynamic>>[];
 
     await db.transaction((txn) async {
@@ -239,6 +314,9 @@ class RemitoService {
         return;
       }
       numero = remito['numero']?.toString();
+      clienteId = remito['clienteId'] as int?;
+      total = (remito['total'] as num?)?.toDouble() ?? 0;
+      estadoPago = (remito['estadoPago']?.toString() ?? 'pendiente').trim();
 
       final items = await txn.query(
         'remito_items',
@@ -286,6 +364,28 @@ class RemitoService {
       );
     }
 
+    if (clienteId != null && total > 0.009 && estadoPago != 'cobrado') {
+      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+      await DomainEventBus.instance.publish(
+        DomainEvent(
+          eventId: 'money:remito_cc_rev:$id',
+          type: DomainEventType.remitoCcRevertido,
+          aggregateType: 'remito',
+          aggregateId: '$id',
+          createdBy: user,
+          payload: {
+            'clienteId': clienteId,
+            'remitoId': id,
+            'total': total,
+            'motivo': 'Remito ${numero ?? id} anulado',
+          },
+        ),
+      );
+    }
+
+    if (clienteId != null) {
+      await CuentaCorrienteService().recalcularSaldoCliente(clienteId!);
+    }
     await FirestoreSyncService.instance.subirRemito(id);
     DataRefreshHub.instance.notifyTodo();
   }

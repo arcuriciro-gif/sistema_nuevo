@@ -48,4 +48,5 @@
 ## Veredicto
 
 Capacidad 5 **lista para merge de desarrollo** tras CI verde.  
-Cierra el núcleo de release readiness sin Authenticode ni renombre de package.
+> **Update 2026-07-21:** Capacidad 5 mergeada (#35). Capacidad 6 en curso: `docs/capacidades/C6_INTEGRIDAD_STOCK_CC.md`.
+
