@@ -38,3 +38,6 @@
 ## Veredicto
 
 Capacidad 7 **lista para merge de desarrollo** tras CI verde.
+
+> **Update 2026-07-21:** Capacidad 7 mergeada (#41). Capacidad 8 en curso: `docs/capacidades/C8_RECONCILIACION_ALARMAS.md`.
+

@@ -144,9 +144,10 @@ void main() {
           await InventoryLedgerService.instance.reconstruirStock(productoId);
       // stockInicial=0 ⇒ reconstrucción solo del ledger C3 (= -4), no el seed.
       expect(recon, -4);
+      // Capacidad 8: verificarProyeccion usa stock_before del primer asiento.
       expect(
         await InventoryLedgerService.instance.verificarProyeccion(productoId),
-        isFalse,
+        isTrue,
       );
       // Con stock inicial conocido, proyección cuadra.
       expect(

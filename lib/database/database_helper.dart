@@ -105,7 +105,7 @@ class DatabaseHelper {
     try {
       final db = await openDatabase(
         path,
-        version: 28,
+        version: 29,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -118,7 +118,7 @@ class DatabaseHelper {
       await _cuarentenaDb(path);
       final db = await openDatabase(
         path,
-        version: 28,
+        version: 29,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -293,6 +293,7 @@ CREATE TABLE comparacion(
     await _crearTablaComentariosInternos(db);
     await _crearTablasSyncCertificable(db);
     await _crearTablasDominioTransaccional(db);
+    await _crearTablasIntegridadV29(db);
     await _migrarSyncCompletoV21(db);
     await _crearIndices(db);
   }
@@ -1063,6 +1064,40 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 28) {
       await _migrarRemitosPagosParcialesV28(db);
     }
+    if (oldVersion < 29) {
+      await _crearTablasIntegridadV29(db);
+    }
+  }
+
+  /// Capacidad 8: alarmas de reconciliación stock / CC.
+  Future<void> _crearTablasIntegridadV29(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS integrity_alarms(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  entity_type TEXT,
+  entity_id TEXT,
+  expected REAL,
+  actual REAL,
+  detail TEXT,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_integrity_alarms_kind '
+      'ON integrity_alarms(kind, created_at)',
+    );
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS integrity_scan_meta(
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  last_scan_at TEXT,
+  products_checked INTEGER DEFAULT 0,
+  clients_checked INTEGER DEFAULT 0,
+  negative_stock_count INTEGER DEFAULT 0,
+  alarms_count INTEGER DEFAULT 0
+)
+''');
   }
 
   /// Capacidad operativa: remitos con saldo / pagos parciales.
@@ -1325,5 +1360,5 @@ CREATE TABLE IF NOT EXISTS comentarios_internos(
   }
 
   /// Versión de schema declarada por la app (Capacidad 5 / panel técnico).
-  static const int schemaVersion = 27;
+  static const int schemaVersion = 29;
 }

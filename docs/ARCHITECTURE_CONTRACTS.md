@@ -12,9 +12,10 @@ Varias filas de este documento son **legado tolerado en migración**, no el dise
 
 **Moratoria:** no ampliar la constitución documental hasta Fases A–B–C + auditoría sin críticos.
 
-Última actualización: 2026-07-21 · Schema SQLite: **v28** · Tenant default: **`tata_stock`** (legado — a eliminar en Roadmap 2.0 Fase A)
+Última actualización: 2026-07-21 · Schema SQLite: **v29** · Tenant default: **`tata_stock`** (legado — a eliminar en Roadmap 2.0 Fase A)
 
-> Capacidad 7 (deletes durables): sin bump de schema — reutiliza `sync_outbox` (+ `stock_op`) y tombstones remotos. Ver `docs/capacidades/C7_DELETES_CONVERGENCIA.md`.
+> Capacidad 7 (deletes durables): sin bump de schema — reutiliza `sync_outbox` (+ `stock_op`) y tombstones remotos. Ver `docs/capacidades/C7_DELETES_CONVERGENCIA.md`.  
+> Capacidad 8 (reconciliación): v29 `integrity_alarms` / `integrity_scan_meta`. Ver `docs/capacidades/C8_RECONCILIACION_ALARMAS.md`.
 
 ---
 
@@ -72,6 +73,7 @@ Migraciones: solo incrementales `oldVersion < N`. Nunca wipe en upgrade.
 | v26 | `sync_outbox`, `sync_watermarks`, `sync_conflicts` (Capacidad 2) |
 | v27 | `domain_events`, `inventory_ledger`, `money_ledger` (Capacidad 3) |
 | v28 | Remitos `totalPagado` / `saldoPendiente`; `pagos.remitoId` |
+| v29 | `integrity_alarms`, `integrity_scan_meta` (Capacidad 8) |
 
 Dominio (Capacidad 3): documentos publican eventos; `InventoryLedgerService` / `MoneyLedgerService` proyectan. Ver `docs/capacidades/C3_DOMINIO_TRANSACCIONAL.md`.
 

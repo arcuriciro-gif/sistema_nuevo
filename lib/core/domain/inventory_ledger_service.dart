@@ -6,6 +6,7 @@ import '../../database/database_helper.dart';
 import '../../models/movimiento_stock.dart';
 import '../../services/auth_service.dart';
 import '../events/data_refresh_hub.dart';
+import '../integrity/integrity_policy.dart';
 import '../sync/firestore_sync_service.dart';
 import 'domain_event.dart';
 import 'event_bus.dart';
@@ -75,6 +76,8 @@ class InventoryLedgerService {
         .where((l) => l.cantidad != 0)
         .toList();
     if (lines.isEmpty) return;
+
+    await assertPuedeAplicar(lines: lines, sign: sign);
 
     final docType = event.payload['documentType']?.toString();
     final docId = event.payload['documentId']?.toString();
@@ -181,7 +184,52 @@ class InventoryLedgerService {
     );
     if (rows.isEmpty) return true;
     final actual = (rows.first['stock'] as num?)?.toInt() ?? 0;
-    final reconstruido = await reconstruirStock(productoId);
+    final first = await db.query(
+      'inventory_ledger',
+      columns: ['stock_before'],
+      where: 'product_id = ?',
+      whereArgs: [productoId],
+      orderBy: 'id ASC',
+      limit: 1,
+    );
+    if (first.isEmpty) {
+      // Sin ledger: no hay invariante C3 que validar.
+      return true;
+    }
+    final base = (first.first['stock_before'] as num?)?.toInt() ?? 0;
+    final reconstruido = await reconstruirStock(productoId, stockInicial: base);
     return actual == reconstruido;
+  }
+
+  /// Valida que aplicar [lines] con [sign] no deje stock negativo (si la política lo prohíbe).
+  Future<void> assertPuedeAplicar({
+    required List<InventoryLine> lines,
+    required int sign,
+  }) async {
+    final db = await DatabaseHelper.instance.database;
+    for (final line in lines) {
+      if (line.cantidad == 0) continue;
+      final prod = await db.query(
+        'productos',
+        columns: ['stock', 'codigo'],
+        where: 'id = ?',
+        whereArgs: [line.productoId],
+        limit: 1,
+      );
+      final stockBefore =
+          (prod.isNotEmpty ? prod.first['stock'] as num? : 0)?.toInt() ?? 0;
+      final delta = sign * line.cantidad.abs();
+      final stockAfter = stockBefore + delta;
+      if (!await IntegrityPolicy.instance.permiteStockResultante(stockAfter)) {
+        final codigo = prod.isNotEmpty
+            ? (prod.first['codigo']?.toString() ?? '${line.productoId}')
+            : '${line.productoId}';
+        throw StateError(
+          'Stock insuficiente para $codigo '
+          '(hay $stockBefore, se necesitan ${line.cantidad.abs()}). '
+          'Activá "Permitir stock negativo" en Configuración si corresponde.',
+        );
+      }
+    }
   }
 }
