@@ -6,7 +6,7 @@ import '../auth/rol_util.dart';
 import '../config/backend_config_service.dart';
 import '../firebase/firebase_auth_usuario_service.dart';
 import '../firebase/firebase_bootstrap.dart';
-import 'device_trust_service.dart';
+import '../security/device_trust_service.dart';
 
 /// Asegura tenant + membership para que las Security Rules permitan sync.
 ///
