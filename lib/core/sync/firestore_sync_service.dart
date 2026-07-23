@@ -15,6 +15,8 @@ import '../firebase/firebase_auth_usuario_service.dart';
 import '../firebase/firebase_bootstrap.dart';
 import '../utils/media_path.dart';
 import 'media_sync_service.dart';
+import 'cloud_sync_throttle.dart';
+import 'sync_background.dart';
 import 'sync_catchup.dart';
 import 'sync_health.dart';
 import 'sync_outbox.dart';
@@ -1903,18 +1905,31 @@ class FirestoreSyncService {
       localId: localId,
     );
     if (!_puedeEscribirRemoto) return;
-    try {
-      await _aplicarTombstoneRemoto('remito', numero);
-      await _borrarLocalTrasTombstone(
-        entityType: 'remito',
-        localId: localId,
-        remoteId: numero,
-      );
-      await SyncOutbox.instance.ack('delete:remito:$numero');
-    } catch (e) {
-      await SyncOutbox.instance.fail('delete:remito:$numero', e);
-      debugPrint('Firestore eliminar remito: $e');
+
+    Future<void> aplicar() async {
+      try {
+        await _aplicarTombstoneRemoto('remito', numero);
+        await _borrarLocalTrasTombstone(
+          entityType: 'remito',
+          localId: localId,
+          remoteId: numero,
+        );
+        await SyncOutbox.instance.ack('delete:remito:$numero');
+      } catch (e) {
+        await SyncOutbox.instance.fail('delete:remito:$numero', e);
+        debugPrint('Firestore eliminar remito: $e');
+      }
     }
+
+    // Windows: no await Firestore en el hilo de UI (cerraba el .exe).
+    if (PlatformCapabilities.isWindowsDesktop) {
+      syncInBackground(
+        CloudSyncThrottle.enqueue(aplicar, tag: 'eliminarRemitoRemoto'),
+        tag: 'eliminarRemitoRemoto',
+      );
+      return;
+    }
+    await aplicar();
   }
 
   /// Sube remito + ítems y empuja el stock actualizado de cada producto.
