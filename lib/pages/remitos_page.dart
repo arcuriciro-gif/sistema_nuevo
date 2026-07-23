@@ -292,7 +292,7 @@ class _RemitosPageState extends State<RemitosPage> {
     );
     if (ok == true) {
       try {
-        await service.eliminar(remito['id'] as int);
+        await service.eliminar((remito['id'] as num).toInt());
         await cargar();
       } catch (e) {
         if (!mounted) return;
