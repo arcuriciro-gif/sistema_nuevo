@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/comms/chat_alert_service.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_bootstrap.dart';
 import '../core/sync/media_sync_service.dart';
@@ -75,6 +76,7 @@ class ComunicacionesService extends ChangeNotifier {
     await _notifSub?.cancel();
     _convSub = null;
     _notifSub = null;
+    ChatAlertService.instance.reset();
   }
 
   void _escucharRemoto() {
@@ -160,6 +162,8 @@ class ComunicacionesService extends ChangeNotifier {
     _notificaciones = notifRows.map(NotificacionInterna.fromMap).toList();
     _notifSinLeer = _notificaciones.where((n) => !n.leida).length;
     notifyListeners();
+    // Alerta local si subieron mensajes sin leer (no toca sync).
+    await ChatAlertService.instance.onUnreadChanged(_mensajesSinLeer);
   }
 
   Future<List<Usuario>> usuariosDisponibles() async {

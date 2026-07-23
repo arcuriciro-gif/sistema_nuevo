@@ -49,8 +49,12 @@ class AuthorizationService {
       case AuthzAction.editar:
         return perms.puedeEditar(rol, modulo);
       case AuthzAction.eliminar:
-      case AuthzAction.anular:
         return perms.puedeEliminar(rol, modulo);
+      case AuthzAction.anular:
+        // Anular es operación de negocio: quien puede editar o eliminar, puede anular.
+        // (seed: encargado/supervisor edita remitos pero no siempre "eliminar").
+        return perms.puedeEliminar(rol, modulo) ||
+            perms.puedeEditar(rol, modulo);
       case AuthzAction.administrar:
         return false;
     }
