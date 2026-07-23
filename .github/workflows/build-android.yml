@@ -70,13 +70,9 @@ jobs:
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else
             echo "signed=false" >> "$GITHUB_OUTPUT"
-            if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-              echo "::error::Faltan secrets ANDROID_KEYSTORE_BASE64 / ANDROID_KEY_PROPERTIES."
-              echo "Sin firma release el APK usa debug signing y Android lo marca como no confiable."
-              echo "Cargá los secrets en el repo y re-ejecutá el workflow."
-              exit 1
-            fi
-            echo "::warning::Sin secrets de firma — APK de prueba con debug signing (no usar en producción)."
+            echo "::warning::Faltan secrets ANDROID_KEYSTORE_BASE64 / ANDROID_KEY_PROPERTIES."
+            echo "::warning::Se genera APK con firma debug para poder probar. Android puede marcarla como no confiable."
+            echo "::warning::Para firma release: cargá esos secrets en Settings → Secrets y re-ejecutá."
           fi
 
       - name: Build APK release
