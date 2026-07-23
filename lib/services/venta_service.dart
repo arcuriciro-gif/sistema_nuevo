@@ -92,7 +92,7 @@ class VentaService {
 
   Future<void> anular(int id) async {
     AuthorizationService.instance.require(
-      'ventas',
+      AuthModules.remitos,
       AuthzAction.anular,
       operacion: 'anular venta',
     );
@@ -207,7 +207,7 @@ class VentaService {
 
   Future<void> eliminar(int id) async {
     AuthorizationService.instance.require(
-      'ventas',
+      AuthModules.remitos,
       AuthzAction.eliminar,
       operacion: 'eliminar venta',
     );
