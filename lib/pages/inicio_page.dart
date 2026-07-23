@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
-import '../models/producto.dart';
 import '../services/analytics_service.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
@@ -12,6 +11,7 @@ import '../services/producto_service.dart';
 import '../services/remito_service.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/media_avatar.dart';
+import 'calculadora_page.dart';
 import 'clientes_deudores_page.dart';
 import 'clientes_page.dart';
 import 'compras_page.dart';
@@ -43,7 +43,6 @@ class _InicioPageState extends State<InicioPage> {
   double _comprasMes = 0;
   double _valorStock = 0;
   ResumenCuentasCobrar? _resumenCc;
-  List<Producto> _ultimosProductos = [];
   bool _cargando = true;
 
   @override
@@ -79,8 +78,6 @@ class _InicioPageState extends State<InicioPage> {
     final resumenCc = await _ccService.resumenDashboard();
 
     if (!mounted) return;
-    final sorted = [...productos]
-      ..sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
     setState(() {
       _totalProductos = productos.length;
       _stockTotal = productos.fold(0, (s, p) => s + p.stock);
@@ -92,7 +89,6 @@ class _InicioPageState extends State<InicioPage> {
       _ventasMes = ventasMes;
       _comprasMes = comprasMes;
       _resumenCc = resumenCc;
-      _ultimosProductos = sorted.take(5).toList();
       _cargando = false;
     });
   }
@@ -205,6 +201,40 @@ class _InicioPageState extends State<InicioPage> {
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 20),
+                    // ── Calculadora rápida ───────────────────────────────────
+                    Card(
+                      clipBehavior: Clip.antiAlias,
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        leading: CircleAvatar(
+                          backgroundColor: cs.primaryContainer,
+                          child: Icon(
+                            Icons.calculate_rounded,
+                            color: cs.primary,
+                          ),
+                        ),
+                        title: const Text(
+                          'Calculadora',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        subtitle: const Text(
+                          'Sumas, restos, %, cambio rápido en mostrador',
+                        ),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const CalculadoraPage(),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                     const SizedBox(height: 20),
                     // ── KPI Cards ────────────────────────────────────────────
@@ -412,70 +442,7 @@ class _InicioPageState extends State<InicioPage> {
                         ),
                       ),
                     ],
-                    const SizedBox(height: 24),
-                    // ── Últimos productos ────────────────────────────────────
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Últimos productos cargados',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                                color: cs.onSurface,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            if (_ultimosProductos.isEmpty)
-                              Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Text(
-                                    'No hay productos registrados',
-                                    style:
-                                        TextStyle(color: cs.onSurfaceVariant),
-                                  ),
-                                ),
-                              )
-                            else
-                              ...(_ultimosProductos.map(
-                                (p) => ListTile(
-                                  dense: true,
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => const ProductosPage(),
-                                      ),
-                                    ).then((_) => _cargar());
-                                  },
-                                  leading: MediaAvatar(
-                                    path: p.fotoPrincipal,
-                                    radius: 20,
-                                    fallbackLetter: p.codigo.isNotEmpty
-                                        ? p.codigo[0]
-                                        : '?',
-                                    backgroundColor: cs.primaryContainer,
-                                    foregroundColor: cs.onPrimaryContainer,
-                                  ),
-                                  title: Text(p.descripcion),
-                                  subtitle: Text('${p.codigo} · ${p.marca}'),
-                                  trailing: Text(
-                                    '\$${_fmt(p.precio)}',
-                                    style: TextStyle(
-                                      color: cs.primary,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                              )),
-                          ],
-                        ),
-                      ),
-                    ),
+                    const SizedBox(height: 8),
                   ],
                 ),
               ),

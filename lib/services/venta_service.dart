@@ -209,23 +209,31 @@ class VentaService {
   }
 
   Future<void> eliminar(int id) async {
-    AuthorizationService.instance.require(
-      AuthModules.remitos,
-      AuthzAction.eliminar,
-      operacion: 'eliminar venta',
-    );
+    // Encargado (editar/anular) también puede borrar facturas; empleado no.
+    final auth = AuthorizationService.instance;
+    if (!auth.puede(AuthModules.remitos, AuthzAction.eliminar) &&
+        !auth.puede(AuthModules.remitos, AuthzAction.anular)) {
+      auth.require(
+        AuthModules.remitos,
+        AuthzAction.eliminar,
+        operacion: 'eliminar venta',
+      );
+    }
     final db = await _db.database;
     final venta = await obtenerPorId(id);
-    // Capacidad 7: outbox/tombstone antes del hard-delete local.
-    if (venta != null) {
-      await FirestoreSyncService.instance.eliminarVentaRemota(venta);
-    }
     await db.transaction((txn) async {
       await txn.delete('pagos', where: 'ventaId = ?', whereArgs: [id]);
       await txn
           .delete('ventas_items', where: 'ventaId = ?', whereArgs: [id]);
       await txn.delete('ventas', where: 'id = ?', whereArgs: [id]);
     });
+    // Nube en background: no bloquear UI / modo avión.
+    if (venta != null) {
+      syncInBackground(
+        FirestoreSyncService.instance.eliminarVentaRemota(venta),
+        tag: 'eliminarVentaRemota',
+      );
+    }
     if (venta?.clienteId != null) {
       await _cc.recalcularSaldoCliente(venta!.clienteId!);
     }

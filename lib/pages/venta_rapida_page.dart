@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -263,32 +265,39 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
       final totalVenta = remito.total;
       final carritoSnapshot = List<_ItemCarrito>.from(_carrito);
 
-      // Archivar PDF para enviarlo luego desde el celular
-      try {
-        final pdfSvc = PdfService();
-        final remitoMap = {
-          'id': remitoId,
-          'numero': numero,
-          'fecha': remito.fecha.toIso8601String(),
-          'total': remito.total,
-          'descuento': 0,
-        };
-        final itemsPdf = carritoSnapshot
-            .map(
-              (e) => {
-                'descripcion': e.producto.descripcion,
-                'cantidad': e.cantidad,
-                'precio': e.precioUnitario,
-                'subtotal': e.subtotal,
-              },
-            )
-            .toList();
-        final bytes = await pdfSvc.generateRemitoPdf(
-          remitoMap,
-          itemsPdf,
-          mostrador.nombre,
-        );
-        if (bytes.isNotEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _carrito.clear();
+        _finalizando = false;
+      });
+
+      // PDF local + nube en background (no colgar en modo avión).
+      unawaited(() async {
+        try {
+          final pdfSvc = PdfService();
+          final remitoMap = {
+            'id': remitoId,
+            'numero': numero,
+            'fecha': remito.fecha.toIso8601String(),
+            'total': remito.total,
+            'descuento': 0,
+          };
+          final itemsPdf = carritoSnapshot
+              .map(
+                (e) => {
+                  'descripcion': e.producto.descripcion,
+                  'cantidad': e.cantidad,
+                  'precio': e.precioUnitario,
+                  'subtotal': e.subtotal,
+                },
+              )
+              .toList();
+          final bytes = await pdfSvc.generateRemitoPdf(
+            remitoMap,
+            itemsPdf,
+            mostrador.nombre,
+          );
+          if (bytes.isEmpty) return;
           final archivo = await pdfSvc.guardarPdf(bytes, 'remito_$numero.pdf');
           await DocumentoClienteService.instance.archivarPdf(
             archivo: archivo,
@@ -298,14 +307,8 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
             clienteId: mostrador.id,
             clienteSyncId: mostrador.syncId,
           );
-        }
-      } catch (_) {}
-
-      if (!mounted) return;
-      setState(() {
-        _carrito.clear();
-        _finalizando = false;
-      });
+        } catch (_) {}
+      }());
 
       final compartir = await showDialog<bool>(
         context: context,

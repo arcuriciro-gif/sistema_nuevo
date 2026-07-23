@@ -59,4 +59,18 @@ class DocumentoCliente {
       fecha: DateTime.tryParse(map['fecha']?.toString() ?? '') ?? DateTime.now(),
     );
   }
+
+  DocumentoCliente copyWith({String? url}) => DocumentoCliente(
+        id: id,
+        clienteSyncId: clienteSyncId,
+        clienteId: clienteId,
+        clienteNombre: clienteNombre,
+        tipo: tipo,
+        numero: numero,
+        nombreArchivo: nombreArchivo,
+        url: url ?? this.url,
+        localPath: localPath,
+        creadoPor: creadoPor,
+        fecha: fecha,
+      );
 }

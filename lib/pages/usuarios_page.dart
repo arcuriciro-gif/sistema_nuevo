@@ -277,6 +277,7 @@ class _UsuariosPageState extends State<UsuariosPage> {
                             margin: const EdgeInsets.only(bottom: 8),
                             child: ListTile(
                               leading: CircleAvatar(
+                                radius: 32,
                                 backgroundColor: colorRol.withValues(alpha: .15),
                                 backgroundImage:
                                     imageProviderDesdePath(usuario.foto),
@@ -288,6 +289,7 @@ class _UsuariosPageState extends State<UsuariosPage> {
                                         style: TextStyle(
                                           color: colorRol,
                                           fontWeight: FontWeight.bold,
+                                          fontSize: 18,
                                         ),
                                       )
                                     : null,

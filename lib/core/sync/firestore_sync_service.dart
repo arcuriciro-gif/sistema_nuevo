@@ -9,6 +9,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../config/backend_config_service.dart';
+import '../config/platform_capabilities.dart';
 import '../events/data_refresh_hub.dart';
 import '../firebase/firebase_auth_usuario_service.dart';
 import '../firebase/firebase_bootstrap.dart';
@@ -1363,10 +1364,14 @@ class FirestoreSyncService {
   }
 
   /// Ajusta stock en la nube de forma atómica e idempotente (Fase 2).
+  ///
+  /// [flushImmediately]: en Windows conviene `false` tras compras/remitos
+  /// para no tumbar el .exe con ráfagas Firebase.
   Future<void> ajustarStockEnNube({
     required int productoId,
     required int delta,
     String? opId,
+    bool flushImmediately = true,
   }) async {
     if (delta == 0) return;
     final idOp = (opId == null || opId.isEmpty) ? const Uuid().v4() : opId;
@@ -1393,8 +1398,13 @@ class FirestoreSyncService {
       _colaStockOps.add(token);
       await _persistirColaStockOps();
     }
-    await _flushColaStockOps();
+    if (flushImmediately) {
+      await _flushColaStockOps();
+    }
   }
+
+  /// Expone flush diferido (Windows: tras compras, sin tumbar el .exe).
+  Future<void> flushStockOpsPendientes() => _flushColaStockOps();
 
   Future<void> _flushColaStockOps() async {
     // Migrar tokens legacy prefs → outbox (idempotente).
@@ -1720,11 +1730,16 @@ class FirestoreSyncService {
       }, SetOptions(merge: true));
 
       for (final item in items) {
-        final pid = item['productoId'];
-        if (pid is int) {
+        final pidRaw = item['productoId'];
+        final pid = pidRaw is int
+            ? pidRaw
+            : (pidRaw is num ? pidRaw.toInt() : null);
+        if (pid == null) continue;
+        // Siempre encolar; en Windows no subir ya (evita crash del .exe).
+        await SyncOutbox.instance
+            .enqueueUpsert(entityType: 'producto', localId: pid);
+        if (!PlatformCapabilities.isWindowsDesktop) {
           await subirProductoPorId(pid);
-        } else if (pid is num) {
-          await subirProductoPorId(pid.toInt());
         }
       }
       if (!desdeOutbox) {
@@ -1833,6 +1848,28 @@ class FirestoreSyncService {
       }
       debugPrint('Firestore subir venta: $e');
       if (desdeOutbox) rethrow;
+    }
+  }
+
+  Future<void> eliminarCompraRemota(String numero, {int? localId}) async {
+    if (numero.isEmpty) return;
+    await SyncOutbox.instance.enqueueDelete(
+      entityType: 'compra',
+      remoteId: numero,
+      localId: localId,
+    );
+    if (!_puedeEscribirRemoto) return;
+    try {
+      await _aplicarTombstoneRemoto('compra', numero);
+      await _borrarLocalTrasTombstone(
+        entityType: 'compra',
+        localId: localId,
+        remoteId: numero,
+      );
+      await SyncOutbox.instance.ack('delete:compra:$numero');
+    } catch (e) {
+      await SyncOutbox.instance.fail('delete:compra:$numero', e);
+      debugPrint('Firestore eliminar compra: $e');
     }
   }
 

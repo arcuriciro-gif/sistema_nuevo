@@ -156,7 +156,9 @@ class ChatMensaje {
       archivoNombre: map['archivoNombre']?.toString(),
       archivoMime: map['archivoMime']?.toString(),
       compartido: compartido,
-      fecha: DateTime.tryParse(map['fecha']?.toString() ?? '') ?? DateTime.now(),
+      fecha: (DateTime.tryParse(map['fecha']?.toString() ?? '') ??
+              DateTime.now())
+          .toLocal(),
       estados: estados,
     );
   }

@@ -65,5 +65,69 @@ void main() {
         isTrue,
       );
     });
+
+    test('con permiso anular también puede eliminar en UI', () {
+      AuthService.instance.currentUser = Usuario(
+        id: 2,
+        nombre: 'Encargado',
+        usuario: 'enc',
+        password: 'x',
+        rol: 'encargado',
+        activo: true,
+      );
+      PermisosService.instance.seedCacheForTests({
+        'supervisor': {
+          'remitos': Permiso(
+            rol: 'supervisor',
+            modulo: 'remitos',
+            puedeVer: true,
+            puedeCrear: true,
+            puedeEditar: true,
+            puedeEliminar: false,
+          ),
+        },
+      });
+      final auth = AuthorizationService.instance;
+      final puedeBorrarUi = auth.puede(AuthModules.remitos, AuthzAction.eliminar) ||
+          auth.puede(AuthModules.remitos, AuthzAction.anular);
+      expect(puedeBorrarUi, isTrue);
+    });
+
+    test('empleado sin anular/eliminar no ve borrar factura', () {
+      AuthService.instance.currentUser = Usuario(
+        id: 3,
+        nombre: 'Empleado',
+        usuario: 'emp',
+        password: 'x',
+        rol: 'empleado',
+        activo: true,
+      );
+      PermisosService.instance.seedCacheForTests({
+        'empleado': {
+          'remitos': Permiso(
+            rol: 'empleado',
+            modulo: 'remitos',
+            puedeVer: true,
+            puedeCrear: true,
+            puedeEditar: false,
+            puedeEliminar: false,
+          ),
+          'productos': Permiso(
+            rol: 'empleado',
+            modulo: 'productos',
+            puedeVer: true,
+            puedeCrear: false,
+            puedeEditar: false,
+            puedeEliminar: false,
+          ),
+        },
+      });
+      final auth = AuthorizationService.instance;
+      final puedeBorrarUi = auth.puede(AuthModules.remitos, AuthzAction.eliminar) ||
+          auth.puede(AuthModules.remitos, AuthzAction.anular);
+      expect(puedeBorrarUi, isFalse);
+      expect(auth.puedeEditarProductos, isFalse);
+      expect(auth.puedeEliminarProductos, isFalse);
+    });
   });
 }

@@ -115,11 +115,15 @@ class ChatConversacion {
       nombres: parseStringMap(map['nombres']),
       titulo: map['titulo']?.toString(),
       ultimoMensaje: map['ultimoMensaje']?.toString() ?? '',
-      ultimoMensajeAt:
-          DateTime.tryParse(map['ultimoMensajeAt']?.toString() ?? ''),
+      ultimoMensajeAt: () {
+        final raw =
+            DateTime.tryParse(map['ultimoMensajeAt']?.toString() ?? '');
+        return raw?.toLocal();
+      }(),
       noLeidos: parseIntMap(map['noLeidos']),
-      creadaAt: DateTime.tryParse(map['creadaAt']?.toString() ?? '') ??
-          DateTime.now(),
+      creadaAt: (DateTime.tryParse(map['creadaAt']?.toString() ?? '') ??
+              DateTime.now())
+          .toLocal(),
     );
   }
 

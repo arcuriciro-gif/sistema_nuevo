@@ -66,6 +66,7 @@ class ChatAlertService {
     String? cuerpoMensaje,
     String? tituloNotif,
     String? cuerpoNotif,
+    String? conversacionId,
   }) async {
     if (!_listo) {
       marcarBaseline(mensajesSinLeer, notifSinLeer: notifSinLeer);
@@ -86,6 +87,7 @@ class ChatAlertService {
     }
 
     if (subioMsg) {
+      final id = (conversacionId ?? '').trim();
       await LocalNotificationService.instance.show(
         titulo: (tituloMensaje ?? '').trim().isEmpty
             ? 'Mensaje nuevo'
@@ -93,7 +95,7 @@ class ChatAlertService {
         cuerpo: (cuerpoMensaje ?? '').trim().isEmpty
             ? 'Tenés un mensaje en Tata.Manager'
             : cuerpoMensaje!.trim(),
-        payload: 'chat',
+        payload: id.isEmpty ? 'chat' : 'chat:$id',
       );
     } else if (subioNotif) {
       await LocalNotificationService.instance.show(

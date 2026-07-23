@@ -2,10 +2,17 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../database/database_helper.dart';
+import '../models/cliente.dart';
+import '../models/producto.dart';
 import '../services/analytics_service.dart';
+import '../services/cliente_service.dart';
 import '../services/compra_service.dart';
+import '../services/producto_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
+import 'cliente_detalle_page.dart';
+import 'producto_form_page.dart';
+import 'productos_page.dart';
 
 class InteligenciaComercialPage extends StatefulWidget {
   const InteligenciaComercialPage({super.key});
@@ -16,6 +23,13 @@ class InteligenciaComercialPage extends StatefulWidget {
 
 class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
   final CompraService _compraService = CompraService();
+  final ProductoService _productoService = ProductoService();
+  final ClienteService _clienteService = ClienteService();
+  final ScrollController _scrollCtrl = ScrollController();
+  final GlobalKey _keyAgotarse = GlobalKey();
+  final GlobalKey _keySinMovimiento = GlobalKey();
+  final GlobalKey _keyClientesInactivos = GlobalKey();
+  final GlobalKey _keyGraficos = GlobalKey();
 
   List<Map<String, dynamic>> _topRentabilidad = [];
   List<Map<String, dynamic>> _topVendidos = [];
@@ -33,6 +47,112 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
   void initState() {
     super.initState();
     _cargar();
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _scrollTo(GlobalKey key) async {
+    final ctx = key.currentContext;
+    if (ctx == null) return;
+    await Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+      alignment: 0.05,
+    );
+  }
+
+  Future<void> _abrirProducto(int? id) async {
+    if (id == null) return;
+    final todos = await _productoService.obtenerTodos();
+    Producto? p;
+    for (final e in todos) {
+      if (e.id == id) {
+        p = e;
+        break;
+      }
+    }
+    if (p == null || !mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ProductoFormPage(producto: p)),
+    );
+    if (mounted) await _cargar();
+  }
+
+  Future<void> _abrirCliente(int? id) async {
+    if (id == null) return;
+    final todos = await _clienteService.obtenerTodos();
+    Cliente? c;
+    for (final e in todos) {
+      if (e.id == id) {
+        c = e;
+        break;
+      }
+    }
+    if (c == null || !mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ClienteDetallePage(cliente: c!)),
+    );
+    if (mounted) await _cargar();
+  }
+
+  Future<void> _verProductosPorAgotarse() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ProductosPage(soloStockBajoInicial: true),
+      ),
+    );
+    if (mounted) await _cargar();
+  }
+
+  Future<void> _verSinMovimiento() async {
+    if (_sinMovimiento.isEmpty) {
+      await _scrollTo(_keySinMovimiento);
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _IntelDetalleListaPage(
+          titulo: 'Sin movimiento (30 días)',
+          items: _sinMovimiento,
+          titleBuilder: (item) =>
+              '${item['descripcion']} (${item['codigo']})',
+          subtitleBuilder: (item) => 'Stock actual: ${item['stock'] ?? 0}',
+          onTap: (item) => _abrirProducto((item['id'] as num?)?.toInt()),
+        ),
+      ),
+    );
+    if (mounted) await _cargar();
+  }
+
+  Future<void> _verClientesInactivos() async {
+    if (_clientesInactivos.isEmpty) {
+      await _scrollTo(_keyClientesInactivos);
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _IntelDetalleListaPage(
+          titulo: 'Clientes inactivos',
+          items: _clientesInactivos,
+          titleBuilder: (item) =>
+              '${item['nombre'] ?? ''} ${(item['apellido'] ?? '').toString()}'
+                  .trim(),
+          subtitleBuilder: (item) => 'Teléfono: ${item['telefono'] ?? '-'}',
+          onTap: (item) => _abrirCliente((item['id'] as num?)?.toInt()),
+        ),
+      ),
+    );
+    if (mounted) await _cargar();
   }
 
   Future<void> _cargar() async {
@@ -100,20 +220,62 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
     setState(() => _cargando = false);
   }
 
-  Widget _metricCard(String titulo, String valor, IconData icono, Color color) {
+  Widget _metricCard(
+    String titulo,
+    String valor,
+    IconData icono,
+    Color color, {
+    VoidCallback? onTap,
+  }) {
+    final wide = MediaQuery.sizeOf(context).width >= 900;
     return Card(
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color.withValues(alpha: .15),
-          child: Icon(icono, color: color),
-        ),
-        title: Text(titulo),
-        subtitle: Text(
-          valor,
-          style: TextStyle(
-            color: color,
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: wide ? 10 : 12,
+            vertical: wide ? 8 : 10,
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: wide ? 16 : 18,
+                backgroundColor: color.withValues(alpha: .15),
+                child: Icon(icono, color: color, size: wide ? 16 : 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      titulo,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: wide ? 12 : 13,
+                        height: 1.15,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      valor,
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.bold,
+                        fontSize: wide ? 16 : 17,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (onTap != null)
+                Icon(Icons.chevron_right_rounded, size: 18, color: color),
+            ],
           ),
         ),
       ),
@@ -124,17 +286,35 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
     String titulo,
     List<Map<String, dynamic>> items,
     String Function(Map<String, dynamic>) titleBuilder,
-    String Function(Map<String, dynamic>) subtitleBuilder,
-  ) {
+    String Function(Map<String, dynamic>) subtitleBuilder, {
+    Key? key,
+    void Function(Map<String, dynamic> item)? onItemTap,
+    VoidCallback? onVerTodos,
+  }) {
     return Card(
+      key: key,
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              titulo,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    titulo,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                if (onVerTodos != null && items.isNotEmpty)
+                  TextButton(
+                    onPressed: onVerTodos,
+                    child: const Text('Ver todos'),
+                  ),
+              ],
             ),
             const SizedBox(height: 8),
             if (items.isEmpty)
@@ -146,6 +326,10 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
                   contentPadding: EdgeInsets.zero,
                   title: Text(titleBuilder(item)),
                   subtitle: Text(subtitleBuilder(item)),
+                  trailing: onItemTap == null
+                      ? null
+                      : const Icon(Icons.chevron_right_rounded, size: 20),
+                  onTap: onItemTap == null ? null : () => onItemTap(item),
                 ),
               ),
           ],
@@ -259,6 +443,7 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
           : RefreshIndicator(
               onRefresh: _cargar,
               child: ListView(
+                controller: _scrollCtrl,
                 padding: const EdgeInsets.all(16),
                 children: [
                   Text(
@@ -268,45 +453,71 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
                         .titleLarge
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Tocá un indicador para ver el detalle.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                  ),
                   const SizedBox(height: 12),
                   GridView.count(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 2,
-                    childAspectRatio: 1.7,
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
+                    crossAxisCount: MediaQuery.sizeOf(context).width >= 900
+                        ? 4
+                        : 2,
+                    childAspectRatio: MediaQuery.sizeOf(context).width >= 900
+                        ? 3.2
+                        : 2.4,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
                     children: [
                       _metricCard(
                         'Ganancia real (6 meses)',
                         '\$${_gananciaEstimada.toStringAsFixed(0)}',
                         Icons.trending_up_rounded,
                         AppVisuals.success(cs),
+                        onTap: () => _scrollTo(_keyGraficos),
                       ),
                       _metricCard(
                         'Productos por agotarse',
                         '${_agotarse.length}',
                         Icons.warning_amber_rounded,
                         AppVisuals.warning(cs),
+                        onTap: _verProductosPorAgotarse,
                       ),
                       _metricCard(
                         'Sin movimiento 30 días',
                         '${_sinMovimiento.length}',
                         Icons.hourglass_empty_rounded,
                         AppVisuals.info(cs),
+                        onTap: _verSinMovimiento,
                       ),
                       _metricCard(
                         'Clientes inactivos',
                         '${_clientesInactivos.length}',
                         Icons.person_off_rounded,
                         AppVisuals.danger(cs),
+                        onTap: _verClientesInactivos,
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  _chartCard('Ventas por mes', _ventasMes, AppVisuals.primaryAccent(cs)),
+                  KeyedSubtree(
+                    key: _keyGraficos,
+                    child: _chartCard(
+                      'Ventas por mes',
+                      _ventasMes,
+                      AppVisuals.primaryAccent(cs),
+                    ),
+                  ),
                   const SizedBox(height: 12),
-                  _chartCard('Compras por mes', _comprasMes, AppVisuals.secondaryAccent(cs)),
+                  _chartCard(
+                    'Compras por mes',
+                    _comprasMes,
+                    AppVisuals.secondaryAccent(cs),
+                  ),
                   const SizedBox(height: 12),
                   _listCard(
                     'Top 10 productos por rentabilidad',
@@ -319,7 +530,8 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
                   _listCard(
                     'Top 10 productos más vendidos',
                     _topVendidos,
-                    (item) => (item['descripcion'] ?? 'Sin descripción').toString(),
+                    (item) =>
+                        (item['descripcion'] ?? 'Sin descripción').toString(),
                     (item) =>
                         '${((item['totalVendido'] as num?)?.toInt() ?? 0)} unidades • \$${((item['totalMonto'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
                   ),
@@ -329,6 +541,10 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
                     _sinMovimiento,
                     (item) => '${item['descripcion']} (${item['codigo']})',
                     (item) => 'Stock actual: ${item['stock'] ?? 0}',
+                    key: _keySinMovimiento,
+                    onVerTodos: _verSinMovimiento,
+                    onItemTap: (item) =>
+                        _abrirProducto((item['id'] as num?)?.toInt()),
                   ),
                   const SizedBox(height: 12),
                   _listCard(
@@ -336,6 +552,10 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
                     _agotarse,
                     (item) => '${item['descripcion']} (${item['codigo']})',
                     (item) => 'Stock actual: ${item['stock'] ?? 0}',
+                    key: _keyAgotarse,
+                    onVerTodos: _verProductosPorAgotarse,
+                    onItemTap: (item) =>
+                        _abrirProducto((item['id'] as num?)?.toInt()),
                   ),
                   const SizedBox(height: 12),
                   _listCard(
@@ -344,25 +564,77 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
                     (item) => (item['nombre'] ?? 'Sin nombre').toString(),
                     (item) =>
                         '${((item['cantidadOps'] as num?)?.toInt() ?? (item['cantidadRemitos'] as num?)?.toInt() ?? 0)} operaciones • \$${((item['totalCompras'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+                    onItemTap: (item) => _abrirCliente(
+                      (item['clienteId'] as num?)?.toInt() ??
+                          (item['id'] as num?)?.toInt(),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   _listCard(
                     'Clientes inactivos',
                     _clientesInactivos,
                     (item) =>
-                        '${item['nombre'] ?? ''} ${(item['apellido'] ?? '').toString()}'.trim(),
+                        '${item['nombre'] ?? ''} ${(item['apellido'] ?? '').toString()}'
+                            .trim(),
                     (item) => 'Teléfono: ${item['telefono'] ?? '-'}',
+                    key: _keyClientesInactivos,
+                    onVerTodos: _verClientesInactivos,
+                    onItemTap: (item) =>
+                        _abrirCliente((item['id'] as num?)?.toInt()),
                   ),
                   const SizedBox(height: 12),
                   _listCard(
                     'Proveedores con más compras',
                     _topProveedores,
-                    (item) => (item['proveedorNombre'] ?? 'Sin proveedor').toString(),
+                    (item) =>
+                        (item['proveedorNombre'] ?? 'Sin proveedor').toString(),
                     (item) =>
                         '${((item['cantidadCompras'] as num?)?.toInt() ?? 0)} compras • \$${((item['totalComprado'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
                   ),
                 ],
               ),
+            ),
+    );
+  }
+}
+
+/// Lista completa al tocar un KPI de inteligencia comercial.
+class _IntelDetalleListaPage extends StatelessWidget {
+  final String titulo;
+  final List<Map<String, dynamic>> items;
+  final String Function(Map<String, dynamic>) titleBuilder;
+  final String Function(Map<String, dynamic>) subtitleBuilder;
+  final Future<void> Function(Map<String, dynamic> item)? onTap;
+
+  const _IntelDetalleListaPage({
+    required this.titulo,
+    required this.items,
+    required this.titleBuilder,
+    required this.subtitleBuilder,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: buildModuleAppBar(context, title: titulo),
+      body: items.isEmpty
+          ? const Center(child: Text('Sin datos disponibles.'))
+          : ListView.separated(
+              padding: const EdgeInsets.all(12),
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final item = items[index];
+                return ListTile(
+                  title: Text(titleBuilder(item)),
+                  subtitle: Text(subtitleBuilder(item)),
+                  trailing: onTap == null
+                      ? null
+                      : const Icon(Icons.chevron_right_rounded),
+                  onTap: onTap == null ? null : () => onTap!(item),
+                );
+              },
             ),
     );
   }

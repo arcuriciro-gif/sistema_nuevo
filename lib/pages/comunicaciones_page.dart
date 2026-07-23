@@ -170,11 +170,14 @@ class _ComunicacionesPageState extends State<ComunicacionesPage> {
 
   String _fmtHora(DateTime? f) {
     if (f == null) return '';
+    final local = f.toLocal();
     final now = DateTime.now();
-    if (f.year == now.year && f.month == now.month && f.day == now.day) {
-      return '${f.hour.toString().padLeft(2, '0')}:${f.minute.toString().padLeft(2, '0')}';
+    if (local.year == now.year &&
+        local.month == now.month &&
+        local.day == now.day) {
+      return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
     }
-    return '${f.day.toString().padLeft(2, '0')}/${f.month.toString().padLeft(2, '0')}';
+    return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')}';
   }
 
   @override

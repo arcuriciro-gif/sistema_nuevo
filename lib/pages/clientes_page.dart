@@ -137,7 +137,7 @@ class _ClientesPageState extends State<ClientesPage> {
   Widget _avatar(Cliente c, ColorScheme cs) {
     return MediaAvatar(
       path: c.foto,
-      radius: 22,
+      radius: 30,
       fallbackLetter: c.nombre.isNotEmpty ? c.nombre[0] : '?',
       backgroundColor: cs.primaryContainer,
       foregroundColor: cs.onPrimaryContainer,
@@ -332,36 +332,48 @@ class _ClientesPageState extends State<ClientesPage> {
                                             await confirmarEliminar(c);
                                         }
                                       },
-                                      itemBuilder: (_) => const [
-                                        PopupMenuItem(
-                                          value: 'ficha',
-                                          child: Text('Ver ficha'),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'cc',
-                                          child: Text('Cuenta corriente'),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'hist',
-                                          child: Text('Historial'),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'edit',
-                                          child: Text('Editar'),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'coment',
-                                          child: Text('Comentarios'),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'share',
-                                          child: Text('Compartir en chat'),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'del',
-                                          child: Text('Eliminar'),
-                                        ),
-                                      ],
+                                      itemBuilder: (_) {
+                                        final auth =
+                                            AuthorizationService.instance;
+                                        return [
+                                          const PopupMenuItem(
+                                            value: 'ficha',
+                                            child: Text('Ver ficha'),
+                                          ),
+                                          const PopupMenuItem(
+                                            value: 'cc',
+                                            child: Text('Cuenta corriente'),
+                                          ),
+                                          const PopupMenuItem(
+                                            value: 'hist',
+                                            child: Text('Historial'),
+                                          ),
+                                          if (auth.puede(
+                                            AuthModules.clientes,
+                                            AuthzAction.editar,
+                                          ))
+                                            const PopupMenuItem(
+                                              value: 'edit',
+                                              child: Text('Editar'),
+                                            ),
+                                          const PopupMenuItem(
+                                            value: 'coment',
+                                            child: Text('Comentarios'),
+                                          ),
+                                          const PopupMenuItem(
+                                            value: 'share',
+                                            child: Text('Compartir en chat'),
+                                          ),
+                                          if (auth.puede(
+                                            AuthModules.clientes,
+                                            AuthzAction.eliminar,
+                                          ))
+                                            const PopupMenuItem(
+                                              value: 'del',
+                                              child: Text('Eliminar'),
+                                            ),
+                                        ];
+                                      },
                                     ),
                                   ],
                                 ),

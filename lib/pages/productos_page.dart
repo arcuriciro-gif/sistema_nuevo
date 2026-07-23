@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/utils/busqueda_texto.dart';
-import '../models/chat_mensaje.dart';
 import '../models/lista_precio.dart';
 import '../models/producto.dart';
 import '../services/lista_precio_service.dart';
@@ -11,9 +10,8 @@ import '../services/producto_service.dart';
 import '../theme/app_visuals.dart';
 import '../widgets/media_avatar.dart';
 import '../widgets/foto_ampliada.dart';
-import '../widgets/compartir_chat_dialog.dart';
-import '../widgets/comentarios_internos_sheet.dart';
 import 'papelera_productos_page.dart';
+import 'producto_detalle_page.dart';
 import 'producto_form_page.dart';
 import 'scanner_page.dart';
 import '../theme/module_app_bar.dart';
@@ -261,14 +259,6 @@ class _ProductosPageState extends State<ProductosPage> {
     return AppVisuals.danger(cs);
   }
 
-  Future<void> _editarProducto(Producto producto) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => ProductoFormPage(producto: producto)),
-    );
-    await cargarProductos();
-  }
-
   Future<void> _nuevoProducto() async {
     await Navigator.push(
       context,
@@ -302,21 +292,23 @@ class _ProductosPageState extends State<ProductosPage> {
               _aplicarFiltros();
             },
           ),
-          IconButton(
-            tooltip: 'Papelera',
-            icon: const Icon(Icons.delete_outline_rounded),
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const PapeleraProductosPage()),
-              );
-              await cargarProductos();
-            },
-          ),
+          if (AuthorizationService.instance.puedeEliminarProductos)
+            IconButton(
+              tooltip: 'Papelera',
+              icon: const Icon(Icons.delete_outline_rounded),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PapeleraProductosPage(),
+                  ),
+                );
+                await cargarProductos();
+              },
+            ),
         ],
       ),
-      floatingActionButton: AuthorizationService.instance.puede(
-              AuthModules.productos, AuthzAction.crear)
+      floatingActionButton: AuthorizationService.instance.puedeCrearProductos
           ? FloatingActionButton.extended(
               heroTag: 'fab_productos',
               onPressed: _nuevoProducto,
@@ -572,36 +564,49 @@ class _ProductosPageState extends State<ProductosPage> {
                               producto: p,
                               stockColor: stockColor,
                               colorScheme: colorScheme,
-                              listasActivas: listasActivas,
-                              valorAporte: _ordenarPorValorStock
-                                  ? p.precio * p.stock
-                                  : null,
-                              onEdit: () => _editarProducto(p),
-                              onDelete: () => eliminar(p),
+                              onOpen: () async {
+                                final changed = await Navigator.push<bool>(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => ProductoDetallePage(
+                                      producto: p,
+                                      listasActivas: listasActivas,
+                                      onEdit: AuthorizationService
+                                              .instance.puedeEditarProductos
+                                          ? () async {
+                                              await Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      ProductoFormPage(
+                                                    producto: p,
+                                                  ),
+                                                ),
+                                              );
+                                              if (context.mounted) {
+                                                Navigator.pop(context, true);
+                                              }
+                                            }
+                                          : null,
+                                      onDelete: AuthorizationService
+                                              .instance.puedeEliminarProductos
+                                          ? () async {
+                                              Navigator.pop(context);
+                                              await eliminar(p);
+                                            }
+                                          : null,
+                                      onToggleFavorito: () async {
+                                        await _toggleFavorito(p);
+                                        if (context.mounted) {
+                                          Navigator.pop(context, true);
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                );
+                                if (changed == true) await cargarProductos();
+                              },
                               onToggleFavorito: () => _toggleFavorito(p),
-                              onShare: () => showCompartirEnChatDialog(
-                                context,
-                                compartido: ChatCompartido(
-                                  tipo: 'producto',
-                                  idRef: '${p.id}',
-                                  titulo: p.descripcion,
-                                  subtitulo:
-                                      'Cód: ${p.codigo} · Stock ${p.stock} · \$${p.precio.toStringAsFixed(2)}',
-                                  datos: {
-                                    'codigo': p.codigo,
-                                    'stock': p.stock,
-                                    'precio': p.precio,
-                                    'costo': p.costo,
-                                    'foto': p.fotoPrincipal,
-                                  },
-                                ),
-                              ),
-                              onComment: () => showComentariosInternos(
-                                context,
-                                entidadTipo: 'producto',
-                                entidadId: '${p.id}',
-                                titulo: p.descripcion,
-                              ),
                             );
                           },
                         ),
@@ -801,25 +806,15 @@ class _ProductoCard extends StatelessWidget {
   final Producto producto;
   final Color stockColor;
   final ColorScheme colorScheme;
-  final List<ListaPrecio> listasActivas;
-  final double? valorAporte;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final VoidCallback onOpen;
   final VoidCallback onToggleFavorito;
-  final VoidCallback onShare;
-  final VoidCallback onComment;
 
   const _ProductoCard({
     required this.producto,
     required this.stockColor,
     required this.colorScheme,
-    required this.listasActivas,
-    this.valorAporte,
-    required this.onEdit,
-    required this.onDelete,
+    required this.onOpen,
     required this.onToggleFavorito,
-    required this.onShare,
-    required this.onComment,
   });
 
   @override
@@ -827,186 +822,99 @@ class _ProductoCard extends StatelessWidget {
     final p = producto;
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                GestureDetector(
-                  onTap: p.fotoPrincipal.trim().isEmpty
-                      ? null
-                      : () => showFotoAmpliada(
-                            context,
-                            path: p.fotoPrincipal,
-                            titulo: p.descripcion,
-                          ),
-                  child: MediaAvatar(
-                    path: p.fotoPrincipal,
-                    radius: 26,
-                    fallbackLetter: (p.descripcion.isNotEmpty
-                            ? p.descripcion
-                            : p.codigo)
-                        .substring(0, 1),
-                    backgroundColor: colorScheme.primaryContainer,
-                    foregroundColor: colorScheme.onPrimaryContainer,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        p.descripcion,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 15),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Cód: ${p.codigo}  •  ${p.marca}',
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: colorScheme.onSurfaceVariant),
-                      ),
-                      if (valorAporte != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          'Aporte al valor: \$${valorAporte!.toStringAsFixed(0)}'
-                          '  (${p.stock} × \$${p.precio.toStringAsFixed(0)})',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFF3B82F6),
-                          ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: p.fotoPrincipal.trim().isEmpty
+                    ? null
+                    : () => showFotoAmpliada(
+                          context,
+                          path: p.fotoPrincipal,
+                          titulo: p.descripcion,
                         ),
-                      ],
-                    ],
-                  ),
+                child: MediaAvatar(
+                  path: p.fotoPrincipal,
+                  radius: 34,
+                  fallbackLetter: (p.descripcion.isNotEmpty
+                          ? p.descripcion
+                          : p.codigo)
+                      .substring(0, 1),
+                  backgroundColor: colorScheme.primaryContainer,
+                  foregroundColor: colorScheme.onPrimaryContainer,
                 ),
-                IconButton(
-                  tooltip: p.favorito ? 'Quitar favorito' : 'Marcar favorito',
-                  icon: Icon(
-                    p.favorito ? Icons.star_rounded : Icons.star_outline_rounded,
-                    color: p.favorito
-                        ? const Color(0xFFFFB020)
-                        : colorScheme.onSurfaceVariant,
-                  ),
-                  onPressed: onToggleFavorito,
-                ),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: stockColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    'Stock: ${p.stock}',
-                    style: TextStyle(
-                      color: stockColor,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      p.descripcion,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 17,
+                        height: 1.2,
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 4),
+                    Text(
+                      [
+                        if (p.codigo.isNotEmpty) p.codigo,
+                        if (p.marca.isNotEmpty) p.marca,
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: stockColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        'Stock ${p.stock}',
+                        style: TextStyle(
+                          color: stockColor,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                _PriceBadge(label: 'L1', value: p.precio, cs: colorScheme),
-                if (p.precio2 > 0)
-                  _PriceBadge(label: 'L2', value: p.precio2, cs: colorScheme),
-                if (p.precio3 > 0)
-                  _PriceBadge(label: 'L3', value: p.precio3, cs: colorScheme),
-                for (final lista in listasActivas)
-                  _PriceBadge(
-                    label: lista.nombre,
-                    value: lista.calcularPrecio(p.costo),
-                    cs: colorScheme,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton.icon(
-                  onPressed: onComment,
-                  icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16),
-                  label: const Text('Notas'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: colorScheme.tertiary,
-                    visualDensity: VisualDensity.compact,
-                  ),
+              ),
+              IconButton(
+                tooltip: p.favorito ? 'Quitar favorito' : 'Favorito',
+                icon: Icon(
+                  p.favorito ? Icons.star_rounded : Icons.star_outline_rounded,
+                  color: p.favorito
+                      ? const Color(0xFFFFB020)
+                      : colorScheme.onSurfaceVariant,
                 ),
-                const SizedBox(width: 4),
-                TextButton.icon(
-                  onPressed: onShare,
-                  icon: const Icon(Icons.share_rounded, size: 16),
-                  label: const Text('Compartir'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: colorScheme.secondary,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                TextButton.icon(
-                  onPressed: onEdit,
-                  icon: const Icon(Icons.edit_rounded, size: 16),
-                  label: const Text('Editar'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: colorScheme.primary,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                TextButton.icon(
-                  onPressed: onDelete,
-                  icon: const Icon(Icons.delete_outline_rounded, size: 16),
-                  label: const Text('Papelera'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppVisuals.danger(colorScheme),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-              ],
-            ),
-          ],
+                onPressed: onToggleFavorito,
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
         ),
-      ),
-    );
-  }
-}
-
-class _PriceBadge extends StatelessWidget {
-  final String label;
-  final double value;
-  final ColorScheme cs;
-
-  const _PriceBadge({
-    required this.label,
-    required this.value,
-    required this.cs,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: cs.outlineVariant),
-      ),
-      child: Text(
-        '$label: \$${value.toStringAsFixed(2)}',
-        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cs.onSurface),
       ),
     );
   }

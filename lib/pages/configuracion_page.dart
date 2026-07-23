@@ -37,6 +37,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   bool _conectandoNube = false;
   bool _modoSeguro = false;
   bool _guardandoTenant = false;
+  bool _barraLateralAbierta = false;
   final _tenantCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
 
@@ -1201,71 +1202,90 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
             ),
             const SizedBox(height: 16),
             // ── Barra lateral personalizable ───────────
+            // Expansión controlada: al marcar checkboxes NO se cierra sola
+            // (ExpansionTile + rebuild del shell la colapsaba).
             Card(
               elevation: 3,
-              child: Theme(
-                data: theme.copyWith(dividerColor: Colors.transparent),
-                child: ExpansionTile(
-                  initiallyExpanded: false,
-                  maintainState: true,
-                  leading: Icon(Icons.view_sidebar_rounded,
-                      color: colorScheme.primary),
-                  title: Text(
-                    'BARRA LATERAL',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: Icon(Icons.view_sidebar_rounded,
+                        color: colorScheme.primary),
+                    title: Text(
+                      'BARRA LATERAL',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: const Text('Mostrar u ocultar módulos'),
+                    trailing: Icon(
+                      _barraLateralAbierta
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                    ),
+                    onTap: () => setState(
+                      () => _barraLateralAbierta = !_barraLateralAbierta,
                     ),
                   ),
-                  subtitle: const Text('Mostrar u ocultar módulos'),
-                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  children: [
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: () async {
-                          await SidebarPreferenciasService.instance
-                              .mostrarTodos();
-                          if (!mounted) return;
-                          setState(() {});
-                        },
-                        child: const Text('Mostrar todos'),
+                  if (_barraLateralAbierta)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: () async {
+                                await SidebarPreferenciasService.instance
+                                    .mostrarTodos();
+                                if (!mounted) return;
+                                setState(() {});
+                              },
+                              child: const Text('Mostrar todos'),
+                            ),
+                          ),
+                          Text(
+                            'Marcá qué módulos ver. El panel queda abierto para elegir varios.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          ...kShellMenuCatalog.map((entry) {
+                            final visible = SidebarPreferenciasService
+                                .instance
+                                .estaVisible(entry.id);
+                            return CheckboxListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              secondary: Icon(entry.icon, size: 22),
+                              title: Text(entry.title),
+                              value: visible,
+                              onChanged: (v) async {
+                                final offset = _scrollCtrl.hasClients
+                                    ? _scrollCtrl.offset
+                                    : 0.0;
+                                // Mantener abierta aunque el shell rebuildée.
+                                _barraLateralAbierta = true;
+                                await SidebarPreferenciasService.instance
+                                    .setVisible(entry.id, v ?? true);
+                                if (!mounted) return;
+                                setState(() {});
+                                WidgetsBinding.instance
+                                    .addPostFrameCallback((_) {
+                                  if (!_scrollCtrl.hasClients) return;
+                                  final max =
+                                      _scrollCtrl.position.maxScrollExtent;
+                                  _scrollCtrl.jumpTo(offset.clamp(0.0, max));
+                                });
+                              },
+                            );
+                          }),
+                        ],
                       ),
                     ),
-                    Text(
-                      'Marcá qué módulos ver. El menú no salta al tocar.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ...kShellMenuCatalog.map((entry) {
-                      final visible = SidebarPreferenciasService.instance
-                          .estaVisible(entry.id);
-                      return CheckboxListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        secondary: Icon(entry.icon, size: 22),
-                        title: Text(entry.title),
-                        value: visible,
-                        onChanged: (v) async {
-                          final offset = _scrollCtrl.hasClients
-                              ? _scrollCtrl.offset
-                              : 0.0;
-                          await SidebarPreferenciasService.instance
-                              .setVisible(entry.id, v ?? true);
-                          if (!mounted) return;
-                          setState(() {});
-                          // Evitar que el checkbox “salte” al tope de la lista.
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (!_scrollCtrl.hasClients) return;
-                            final max = _scrollCtrl.position.maxScrollExtent;
-                            _scrollCtrl.jumpTo(offset.clamp(0.0, max));
-                          });
-                        },
-                      );
-                    }),
-                  ],
-                ),
+                ],
               ),
             ),
             const SizedBox(height: 16),
@@ -1325,7 +1345,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  subtitle: const Text('Colores, fuente e integridad'),
+                  subtitle: const Text('Colores, fuente, tamaño e integridad'),
                   childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                   children: [
                     const SizedBox(height: 8),
@@ -1378,6 +1398,41 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       onChanged: (value) {
                         if (value != null) {
                           themeProvider.setFuente(value);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Tamaño de letra',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Para leer mejor en celular o PC (gente mayor).',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<double>(
+                      initialValue: themeProvider.textScale,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        for (var i = 0;
+                            i < ThemeProvider.escalasTexto.length;
+                            i++)
+                          DropdownMenuItem(
+                            value: ThemeProvider.escalasTexto[i],
+                            child: Text(ThemeProvider.etiquetasEscala[i]),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          themeProvider.setTextScale(value);
                         }
                       },
                     ),

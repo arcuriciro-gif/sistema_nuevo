@@ -192,10 +192,12 @@ class ComunicacionesService extends ChangeNotifier {
 
     String? tituloMsg;
     String? cuerpoMsg;
+    String? conversacionIdAlert;
     if (_mensajesSinLeer > 0) {
       final conUnread = _conversaciones.where((c) => c.noLeidosDe(yo) > 0);
       if (conUnread.isNotEmpty) {
         final c = conUnread.first;
+        conversacionIdAlert = c.id;
         if (c.tipo == 'grupo') {
           tituloMsg = (c.titulo ?? '').trim().isEmpty ? 'Grupo' : c.titulo;
         } else {
@@ -227,6 +229,7 @@ class ComunicacionesService extends ChangeNotifier {
       cuerpoMensaje: cuerpoMsg,
       tituloNotif: tituloNotif,
       cuerpoNotif: cuerpoNotif,
+      conversacionId: conversacionIdAlert,
     );
   }
 

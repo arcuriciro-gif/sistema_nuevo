@@ -642,7 +642,11 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                     child: Text('Cobrar'),
                   ),
                 ],
-                if (_ventaExistente?.estado != 'anulada') ...[
+                if (_ventaExistente?.estado != 'anulada' &&
+                    AuthorizationService.instance.puede(
+                      AuthModules.remitos,
+                      AuthzAction.anular,
+                    )) ...[
                   const PopupMenuDivider(),
                   PopupMenuItem(
                     value: 'anular',
@@ -653,9 +657,13 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                   ),
                 ],
                 if (AuthorizationService.instance.puede(
-                  AuthModules.remitos,
-                  AuthzAction.eliminar,
-                )) ...[
+                      AuthModules.remitos,
+                      AuthzAction.eliminar,
+                    ) ||
+                    AuthorizationService.instance.puede(
+                      AuthModules.remitos,
+                      AuthzAction.anular,
+                    )) ...[
                   const PopupMenuDivider(),
                   PopupMenuItem(
                     value: 'eliminar',

@@ -11,6 +11,7 @@ import '../core/utils/media_path.dart';
 import '../services/auth_service.dart';
 import '../services/comunicaciones_service.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/foto_ampliada.dart';
 
 class ChatPage extends StatefulWidget {
   final ChatConversacion conversacion;
@@ -142,11 +143,15 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  String _fmtHora(DateTime f) =>
-      '${f.hour.toString().padLeft(2, '0')}:${f.minute.toString().padLeft(2, '0')}';
+  String _fmtHora(DateTime f) {
+    final l = f.toLocal();
+    return '${l.hour.toString().padLeft(2, '0')}:${l.minute.toString().padLeft(2, '0')}';
+  }
 
-  String _fmtFecha(DateTime f) =>
-      '${f.day.toString().padLeft(2, '0')}/${f.month.toString().padLeft(2, '0')}/${f.year}';
+  String _fmtFecha(DateTime f) {
+    final l = f.toLocal();
+    return '${l.day.toString().padLeft(2, '0')}/${l.month.toString().padLeft(2, '0')}/${l.year}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -357,20 +362,58 @@ class _ImagenAdjunto extends StatelessWidget {
     final provider = imageProviderDesdePath(path);
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: provider == null
-            ? const SizedBox(
-                height: 160,
-                child: Center(child: Icon(Icons.broken_image)),
-              )
-            : Image(
-                image: provider,
-                height: 160,
-                fit: BoxFit.cover,
-                errorBuilder: (_, error, stack) =>
-                    const Icon(Icons.broken_image),
-              ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => showFotoAmpliada(
+            context,
+            path: path,
+            titulo: 'Imagen',
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: provider == null
+                ? const SizedBox(
+                    height: 160,
+                    width: double.infinity,
+                    child: Center(child: Icon(Icons.broken_image)),
+                  )
+                : Stack(
+                    alignment: Alignment.bottomRight,
+                    children: [
+                      Image(
+                        image: provider,
+                        height: 160,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, error, stack) =>
+                            const SizedBox(
+                              height: 160,
+                              child: Center(child: Icon(Icons.broken_image)),
+                            ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Padding(
+                            padding: EdgeInsets.all(4),
+                            child: Icon(
+                              Icons.zoom_in_rounded,
+                              color: Colors.white,
+                              size: 18,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
       ),
     );
   }
