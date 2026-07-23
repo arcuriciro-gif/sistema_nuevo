@@ -10,6 +10,7 @@ import '../core/domain/inventory_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/remito.dart';
 import '../models/remito_detalle.dart';
@@ -144,7 +145,7 @@ class RemitoService {
     }
 
     // Offline: remito ya está en SQLite; la nube va por outbox sin bloquear UI.
-    unawaited(FirestoreSyncService.instance.subirRemito(remitoId));
+    syncInBackground(FirestoreSyncService.instance.subirRemito(remitoId), tag: 'subirRemito');
     final clienteIdInt =
         remito.clienteId != null ? int.tryParse(remito.clienteId!) : null;
     if (clienteIdInt != null) {
@@ -346,7 +347,7 @@ class RemitoService {
     if (clienteId != null) {
       await CuentaCorrienteService().recalcularSaldoCliente(clienteId);
     }
-    unawaited(FirestoreSyncService.instance.subirRemito(id));
+    syncInBackground(FirestoreSyncService.instance.subirRemito(id), tag: 'subirRemito');
     DataRefreshHub.instance.notifyTodo();
   }
 
@@ -457,7 +458,7 @@ class RemitoService {
     if (clienteId != null) {
       await CuentaCorrienteService().recalcularSaldoCliente(clienteId!);
     }
-    unawaited(FirestoreSyncService.instance.subirRemito(id));
+    syncInBackground(FirestoreSyncService.instance.subirRemito(id), tag: 'subirRemito');
     DataRefreshHub.instance.notifyTodo();
   }
 

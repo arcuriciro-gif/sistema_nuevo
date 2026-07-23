@@ -1,9 +1,8 @@
-import 'dart:async';
-
 import 'package:sqflite/sqflite.dart';
 
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../core/utils/texto_producto.dart';
 import '../database/database_helper.dart';
 import '../models/comparacion.dart';
@@ -515,8 +514,9 @@ class ComparadorService {
 
     // Sync en segundo plano: al volver la red, outbox empuja a todos lados.
     for (final id in idsSync) {
-      unawaited(
+      syncInBackground(
         FirestoreSyncService.instance.subirProductoPorId(id, forzar: true),
+        tag: 'subirProducto',
       );
     }
     if (idsSync.isNotEmpty) {

@@ -1,8 +1,7 @@
-import 'dart:async';
-
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/lista_precio.dart';
 
@@ -12,11 +11,10 @@ class ListaPrecioService {
   /// Local primero; la nube va en segundo plano (modo avión / corte de red).
   void _syncNube() {
     DataRefreshHub.instance.notifyTodo();
-    unawaited(() async {
-      try {
-        await FirestoreSyncService.instance.subirListasPrecios();
-      } catch (_) {}
-    }());
+    syncInBackground(
+      FirestoreSyncService.instance.subirListasPrecios(),
+      tag: 'subirListas',
+    );
   }
 
   Future<int> insertar(ListaPrecio lista) async {
