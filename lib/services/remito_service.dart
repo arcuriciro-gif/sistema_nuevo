@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../core/config/device_identity.dart';
@@ -486,12 +487,12 @@ class RemitoService {
       await anular(id, syncAfter: false);
     }
     // Capacidad 7: encolar tombstone ANTES del hard-delete local.
+    // En Windows la escritura Firestore va en background (no tumbar el .exe).
     if (numero.isNotEmpty) {
       try {
         await FirestoreSyncService.instance
             .eliminarRemitoRemoto(numero, localId: id);
       } catch (e) {
-        // No tumbar el .exe: el borrado local sigue igual.
         assert(() {
           // ignore: avoid_print
           print('eliminarRemitoRemoto: $e');
@@ -499,8 +500,14 @@ class RemitoService {
         }());
       }
     }
-    await db.delete('remito_items', where: 'remitoId = ?', whereArgs: [id]);
-    await db.delete('remitos', where: 'id = ?', whereArgs: [id]);
+    // Borrado local siempre: si la nube ya lo borró, estas queries no hacen nada.
+    try {
+      await db.delete('remito_items', where: 'remitoId = ?', whereArgs: [id]);
+      await db.delete('remitos', where: 'id = ?', whereArgs: [id]);
+    } catch (e) {
+      // Puede haberlo borrado el tombstone remoto en paralelo.
+      debugPrint('eliminar remito local: $e');
+    }
     DataRefreshHub.instance.notifyTodo();
   }
 
