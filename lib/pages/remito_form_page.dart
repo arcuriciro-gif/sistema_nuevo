@@ -572,12 +572,39 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
                               child: ListTile(
                                 title: Text(item.producto.descripcion),
                                 subtitle: Text(
-                                  'x${item.cantidad} × \$${item.precioUnitario.toStringAsFixed(2)}'
-                                  ' · Stock: ${item.producto.stock}',
+                                  '\$${item.precioUnitario.toStringAsFixed(2)} c/u · '
+                                  'Stock: ${item.producto.stock}',
                                 ),
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    IconButton(
+                                      tooltip: 'Menos',
+                                      icon: const Icon(Icons.remove_rounded),
+                                      onPressed: () {
+                                        setState(() {
+                                          if (item.cantidad <= 1) {
+                                            items.removeAt(idx);
+                                          } else {
+                                            item.cantidad -= 1;
+                                          }
+                                        });
+                                      },
+                                    ),
+                                    Text(
+                                      '${item.cantidad}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Más',
+                                      icon: const Icon(Icons.add_rounded),
+                                      onPressed: () {
+                                        setState(() => item.cantidad += 1);
+                                      },
+                                    ),
                                     Text(
                                       '\$${item.subtotal.toStringAsFixed(2)}',
                                       style: const TextStyle(

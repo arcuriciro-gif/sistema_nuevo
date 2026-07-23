@@ -41,14 +41,13 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
-    _empresaCtrl.text = BackendConfigService.instance.tenantId.isNotEmpty
-        ? BackendConfigService.instance.tenantId
-        : BackendConfigService.legacySharedTenantId;
+    _empresaCtrl.text =
+        BackendConfigService.instance.empresaConfirmada
+            ? BackendConfigService.instance.tenantId
+            : '';
     if (FirebaseSafeMode.enabled) {
       _info =
-          'Modo seguro: la app se cerró antes al conectar Firebase. '
-          'Podés entrar con usuario local (admin / admin123 la primera vez). '
-          'La sync se reintenta después de entrar.';
+          'Modo seguro activo. Entrá con usuario local y reintentá la sync después.';
     }
     _prepararHuella();
   }
@@ -484,9 +483,7 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Primera vez en este dispositivo: admin / admin123.\n'
-                          'Empleados: el administrador te da de alta con usuario, '
-                          'clave y permiso. Entrá con eso (misma empresa).',
+                          'Usuario y contraseña. Primera vez: admin / admin123.',
                           style: textTheme.bodySmall?.copyWith(
                             color: cs.onSurfaceVariant,
                           ),
@@ -494,24 +491,25 @@ class _LoginPageState extends State<LoginPage> {
                         const SizedBox(height: 20),
                         TextField(
                           controller: _empresaCtrl,
-                          decoration: const InputDecoration(
+                          readOnly:
+                              BackendConfigService.instance.empresaConfirmada,
+                          decoration: InputDecoration(
                             labelText: 'Código de empresa',
-                            hintText: 'tata_stock',
-                            prefixIcon: Icon(Icons.business_outlined),
+                            hintText: BackendConfigService
+                                    .instance.empresaConfirmada
+                                ? null
+                                : 'Dejá vacío o pegá el código',
+                            prefixIcon: const Icon(Icons.business_outlined),
+                            suffixIcon: BackendConfigService
+                                    .instance.empresaConfirmada
+                                ? const Icon(Icons.lock_outline, size: 18)
+                                : null,
                           ),
                           textInputAction: TextInputAction.next,
                           autocorrect: false,
                           enableSuggestions: false,
                           onSubmitted: (_) =>
                               FocusScope.of(context).nextFocus(),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Misma empresa en PC y celular. Si la PC ya funciona, '
-                          'usá: ${BackendConfigService.legacySharedTenantId}',
-                          style: textTheme.bodySmall?.copyWith(
-                            color: cs.onSurfaceVariant,
-                          ),
                         ),
                         const SizedBox(height: 14),
                         TextField(

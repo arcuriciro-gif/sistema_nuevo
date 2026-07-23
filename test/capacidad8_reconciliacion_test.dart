@@ -102,7 +102,7 @@ void main() {
       );
     });
 
-    test('scan detecta proyección de stock rota', () async {
+    test('scan alinea proyección de stock rota al ledger', () async {
       final db = await DatabaseHelper.instance.database;
       final id = await db.insert('productos', {
         'codigo': 'C8-2',
@@ -135,11 +135,20 @@ void main() {
       final report = await IntegrityReconcileService.instance.scanAndPersist();
       expect(
         report.alarms.any((a) => a.kind == IntegrityAlarmKind.stockProjection),
-        isTrue,
+        isFalse,
       );
+      final prod = await db.query(
+        'productos',
+        columns: ['stock'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      // Auto-alineado al ledger (salida de 2 desde 10 → 8).
+      expect((prod.first['stock'] as num?)?.toInt(), 8);
       expect(
         await InventoryLedgerService.instance.verificarProyeccion(id),
-        isFalse,
+        isTrue,
       );
     });
 

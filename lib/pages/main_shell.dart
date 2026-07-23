@@ -129,7 +129,7 @@ class _MainShellState extends State<MainShell> {
       }
       if (mounted) await EmpresaOnboardingDialog.mostrarSiHaceFalta(context);
       if (mounted) await _ofrecerActivarNubeSiHaceFalta();
-      if (mounted) _mostrarRecordatorioCc();
+      // Recordatorio CC: no modal al abrir; solo badge/flujo manual.
     });
   }
 
@@ -156,16 +156,12 @@ class _MainShellState extends State<MainShell> {
       SnackBar(
         content: Text(
           r.ok
-              ? 'Nube activada. Clientes, productos, precios y fotos se '
-                  'sincronizan en tiempo real entre PC y celular.'
+              ? 'Nube activada.'
               : (detalle.isNotEmpty
-                  ? 'No se pudo activar la nube: $detalle '
-                      'Reintentá en Configuración → Activar sincronización '
-                      '(ahí podés ingresar la clave de la PC).'
-                  : 'No se pudo activar la nube. '
-                      'Reintentá en Configuración → Activar sincronización.'),
+                  ? 'No se pudo activar la nube: $detalle'
+                  : 'No se pudo activar la nube. Reintentá en Configuración.'),
         ),
-        duration: const Duration(seconds: 7),
+        duration: const Duration(seconds: 4),
       ),
     );
     if (mounted) setState(() {});
@@ -173,19 +169,11 @@ class _MainShellState extends State<MainShell> {
 
   void _onSidebarPrefs() {
     if (!mounted) return;
-    // Solo actualizar índice/visibilidad; las páginas se cachean para no
-    // perder el scroll de Configuración al tildar módulos.
+    // No forzar Configuración: solo recalcular índice y limpiar caché.
+    // El scroll del menú se preserva con PageStorageKey en el ListView.
     setState(() {
-      const cfgId = 'configuracion|Configuración';
       final items = _visibleItems;
-      final cfg = items.indexWhere((e) => e.preferenciaId == cfgId);
-      if (cfg >= 0) {
-        _selectedPreferenciaId = cfgId;
-        _selectedIndex = cfg;
-      } else {
-        _selectedIndex = _resolverIndiceSeleccionado(items);
-      }
-      // Limpiar caché de módulos que ya no están visibles.
+      _selectedIndex = _resolverIndiceSeleccionado(items);
       final ids = items.map((e) => e.preferenciaId).toSet();
       _pageCache.removeWhere((k, _) => !ids.contains(k));
     });
@@ -278,20 +266,20 @@ class _MainShellState extends State<MainShell> {
         ),
         _ShellItem(
           icon: Icons.local_shipping_outlined,
-          title: 'Notas de entrega',
+          title: 'Entregas (sin factura)',
           modulo: 'remitos',
           builder: () => const VentasPage(
-            titulo: 'Notas de entrega',
-            tipos: {'nota_entrega': 'Nota de entrega'},
+            titulo: 'Entregas (sin factura)',
+            tipos: {'nota_entrega': 'Entrega sin factura'},
           ),
         ),
         _ShellItem(
           icon: Icons.article_outlined,
-          title: 'Comprobantes internos',
+          title: 'Tickets internos',
           modulo: 'remitos',
           builder: () => const VentasPage(
-            titulo: 'Comprobantes internos',
-            tipos: {'comprobante_interno': 'Comprobante interno'},
+            titulo: 'Tickets internos',
+            tipos: {'comprobante_interno': 'Ticket interno'},
           ),
         ),
         _ShellItem(
@@ -578,6 +566,7 @@ class _MainShellState extends State<MainShell> {
     if (idx >= 0) _select(idx);
   }
 
+  // ignore: unused_element
   Future<void> _mostrarRecordatorioCc() async {
     if (_recordatorioMostrado || !mounted) return;
     _recordatorioMostrado = true;
@@ -994,6 +983,7 @@ class _SidebarContent extends StatelessWidget {
           // ── Ítems de navegación ───────────────────────────────────────────────
           Expanded(
             child: ListView.builder(
+              key: const PageStorageKey<String>('shell_sidebar_nav'),
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               itemCount: items.length,
               itemBuilder: (context, index) {

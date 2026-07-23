@@ -98,7 +98,6 @@ class _EmpresaOnboardingDialogState extends State<EmpresaOnboardingDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final actual = BackendConfigService.instance.tenantId;
     return AlertDialog(
       title: const Text('Elegí la empresa'),
       content: SingleChildScrollView(
@@ -107,12 +106,8 @@ class _EmpresaOnboardingDialogState extends State<EmpresaOnboardingDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Una empresa = todos los dispositivos ven lo mismo '
-              '(productos, stock, ventas) y se actualizan juntos.\n\n'
-              'Los usuarios son personas (admin, empleados), no un usuario '
-              'por celular. Cada persona entra con su usuario y clave.\n\n'
-              'Ahora mismo este dispositivo está en un código automático '
-              '(empresa vacía):\n$actual',
+              'Ingresá el código de la empresa para unirte, '
+              'o creá una empresa nueva en este dispositivo.',
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
@@ -121,13 +116,13 @@ class _EmpresaOnboardingDialogState extends State<EmpresaOnboardingDialog> {
                   ? null
                   : () => _unirA(BackendConfigService.legacySharedTenantId),
               icon: const Icon(Icons.link_rounded),
-              label: const Text('Unirme a la PC (tata_stock)'),
+              label: const Text('Unirme a tata_stock'),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _codigoCtrl,
               decoration: const InputDecoration(
-                labelText: 'Otro código de empresa',
+                labelText: 'Código de empresa',
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
@@ -144,7 +139,7 @@ class _EmpresaOnboardingDialogState extends State<EmpresaOnboardingDialog> {
             const SizedBox(height: 12),
             TextButton(
               onPressed: _guardando ? null : _confirmarNueva,
-              child: const Text('Es una empresa NUEVA (dejar vacío)'),
+              child: const Text('Crear empresa nueva'),
             ),
             if (_error != null) ...[
               const SizedBox(height: 8),
