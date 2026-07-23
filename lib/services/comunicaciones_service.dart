@@ -162,8 +162,45 @@ class ComunicacionesService extends ChangeNotifier {
     _notificaciones = notifRows.map(NotificacionInterna.fromMap).toList();
     _notifSinLeer = _notificaciones.where((n) => !n.leida).length;
     notifyListeners();
-    // Alerta local si subieron mensajes sin leer (no toca sync).
-    await ChatAlertService.instance.onUnreadChanged(_mensajesSinLeer);
+
+    String? tituloMsg;
+    String? cuerpoMsg;
+    if (_mensajesSinLeer > 0) {
+      final conUnread = _conversaciones.where((c) => c.noLeidosDe(yo) > 0);
+      if (conUnread.isNotEmpty) {
+        final c = conUnread.first;
+        if (c.tipo == 'grupo') {
+          tituloMsg = (c.titulo ?? '').trim().isEmpty ? 'Grupo' : c.titulo;
+        } else {
+          final otros = c.participantes.where((p) => p != yo);
+          final otro = otros.isEmpty ? null : otros.first;
+          final nombre = otro == null ? null : c.nombres[otro];
+          tituloMsg = (nombre ?? '').trim().isEmpty
+              ? (otro ?? 'Mensaje')
+              : nombre;
+        }
+        cuerpoMsg = c.ultimoMensaje.trim();
+      }
+    }
+
+    String? tituloNotif;
+    String? cuerpoNotif;
+    final noLeidas = _notificaciones.where((n) => !n.leida);
+    if (noLeidas.isNotEmpty) {
+      final n = noLeidas.first;
+      tituloNotif = n.titulo;
+      cuerpoNotif = n.cuerpo;
+    }
+
+    // Alerta local si subieron mensajes/avisos sin leer (no toca sync).
+    await ChatAlertService.instance.onUnreadChanged(
+      _mensajesSinLeer,
+      notifSinLeer: _notifSinLeer,
+      tituloMensaje: tituloMsg,
+      cuerpoMensaje: cuerpoMsg,
+      tituloNotif: tituloNotif,
+      cuerpoNotif: cuerpoNotif,
+    );
   }
 
   Future<List<Usuario>> usuariosDisponibles() async {
@@ -455,13 +492,18 @@ class ComunicacionesService extends ChangeNotifier {
     }
 
     for (final u in conv.participantes.where((p) => p != yo.usuario)) {
+      final tituloRaw = conv.tipo == 'grupo'
+          ? (conv.titulo ?? 'Grupo')
+          : yo.nombre;
+      final titulo = tituloRaw.trim().isEmpty ? yo.usuario : tituloRaw.trim();
+      final cuerpo = preview.trim().isEmpty ? 'Nuevo mensaje' : preview.trim();
       await crearNotificacion(
         usuarioDestino: u,
         tipo: tipo == ChatMensajeTipo.archivo || tipo == ChatMensajeTipo.imagen
             ? 'archivo'
             : 'mensaje',
-        titulo: conv.tipo == 'grupo' ? (conv.titulo ?? 'Grupo') : yo.nombre,
-        cuerpo: preview,
+        titulo: titulo,
+        cuerpo: cuerpo,
         conversacionId: conversacionId,
       );
     }
@@ -550,12 +592,16 @@ class ComunicacionesService extends ChangeNotifier {
     String? entidadId,
   }) async {
     final id = _uuid.v4();
+    final tituloOk =
+        titulo.trim().isEmpty ? _tituloFallback(tipo) : titulo.trim();
+    final cuerpoOk =
+        cuerpo.trim().isEmpty ? 'Abrí Notificaciones para ver el detalle' : cuerpo.trim();
     final n = NotificacionInterna(
       id: id,
       usuarioDestino: usuarioDestino,
       tipo: tipo,
-      titulo: titulo,
-      cuerpo: cuerpo,
+      titulo: tituloOk,
+      cuerpo: cuerpoOk,
       conversacionId: conversacionId,
       entidadTipo: entidadTipo,
       entidadId: entidadId,
@@ -649,4 +695,16 @@ class ComunicacionesService extends ChangeNotifier {
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
+
+  String _tituloFallback(String tipo) => switch (tipo) {
+        'mensaje' || 'archivo' => 'Mensaje nuevo',
+        'stock' => 'Aviso de stock',
+        'cobro' => 'Aviso de cobro',
+        'venta' => 'Aviso de venta',
+        'remito' => 'Aviso de remito',
+        'presupuesto' => 'Aviso de presupuesto',
+        'cliente' => 'Aviso de cliente',
+        'usuario_alta' => 'Nuevo usuario',
+        _ => 'Aviso Tata.Manager',
+      };
 }

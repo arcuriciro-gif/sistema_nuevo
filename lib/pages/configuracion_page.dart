@@ -32,7 +32,7 @@ class ConfiguracionPage extends StatefulWidget {
 
 class _ConfiguracionPageState extends State<ConfiguracionPage> {
   bool _mostrarImagenes = true;
-  bool _permitirStockNegativo = false;
+  bool _permitirStockNegativo = true;
   bool _nubeActiva = false;
   bool _conectandoNube = false;
   bool _modoSeguro = false;
@@ -1486,7 +1486,8 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                           : null,
                       title: const Text('Permitir stock negativo'),
                       subtitle: const Text(
-                        'Si está apagado, no se puede remitir más de lo que hay',
+                        'Recomendado ON: podés remitir/facturar aunque el depósito marque 0 '
+                        '(ej. retiro en proveedor). Si lo apagás, bloquea salidas sin stock.',
                       ),
                     ),
                     const ListTile(

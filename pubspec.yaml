@@ -3,7 +3,7 @@ description: Tata.Manager
 
 publish_to: 'none'
 
-version: 1.2.8+11
+version: 1.2.9+12
 
 
 environment:
@@ -42,6 +42,7 @@ dependencies:
   package_info_plus: ^8.3.0
   local_auth: ^2.3.0
   audioplayers: ^6.4.0
+  flutter_local_notifications: ^22.1.0
 
 dev_dependencies:
   flutter_test:

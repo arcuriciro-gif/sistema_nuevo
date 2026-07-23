@@ -5,19 +5,23 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-/// Alerta sonora cuando llega un mensaje de chat (sin tocar sync).
+import 'local_notification_service.dart';
+
+/// Alerta sonora + notificación del sistema cuando llega un mensaje/aviso.
 class ChatAlertService {
   ChatAlertService._();
   static final ChatAlertService instance = ChatAlertService._();
 
   final AudioPlayer _player = AudioPlayer();
   int _ultimoMensajesSinLeer = 0;
+  int _ultimoNotifSinLeer = 0;
   bool _listo = false;
   bool _audioListo = false;
   DateTime? _ultimoBeep;
 
-  void marcarBaseline(int mensajesSinLeer) {
+  void marcarBaseline(int mensajesSinLeer, {int notifSinLeer = 0}) {
     _ultimoMensajesSinLeer = mensajesSinLeer;
+    _ultimoNotifSinLeer = notifSinLeer;
     _listo = true;
   }
 
@@ -25,6 +29,7 @@ class ChatAlertService {
   void reset() {
     _listo = false;
     _ultimoMensajesSinLeer = 0;
+    _ultimoNotifSinLeer = 0;
   }
 
   Future<void> _asegurarAudio() async {
@@ -53,23 +58,54 @@ class ChatAlertService {
     }
   }
 
-  /// Llama tras refrescar comunicaciones. Suena solo si suben los no leídos.
-  Future<void> onUnreadChanged(int mensajesSinLeer) async {
+  /// Llama tras refrescar comunicaciones. Suena/muestra solo si suben no leídos.
+  Future<void> onUnreadChanged(
+    int mensajesSinLeer, {
+    int notifSinLeer = 0,
+    String? tituloMensaje,
+    String? cuerpoMensaje,
+    String? tituloNotif,
+    String? cuerpoNotif,
+  }) async {
     if (!_listo) {
-      marcarBaseline(mensajesSinLeer);
+      marcarBaseline(mensajesSinLeer, notifSinLeer: notifSinLeer);
       return;
     }
-    final subio = mensajesSinLeer > _ultimoMensajesSinLeer;
+    final subioMsg = mensajesSinLeer > _ultimoMensajesSinLeer;
+    final subioNotif = notifSinLeer > _ultimoNotifSinLeer;
     _ultimoMensajesSinLeer = mensajesSinLeer;
-    if (!subio) return;
+    _ultimoNotifSinLeer = notifSinLeer;
+    if (!subioMsg && !subioNotif) return;
 
     final ahora = DateTime.now();
-    if (_ultimoBeep != null &&
-        ahora.difference(_ultimoBeep!) < const Duration(milliseconds: 800)) {
-      return;
+    final muySeguido = _ultimoBeep != null &&
+        ahora.difference(_ultimoBeep!) < const Duration(milliseconds: 800);
+    if (!muySeguido) {
+      _ultimoBeep = ahora;
+      await _beep();
     }
-    _ultimoBeep = ahora;
-    await _beep();
+
+    if (subioMsg) {
+      await LocalNotificationService.instance.show(
+        titulo: (tituloMensaje ?? '').trim().isEmpty
+            ? 'Mensaje nuevo'
+            : tituloMensaje!.trim(),
+        cuerpo: (cuerpoMensaje ?? '').trim().isEmpty
+            ? 'Tenés un mensaje en Tata.Manager'
+            : cuerpoMensaje!.trim(),
+        payload: 'chat',
+      );
+    } else if (subioNotif) {
+      await LocalNotificationService.instance.show(
+        titulo: (tituloNotif ?? '').trim().isEmpty
+            ? 'Aviso Tata.Manager'
+            : tituloNotif!.trim(),
+        cuerpo: (cuerpoNotif ?? '').trim().isEmpty
+            ? 'Tenés una notificación nueva'
+            : cuerpoNotif!.trim(),
+        payload: 'notif',
+      );
+    }
   }
 
   Future<void> _beep() async {

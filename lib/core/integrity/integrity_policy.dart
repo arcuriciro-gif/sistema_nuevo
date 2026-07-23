@@ -7,14 +7,14 @@ class IntegrityPolicy {
 
   static const _keyPermitirNegativo = 'integrity_permitir_stock_negativo';
 
-  bool _permitirStockNegativo = false;
+  bool _permitirStockNegativo = true;
   bool _loaded = false;
 
   bool get permitirStockNegativo => _permitirStockNegativo;
 
   Future<void> cargar() async {
     final prefs = await SharedPreferences.getInstance();
-    _permitirStockNegativo = prefs.getBool(_keyPermitirNegativo) ?? false;
+    _permitirStockNegativo = prefs.getBool(_keyPermitirNegativo) ?? true;
     _loaded = true;
   }
 

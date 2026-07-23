@@ -1,6 +1,15 @@
 Tata.Manager — carpeta para instalar en otra PC
 ================================================
-Autor: Matias Arcuri
+Autor: Matias Arcuri · Producto: Tata.Manager
+
+IMPORTANTE — aviso de Windows (SmartScreen)
+-------------------------------------------
+Si Windows dice "Windows protegió tu PC" o "publicador desconocido":
+1) Tocá "Más información"
+2) Tocá "Ejecutar de todas formas"
+Eso pasa porque el .exe aún no tiene certificado Authenticode de pago
+(Microsoft confía más en apps firmadas por una CA). No es un virus:
+verificá el archivo SHA256SUMS.txt del ZIP contra el hash del .exe.
 
 COMO ABRIR / ACCESO DIRECTO
 ---------------------------

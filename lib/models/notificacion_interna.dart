@@ -60,13 +60,36 @@ class NotificacionInterna {
         'leida': leida,
       };
 
+  static String? _pick(Map<String, dynamic> map, List<String> keys) {
+    for (final k in keys) {
+      final v = map[k]?.toString().trim();
+      if (v != null && v.isNotEmpty) return v;
+    }
+    return null;
+  }
+
+  static String _tituloFallback(String tipo) => switch (tipo) {
+        'mensaje' || 'archivo' => 'Mensaje nuevo',
+        'stock' => 'Aviso de stock',
+        'cobro' => 'Aviso de cobro',
+        'venta' => 'Aviso de venta',
+        'remito' => 'Aviso de remito',
+        'presupuesto' => 'Aviso de presupuesto',
+        'cliente' => 'Aviso de cliente',
+        'usuario_alta' => 'Nuevo usuario',
+        _ => 'Aviso Tata.Manager',
+      };
+
   factory NotificacionInterna.fromMap(Map<String, dynamic> map) {
+    final tipo = map['tipo']?.toString() ?? 'sistema';
     return NotificacionInterna(
       id: map['id']?.toString() ?? '',
       usuarioDestino: map['usuarioDestino']?.toString() ?? '',
-      tipo: map['tipo']?.toString() ?? 'sistema',
-      titulo: map['titulo']?.toString() ?? '',
-      cuerpo: map['cuerpo']?.toString() ?? '',
+      tipo: tipo,
+      titulo: _pick(map, ['titulo', 'title', 'asunto']) ??
+          _tituloFallback(tipo),
+      cuerpo: _pick(map, ['cuerpo', 'body', 'mensaje', 'message', 'texto']) ??
+          'Abrí Notificaciones para ver el detalle',
       conversacionId: map['conversacionId']?.toString(),
       entidadTipo: map['entidadTipo']?.toString(),
       entidadId: map['entidadId']?.toString(),
