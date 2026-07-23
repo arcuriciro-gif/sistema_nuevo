@@ -1,8 +1,7 @@
-import 'dart:async';
-
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/categoria.dart';
 
@@ -12,11 +11,10 @@ class CategoriaService {
   /// Local primero; sync en segundo plano (misma política que listas/precios).
   void _syncNube() {
     DataRefreshHub.instance.notifyTodo();
-    unawaited(() async {
-      try {
-        await FirestoreSyncService.instance.subirCategorias();
-      } catch (_) {}
-    }());
+    syncInBackground(
+      FirestoreSyncService.instance.subirCategorias(),
+      tag: 'subirCategorias',
+    );
   }
 
   Future<List<Categoria>> obtenerTodas({bool soloActivas = false}) async {

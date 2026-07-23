@@ -1,11 +1,10 @@
-import 'dart:async';
-
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/pago.dart';
 import '../models/venta.dart';
@@ -247,7 +246,10 @@ class CuentaCorrienteService {
         ),
       );
     }
-    unawaited(FirestoreSyncService.instance.subirVenta(ventaId));
+    syncInBackground(
+      FirestoreSyncService.instance.subirVenta(ventaId),
+      tag: 'subirVenta',
+    );
     DataRefreshHub.instance.notifyVentas();
     return pago;
   }
@@ -282,8 +284,9 @@ class CuentaCorrienteService {
       whereArgs: [clienteId],
     );
     // Saldo local primero; nube en segundo plano (modo avión / venta rápida).
-    unawaited(
+    syncInBackground(
       FirestoreSyncService.instance.subirCliente(clienteId, forzar: true),
+      tag: 'subirCliente',
     );
   }
 
@@ -423,7 +426,10 @@ class CuentaCorrienteService {
         ),
       );
     }
-    unawaited(FirestoreSyncService.instance.subirRemito(remitoId));
+    syncInBackground(
+      FirestoreSyncService.instance.subirRemito(remitoId),
+      tag: 'subirRemito',
+    );
     DataRefreshHub.instance.notifyTodo();
     return pago;
   }

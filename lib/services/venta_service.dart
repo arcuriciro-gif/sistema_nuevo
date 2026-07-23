@@ -6,6 +6,7 @@ import '../core/domain/event_bus.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/venta.dart';
 import '../models/venta_item.dart';
@@ -53,7 +54,7 @@ class VentaService {
       medioPago: medioPago,
       observacionesPago: observacionesPago,
     );
-    unawaited(FirestoreSyncService.instance.subirVenta(id));
+    syncInBackground(FirestoreSyncService.instance.subirVenta(id), tag: 'subirVenta');
     DataRefreshHub.instance.notifyVentas();
     return id;
   }
@@ -136,7 +137,7 @@ class VentaService {
         );
       }
     }
-    unawaited(FirestoreSyncService.instance.subirVenta(id));
+    syncInBackground(FirestoreSyncService.instance.subirVenta(id), tag: 'subirVenta');
     DataRefreshHub.instance.notifyVentas();
   }
 
@@ -176,7 +177,7 @@ class VentaService {
     if (venta.clienteId != null) {
       await _cc.recalcularSaldoCliente(venta.clienteId!);
     }
-    unawaited(FirestoreSyncService.instance.subirVenta(id));
+    syncInBackground(FirestoreSyncService.instance.subirVenta(id), tag: 'subirVenta');
     DataRefreshHub.instance.notifyVentas();
   }
 
@@ -204,7 +205,7 @@ class VentaService {
       where: 'id = ?',
       whereArgs: [id],
     );
-    unawaited(FirestoreSyncService.instance.subirVenta(id));
+    syncInBackground(FirestoreSyncService.instance.subirVenta(id), tag: 'subirVenta');
   }
 
   Future<void> eliminar(int id) async {

@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/proveedor.dart';
 import 'auth_service.dart';
@@ -57,7 +58,7 @@ class ProveedorService {
       'Nuevo proveedor: ${creado.nombre}',
       valorNuevo: _snapshot(creado.copyWith(id: id)),
     );
-    unawaited(FirestoreSyncService.instance.subirProveedor(id));
+    syncInBackground(FirestoreSyncService.instance.subirProveedor(id), tag: 'subirProveedor');
     DataRefreshHub.instance.notifyTodo();
 
     return id;
@@ -103,7 +104,7 @@ class ProveedorService {
       valorNuevo: _snapshot(listo),
     );
     if (listo.id != null) {
-      unawaited(FirestoreSyncService.instance.subirProveedor(listo.id!));
+      syncInBackground(FirestoreSyncService.instance.subirProveedor(listo.id!), tag: 'subirProveedor');
     }
     DataRefreshHub.instance.notifyTodo();
 

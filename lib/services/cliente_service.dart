@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:uuid/uuid.dart';
@@ -6,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/cliente.dart';
 import 'auth_service.dart';
@@ -50,8 +50,9 @@ class ClienteService {
       valorNuevo: _snapshot(listo.copyWith(id: id)),
     );
     // Offline: no bloquear el alta esperando Firestore (queda en outbox).
-    unawaited(
+    syncInBackground(
       FirestoreSyncService.instance.subirCliente(id, forzar: true),
+      tag: 'subirCliente',
     );
     DataRefreshHub.instance.notifyTodo();
     return id;
@@ -97,8 +98,9 @@ class ClienteService {
     );
 
     if (listo.id != null) {
-      unawaited(
+      syncInBackground(
         FirestoreSyncService.instance.subirCliente(listo.id!, forzar: true),
+        tag: 'subirCliente',
       );
     }
     DataRefreshHub.instance.notifyTodo();
