@@ -38,6 +38,10 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   bool _modoSeguro = false;
   bool _guardandoTenant = false;
   final _tenantCtrl = TextEditingController();
+  final _scrollCtrl = ScrollController();
+
+  bool get _esAdmin => AuthService.instance.esAdministrador();
+
 
   // Branding
   final _nombreCtrl = TextEditingController();
@@ -274,6 +278,37 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   }
 
   Future<void> _desactivarNube() async {
+    if (!_esAdmin) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Solo el administrador puede desactivar la nube.'),
+        ),
+      );
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Desactivar sincronización'),
+        content: const Text(
+          'Vas a pasar a modo solo local. Los demás equipos dejarán '
+          'de recibir cambios de este dispositivo.\n\n'
+          '¿Confirmás? (no es lo habitual)',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Desactivar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
     await AuthService.instance.desactivarNube();
     if (!mounted) return;
     setState(() {
@@ -354,6 +389,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     _condicionIvaCtrl.dispose();
     _direccionFiscalCtrl.dispose();
     _tenantCtrl.dispose();
+    _scrollCtrl.dispose();
     super.dispose();
   }
 
@@ -550,35 +586,43 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     return Scaffold(
       appBar: buildModuleAppBar(context, title: 'Configuración'),
       body: SingleChildScrollView(
+        controller: _scrollCtrl,
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // ── Sincronización / nube ─────────────────
+            // Branding primero; sync va colapsada más abajo (evitar desactivar por error).
+            // ── Branding placeholder marker — sync se inserta después del branding ──
+            // ── Sincronización / nube (colapsada) ─────────────────
             Card(
               elevation: 3,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.cloud_sync_rounded, color: colorScheme.primary),
-                        const SizedBox(width: 10),
-                        Text(
-                          'SINCRONIZACIÓN EN LA NUBE',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
+              child: Theme(
+                data: theme.copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  initiallyExpanded: false,
+                  maintainState: true,
+                  leading:
+                      Icon(Icons.cloud_sync_rounded, color: colorScheme.primary),
+                  title: Text(
+                    'SINCRONIZACIÓN EN LA NUBE',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(height: 12),
-                    Text(
+                  ),
+                  subtitle: Text(
+                    _nubeActiva
+                        ? 'Conectado · opciones avanzadas'
+                        : 'Solo local · tocá para activar',
+                  ),
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
                       _nubeActiva
                           ? 'Estado: CONECTADO. Lo que cargues acá se refleja en el celular (y al revés).'
                           : 'Estado: SOLO LOCAL. Para usarlo online con el celular, activá la sincronización.',
                       style: theme.textTheme.bodyMedium,
+                    ),
                     ),
                     if (_modoSeguro) ...[
                       const SizedBox(height: 8),
@@ -613,11 +657,22 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     ],
                     const SizedBox(height: 12),
                     if (_nubeActiva)
-                      OutlinedButton.icon(
-                        onPressed: _conectandoNube ? null : _desactivarNube,
-                        icon: const Icon(Icons.cloud_off_outlined),
-                        label: const Text('Desactivar nube'),
-                      )
+                      if (_esAdmin)
+                        OutlinedButton.icon(
+                          onPressed: _conectandoNube ? null : _desactivarNube,
+                          icon: const Icon(Icons.cloud_off_outlined),
+                          label: const Text('Desactivar nube'),
+                        )
+                      else
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Solo el administrador puede desactivar la nube.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        )
                     else
                       FilledButton.icon(
                         onPressed: _conectandoNube ? null : _activarNube,
@@ -637,25 +692,27 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                     const SizedBox(height: 8),
                     Text(
                       'Requisito: internet. Misma empresa en todos los dispositivos. '
-                      'Cada persona entra con su usuario/clave (o Gmail si está cargado).',
+                      'Cada persona entra con su usuario/clave (o Gmail si está cargado). '
+                      'Una vez conectados, no hace falta tocar esto a diario.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                       ),
                     ),
-                    if (AuthService.instance.esAdministrador()) ...[
+                    if (_esAdmin) ...[
                       const SizedBox(height: 16),
                       const Divider(),
                       const SizedBox(height: 8),
                       Text(
-                        'Empresa (todos los dispositivos)',
+                        'Empresa (solo administrador)',
                         style: theme.textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Una empresa = PC y celulares ven lo mismo y se actualizan juntos. '
-                        'Los usuarios son personas (admin, empleados), no un usuario por dispositivo.\n\n'
+                        'Una empresa = PC y celulares ven lo mismo. '
+                        'Si un empleado se va, eliminalo en Usuarios: no podrá '
+                        'volver a entrar aunque sepa el código.\n\n'
                         'Si el celular está vacío: usá el código de la PC. '
                         'Empresa actual de la PC vieja: '
                         '${BackendConfigService.legacySharedTenantId}',
@@ -1218,10 +1275,19 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                         title: Text(entry.title),
                         value: visible,
                         onChanged: (v) async {
+                          final offset = _scrollCtrl.hasClients
+                              ? _scrollCtrl.offset
+                              : 0.0;
                           await SidebarPreferenciasService.instance
                               .setVisible(entry.id, v ?? true);
                           if (!mounted) return;
                           setState(() {});
+                          // Evitar que el checkbox “salte” al tope de la lista.
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (!_scrollCtrl.hasClients) return;
+                            final max = _scrollCtrl.position.maxScrollExtent;
+                            _scrollCtrl.jumpTo(offset.clamp(0.0, max));
+                          });
                         },
                       );
                     }),

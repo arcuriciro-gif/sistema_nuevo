@@ -319,17 +319,59 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
             ),
           )
           .toList();
-      await _ventaSvc.crear(
+      final ventaId = await _ventaSvc.crear(
         venta,
         items,
         montoAbonado: abonado,
         medioPago: _medioPago,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+
+      final guardada = await _ventaSvc.obtenerPorId(ventaId);
+      if (guardada != null) {
+        _ventaExistente = guardada;
+        _modoLectura = true;
+      }
+      setState(() => _finalizando = false);
+
+      final messenger = ScaffoldMessenger.of(context);
+      final navigator = Navigator.of(context);
+      final compartir = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Venta guardada'),
+          content: const Text(
+            'La venta quedó registrada en este equipo.\n'
+            'Si no hay internet, se sincroniza después.\n\n'
+            '¿Compartir el PDF ahora?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Después'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(ctx, true),
+              icon: const Icon(Icons.share_rounded),
+              label: const Text('Compartir PDF'),
+            ),
+          ],
+        ),
+      );
+      if (compartir == true && mounted && _ventaExistente != null) {
+        try {
+          await _compartirPdf();
+        } catch (e) {
+          messenger.showSnackBar(
+            SnackBar(content: Text('PDF: $e')),
+          );
+        }
+      }
+      if (!mounted) return;
+      messenger.showSnackBar(
         SnackBar(content: Text('$numero guardada correctamente')),
       );
-      Navigator.pop(context);
+      navigator.pop(true);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -714,11 +756,18 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                     },
                   ),
           ),
-          // Totales
+          // Totales — maintainBottomViewPadding: en Android edge-to-edge
+          // MediaQuery.padding.bottom suele ser 0; viewPadding sí tiene la barra.
           SafeArea(
             top: false,
+            maintainBottomViewPadding: true,
             child: Container(
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.fromLTRB(
+              12,
+              12,
+              12,
+              12 + MediaQuery.viewPaddingOf(context).bottom,
+            ),
             color: cs.surfaceContainerHighest,
             child: Column(
               children: [

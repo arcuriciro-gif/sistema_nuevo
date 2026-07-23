@@ -13,6 +13,7 @@ class ChatAlertService {
   final AudioPlayer _player = AudioPlayer();
   int _ultimoMensajesSinLeer = 0;
   bool _listo = false;
+  bool _audioListo = false;
   DateTime? _ultimoBeep;
 
   void marcarBaseline(int mensajesSinLeer) {
@@ -24,6 +25,32 @@ class ChatAlertService {
   void reset() {
     _listo = false;
     _ultimoMensajesSinLeer = 0;
+  }
+
+  Future<void> _asegurarAudio() async {
+    if (_audioListo) return;
+    try {
+      // Android: sin esto BytesSource a menudo no suena (modo silencio / focus).
+      await _player.setAudioContext(
+        AudioContext(
+          android: const AudioContextAndroid(
+            isSpeakerphoneOn: true,
+            stayAwake: false,
+            contentType: AndroidContentType.sonification,
+            usageType: AndroidUsageType.notification,
+            audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+          ),
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.playback,
+            options: {AVAudioSessionOptions.mixWithOthers},
+          ),
+        ),
+      );
+      await _player.setVolume(1.0);
+      _audioListo = true;
+    } catch (e) {
+      debugPrint('ChatAlert audioContext: $e');
+    }
   }
 
   /// Llama tras refrescar comunicaciones. Suena solo si suben los no leídos.
@@ -47,10 +74,13 @@ class ChatAlertService {
 
   Future<void> _beep() async {
     try {
-      await SystemSound.play(SystemSoundType.alert);
-      await HapticFeedback.mediumImpact();
+      await HapticFeedback.heavyImpact();
     } catch (_) {}
     try {
+      await SystemSound.play(SystemSoundType.alert);
+    } catch (_) {}
+    try {
+      await _asegurarAudio();
       await _player.stop();
       await _player.play(BytesSource(_wavBeep()));
     } catch (e) {
@@ -58,11 +88,11 @@ class ChatAlertService {
     }
   }
 
-  /// WAV PCM 16-bit mono ~0.18s (tono corto).
+  /// WAV PCM 16-bit mono ~0.22s (tono más audible).
   Uint8List _wavBeep() {
     const sampleRate = 22050;
-    const durationMs = 180;
-    const freq = 880.0;
+    const durationMs = 220;
+    const freq = 980.0;
     final nSamples = (sampleRate * durationMs / 1000).round();
     final dataSize = nSamples * 2;
     final out = BytesBuilder();
@@ -100,7 +130,7 @@ class ChatAlertService {
       final env = i < 400
           ? i / 400.0
           : (i > nSamples - 400 ? (nSamples - i) / 400.0 : 1.0);
-      final sample = (0.35 *
+      final sample = (0.55 *
               env *
               math.sin(2 * math.pi * freq * t) *
               32767)

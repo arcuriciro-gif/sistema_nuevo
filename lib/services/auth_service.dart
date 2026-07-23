@@ -294,6 +294,17 @@ class AuthService {
           return null;
         }
 
+        final miembroOk =
+            await TenantMembershipService.instance.esMiembroActivo(uid);
+        if (!miembroOk) {
+          await firebase.cerrarSesion();
+          await FirebaseSafeMode.marcarFinLoginFirebase();
+          lastLoginError =
+              'Ya no tenés acceso a esta empresa. '
+              'El administrador te quitó del sistema.';
+          return null;
+        }
+
         final hidratado = await sqlite.upsertDesdeRemoto(
           remoto.copyWith(
             firebaseUid: uid,

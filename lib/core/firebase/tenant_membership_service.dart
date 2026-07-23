@@ -131,10 +131,34 @@ class TenantMembershipService {
     final tenantId = BackendConfigService.instance.tenantId;
     if (tenantId.isEmpty || uid.trim().isEmpty) return false;
     try {
-      await _memberRef(tenantId, uid.trim()).delete();
+      final ref = _memberRef(tenantId, uid.trim());
+      // Marca revocado antes del delete: el login rechaza activo=false.
+      await ref.set({
+        'activo': false,
+        'revocadoEn': DateTime.now().toUtc().toIso8601String(),
+        'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
+      }, SetOptions(merge: true));
+      await ref.delete();
       return true;
     } catch (e, st) {
       debugPrint('TenantMembership eliminar: $e\n$st');
+      return false;
+    }
+  }
+
+  /// ¿El uid tiene membresía activa en la empresa actual?
+  Future<bool> esMiembroActivo(String uid) async {
+    if (!FirebaseBootstrap.isReady) return false;
+    final tenantId = BackendConfigService.instance.tenantId;
+    if (tenantId.isEmpty || uid.trim().isEmpty) return false;
+    try {
+      final snap = await _memberRef(tenantId, uid.trim()).get();
+      if (!snap.exists) return false;
+      final data = snap.data() ?? {};
+      if (data['activo'] == false) return false;
+      return true;
+    } catch (e) {
+      debugPrint('TenantMembership esMiembroActivo: $e');
       return false;
     }
   }
