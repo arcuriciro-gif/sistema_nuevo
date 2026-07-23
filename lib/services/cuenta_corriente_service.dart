@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
@@ -245,7 +247,7 @@ class CuentaCorrienteService {
         ),
       );
     }
-    await FirestoreSyncService.instance.subirVenta(ventaId);
+    unawaited(FirestoreSyncService.instance.subirVenta(ventaId));
     DataRefreshHub.instance.notifyVentas();
     return pago;
   }
@@ -279,7 +281,10 @@ class CuentaCorrienteService {
       where: 'id = ?',
       whereArgs: [clienteId],
     );
-    await FirestoreSyncService.instance.subirCliente(clienteId, forzar: true);
+    // Saldo local primero; nube en segundo plano (modo avión / venta rápida).
+    unawaited(
+      FirestoreSyncService.instance.subirCliente(clienteId, forzar: true),
+    );
   }
 
   Future<List<Map<String, dynamic>>> remitosPendientesDeCliente(
@@ -418,7 +423,7 @@ class CuentaCorrienteService {
         ),
       );
     }
-    await FirestoreSyncService.instance.subirRemito(remitoId);
+    unawaited(FirestoreSyncService.instance.subirRemito(remitoId));
     DataRefreshHub.instance.notifyTodo();
     return pago;
   }

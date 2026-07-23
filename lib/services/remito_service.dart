@@ -143,7 +143,8 @@ class RemitoService {
       );
     }
 
-    await FirestoreSyncService.instance.subirRemito(remitoId);
+    // Offline: remito ya está en SQLite; la nube va por outbox sin bloquear UI.
+    unawaited(FirestoreSyncService.instance.subirRemito(remitoId));
     final clienteIdInt =
         remito.clienteId != null ? int.tryParse(remito.clienteId!) : null;
     if (clienteIdInt != null) {
@@ -345,7 +346,7 @@ class RemitoService {
     if (clienteId != null) {
       await CuentaCorrienteService().recalcularSaldoCliente(clienteId);
     }
-    await FirestoreSyncService.instance.subirRemito(id);
+    unawaited(FirestoreSyncService.instance.subirRemito(id));
     DataRefreshHub.instance.notifyTodo();
   }
 
@@ -456,7 +457,7 @@ class RemitoService {
     if (clienteId != null) {
       await CuentaCorrienteService().recalcularSaldoCliente(clienteId!);
     }
-    await FirestoreSyncService.instance.subirRemito(id);
+    unawaited(FirestoreSyncService.instance.subirRemito(id));
     DataRefreshHub.instance.notifyTodo();
   }
 

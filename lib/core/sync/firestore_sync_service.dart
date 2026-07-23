@@ -2958,26 +2958,31 @@ class _DualProductoRepository implements ProductoRepository {
   Future<int> insertar(Producto producto) async {
     final id = await local.insertar(producto);
     final conId = producto.copyWith(id: id);
-    try {
-      await remote.insertar(await _paraFirestore(conId));
-    } catch (error) {
-      debugPrint('Firestore insertar producto: $error');
-    }
+    // No bloquear el alta local si Firestore/Storage cuelga (modo avión).
+    unawaited(() async {
+      try {
+        await remote.insertar(await _paraFirestore(conId));
+      } catch (error) {
+        debugPrint('Firestore insertar producto: $error');
+      }
+    }());
     return id;
   }
 
   @override
   Future<void> insertarLista(List<Producto> productos) async {
     await local.insertarLista(productos);
-    try {
-      final remotos = <Producto>[];
-      for (final p in productos) {
-        remotos.add(await _paraFirestore(p));
+    unawaited(() async {
+      try {
+        final remotos = <Producto>[];
+        for (final p in productos) {
+          remotos.add(await _paraFirestore(p));
+        }
+        await remote.insertarLista(remotos);
+      } catch (error) {
+        debugPrint('Firestore insertarLista productos: $error');
       }
-      await remote.insertarLista(remotos);
-    } catch (error) {
-      debugPrint('Firestore insertarLista productos: $error');
-    }
+    }());
   }
 
   @override
@@ -2998,12 +3003,14 @@ class _DualProductoRepository implements ProductoRepository {
   @override
   Future<int> actualizar(Producto producto) async {
     final result = await local.actualizar(producto);
-    try {
-      // Fase 2: no pisar stock absoluto (va por ajustes atómicos).
-      await remote.actualizarSinStock(await _paraFirestore(producto));
-    } catch (error) {
-      debugPrint('Firestore actualizar producto: $error');
-    }
+    unawaited(() async {
+      try {
+        // Fase 2: no pisar stock absoluto (va por ajustes atómicos).
+        await remote.actualizarSinStock(await _paraFirestore(producto));
+      } catch (error) {
+        debugPrint('Firestore actualizar producto: $error');
+      }
+    }());
     return result;
   }
 

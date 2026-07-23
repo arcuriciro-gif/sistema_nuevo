@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
@@ -51,7 +53,7 @@ class VentaService {
       medioPago: medioPago,
       observacionesPago: observacionesPago,
     );
-    await FirestoreSyncService.instance.subirVenta(id);
+    unawaited(FirestoreSyncService.instance.subirVenta(id));
     DataRefreshHub.instance.notifyVentas();
     return id;
   }
@@ -134,7 +136,7 @@ class VentaService {
         );
       }
     }
-    await FirestoreSyncService.instance.subirVenta(id);
+    unawaited(FirestoreSyncService.instance.subirVenta(id));
     DataRefreshHub.instance.notifyVentas();
   }
 
@@ -174,7 +176,7 @@ class VentaService {
     if (venta.clienteId != null) {
       await _cc.recalcularSaldoCliente(venta.clienteId!);
     }
-    await FirestoreSyncService.instance.subirVenta(id);
+    unawaited(FirestoreSyncService.instance.subirVenta(id));
     DataRefreshHub.instance.notifyVentas();
   }
 
@@ -202,7 +204,7 @@ class VentaService {
       where: 'id = ?',
       whereArgs: [id],
     );
-    await FirestoreSyncService.instance.subirVenta(id);
+    unawaited(FirestoreSyncService.instance.subirVenta(id));
   }
 
   Future<void> eliminar(int id) async {
