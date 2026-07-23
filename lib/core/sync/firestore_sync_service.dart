@@ -323,6 +323,14 @@ class FirestoreSyncService {
 
       await _procesarOutboxBatch();
 
+      // Config local pendiente (listas / categorías) tras cortes de red.
+      if (await _isConfigPendiente(_prefsConfigListasPendiente)) {
+        await subirListasPrecios();
+      }
+      if (await _isConfigPendiente(_prefsConfigCategoriasPendiente)) {
+        await subirCategorias();
+      }
+
       // Catch-up: encolar ausentes (sin wipe de cola).
       final db = await DatabaseHelper.instance.database;
       await _subirClientesAusentesEnNube(db);
@@ -757,6 +765,8 @@ class FirestoreSyncService {
   }
 
   Future<void> subirListasPrecios() async {
+    // Marca durable: si falla/cuelga la red, se reintenta al volver a sincronizar.
+    await _setConfigPendiente(_prefsConfigListasPendiente, true);
     if (!_puedeEscribirRemoto) return;
     try {
       final db = await DatabaseHelper.instance.database;
@@ -771,12 +781,14 @@ class FirestoreSyncService {
         }).toList(),
         'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
       });
+      await _setConfigPendiente(_prefsConfigListasPendiente, false);
     } catch (e) {
       debugPrint('Firestore subir listas: $e');
     }
   }
 
   Future<void> subirCategorias() async {
+    await _setConfigPendiente(_prefsConfigCategoriasPendiente, true);
     if (!_puedeEscribirRemoto) return;
     try {
       final db = await DatabaseHelper.instance.database;
@@ -791,6 +803,7 @@ class FirestoreSyncService {
         }).toList(),
         'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
       });
+      await _setConfigPendiente(_prefsConfigCategoriasPendiente, false);
     } catch (e) {
       debugPrint('Firestore subir categorias: $e');
     }
@@ -979,6 +992,25 @@ class FirestoreSyncService {
   static const _prefsColaRemitos = 'sync_cola_remitos_ids';
   static const _prefsColaCompras = 'sync_cola_compras_ids';
   static const _prefsColaStockOps = 'sync_cola_stock_ops_v2';
+  static const _prefsConfigListasPendiente = 'sync_config_listas_pendiente';
+  static const _prefsConfigCategoriasPendiente =
+      'sync_config_categorias_pendiente';
+
+  Future<void> _setConfigPendiente(String key, bool value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(key, value);
+    } catch (_) {}
+  }
+
+  Future<bool> _isConfigPendiente(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(key) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
   static const _prefsStockOpsHechas = 'sync_stock_ops_hechas_v2';
   final Set<String> _stockOpsHechas = {};
   bool _productosSnapshotInicial = true;
