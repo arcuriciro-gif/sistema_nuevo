@@ -22,13 +22,22 @@ class ProductosPage extends StatefulWidget {
   /// Si es true, abre la lista ya filtrada a productos sin stock.
   final bool soloSinStockInicial;
 
-  /// Si es true, abre filtrado a stock bajo / crítico (incluye sin stock).
+  /// Si es true, abre filtrado a stock bajo / critico (incluye sin stock).
   final bool soloStockBajoInicial;
+
+  /// Si es true, abre solo productos con stock > 0.
+  final bool soloConStockInicial;
+
+  /// Si es true, muestra productos con stock ordenados por aporte al valor
+  /// (precio × cantidad), de mayor a menor.
+  final bool ordenarPorValorStockInicial;
 
   const ProductosPage({
     super.key,
     this.soloSinStockInicial = false,
     this.soloStockBajoInicial = false,
+    this.soloConStockInicial = false,
+    this.ordenarPorValorStockInicial = false,
   });
 
   @override
@@ -53,20 +62,25 @@ class _ProductosPageState extends State<ProductosPage> {
   bool _soloFavoritos = false;
   bool _soloSinStock = false;
   bool _soloStockBajo = false;
+  bool _soloConStock = false;
+  bool _ordenarPorValorStock = false;
 
   List<String> _marcas = [];
   List<String> _proveedores = [];
 
   int get _totalProductos => productos.length;
-  int get _stockTotal => productos.fold(0, (s, p) => s + p.stock);
   double get _valorStock => productos.fold(0, (s, p) => s + p.precio * p.stock);
   int get _sinStock => productos.where((p) => p.stock == 0).length;
+  int get _conStock => productos.where((p) => p.stock > 0).length;
 
   @override
   void initState() {
     super.initState();
     _soloSinStock = widget.soloSinStockInicial;
     _soloStockBajo = widget.soloStockBajoInicial;
+    _soloConStock =
+        widget.soloConStockInicial || widget.ordenarPorValorStockInicial;
+    _ordenarPorValorStock = widget.ordenarPorValorStockInicial;
     DataRefreshHub.instance.addListener(_onDatosActualizados);
     cargarProductos();
   }
@@ -121,6 +135,7 @@ class _ProductosPageState extends State<ProductosPage> {
           _filtroProveedor == null || p.proveedor == _filtroProveedor;
       final matchFavorito = !_soloFavoritos || p.favorito;
       final matchSinStock = !_soloSinStock || p.stock == 0;
+      final matchConStock = !_soloConStock || p.stock > 0;
       final matchStockBajo = !_soloStockBajo ||
           p.stock == 0 ||
           (p.stockMinimo > 0 ? p.stock <= p.stockMinimo : p.stock <= 5);
@@ -130,16 +145,27 @@ class _ProductosPageState extends State<ProductosPage> {
           matchProveedor &&
           matchFavorito &&
           matchSinStock &&
+          matchConStock &&
           matchStockBajo;
     }).toList();
 
-    // Favoritos primero
-    filtrados.sort((a, b) {
-      if (a.favorito == b.favorito) {
+    if (_ordenarPorValorStock) {
+      filtrados.sort((a, b) {
+        final va = a.precio * a.stock;
+        final vb = b.precio * b.stock;
+        final cmp = vb.compareTo(va);
+        if (cmp != 0) return cmp;
         return a.descripcion.compareTo(b.descripcion);
-      }
-      return a.favorito ? -1 : 1;
-    });
+      });
+    } else {
+      // Favoritos primero
+      filtrados.sort((a, b) {
+        if (a.favorito == b.favorito) {
+          return a.descripcion.compareTo(b.descripcion);
+        }
+        return a.favorito ? -1 : 1;
+      });
+    }
 
     if (mounted) setState(() {});
   }
@@ -147,6 +173,19 @@ class _ProductosPageState extends State<ProductosPage> {
   void _mostrarSoloSinStock() {
     setState(() {
       _soloSinStock = true;
+      _soloConStock = false;
+      _ordenarPorValorStock = false;
+      _soloStockBajo = false;
+      _soloFavoritos = false;
+    });
+    _aplicarFiltros();
+  }
+
+  void _mostrarSoloConStock({bool porValor = false}) {
+    setState(() {
+      _soloConStock = true;
+      _ordenarPorValorStock = porValor;
+      _soloSinStock = false;
       _soloStockBajo = false;
       _soloFavoritos = false;
     });
@@ -160,6 +199,8 @@ class _ProductosPageState extends State<ProductosPage> {
       _filtroProveedor = null;
       _soloFavoritos = false;
       _soloSinStock = false;
+      _soloConStock = false;
+      _ordenarPorValorStock = false;
       _soloStockBajo = false;
       buscarController.clear();
     });
@@ -301,16 +342,40 @@ class _ProductosPageState extends State<ProductosPage> {
                           color: const Color(0xFF8B5CF6),
                         ),
                         _KpiCard(
-                          title: 'Stock total',
-                          value: '$_stockTotal',
+                          title: 'Con stock',
+                          value: '$_conStock',
                           icon: Icons.layers_rounded,
                           color: const Color(0xFF22C55E),
+                          selected: _soloConStock && !_ordenarPorValorStock,
+                          onTap: () {
+                            if (_soloConStock && !_ordenarPorValorStock) {
+                              setState(() {
+                                _soloConStock = false;
+                                _ordenarPorValorStock = false;
+                              });
+                              _aplicarFiltros();
+                            } else {
+                              _mostrarSoloConStock();
+                            }
+                          },
                         ),
                         _KpiCard(
                           title: 'Valor stock',
                           value: '\$${_fmtNum(_valorStock)}',
                           icon: Icons.attach_money_rounded,
                           color: const Color(0xFF3B82F6),
+                          selected: _ordenarPorValorStock,
+                          onTap: () {
+                            if (_ordenarPorValorStock) {
+                              setState(() {
+                                _soloConStock = false;
+                                _ordenarPorValorStock = false;
+                              });
+                              _aplicarFiltros();
+                            } else {
+                              _mostrarSoloConStock(porValor: true);
+                            }
+                          },
                         ),
                         _KpiCard(
                           title: 'Sin stock',
@@ -353,24 +418,42 @@ class _ProductosPageState extends State<ProductosPage> {
                     },
                   ),
                 ),
-                if (_soloSinStock || _soloStockBajo)
+                if (_soloSinStock ||
+                    _soloStockBajo ||
+                    _soloConStock ||
+                    _ordenarPorValorStock)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
                     child: Material(
-                      color: dangerColor.withValues(alpha: 0.12),
+                      color: (_soloSinStock || _soloStockBajo
+                              ? dangerColor
+                              : const Color(0xFF3B82F6))
+                          .withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(10),
                       child: ListTile(
                         dense: true,
                         leading: Icon(
-                          Icons.warning_amber_rounded,
-                          color: dangerColor,
+                          _soloSinStock || _soloStockBajo
+                              ? Icons.warning_amber_rounded
+                              : (_ordenarPorValorStock
+                                  ? Icons.attach_money_rounded
+                                  : Icons.layers_rounded),
+                          color: _soloSinStock || _soloStockBajo
+                              ? dangerColor
+                              : const Color(0xFF3B82F6),
                         ),
                         title: Text(
                           _soloSinStock
                               ? 'Mostrando $_sinStock producto(s) sin stock'
-                              : 'Mostrando productos con stock bajo',
+                              : _soloStockBajo
+                                  ? 'Mostrando productos con stock bajo'
+                                  : _ordenarPorValorStock
+                                      ? 'Productos que forman el valor de stock (\$${_fmtNum(_valorStock)})'
+                                      : 'Mostrando $_conStock producto(s) con stock',
                           style: TextStyle(
-                            color: dangerColor,
+                            color: _soloSinStock || _soloStockBajo
+                                ? dangerColor
+                                : const Color(0xFF3B82F6),
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -496,6 +579,9 @@ class _ProductosPageState extends State<ProductosPage> {
                               stockColor: stockColor,
                               colorScheme: colorScheme,
                               listasActivas: listasActivas,
+                              valorAporte: _ordenarPorValorStock
+                                  ? p.precio * p.stock
+                                  : null,
                               onEdit: () => _editarProducto(p),
                               onDelete: () => eliminar(p),
                               onToggleFavorito: () => _toggleFavorito(p),
@@ -722,6 +808,7 @@ class _ProductoCard extends StatelessWidget {
   final Color stockColor;
   final ColorScheme colorScheme;
   final List<ListaPrecio> listasActivas;
+  final double? valorAporte;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onToggleFavorito;
@@ -733,6 +820,7 @@ class _ProductoCard extends StatelessWidget {
     required this.stockColor,
     required this.colorScheme,
     required this.listasActivas,
+    this.valorAporte,
     required this.onEdit,
     required this.onDelete,
     required this.onToggleFavorito,
@@ -789,6 +877,18 @@ class _ProductoCard extends StatelessWidget {
                             fontSize: 12,
                             color: colorScheme.onSurfaceVariant),
                       ),
+                      if (valorAporte != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'Aporte al valor: \$${valorAporte!.toStringAsFixed(0)}'
+                          '  (${p.stock} × \$${p.precio.toStringAsFixed(0)})',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF3B82F6),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

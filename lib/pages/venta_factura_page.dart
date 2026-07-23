@@ -690,7 +690,9 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                   ),
           ),
           // Totales
-          Container(
+          SafeArea(
+            top: false,
+            child: Container(
             padding: const EdgeInsets.all(12),
             color: cs.surfaceContainerHighest,
             child: Column(
@@ -879,6 +881,7 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                 ],
               ],
             ),
+          ),
           ),
         ],
       ),

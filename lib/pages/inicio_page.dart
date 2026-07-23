@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
 import '../models/producto.dart';
+import '../services/analytics_service.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
 import '../services/cliente_service.dart';
@@ -15,8 +16,8 @@ import 'clientes_deudores_page.dart';
 import 'clientes_page.dart';
 import 'compras_page.dart';
 import 'productos_page.dart';
-import 'remitos_page.dart';
 import 'ventas_page.dart';
+import 'ventas_totales_page.dart';
 
 class InicioPage extends StatefulWidget {
   const InicioPage({super.key});
@@ -35,8 +36,9 @@ class _InicioPageState extends State<InicioPage> {
   int _totalProductos = 0;
   int _stockTotal = 0;
   int _sinStock = 0;
+  int _conStock = 0;
   int _totalClientes = 0;
-  int _totalRemitos = 0;
+  int _totalVentasDocs = 0;
   double _ventasMes = 0;
   double _comprasMes = 0;
   double _valorStock = 0;
@@ -66,7 +68,8 @@ class _InicioPageState extends State<InicioPage> {
     setState(() => _cargando = true);
     final productos = await _productoService.obtenerTodos();
     final clientes = await _clienteService.obtenerTodos();
-    final remitos = await _remitoService.cantidad();
+    final docsVenta =
+        await AnalyticsService.instance.cantidadDocumentosVenta();
     final ahora = DateTime.now();
     final inicioMes = DateTime(ahora.year, ahora.month, 1);
     final ventasMes =
@@ -82,9 +85,10 @@ class _InicioPageState extends State<InicioPage> {
       _totalProductos = productos.length;
       _stockTotal = productos.fold(0, (s, p) => s + p.stock);
       _sinStock = productos.where((p) => p.stock == 0).length;
+      _conStock = productos.where((p) => p.stock > 0).length;
       _valorStock = productos.fold(0.0, (s, p) => s + p.precio * p.stock);
       _totalClientes = clientes.length;
-      _totalRemitos = remitos;
+      _totalVentasDocs = docsVenta;
       _ventasMes = ventasMes;
       _comprasMes = comprasMes;
       _resumenCc = resumenCc;
@@ -238,7 +242,9 @@ class _InicioPageState extends State<InicioPage> {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (_) => const ProductosPage(),
+                                    builder: (_) => const ProductosPage(
+                                      soloConStockInicial: true,
+                                    ),
                                   ),
                                 ).then((_) => _cargar());
                               },
@@ -252,7 +258,9 @@ class _InicioPageState extends State<InicioPage> {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (_) => const ProductosPage(),
+                                    builder: (_) => const ProductosPage(
+                                      ordenarPorValorStockInicial: true,
+                                    ),
                                   ),
                                 ).then((_) => _cargar());
                               },
@@ -274,6 +282,22 @@ class _InicioPageState extends State<InicioPage> {
                               },
                             ),
                             _KpiCard(
+                              title: 'Con stock',
+                              value: _fmt(_conStock),
+                              icon: Icons.check_circle_outline_rounded,
+                              color: const Color(0xFF10B981),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const ProductosPage(
+                                      soloConStockInicial: true,
+                                    ),
+                                  ),
+                                ).then((_) => _cargar());
+                              },
+                            ),
+                            _KpiCard(
                               title: 'Clientes',
                               value: _fmt(_totalClientes),
                               icon: Icons.groups_rounded,
@@ -288,15 +312,15 @@ class _InicioPageState extends State<InicioPage> {
                               },
                             ),
                             _KpiCard(
-                              title: 'Remitos totales',
-                              value: _fmt(_totalRemitos),
-                              icon: Icons.description_rounded,
+                              title: 'Ventas totales',
+                              value: _fmt(_totalVentasDocs),
+                              icon: Icons.receipt_long_rounded,
                               color: const Color(0xFFF59E0B),
                               onTap: () {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (_) => const RemitosPage(),
+                                    builder: (_) => const VentasTotalesPage(),
                                   ),
                                 ).then((_) => _cargar());
                               },

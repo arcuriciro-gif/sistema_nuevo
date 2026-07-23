@@ -78,6 +78,81 @@ class AnalyticsService {
     return (rows.first['total'] as num?)?.toDouble() ?? 0;
   }
 
+  /// Cantidad de documentos de venta (remitos + facturas/NE/CI, sin presupuestos).
+  Future<int> cantidadDocumentosVenta() async {
+    final db = await _dbHelper.database;
+    final rows = await db.rawQuery('''
+      SELECT COUNT(*) AS c FROM (
+        SELECT id FROM remitos WHERE estado != 'anulado'
+        UNION ALL
+        SELECT id FROM ventas
+        WHERE estado != 'anulada' AND tipo NOT IN ('presupuesto')
+      )
+    ''');
+    return (rows.first['c'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Listado unificado ordenado por fecha (más reciente primero).
+  Future<List<Map<String, dynamic>>> listarDocumentosVenta() async {
+    final db = await _dbHelper.database;
+    return db.rawQuery('''
+      SELECT
+        origen,
+        id,
+        numero,
+        fecha,
+        total,
+        estado,
+        tipo,
+        tipoLabel,
+        clienteId,
+        clienteNombre,
+        ordenFecha
+      FROM (
+        SELECT
+          'remito' AS origen,
+          r.id AS id,
+          r.numero AS numero,
+          r.fecha AS fecha,
+          r.total AS total,
+          r.estado AS estado,
+          'remito' AS tipo,
+          'Remito' AS tipoLabel,
+          r.clienteId AS clienteId,
+          c.nombre AS clienteNombre,
+          COALESCE(r.fechaCreacion, r.fecha) AS ordenFecha
+        FROM remitos r
+        LEFT JOIN clientes c ON c.id = r.clienteId
+        WHERE r.estado != 'anulado'
+        UNION ALL
+        SELECT
+          'venta' AS origen,
+          v.id AS id,
+          v.numero AS numero,
+          v.fecha AS fecha,
+          v.total AS total,
+          v.estado AS estado,
+          v.tipo AS tipo,
+          CASE v.tipo
+            WHEN 'factura_a' THEN 'Factura A'
+            WHEN 'factura_b' THEN 'Factura B'
+            WHEN 'factura_c' THEN 'Factura C'
+            WHEN 'nota_entrega' THEN 'Nota de entrega'
+            WHEN 'comprobante_interno' THEN 'Comprobante interno'
+            WHEN 'remito' THEN 'Remito'
+            ELSE v.tipo
+          END AS tipoLabel,
+          v.clienteId AS clienteId,
+          c.nombre AS clienteNombre,
+          COALESCE(v.fechaCreacion, v.fecha) AS ordenFecha
+        FROM ventas v
+        LEFT JOIN clientes c ON c.id = v.clienteId
+        WHERE v.estado != 'anulada' AND v.tipo NOT IN ('presupuesto')
+      )
+      ORDER BY datetime(ordenFecha) DESC, id DESC
+    ''');
+  }
+
   Future<List<Map<String, dynamic>>> topProductos({int limite = 5}) async {
     final db = await _dbHelper.database;
     return db.rawQuery('''
