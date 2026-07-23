@@ -86,7 +86,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
           fb.disponible &&
           fb.uidActual != null;
       _modoSeguro = FirebaseSafeMode.enabled;
-      _tenantCtrl.text = BackendConfigService.instance.tenantId;
+      _tenantCtrl.text = BackendConfigService.instance.empresaConfirmada
+          ? BackendConfigService.instance.tenantId
+          : '';
     });
   }
 
@@ -94,6 +96,14 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     if (!AuthService.instance.esAdministrador()) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Solo el administrador puede cambiar el código de empresa.')),
+      );
+      return;
+    }
+    if (BackendConfigService.instance.empresaConfirmada) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('La empresa ya está fijada y no se puede modificar.'),
+        ),
       );
       return;
     }
@@ -691,9 +701,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       ),
                     const SizedBox(height: 8),
                     Text(
-                      'Requisito: internet. Misma empresa en todos los dispositivos. '
-                      'Cada persona entra con su usuario/clave (o Gmail si está cargado). '
-                      'Una vez conectados, no hace falta tocar esto a diario.',
+                      'Requisito: internet. Cada persona entra con su usuario y clave.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                       ),
@@ -709,106 +717,76 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        'Una empresa = PC y celulares ven lo mismo. '
-                        'Si un empleado se va, eliminalo en Usuarios: no podrá '
-                        'volver a entrar aunque sepa el código.\n\n'
-                        'Si el celular está vacío: usá el código de la PC. '
-                        'Empresa actual de la PC vieja: '
-                        '${BackendConfigService.legacySharedTenantId}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      if (!BackendConfigService.instance.empresaConfirmada ||
-                          BackendConfigService.instance.esEmpresaAutogenerada)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Material(
-                            color: colorScheme.errorContainer,
-                            borderRadius: BorderRadius.circular(8),
-                            child: Padding(
-                              padding: const EdgeInsets.all(10),
-                              child: Text(
-                                'Este dispositivo está en una empresa automática vacía. '
-                                'Tocá «Usar tata_stock (PC vieja)» y después Guardar, '
-                                'o vas a seguir sin productos.',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: colorScheme.onErrorContainer,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      Text(
-                        'Activa ahora: ${BackendConfigService.instance.tenantId}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontFamily: 'monospace',
-                          fontWeight: FontWeight.w600,
-                          color: (_tenantCtrl.text.trim().isNotEmpty &&
-                                  _tenantCtrl.text.trim() !=
-                                      BackendConfigService.instance.tenantId)
-                              ? colorScheme.error
-                              : null,
-                        ),
-                      ),
-                      if (_tenantCtrl.text.trim().isNotEmpty &&
-                          _tenantCtrl.text.trim() !=
-                              BackendConfigService.instance.tenantId) ...[
-                        const SizedBox(height: 4),
+                      if (!BackendConfigService.instance.empresaConfirmada)
                         Text(
-                          'Escribiste otro código: todavía NO está guardado. '
-                          'Tocá Guardar código.',
+                          'Pegá el código para unirte. Una vez guardado queda fijo.',
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: colorScheme.error,
-                            fontWeight: FontWeight.w700,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        )
+                      else
+                        Text(
+                          'Empresa fijada. No se puede cambiar desde acá.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
                           ),
                         ),
-                      ],
                       const SizedBox(height: 8),
                       TextField(
                         controller: _tenantCtrl,
+                        readOnly:
+                            BackendConfigService.instance.empresaConfirmada,
                         onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Código de empresa',
-                          border: OutlineInputBorder(),
+                          hintText: BackendConfigService
+                                  .instance.empresaConfirmada
+                              ? null
+                              : 'Vacío hasta unirte',
+                          border: const OutlineInputBorder(),
                           isDense: true,
+                          suffixIcon: BackendConfigService
+                                  .instance.empresaConfirmada
+                              ? const Icon(Icons.lock_outline, size: 18)
+                              : null,
                         ),
                         autocorrect: false,
                         enableSuggestions: false,
                       ),
                       const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          FilledButton.icon(
-                            onPressed:
-                                _guardandoTenant ? null : _guardarCodigoEmpresa,
-                            icon: _guardandoTenant
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.save_outlined),
-                            label: Text(
-                              _guardandoTenant ? 'Guardando...' : 'Guardar código',
+                      if (!BackendConfigService.instance.empresaConfirmada)
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            FilledButton.icon(
+                              onPressed: _guardandoTenant
+                                  ? null
+                                  : _guardarCodigoEmpresa,
+                              icon: _guardandoTenant
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.save_outlined),
+                              label: Text(
+                                _guardandoTenant
+                                    ? 'Guardando...'
+                                    : 'Guardar código',
+                              ),
                             ),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: _guardandoTenant
-                                ? null
-                                : _usarEmpresaCompartidaLegada,
-                            icon: const Icon(Icons.link_rounded),
-                            label: const Text('Usar tata_stock (PC vieja)'),
-                          ),
-                        ],
-                      ),
+                            OutlinedButton.icon(
+                              onPressed: _guardandoTenant
+                                  ? null
+                                  : _usarEmpresaCompartidaLegada,
+                              icon: const Icon(Icons.link_rounded),
+                              label: const Text('Usar tata_stock'),
+                            ),
+                          ],
+                        ),
                       const SizedBox(height: 16),
                       Text(
                         'Seguridad admin',
@@ -839,31 +817,30 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
             // ── Branding ──────────────────────────────
             Card(
               elevation: 3,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.storefront, color: colorScheme.primary),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'MI NEGOCIO',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        if (!_puedeEditarNegocio)
-                          Chip(
-                            avatar: const Icon(Icons.lock_outline, size: 16),
-                            label: const Text('Solo lectura'),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                      ],
+              child: Theme(
+                data: theme.copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  initiallyExpanded: false,
+                  maintainState: true,
+                  leading:
+                      Icon(Icons.storefront, color: colorScheme.primary),
+                  title: Text(
+                    'MI NEGOCIO',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
+                  ),
+                  subtitle: Text(
+                    !_puedeEditarNegocio ? 'Solo lectura' : 'Logo y datos',
+                  ),
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  children: [
+                    if (!_puedeEditarNegocio)
+                      Chip(
+                        avatar: const Icon(Icons.lock_outline, size: 16),
+                        label: const Text('Solo lectura'),
+                        visualDensity: VisualDensity.compact,
+                      ),
                     if (!_puedeEditarNegocio) ...[
                       const SizedBox(height: 8),
                       Text(
@@ -1226,40 +1203,36 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
             // ── Barra lateral personalizable ───────────
             Card(
               elevation: 3,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.view_sidebar_rounded,
-                            color: colorScheme.primary),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'BARRA LATERAL',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () async {
-                            await SidebarPreferenciasService.instance
-                                .mostrarTodos();
-                            if (!mounted) return;
-                            setState(() {});
-                          },
-                          child: const Text('Mostrar todos'),
-                        ),
-                      ],
+              child: Theme(
+                data: theme.copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  initiallyExpanded: false,
+                  maintainState: true,
+                  leading: Icon(Icons.view_sidebar_rounded,
+                      color: colorScheme.primary),
+                  title: Text(
+                    'BARRA LATERAL',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(height: 8),
+                  ),
+                  subtitle: const Text('Mostrar u ocultar módulos'),
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () async {
+                          await SidebarPreferenciasService.instance
+                              .mostrarTodos();
+                          if (!mounted) return;
+                          setState(() {});
+                        },
+                        child: const Text('Mostrar todos'),
+                      ),
+                    ),
                     Text(
-                      'Elegí qué módulos ver en el menú. Podés dejarla llena o vacía. '
-                      'Al marcar/desmarcar te quedás en Configuración (no te manda al Inicio). '
-                      'Si la barra queda vacía, usá el engranaje de arriba para volver.',
+                      'Marcá qué módulos ver. El menú no salta al tocar.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                       ),
@@ -1299,24 +1272,20 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
             // ── Listas de precios ──────────────────────
             Card(
               elevation: 3,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.sell_rounded, color: colorScheme.primary),
-                        const SizedBox(width: 10),
-                        Text(
-                          'PORCENTAJES DE LISTAS',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
+              child: Theme(
+                data: theme.copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  initiallyExpanded: false,
+                  maintainState: true,
+                  leading: Icon(Icons.sell_rounded, color: colorScheme.primary),
+                  title: Text(
+                    'PORCENTAJES DE LISTAS',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(height: 8),
+                  ),
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  children: [
                     const Text(
                       'Creá, editá o desactivá las listas de precios usadas para calcular automáticamente el precio de venta según el costo.',
                     ),
@@ -1344,26 +1313,22 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
             // ── Tema ──────────────────────────────────
             Card(
               elevation: 3,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.palette, color: colorScheme.primary),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'PERSONALIZÁ TU EXPERIENCIA',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
+              child: Theme(
+                data: theme.copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  initiallyExpanded: false,
+                  maintainState: true,
+                  leading: Icon(Icons.palette, color: colorScheme.primary),
+                  title: Text(
+                    'PERSONALIZÁ TU EXPERIENCIA',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(height: 24),
+                  ),
+                  subtitle: const Text('Colores, fuente e integridad'),
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  children: [
+                    const SizedBox(height: 8),
                     Text(
                       'Colores del tema',
                       style: theme.textTheme.titleSmall?.copyWith(

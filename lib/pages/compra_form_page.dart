@@ -4,6 +4,7 @@ import '../models/compra.dart';
 import '../models/compra_detalle.dart';
 import '../models/producto.dart';
 import '../models/proveedor.dart';
+import '../core/config/platform_capabilities.dart';
 import '../core/utils/busqueda_texto.dart';
 import '../services/compra_service.dart';
 import '../services/producto_service.dart';
@@ -72,7 +73,16 @@ class _CompraFormPageState extends State<CompraFormPage> {
     setState(() => cargando = false);
   }
 
-  Future<String?> _abrirScanner() {
+  Future<String?> _abrirScanner() async {
+    if (PlatformCapabilities.isWindowsDesktop) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('El escáner de cámara no está disponible en Windows.'),
+        ),
+      );
+      return null;
+    }
     return Navigator.push<String>(
       context,
       MaterialPageRoute(builder: (_) => const ScannerPage()),
@@ -299,16 +309,25 @@ class _CompraFormPageState extends State<CompraFormPage> {
         estado: 'confirmada',
       );
 
-      final detalles = items
-          .map((i) => CompraDetalle(
-                compraId: 0,
-                productoId: i.producto.id!,
-                productoDescripcion: i.producto.descripcion,
-                cantidad: i.cantidad,
-                costo: i.costo,
-                subtotal: i.subtotal,
-              ))
-          .toList();
+      final detalles = <CompraDetalle>[];
+      for (final i in items) {
+        final pid = i.producto.id;
+        if (pid == null) {
+          throw StateError(
+            'Producto sin id: ${i.producto.descripcion}. Volvé a elegirlo.',
+          );
+        }
+        detalles.add(
+          CompraDetalle(
+            compraId: 0,
+            productoId: pid,
+            productoDescripcion: i.producto.descripcion,
+            cantidad: i.cantidad,
+            costo: i.costo,
+            subtotal: i.subtotal,
+          ),
+        );
+      }
 
       await compraService.insertar(compra, detalles);
 
@@ -391,11 +410,49 @@ class _CompraFormPageState extends State<CompraFormPage> {
                               child: ListTile(
                                 title: Text(item.producto.descripcion),
                                 subtitle: Text(
-                                  'x${item.cantidad} × \$${item.costo.toStringAsFixed(2)}',
+                                  '\$${item.costo.toStringAsFixed(2)} c/u · '
+                                  'Stock: ${item.producto.stock}',
                                 ),
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    IconButton(
+                                      tooltip: 'Menos',
+                                      icon: const Icon(Icons.remove_rounded),
+                                      onPressed: () {
+                                        setState(() {
+                                          if (item.cantidad <= 1) {
+                                            items.removeAt(idx);
+                                          } else {
+                                            items[idx] = _ItemCompra(
+                                              producto: item.producto,
+                                              cantidad: item.cantidad - 1,
+                                              costo: item.costo,
+                                            );
+                                          }
+                                        });
+                                      },
+                                    ),
+                                    Text(
+                                      '${item.cantidad}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Más',
+                                      icon: const Icon(Icons.add_rounded),
+                                      onPressed: () {
+                                        setState(() {
+                                          items[idx] = _ItemCompra(
+                                            producto: item.producto,
+                                            cantidad: item.cantidad + 1,
+                                            costo: item.costo,
+                                          );
+                                        });
+                                      },
+                                    ),
                                     Text(
                                       '\$${item.subtotal.toStringAsFixed(2)}',
                                       style: const TextStyle(

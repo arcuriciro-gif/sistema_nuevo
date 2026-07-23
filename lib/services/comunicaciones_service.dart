@@ -117,11 +117,38 @@ class ComunicacionesService extends ChangeNotifier {
             .toList();
         final db = await DatabaseHelper.instance.database;
         for (final n in list) {
+          final existing = await db.query(
+            'notificaciones_internas',
+            columns: ['leida'],
+            where: 'id = ?',
+            whereArgs: [n.id],
+            limit: 1,
+          );
+          // Si ya la marqué leída localmente, no volver a ponerla como no leída.
+          final yaLeidaLocal = existing.isNotEmpty &&
+              (existing.first['leida'] == 1 || existing.first['leida'] == true);
+          final merged = NotificacionInterna(
+            id: n.id,
+            usuarioDestino: n.usuarioDestino,
+            tipo: n.tipo,
+            titulo: n.titulo,
+            cuerpo: n.cuerpo,
+            conversacionId: n.conversacionId,
+            entidadTipo: n.entidadTipo,
+            entidadId: n.entidadId,
+            fecha: n.fecha,
+            leida: yaLeidaLocal || n.leida,
+          );
           await db.insert(
             'notificaciones_internas',
-            n.toMap(),
+            merged.toMap(),
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
+          if (yaLeidaLocal && !n.leida) {
+            try {
+              await notifs.doc(n.id).set({'leida': true}, SetOptions(merge: true));
+            } catch (_) {}
+          }
         }
         await refrescar();
       }, onError: (e) => debugPrint('notif stream: $e'));
@@ -647,12 +674,52 @@ class ComunicacionesService extends ChangeNotifier {
     final yo = _yo;
     if (yo == null) return;
     final db = await DatabaseHelper.instance.database;
+    final pendientes = await db.query(
+      'notificaciones_internas',
+      columns: ['id'],
+      where: 'usuarioDestino = ? AND leida = 0',
+      whereArgs: [yo],
+    );
     await db.update(
       'notificaciones_internas',
       {'leida': 1},
       where: 'usuarioDestino = ? AND leida = 0',
       whereArgs: [yo],
     );
+    final remote = _notifCol;
+    if (remote != null) {
+      for (final row in pendientes) {
+        final id = row['id']?.toString();
+        if (id == null || id.isEmpty) continue;
+        try {
+          await remote.doc(id).set({'leida': true}, SetOptions(merge: true));
+        } catch (_) {}
+      }
+    }
+    await refrescar();
+  }
+
+  /// Elimina una conversación localmente y en la nube (si hay sync).
+  Future<void> eliminarConversacion(String conversacionId) async {
+    final db = await DatabaseHelper.instance.database;
+    await db.delete(
+      'chat_mensajes',
+      where: 'conversacionId = ?',
+      whereArgs: [conversacionId],
+    );
+    await db.delete(
+      'chat_conversaciones',
+      where: 'id = ?',
+      whereArgs: [conversacionId],
+    );
+    final remote = _chatsCol;
+    if (remote != null) {
+      try {
+        await remote.doc(conversacionId).delete();
+      } catch (e) {
+        debugPrint('eliminarConversacion remoto: $e');
+      }
+    }
     await refrescar();
   }
 

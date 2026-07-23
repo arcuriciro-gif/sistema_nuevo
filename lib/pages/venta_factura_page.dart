@@ -7,6 +7,7 @@ import '../models/pago.dart';
 import '../models/producto.dart';
 import '../models/venta.dart';
 import '../models/venta_item.dart';
+import '../core/security/authorization_service.dart';
 import '../core/utils/busqueda_texto.dart';
 import '../services/afip_service.dart';
 import '../services/branding_service.dart';
@@ -571,6 +572,47 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                       );
                     }
                   }
+                } else if (action == 'eliminar') {
+                  final messenger = ScaffoldMessenger.of(context);
+                  final navigator = Navigator.of(context);
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (dialogCtx) => AlertDialog(
+                      title: const Text('Eliminar factura'),
+                      content: const Text(
+                        'Se borra de este equipo y de la nube. ¿Continuar?',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogCtx, false),
+                          child: const Text('Cancelar'),
+                        ),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(dialogCtx, true),
+                          child: const Text('Eliminar'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (ok == true) {
+                    try {
+                      await _ventaSvc.eliminar(_ventaExistente!.id!);
+                      messenger.showSnackBar(
+                        const SnackBar(content: Text('Factura eliminada')),
+                      );
+                      navigator.pop();
+                    } catch (e) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            e.toString().contains('No autorizado')
+                                ? 'No tenés permiso para eliminar facturas'
+                                : 'No se pudo eliminar: $e',
+                          ),
+                        ),
+                      );
+                    }
+                  }
                 } else if (action == 'imprimir') {
                   await _imprimirPdf();
                 } else if (action == 'compartir') {
@@ -606,6 +648,19 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                     value: 'anular',
                     child: Text(
                       'Anular',
+                      style: TextStyle(color: AppVisuals.danger(cs)),
+                    ),
+                  ),
+                ],
+                if (AuthorizationService.instance.puede(
+                  AuthModules.remitos,
+                  AuthzAction.eliminar,
+                )) ...[
+                  const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: 'eliminar',
+                    child: Text(
+                      'Eliminar',
                       style: TextStyle(color: AppVisuals.danger(cs)),
                     ),
                   ),

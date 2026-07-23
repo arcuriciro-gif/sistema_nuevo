@@ -258,73 +258,137 @@ class _ComunicacionesPageState extends State<ComunicacionesPage> {
                     itemBuilder: (context, i) {
                       final c = lista[i];
                       final unread = c.noLeidosDe(_yo);
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: c.tipo == 'grupo'
-                              ? cs.secondaryContainer
-                              : cs.primaryContainer,
-                          child: c.tipo == 'grupo'
-                              ? Icon(Icons.groups_rounded,
-                                  color: cs.onSecondaryContainer)
-                              : Text(
-                                  c.inicialPara(_yo),
-                                  style: TextStyle(
-                                    color: cs.onPrimaryContainer,
-                                    fontWeight: FontWeight.bold,
+                      return Dismissible(
+                        key: ValueKey('chat_${c.id}'),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 20),
+                          color: cs.error,
+                          child: Icon(Icons.delete_outline, color: cs.onError),
+                        ),
+                        confirmDismiss: (_) async {
+                          return await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Eliminar chat'),
+                                  content: Text(
+                                    '¿Eliminar "${c.tituloPara(_yo)}"?',
                                   ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(ctx, false),
+                                      child: const Text('Cancelar'),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () =>
+                                          Navigator.pop(ctx, true),
+                                      child: const Text('Eliminar'),
+                                    ),
+                                  ],
                                 ),
-                        ),
-                        title: Text(
-                          c.tituloPara(_yo),
-                          style: TextStyle(
-                            fontWeight:
-                                unread > 0 ? FontWeight.w700 : FontWeight.w500,
-                          ),
-                        ),
-                        subtitle: Text(
-                          c.ultimoMensaje.isEmpty
-                              ? 'Sin mensajes'
-                              : c.ultimoMensaje,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              _fmtHora(c.ultimoMensajeAt),
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: cs.onSurfaceVariant,
-                              ),
-                            ),
-                            if (unread > 0) ...[
-                              const SizedBox(height: 4),
-                              CircleAvatar(
-                                radius: 10,
-                                backgroundColor: cs.primary,
-                                child: Text(
-                                  '$unread',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: cs.onPrimary,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                        onTap: () async {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ChatPage(conversacion: c),
-                            ),
-                          );
-                          await _svc.refrescar();
+                              ) ??
+                              false;
                         },
+                        onDismissed: (_) async {
+                          await _svc.eliminarConversacion(c.id);
+                        },
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: c.tipo == 'grupo'
+                                ? cs.secondaryContainer
+                                : cs.primaryContainer,
+                            child: c.tipo == 'grupo'
+                                ? Icon(Icons.groups_rounded,
+                                    color: cs.onSecondaryContainer)
+                                : Text(
+                                    c.inicialPara(_yo),
+                                    style: TextStyle(
+                                      color: cs.onPrimaryContainer,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                          ),
+                          title: Text(
+                            c.tituloPara(_yo),
+                            style: TextStyle(
+                              fontWeight: unread > 0
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                            ),
+                          ),
+                          subtitle: Text(
+                            c.ultimoMensaje.isEmpty
+                                ? 'Sin mensajes'
+                                : c.ultimoMensaje,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                _fmtHora(c.ultimoMensajeAt),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                              if (unread > 0) ...[
+                                const SizedBox(height: 4),
+                                CircleAvatar(
+                                  radius: 10,
+                                  backgroundColor: cs.primary,
+                                  child: Text(
+                                    '$unread',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: cs.onPrimary,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          onLongPress: () async {
+                            final ok = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('Eliminar chat'),
+                                content: Text(
+                                  '¿Eliminar "${c.tituloPara(_yo)}"?',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(ctx, false),
+                                    child: const Text('Cancelar'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () =>
+                                        Navigator.pop(ctx, true),
+                                    child: const Text('Eliminar'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (ok == true) {
+                              await _svc.eliminarConversacion(c.id);
+                            }
+                          },
+                          onTap: () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ChatPage(conversacion: c),
+                              ),
+                            );
+                            await _svc.refrescar();
+                          },
+                        ),
                       );
                     },
                   ),

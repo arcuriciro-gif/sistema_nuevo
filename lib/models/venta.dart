@@ -147,9 +147,9 @@ class Venta {
       case 'presupuesto':
         return 'Presupuesto';
       case 'nota_entrega':
-        return 'Nota de entrega';
+        return 'Entrega sin factura';
       case 'comprobante_interno':
-        return 'Comprobante interno';
+        return 'Ticket interno';
       default:
         return 'Ticket / Remito';
     }

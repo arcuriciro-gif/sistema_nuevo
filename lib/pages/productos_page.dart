@@ -340,6 +340,18 @@ class _ProductosPageState extends State<ProductosPage> {
                           value: '$_totalProductos',
                           icon: Icons.inventory_2_rounded,
                           color: const Color(0xFF8B5CF6),
+                          selected: !_soloConStock &&
+                              !_soloSinStock &&
+                              !_ordenarPorValorStock,
+                          onTap: () {
+                            setState(() {
+                              _soloConStock = false;
+                              _soloSinStock = false;
+                              _ordenarPorValorStock = false;
+                              _soloStockBajo = false;
+                            });
+                            _aplicarFiltros();
+                          },
                         ),
                         _KpiCard(
                           title: 'Con stock',
@@ -356,24 +368,6 @@ class _ProductosPageState extends State<ProductosPage> {
                               _aplicarFiltros();
                             } else {
                               _mostrarSoloConStock();
-                            }
-                          },
-                        ),
-                        _KpiCard(
-                          title: 'Valor stock',
-                          value: '\$${_fmtNum(_valorStock)}',
-                          icon: Icons.attach_money_rounded,
-                          color: const Color(0xFF3B82F6),
-                          selected: _ordenarPorValorStock,
-                          onTap: () {
-                            if (_ordenarPorValorStock) {
-                              setState(() {
-                                _soloConStock = false;
-                                _ordenarPorValorStock = false;
-                              });
-                              _aplicarFiltros();
-                            } else {
-                              _mostrarSoloConStock(porValor: true);
                             }
                           },
                         ),

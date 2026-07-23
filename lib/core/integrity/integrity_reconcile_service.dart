@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../database/database_helper.dart';
@@ -194,16 +195,16 @@ class IntegrityReconcileService {
       final actual = (prod.first['stock'] as num?)?.toInt() ?? 0;
       if (actual != expected) {
         final codigo = prod.first['codigo']?.toString() ?? '$id';
-        alarms.add(
-          IntegrityAlarm(
-            kind: IntegrityAlarmKind.stockProjection,
-            entityType: 'producto',
-            entityId: '$id',
-            expected: expected.toDouble(),
-            actual: actual.toDouble(),
-            detail:
-                'SKU $codigo: stock=$actual, ledger=$expected (base $base + Δ $sumDelta)',
-          ),
+        // Auto-alinear stock al ledger (fuente C3). Evita alarmas fantasmas
+        // tras sync/cloud overwrite (ej. SUPERBOTA39 stock=0 ledger=1).
+        await db.update(
+          'productos',
+          {'stock': expected},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+        debugPrint(
+          'Integridad: alineado SKU $codigo stock $actual → $expected (ledger)',
         );
       }
     }
@@ -318,6 +319,9 @@ class IntegrityReconcileService {
       );
       if (cliente.isEmpty) continue;
       final saldo = (cliente.first['saldo'] as num?)?.toDouble() ?? 0;
+      // Si el saldo operativo está en cero, el desfase del ledger es legado
+      // (pre-C3/C6) y no debe asustar en el panel (ej. MOSTRADOR).
+      if (saldo.abs() <= _epsMoney) continue;
       if ((ledger - saldo).abs() > _epsMoney) {
         final nombre = cliente.first['nombre']?.toString() ?? idStr;
         alarms.add(

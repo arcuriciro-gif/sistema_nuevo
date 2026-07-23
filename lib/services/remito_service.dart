@@ -351,7 +351,7 @@ class RemitoService {
     DataRefreshHub.instance.notifyTodo();
   }
 
-  Future<void> anular(int id) async {
+  Future<void> anular(int id, {bool syncAfter = true}) async {
     DomainBootstrap.ensureInitialized();
     AuthorizationService.instance.require(
       'remitos',
@@ -383,7 +383,7 @@ class RemitoService {
         return;
       }
       numero = remito['numero']?.toString();
-      clienteId = remito['clienteId'] as int?;
+      clienteId = (remito['clienteId'] as num?)?.toInt();
       total = (remito['total'] as num?)?.toDouble() ?? 0;
       final pagado = (remito['totalPagado'] as num?)?.toDouble() ?? 0;
       final saldoRaw = (remito['saldoPendiente'] as num?)?.toDouble();
@@ -397,8 +397,9 @@ class RemitoService {
       );
 
       for (final item in items) {
-        final productoId = item['productoId'] as int;
-        final cantidad = item['cantidad'] as int? ?? 0;
+        final productoId = (item['productoId'] as num?)?.toInt();
+        if (productoId == null) continue;
+        final cantidad = (item['cantidad'] as num?)?.toInt() ?? 0;
         if (cantidad == 0) continue;
         lines.add(InventoryLine(
           productoId: productoId,
@@ -458,7 +459,13 @@ class RemitoService {
     if (clienteId != null) {
       await CuentaCorrienteService().recalcularSaldoCliente(clienteId!);
     }
-    syncInBackground(FirestoreSyncService.instance.subirRemito(id), tag: 'subirRemito');
+    // Al eliminar, no subir a la nube: evita carrera upsert + tombstone (crash Windows).
+    if (syncAfter) {
+      syncInBackground(
+        FirestoreSyncService.instance.subirRemito(id),
+        tag: 'subirRemito',
+      );
+    }
     DataRefreshHub.instance.notifyTodo();
   }
 
@@ -476,12 +483,21 @@ class RemitoService {
     final remito = rows.first;
     final numero = remito['numero']?.toString() ?? '';
     if (remito['estado'] != 'anulado') {
-      await anular(id);
+      await anular(id, syncAfter: false);
     }
     // Capacidad 7: encolar tombstone ANTES del hard-delete local.
     if (numero.isNotEmpty) {
-      await FirestoreSyncService.instance
-          .eliminarRemitoRemoto(numero, localId: id);
+      try {
+        await FirestoreSyncService.instance
+            .eliminarRemitoRemoto(numero, localId: id);
+      } catch (e) {
+        // No tumbar el .exe: el borrado local sigue igual.
+        assert(() {
+          // ignore: avoid_print
+          print('eliminarRemitoRemoto: $e');
+          return true;
+        }());
+      }
     }
     await db.delete('remito_items', where: 'remitoId = ?', whereArgs: [id]);
     await db.delete('remitos', where: 'id = ?', whereArgs: [id]);
