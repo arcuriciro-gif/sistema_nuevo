@@ -93,7 +93,9 @@ class NotificacionInterna {
       conversacionId: map['conversacionId']?.toString(),
       entidadTipo: map['entidadTipo']?.toString(),
       entidadId: map['entidadId']?.toString(),
-      fecha: DateTime.tryParse(map['fecha']?.toString() ?? '') ?? DateTime.now(),
+      fecha: (DateTime.tryParse(map['fecha']?.toString() ?? '') ??
+              DateTime.now())
+          .toLocal(),
       leida: map['leida'] == true || map['leida'] == 1,
     );
   }
