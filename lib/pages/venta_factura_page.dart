@@ -927,24 +927,32 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                           _abonadoCtrl.text = '0';
                           setState(() {});
                         },
-                        child: const Text('No pagar'),
+                        child: const Text('Pendiente'),
                       ),
                       TextButton(
                         onPressed: () {
                           _abonadoCtrl.text = (_total / 2).toStringAsFixed(2);
                           setState(() {});
                         },
-                        child: const Text('Mitad'),
+                        child: const Text('Parcial'),
                       ),
                       TextButton(
                         onPressed: () {
                           _abonadoCtrl.text = _total.toStringAsFixed(2);
                           setState(() {});
                         },
-                        child: const Text('Total'),
+                        child: const Text('Cobrado'),
                       ),
                     ],
                   ),
+                  if (_saldoPendiente > 0.009)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        'Saldo \$${_saldoPendiente.toStringAsFixed(2)} → cuenta corriente',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: SizedBox(

@@ -222,14 +222,24 @@ class SyncOutbox {
     );
   }
 
-  Future<List<Map<String, dynamic>>> claimBatch({int limit = 40}) async {
+  Future<List<Map<String, dynamic>>> claimBatch({
+    int limit = 40,
+    List<String>? entityTypes,
+  }) async {
     final db = await _db;
     final ahora = DateTime.now().toUtc().toIso8601String();
+    var where =
+        "status = ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)";
+    final whereArgs = <Object>[SyncOutboxStatus.pending, ahora];
+    if (entityTypes != null && entityTypes.isNotEmpty) {
+      final placeholders = List.filled(entityTypes.length, '?').join(',');
+      where += ' AND entity_type IN ($placeholders)';
+      whereArgs.addAll(entityTypes);
+    }
     final rows = await db.query(
       'sync_outbox',
-      where:
-          "status = ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)",
-      whereArgs: [SyncOutboxStatus.pending, ahora],
+      where: where,
+      whereArgs: whereArgs,
       orderBy: 'id ASC',
       limit: limit,
     );

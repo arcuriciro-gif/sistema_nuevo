@@ -293,10 +293,13 @@ class FirestoreSyncService {
     if (PlatformCapabilities.isWindowsDesktop) {
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
-          await Future<void>.delayed(const Duration(milliseconds: 600));
+          await Future<void>.delayed(const Duration(milliseconds: 900));
           await job();
-          // Si falló o quedó en cola, drenar un poco ya (no esperar reinicio).
-          await _procesarOutboxDrain(maxBatches: 3);
+          // Solo docs/cliente: drenar productos acá tumba el .exe.
+          await _procesarOutboxDrain(
+            maxBatches: 2,
+            entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
+          );
         }, tag: tag),
         tag: tag,
       );
@@ -322,8 +325,17 @@ class FirestoreSyncService {
           );
           if (pending == 0) return;
           syncStatusDetail = '$pending pendientes…';
+          final windows = PlatformCapabilities.isWindowsDesktop;
+          // Primero documentos (ventas/remitos), después productos suave.
           await _procesarOutboxDrain(
-            maxBatches: PlatformCapabilities.isWindowsDesktop ? 5 : 12,
+            maxBatches: windows ? 4 : 10,
+            entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
+          );
+          await _procesarOutboxDrain(
+            maxBatches: windows ? 2 : 8,
+            entityTypes: windows
+                ? const ['stock_op', 'producto', 'proveedor']
+                : null,
           );
           final left = await SyncOutbox.instance.countByStatus(
             SyncOutboxStatus.pending,
@@ -484,7 +496,11 @@ class FirestoreSyncService {
       );
 
       await _procesarOutboxDrain(
-        maxBatches: PlatformCapabilities.isWindowsDesktop ? 5 : 25,
+        maxBatches: PlatformCapabilities.isWindowsDesktop ? 6 : 20,
+        entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
+      );
+      await _procesarOutboxDrain(
+        maxBatches: PlatformCapabilities.isWindowsDesktop ? 3 : 15,
       );
       SyncHealthService.instance.markCollection('outbox', 'flushed');
     } catch (e) {
@@ -519,12 +535,15 @@ class FirestoreSyncService {
   }
 
   /// Drena varios batches por ciclo (Capacidad 9).
-  Future<void> _procesarOutboxDrain({int maxBatches = 20}) async {
+  Future<void> _procesarOutboxDrain({
+    int maxBatches = 20,
+    List<String>? entityTypes,
+  }) async {
     final windows = PlatformCapabilities.isWindowsDesktop;
-    final claimLimit = windows ? 20 : 80;
+    final claimLimit = windows ? 15 : 80;
     for (var i = 0; i < maxBatches; i++) {
       if (windows && i > 0) {
-        await Future<void>.delayed(const Duration(milliseconds: 400));
+        await Future<void>.delayed(const Duration(milliseconds: 450));
       }
       final before = await SyncOutbox.instance.countByStatus(
         SyncOutboxStatus.pending,
@@ -535,7 +554,10 @@ class FirestoreSyncService {
         );
         if (inflight == 0) break;
       }
-      final batch = await SyncOutbox.instance.claimBatch(limit: claimLimit);
+      final batch = await SyncOutbox.instance.claimBatch(
+        limit: claimLimit,
+        entityTypes: entityTypes,
+      );
       if (batch.isEmpty) break;
       for (final op in batch) {
         final opId = op['op_id']?.toString() ?? '';
@@ -546,7 +568,7 @@ class FirestoreSyncService {
           SyncHealthService.instance.recordAck();
           _syncMemoryColaTrasAck(op);
           if (windows) {
-            await Future<void>.delayed(const Duration(milliseconds: 80));
+            await Future<void>.delayed(const Duration(milliseconds: 100));
           }
         } catch (e) {
           await SyncOutbox.instance.fail(opId, e);
