@@ -56,7 +56,8 @@ jobs:
       - name: Tests
         run: flutter test
 
-      - name: Restaurar keystore (secreto CI, opcional)
+      - name: Restaurar keystore (secreto CI)
+        id: keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEY_PROPERTIES: ${{ secrets.ANDROID_KEY_PROPERTIES }}
@@ -66,29 +67,50 @@ jobs:
             echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/keystore/tata-manager.jks
             printf '%s\n' "$ANDROID_KEY_PROPERTIES" > android/key.properties
             echo "Keystore restaurado desde secrets"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Sin secrets de firma — release usará debug signing (Capacidad 1)"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+              echo "::error::Faltan secrets ANDROID_KEYSTORE_BASE64 / ANDROID_KEY_PROPERTIES."
+              echo "Sin firma release el APK usa debug signing y Android lo marca como no confiable."
+              echo "Cargá los secrets en el repo y re-ejecutá el workflow."
+              exit 1
+            fi
+            echo "::warning::Sin secrets de firma — APK de prueba con debug signing (no usar en producción)."
           fi
 
       - name: Build APK release
         run: flutter build apk --release
 
       - name: Preparar carpeta APK
+        env:
+          SIGNED: ${{ steps.keystore.outputs.signed }}
         run: |
           mkdir -p Instalador_Android
           cp build/app/outputs/flutter-apk/app-release.apk Instalador_Android/TataManager.apk
-          cat > Instalador_Android/LEEME.txt << 'EOF'
+          if [ "$SIGNED" = "true" ]; then
+            FIRMA_TXT="FIRMA: release (keystore del proyecto). Más confiable al instalar."
+          else
+            FIRMA_TXT="FIRMA: DEBUG (solo prueba). Android puede marcar la app como no confiable."
+          fi
+          cat > Instalador_Android/LEEME.txt << EOF
           Tata.Manager — APK Android
           =========================
 
+          $FIRMA_TXT
+
           1) Copiá TataManager.apk al celular
-          2) Abrilo e instalá (permití "orígenes desconocidos" si pide)
+          2) Abrilo e instalá.
+             Si pide "orígenes desconocidos" / "app de fuentes externas":
+             es normal fuera de Play Store. Permití solo para este APK.
           3) Primera vez: admin / admin123 (si es instalación limpia)
           4) Con internet: Configuración → Activar sincronización online
              (mismo usuario que en la PC)
+          5) Al abrir, Android 13+ puede pedir permiso de notificaciones:
+             aceptalo para ver título y texto de los avisos.
 
-          Firma estable del proyecto (SHA-1 en docs/FIREBASE_GOOGLE_LOGIN.md).
-          Para Google Login: cargá ese SHA-1 en Firebase Console.
+          Verificá integridad con SHA256SUMS.txt.
+          SHA-1 del keystore: docs/FIREBASE_GOOGLE_LOGIN.md (Google Login).
           EOF
           (
             cd Instalador_Android

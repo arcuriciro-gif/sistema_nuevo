@@ -11,6 +11,7 @@ import 'services/branding_service.dart';
 import 'services/document_numbering_service.dart';
 import 'services/permisos_service.dart';
 import 'services/sidebar_preferencias_service.dart';
+import 'core/comms/local_notification_service.dart';
 import 'core/config/backend_config_service.dart';
 import 'core/config/platform_capabilities.dart';
 import 'core/domain/domain_bootstrap.dart';
@@ -41,6 +42,7 @@ void main() async {
     await BackendConfigService.instance.cargar();
     await IntegrityPolicy.instance.cargar();
     await FirebaseSafeMode.cargar();
+    await LocalNotificationService.instance.init();
 
     const desktopPlatforms = {
       TargetPlatform.windows,

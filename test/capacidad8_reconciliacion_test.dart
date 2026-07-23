@@ -30,15 +30,15 @@ void main() {
       await IntegrityPolicy.instance.cargar();
     });
 
-    test('default no permite stock negativo', () async {
-      expect(IntegrityPolicy.instance.permitirStockNegativo, isFalse);
+    test('default permite stock negativo (retiro proveedor / venta sin depósito)', () async {
+      expect(IntegrityPolicy.instance.permitirStockNegativo, isTrue);
       expect(await IntegrityPolicy.instance.permiteStockResultante(0), isTrue);
-      expect(await IntegrityPolicy.instance.permiteStockResultante(-1), isFalse);
+      expect(await IntegrityPolicy.instance.permiteStockResultante(-1), isTrue);
     });
 
-    test('si se habilita, permite resultante negativo', () async {
-      await IntegrityPolicy.instance.setPermitirStockNegativo(true);
-      expect(await IntegrityPolicy.instance.permiteStockResultante(-3), isTrue);
+    test('si se deshabilita, bloquea resultante negativo', () async {
+      await IntegrityPolicy.instance.setPermitirStockNegativo(false);
+      expect(await IntegrityPolicy.instance.permiteStockResultante(-3), isFalse);
     });
   });
 
@@ -83,7 +83,8 @@ void main() {
       expect(tables.length, 2);
     });
 
-    test('assertPuedeAplicar bloquea salida sin stock', () async {
+    test('assertPuedeAplicar bloquea salida sin stock solo si la política lo prohíbe', () async {
+      await IntegrityPolicy.instance.setPermitirStockNegativo(false);
       final db = await DatabaseHelper.instance.database;
       final id = await db.insert('productos', {
         'codigo': 'C8-1',

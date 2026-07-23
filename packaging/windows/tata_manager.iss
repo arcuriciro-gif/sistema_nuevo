@@ -4,8 +4,8 @@
 ; Requiere haber corrido: flutter build windows --release
 
 #define MyAppName "Tata.Manager"
-#define MyAppVersion "1.1.0"
-#define MyAppPublisher "El Tata Manager"
+#define MyAppVersion "1.2.9"
+#define MyAppPublisher "Matias Arcuri"
 #define MyAppExeName "Tata.Manager.exe"
 #define MyBuildDir "..\..\build\windows\x64\runner\Release"
 

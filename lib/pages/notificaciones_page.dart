@@ -119,12 +119,14 @@ class _NotificacionesPageState extends State<NotificacionesPage> {
                     child: Icon(_icon(n.tipo), color: color),
                   ),
                   title: Text(
-                    n.titulo,
+                    n.titulo.trim().isEmpty ? 'Aviso Tata.Manager' : n.titulo,
                     style: TextStyle(
                       fontWeight: n.leida ? FontWeight.w500 : FontWeight.w700,
                     ),
                   ),
-                  subtitle: Text('${n.cuerpo}\n${_fmt(n.fecha)}'),
+                  subtitle: Text(
+                    '${n.cuerpo.trim().isEmpty ? 'Sin detalle' : n.cuerpo}\n${_fmt(n.fecha)}',
+                  ),
                   isThreeLine: true,
                   onTap: () => _abrir(n),
                 );

@@ -204,36 +204,12 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
                     itemCount: productosFiltrados.length,
                     itemBuilder: (_, i) {
                       final p = productosFiltrados[i];
-                      final sinStock = p.stock <= 0;
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
                           title: Text(p.descripcion),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${p.codigo} | \$${p.precio.toStringAsFixed(2)} | Stock: ${p.stock}',
-                              ),
-                              if (sinStock)
-                                const Padding(
-                                  padding: EdgeInsets.only(top: 4),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.warning_amber_rounded,
-                                        size: 16,
-                                        color: Colors.red,
-                                      ),
-                                      SizedBox(width: 4),
-                                      Text(
-                                        'Sin stock disponible',
-                                        style: TextStyle(color: Colors.red),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                            ],
+                          subtitle: Text(
+                            '${p.codigo} | \$${p.precio.toStringAsFixed(2)} | Stock: ${p.stock}',
                           ),
                           trailing: ElevatedButton(
                             onPressed: () {
@@ -465,11 +441,13 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
       (item) => item.cantidad > item.producto.stock,
     );
     if (hayStockInsuficiente) {
+      // Informativo: no bloquea. Stock 0 es válido (retiro en proveedor, etc.).
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Hay productos con cantidad mayor al stock disponible. El remito se guardará igualmente.',
+            'Algunos ítems superan el stock cargado. El remito se guarda igual.',
           ),
+          duration: Duration(seconds: 2),
         ),
       );
     }
@@ -590,26 +568,12 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
                           ...items.asMap().entries.map((entry) {
                             final idx = entry.key;
                             final item = entry.value;
-                            final stockInsuficiente =
-                                item.cantidad > item.producto.stock;
                             return Card(
                               child: ListTile(
                                 title: Text(item.producto.descripcion),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'x${item.cantidad} × \$${item.precioUnitario.toStringAsFixed(2)}',
-                                    ),
-                                    Text(
-                                      'Stock disponible: ${item.producto.stock}',
-                                      style: TextStyle(
-                                        color: stockInsuficiente
-                                            ? Colors.red
-                                            : Colors.grey[700],
-                                      ),
-                                    ),
-                                  ],
+                                subtitle: Text(
+                                  'x${item.cantidad} × \$${item.precioUnitario.toStringAsFixed(2)}'
+                                  ' · Stock: ${item.producto.stock}',
                                 ),
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
