@@ -3,11 +3,8 @@ description: Tata.Manager
 
 publish_to: 'none'
 
-<<<<<<< HEAD
-version: 1.2.7+10
-=======
-version: 1.2.4+7
->>>>>>> 2618677 (fix: anular facturas y alerta sonora en chat)
+version: 1.2.8+11
+
 
 environment:
   sdk: ^3.12.2

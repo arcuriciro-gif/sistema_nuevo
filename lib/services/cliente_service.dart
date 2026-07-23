@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:uuid/uuid.dart';
@@ -48,7 +49,10 @@ class ClienteService {
       'Nuevo cliente: ${listo.nombreCompleto}',
       valorNuevo: _snapshot(listo.copyWith(id: id)),
     );
-    await FirestoreSyncService.instance.subirCliente(id, forzar: true);
+    // Offline: no bloquear el alta esperando Firestore (queda en outbox).
+    unawaited(
+      FirestoreSyncService.instance.subirCliente(id, forzar: true),
+    );
     DataRefreshHub.instance.notifyTodo();
     return id;
   }
@@ -93,7 +97,9 @@ class ClienteService {
     );
 
     if (listo.id != null) {
-      await FirestoreSyncService.instance.subirCliente(listo.id!, forzar: true);
+      unawaited(
+        FirestoreSyncService.instance.subirCliente(listo.id!, forzar: true),
+      );
     }
     DataRefreshHub.instance.notifyTodo();
     return result;

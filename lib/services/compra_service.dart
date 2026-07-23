@@ -140,7 +140,7 @@ class CompraService {
       );
     }
 
-    await FirestoreSyncService.instance.subirCompra(compraId);
+    unawaited(FirestoreSyncService.instance.subirCompra(compraId));
     DataRefreshHub.instance.notifyTodo();
     return compraId;
   }
@@ -236,7 +236,7 @@ class CompraService {
       );
     }
 
-    await FirestoreSyncService.instance.subirCompra(id);
+    unawaited(FirestoreSyncService.instance.subirCompra(id));
     DataRefreshHub.instance.notifyTodo();
   }
 

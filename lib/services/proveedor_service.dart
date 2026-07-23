@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
@@ -56,7 +57,7 @@ class ProveedorService {
       'Nuevo proveedor: ${creado.nombre}',
       valorNuevo: _snapshot(creado.copyWith(id: id)),
     );
-    await FirestoreSyncService.instance.subirProveedor(id);
+    unawaited(FirestoreSyncService.instance.subirProveedor(id));
     DataRefreshHub.instance.notifyTodo();
 
     return id;
@@ -102,7 +103,7 @@ class ProveedorService {
       valorNuevo: _snapshot(listo),
     );
     if (listo.id != null) {
-      await FirestoreSyncService.instance.subirProveedor(listo.id!);
+      unawaited(FirestoreSyncService.instance.subirProveedor(listo.id!));
     }
     DataRefreshHub.instance.notifyTodo();
 
