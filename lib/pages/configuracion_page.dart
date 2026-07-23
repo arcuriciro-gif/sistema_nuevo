@@ -6,8 +6,11 @@ import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/firebase/firebase_safe_mode.dart';
 import '../core/integrity/integrity_policy.dart';
+import '../core/config/platform_capabilities.dart';
+import '../core/sync/cloud_sync_throttle.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../core/utils/media_path.dart';
 import '../navigation/shell_menu_catalog.dart';
 import '../services/app_log.dart';
@@ -208,24 +211,37 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     }
     var extra = '';
     if (r.ok) {
-      try {
-        final n = await ProductoService().sincronizarFotosLocalesPendientes();
-        if (n > 0) {
-          extra = ' Se subieron fotos de $n productos.';
-        }
-      } catch (_) {}
-      try {
-        await FirestoreSyncService.instance.subirBranding();
-      } catch (_) {}
-      try {
-        final u = AuthService.instance.currentUser;
-        if (u != null) {
-          await FirestoreSyncService.instance.subirUsuario(u);
-        }
-      } catch (_) {}
-      try {
-        await FirestoreSyncService.instance.subirPermisos();
-      } catch (_) {}
+      // Windows: no encadenar más escrituras Firebase en el botón Sync.
+      Future<void> postConnect() async {
+        try {
+          final n = await ProductoService().sincronizarFotosLocalesPendientes();
+          if (n > 0) {
+            extra = ' Se subieron fotos de $n productos.';
+          }
+        } catch (_) {}
+        try {
+          await FirestoreSyncService.instance.subirBranding();
+        } catch (_) {}
+        try {
+          final u = AuthService.instance.currentUser;
+          if (u != null) {
+            await FirestoreSyncService.instance.subirUsuario(u);
+          }
+        } catch (_) {}
+        try {
+          await FirestoreSyncService.instance.subirPermisos();
+        } catch (_) {}
+      }
+
+      if (PlatformCapabilities.isWindowsDesktop) {
+        syncInBackground(
+          CloudSyncThrottle.enqueue(postConnect, tag: 'activarNubePost'),
+          tag: 'activarNubePost',
+        );
+        extra = ' Sync en segundo plano…';
+      } else {
+        await postConnect();
+      }
     }
     if (!mounted) return;
     setState(() {
