@@ -753,7 +753,9 @@ class _DashboardPageState extends State<DashboardPage> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => const ProductosPage(),
+                              builder: (_) => const ProductosPage(
+                                ordenarPorValorStockInicial: true,
+                              ),
                             ),
                           ).then((_) => cargar());
                         },
@@ -762,7 +764,9 @@ class _DashboardPageState extends State<DashboardPage> {
                           child: Icon(Icons.warehouse_rounded, color: stockColor),
                         ),
                         title: const Text('Valor del stock'),
-                        subtitle: const Text('Precio de venta × cantidad'),
+                        subtitle: const Text(
+                          'Productos que forman el monto (precio × cantidad)',
+                        ),
                         trailing: Text(
                           '\$${valorStock.toStringAsFixed(0)}',
                           style: TextStyle(
