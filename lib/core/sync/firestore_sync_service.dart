@@ -106,6 +106,9 @@ class FirestoreSyncService {
   String syncStatusLabel = 'Local';
   String? syncStatusDetail;
 
+  /// Reintento suave de outbox mientras la nube está activa (EXE→APK).
+  Timer? _outboxPump;
+
   CollectionReference<Map<String, dynamic>> _col(String name) {
     final tenant = BackendConfigService.instance.tenantId;
     return FirebaseFirestore.instance
@@ -214,6 +217,7 @@ class FirestoreSyncService {
         syncStatusDetail =
             'Conectado. Bajando y subiendo datos en segundo plano…';
         DataRefreshHub.instance.notifyTodo();
+        _iniciarOutboxPump();
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
             await Future<void>.delayed(const Duration(milliseconds: 900));
@@ -241,6 +245,7 @@ class FirestoreSyncService {
       // Primero bajar nube, después subir pendientes (evita pisar datos buenos).
       await _pullInicialCatchUp();
       await _vaciarColasYSubirPendientes();
+      _iniciarOutboxPump();
 
       final health = await SyncHealthService.instance.snapshot();
       if (health.dead > 0) {
@@ -263,6 +268,78 @@ class FirestoreSyncService {
       );
       debugPrint('FirestoreSyncService.start falló: $e\n$st');
     }
+  }
+
+  /// Sube venta sin tumbar Windows y reintenta outbox si hace falta.
+  void programarSubidaVenta(int ventaId) {
+    _programarSubidaDocumento(
+      tag: 'subirVenta',
+      job: () => subirVenta(ventaId),
+    );
+  }
+
+  /// Sube remito (Ventas totales) con el mismo patrón seguro en Windows.
+  void programarSubidaRemito(int remitoId) {
+    _programarSubidaDocumento(
+      tag: 'subirRemito',
+      job: () => subirRemito(remitoId),
+    );
+  }
+
+  void _programarSubidaDocumento({
+    required String tag,
+    required Future<void> Function() job,
+  }) {
+    if (PlatformCapabilities.isWindowsDesktop) {
+      syncInBackground(
+        CloudSyncThrottle.enqueue(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 600));
+          await job();
+          // Si falló o quedó en cola, drenar un poco ya (no esperar reinicio).
+          await _procesarOutboxDrain(maxBatches: 3);
+        }, tag: tag),
+        tag: tag,
+      );
+      return;
+    }
+    syncInBackground(
+      () async {
+        await job();
+        await _procesarOutboxDrain(maxBatches: 2);
+      }(),
+      tag: tag,
+    );
+  }
+
+  void _iniciarOutboxPump() {
+    _outboxPump?.cancel();
+    _outboxPump = Timer.periodic(const Duration(seconds: 40), (_) {
+      if (!_puedeEscribirRemoto) return;
+      syncInBackground(
+        CloudSyncThrottle.enqueue(() async {
+          final pending = await SyncOutbox.instance.countByStatus(
+            SyncOutboxStatus.pending,
+          );
+          if (pending == 0) return;
+          syncStatusDetail = '$pending pendientes…';
+          await _procesarOutboxDrain(
+            maxBatches: PlatformCapabilities.isWindowsDesktop ? 5 : 12,
+          );
+          final left = await SyncOutbox.instance.countByStatus(
+            SyncOutboxStatus.pending,
+          );
+          if (left == 0) {
+            syncStatusLabel = 'En la nube';
+            syncStatusDetail = null;
+          } else {
+            syncStatusLabel = 'Sincronizando…';
+            syncStatusDetail = '$left pendientes';
+          }
+          DataRefreshHub.instance.notifyTodo();
+        }, tag: 'outboxPump'),
+        tag: 'outboxPump',
+      );
+    });
   }
 
   /// Trae de una el estado actual de la nube (clientes/proveedores/…).
@@ -745,6 +822,8 @@ class FirestoreSyncService {
   }
 
   Future<void> stop() async {
+    _outboxPump?.cancel();
+    _outboxPump = null;
     await _productosSub?.cancel();
     await _usuariosSub?.cancel();
     await _brandingSub?.cancel();
@@ -1770,6 +1849,9 @@ class FirestoreSyncService {
       unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
       syncStatusDetail =
           'Compra guardada acá. Falta sesión de nube para enviarla.';
+      if (desdeOutbox) {
+        throw StateError('Sin sesión de nube para subir compra $compraId');
+      }
       return;
     }
     try {
@@ -1780,7 +1862,12 @@ class FirestoreSyncService {
         whereArgs: [compraId],
         limit: 1,
       );
-      if (rows.isEmpty) return;
+      if (rows.isEmpty) {
+        if (desdeOutbox) {
+          throw StateError('Compra local $compraId no existe');
+        }
+        return;
+      }
       final compra = rows.first;
       final items = await db.rawQuery('''
         SELECT ci.*, p.codigo AS productoCodigo
@@ -1856,6 +1943,9 @@ class FirestoreSyncService {
       unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
       syncStatusDetail =
           'Venta guardada acá. Falta sesión de nube para enviarla.';
+      if (desdeOutbox) {
+        throw StateError('Sin sesión de nube para subir venta $ventaId');
+      }
       return;
     }
     try {
@@ -1867,7 +1957,12 @@ class FirestoreSyncService {
         LEFT JOIN clientes c ON c.id = v.clienteId
         WHERE v.id = ?
       ''', [ventaId]);
-      if (rows.isEmpty) return;
+      if (rows.isEmpty) {
+        if (desdeOutbox) {
+          throw StateError('Venta local $ventaId no existe');
+        }
+        return;
+      }
       final venta = Venta.fromMap(rows.first);
       if (venta.clienteId != null) {
         await subirCliente(venta.clienteId!);
@@ -2017,6 +2112,9 @@ class FirestoreSyncService {
       unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
       syncStatusDetail =
           'Remito guardado acá. Falta sesión de nube para enviarlo.';
+      if (desdeOutbox) {
+        throw StateError('Sin sesión de nube para subir remito $remitoId');
+      }
       return;
     }
     try {
@@ -2028,7 +2126,12 @@ class FirestoreSyncService {
         LEFT JOIN clientes c ON c.id = r.clienteId
         WHERE r.id = ?
       ''', [remitoId]);
-      if (rows.isEmpty) return;
+      if (rows.isEmpty) {
+        if (desdeOutbox) {
+          throw StateError('Remito local $remitoId no existe');
+        }
+        return;
+      }
       final remito = rows.first;
       final clienteId = (remito['clienteId'] as num?)?.toInt();
       if (clienteId != null) {
@@ -2054,7 +2157,13 @@ class FirestoreSyncService {
 
       for (final item in items) {
         final pid = (item['productoId'] as num?)?.toInt();
-        if (pid != null) await subirProductoPorId(pid);
+        if (pid == null) continue;
+        // En Windows no subir productos ya (evita tumbar el .exe / fallar el remito).
+        await SyncOutbox.instance
+            .enqueueUpsert(entityType: 'producto', localId: pid);
+        if (!PlatformCapabilities.isWindowsDesktop) {
+          await subirProductoPorId(pid);
+        }
       }
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:remito:$remitoId');

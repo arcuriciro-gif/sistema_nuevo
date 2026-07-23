@@ -168,8 +168,9 @@ class SyncOutbox {
       return;
     }
     final status = existing.first['status']?.toString() ?? '';
-    if (status == SyncOutboxStatus.acked) {
-      // Reabrir si vuelve a encolarse (re-edit).
+    if (status == SyncOutboxStatus.acked ||
+        status == SyncOutboxStatus.dead) {
+      // Reabrir acked (re-edit) o dead (catch-up / reintento).
       await db.update(
         'sync_outbox',
         {
