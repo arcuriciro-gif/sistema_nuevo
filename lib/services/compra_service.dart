@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:sqflite/sqflite.dart';
 
 import '../core/config/device_identity.dart';
+import '../core/config/platform_capabilities.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
+import '../core/sync/cloud_sync_throttle.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
@@ -141,7 +143,21 @@ class CompraService {
       );
     }
 
-    syncInBackground(FirestoreSyncService.instance.subirCompra(compraId), tag: 'subirCompra');
+    // Primero devolver control a la UI; la nube va en cola suave (Windows).
+    if (PlatformCapabilities.isWindowsDesktop) {
+      syncInBackground(
+        CloudSyncThrottle.enqueue(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 600));
+          await FirestoreSyncService.instance.subirCompra(compraId);
+        }, tag: 'subirCompra'),
+        tag: 'subirCompra',
+      );
+    } else {
+      syncInBackground(
+        FirestoreSyncService.instance.subirCompra(compraId),
+        tag: 'subirCompra',
+      );
+    }
     DataRefreshHub.instance.notifyTodo();
     return compraId;
   }
