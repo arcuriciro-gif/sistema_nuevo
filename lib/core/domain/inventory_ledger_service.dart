@@ -7,8 +7,11 @@ import '../../models/movimiento_stock.dart';
 import '../../services/auth_service.dart';
 import '../events/data_refresh_hub.dart';
 import '../integrity/integrity_policy.dart';
+import '../config/platform_capabilities.dart';
+import '../sync/cloud_sync_throttle.dart';
 import '../sync/firestore_sync_service.dart';
 import '../sync/sync_background.dart';
+import '../sync/sync_outbox.dart';
 import 'domain_event.dart';
 import 'event_bus.dart';
 
@@ -142,20 +145,37 @@ class InventoryLedgerService {
       }
     });
 
-    // Sync nube: en Windows no disparar ráfaga Firebase en el isolate UI
-    // (puede cerrar el .exe). Encolar en background.
-    syncInBackground(() async {
-      for (final line in lines) {
-        final delta = sign * line.cantidad.abs();
-        await FirestoreSyncService.instance.ajustarStockEnNube(
-          productoId: line.productoId,
-          delta: delta,
-          opId: '${event.eventId}_${line.productoId}',
-        );
-        await FirestoreSyncService.instance
-            .subirProductoPorId(line.productoId);
-      }
-    }(), tag: 'InventoryLedger cloud');
+    // Sync nube: en Windows solo encolar (sin flush ni subir productos ya).
+    // Las ráfagas Firebase cerraban el .exe tras compras/remitos.
+    syncInBackground(
+      CloudSyncThrottle.enqueue(() async {
+        final windows = PlatformCapabilities.isWindowsDesktop;
+        for (final line in lines) {
+          final delta = sign * line.cantidad.abs();
+          await FirestoreSyncService.instance.ajustarStockEnNube(
+            productoId: line.productoId,
+            delta: delta,
+            opId: '${event.eventId}_${line.productoId}',
+            flushImmediately: !windows,
+          );
+          if (!windows) {
+            await FirestoreSyncService.instance
+                .subirProductoPorId(line.productoId);
+          } else {
+            await SyncOutbox.instance.enqueueUpsert(
+              entityType: 'producto',
+              localId: line.productoId,
+            );
+          }
+        }
+        if (windows) {
+          // Flush suave más tarde (una sola tanda).
+          await Future<void>.delayed(const Duration(seconds: 2));
+          await FirestoreSyncService.instance.flushStockOpsPendientes();
+        }
+      }, tag: 'InventoryLedger cloud'),
+      tag: 'InventoryLedger cloud',
+    );
 
     DataRefreshHub.instance.notifyStock();
     DataRefreshHub.instance.notifyProductos();
