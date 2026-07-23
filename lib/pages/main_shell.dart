@@ -9,6 +9,7 @@ import '../services/cuenta_corriente_service.dart';
 import '../services/permisos_service.dart';
 import '../services/sidebar_preferencias_service.dart';
 import '../core/events/data_refresh_hub.dart';
+import '../core/comms/local_notification_service.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/sync/firestore_sync_service.dart';
@@ -22,7 +23,9 @@ import 'backup_page.dart';
 import 'busqueda_global_page.dart';
 import 'categorias_page.dart';
 import 'centro_importaciones_page.dart';
+import 'chat_page.dart';
 import 'clientes_page.dart';
+import '../models/chat_conversacion.dart';
 import 'clientes_deudores_page.dart';
 import 'comparacion_page.dart';
 import 'compras_page.dart';
@@ -111,6 +114,7 @@ class _MainShellState extends State<MainShell> {
     ComunicacionesService.instance.addListener(_onCommsChanged);
     DataRefreshHub.instance.addListener(_onDatosRemotos);
     SidebarPreferenciasService.instance.addListener(_onSidebarPrefs);
+    LocalNotificationService.instance.onTap = _onNotificationTap;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         await SidebarPreferenciasService.instance.cargar();
@@ -131,6 +135,35 @@ class _MainShellState extends State<MainShell> {
       if (mounted) await _ofrecerActivarNubeSiHaceFalta();
       // Recordatorio CC: no modal al abrir; solo badge/flujo manual.
     });
+  }
+
+  Future<void> _onNotificationTap(String payload) async {
+    if (!mounted) return;
+    final p = payload.trim();
+    if (p == 'notif' || p.startsWith('notif:')) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const NotificacionesPage()),
+      );
+      return;
+    }
+    if (p == 'chat' || p.startsWith('chat:')) {
+      final id = p.startsWith('chat:') ? p.substring(5).trim() : '';
+      _irAModulo('Comunicaciones');
+      if (id.isEmpty) return;
+      await ComunicacionesService.instance.refrescar();
+      ChatConversacion? conv;
+      for (final c in ComunicacionesService.instance.conversaciones) {
+        if (c.id == id) {
+          conv = c;
+          break;
+        }
+      }
+      if (conv != null && mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => ChatPage(conversacion: conv!)),
+        );
+      }
+    }
   }
 
   /// Sin nube PC y celular se desalinean. En Windows se activa sola al entrar.
@@ -198,6 +231,7 @@ class _MainShellState extends State<MainShell> {
     ComunicacionesService.instance.removeListener(_onCommsChanged);
     DataRefreshHub.instance.removeListener(_onDatosRemotos);
     SidebarPreferenciasService.instance.removeListener(_onSidebarPrefs);
+    LocalNotificationService.instance.onTap = null;
     super.dispose();
   }
 

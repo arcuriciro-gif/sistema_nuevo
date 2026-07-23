@@ -3,8 +3,9 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 /// Notificaciones del sistema (bandeja Android / Windows) con título y cuerpo.
 ///
-/// Complementa el beep de [ChatAlertService]: sin esto el APK solo “avisa”
-/// (sonido/badge) pero no muestra texto.
+/// Payload:
+/// - `chat:<conversacionId>` → abrir ese chat
+/// - `notif` → abrir lista de notificaciones
 class LocalNotificationService {
   LocalNotificationService._();
   static final LocalNotificationService instance = LocalNotificationService._();
@@ -14,6 +15,9 @@ class LocalNotificationService {
 
   bool _listo = false;
   int _seq = 0;
+
+  /// Callback registrado por MainShell / app.
+  void Function(String payload)? onTap;
 
   static const _androidChannel = AndroidNotificationChannel(
     'tata_manager_avisos',
@@ -29,23 +33,52 @@ class LocalNotificationService {
       const windowsInit = WindowsInitializationSettings(
         appName: 'Tata.Manager',
         appUserModelId: 'MatiasArcuri.TataManager.Desktop.1',
-        // Mismo GUID que el instalador Inno (AppId sin llaves).
         guid: 'a7e4c2b1-9f3d-4e8a-b6c5-1d2e3f4a5b6c',
       );
       const initSettings = InitializationSettings(
         android: androidInit,
         windows: windowsInit,
       );
-      await _plugin.initialize(settings: initSettings);
+      await _plugin.initialize(
+        settings: initSettings,
+        onDidReceiveNotificationResponse: _onResponse,
+      );
 
       final android = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
       await android?.createNotificationChannel(_androidChannel);
       await android?.requestNotificationsPermission();
 
+      // Si abrieron la app tocando una notificación (app cerrada).
+      final launch = await _plugin.getNotificationAppLaunchDetails();
+      final payload = launch?.notificationResponse?.payload;
+      if (launch?.didNotificationLaunchApp == true &&
+          payload != null &&
+          payload.isNotEmpty) {
+        // Diferir: el shell todavía no registró onTap.
+        Future<void>.delayed(const Duration(milliseconds: 800), () {
+          _emitTap(payload);
+        });
+      }
+
       _listo = true;
     } catch (e) {
       debugPrint('LocalNotificationService.init: $e');
+    }
+  }
+
+  void _onResponse(NotificationResponse response) {
+    final payload = response.payload;
+    if (payload == null || payload.isEmpty) return;
+    _emitTap(payload);
+  }
+
+  void _emitTap(String payload) {
+    final handler = onTap;
+    if (handler != null) {
+      handler(payload);
+    } else {
+      debugPrint('LocalNotification tap sin handler: $payload');
     }
   }
 

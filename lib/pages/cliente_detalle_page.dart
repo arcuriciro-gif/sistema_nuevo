@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/security/authorization_service.dart';
 import '../models/cliente.dart';
 import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
@@ -115,11 +116,15 @@ class _ClienteDetallePageState extends State<ClienteDetallePage> {
         context,
         title: 'Ficha del cliente',
         actions: [
-          IconButton(
-            tooltip: 'Editar',
-            icon: const Icon(Icons.edit_rounded),
-            onPressed: _abrirEdicion,
-          ),
+          if (AuthorizationService.instance.puede(
+            AuthModules.clientes,
+            AuthzAction.editar,
+          ))
+            IconButton(
+              tooltip: 'Editar',
+              icon: const Icon(Icons.edit_rounded),
+              onPressed: _abrirEdicion,
+            ),
         ],
       ),
       body: ListView(
@@ -273,11 +278,15 @@ class _ClienteDetallePageState extends State<ClienteDetallePage> {
                 icon: const Icon(Icons.history_rounded),
                 label: const Text('Historial completo'),
               ),
-              OutlinedButton.icon(
-                onPressed: _abrirEdicion,
-                icon: const Icon(Icons.edit_rounded),
-                label: const Text('Editar'),
-              ),
+              if (AuthorizationService.instance.puede(
+                AuthModules.clientes,
+                AuthzAction.editar,
+              ))
+                OutlinedButton.icon(
+                  onPressed: _abrirEdicion,
+                  icon: const Icon(Icons.edit_rounded),
+                  label: const Text('Editar'),
+                ),
             ],
           ),
           const SizedBox(height: 20),

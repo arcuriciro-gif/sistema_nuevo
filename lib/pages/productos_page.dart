@@ -302,21 +302,23 @@ class _ProductosPageState extends State<ProductosPage> {
               _aplicarFiltros();
             },
           ),
-          IconButton(
-            tooltip: 'Papelera',
-            icon: const Icon(Icons.delete_outline_rounded),
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const PapeleraProductosPage()),
-              );
-              await cargarProductos();
-            },
-          ),
+          if (AuthorizationService.instance.puedeEliminarProductos)
+            IconButton(
+              tooltip: 'Papelera',
+              icon: const Icon(Icons.delete_outline_rounded),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PapeleraProductosPage(),
+                  ),
+                );
+                await cargarProductos();
+              },
+            ),
         ],
       ),
-      floatingActionButton: AuthorizationService.instance.puede(
-              AuthModules.productos, AuthzAction.crear)
+      floatingActionButton: AuthorizationService.instance.puedeCrearProductos
           ? FloatingActionButton.extended(
               heroTag: 'fab_productos',
               onPressed: _nuevoProducto,
@@ -576,8 +578,16 @@ class _ProductosPageState extends State<ProductosPage> {
                               valorAporte: _ordenarPorValorStock
                                   ? p.precio * p.stock
                                   : null,
-                              onEdit: () => _editarProducto(p),
-                              onDelete: () => eliminar(p),
+                              onEdit:
+                                  AuthorizationService
+                                          .instance.puedeEditarProductos
+                                      ? () => _editarProducto(p)
+                                      : null,
+                              onDelete:
+                                  AuthorizationService
+                                          .instance.puedeEliminarProductos
+                                      ? () => eliminar(p)
+                                      : null,
                               onToggleFavorito: () => _toggleFavorito(p),
                               onShare: () => showCompartirEnChatDialog(
                                 context,
@@ -803,8 +813,8 @@ class _ProductoCard extends StatelessWidget {
   final ColorScheme colorScheme;
   final List<ListaPrecio> listasActivas;
   final double? valorAporte;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
   final VoidCallback onToggleFavorito;
   final VoidCallback onShare;
   final VoidCallback onComment;
@@ -815,8 +825,8 @@ class _ProductoCard extends StatelessWidget {
     required this.colorScheme,
     required this.listasActivas,
     this.valorAporte,
-    required this.onEdit,
-    required this.onDelete,
+    this.onEdit,
+    this.onDelete,
     required this.onToggleFavorito,
     required this.onShare,
     required this.onComment,
@@ -955,26 +965,30 @@ class _ProductoCard extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                   ),
                 ),
-                const SizedBox(width: 4),
-                TextButton.icon(
-                  onPressed: onEdit,
-                  icon: const Icon(Icons.edit_rounded, size: 16),
-                  label: const Text('Editar'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: colorScheme.primary,
-                    visualDensity: VisualDensity.compact,
+                if (onEdit != null) ...[
+                  const SizedBox(width: 4),
+                  TextButton.icon(
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit_rounded, size: 16),
+                    label: const Text('Editar'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: colorScheme.primary,
+                      visualDensity: VisualDensity.compact,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 4),
-                TextButton.icon(
-                  onPressed: onDelete,
-                  icon: const Icon(Icons.delete_outline_rounded, size: 16),
-                  label: const Text('Papelera'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppVisuals.danger(colorScheme),
-                    visualDensity: VisualDensity.compact,
+                ],
+                if (onDelete != null) ...[
+                  const SizedBox(width: 4),
+                  TextButton.icon(
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                    label: const Text('Papelera'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppVisuals.danger(colorScheme),
+                      visualDensity: VisualDensity.compact,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ],

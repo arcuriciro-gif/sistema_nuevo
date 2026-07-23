@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/documento_cliente.dart';
 import 'auth_service.dart';
@@ -28,8 +29,13 @@ class DocumentoClienteService {
     try {
       var syncId = (clienteSyncId ?? '').trim();
       if (syncId.isEmpty && clienteId != null) {
-        syncId = await FirestoreSyncService.instance
-            .asegurarSyncIdCliente(clienteId);
+        try {
+          syncId = await FirestoreSyncService.instance
+              .asegurarSyncIdCliente(clienteId)
+              .timeout(const Duration(seconds: 3), onTimeout: () => '');
+        } catch (_) {
+          syncId = '';
+        }
       }
       if (syncId.isEmpty) {
         syncId = 'sin_cliente';
@@ -40,13 +46,7 @@ class DocumentoClienteService {
           '${tipo}_${numero.isNotEmpty ? numero : id}_${DateTime.now().millisecondsSinceEpoch}.pdf'
               .replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
 
-      final url = await MediaSyncService.instance.subirPdfCliente(
-            clienteSyncId: syncId,
-            nombreArchivo: nombreArchivo,
-            file: archivo,
-          ) ??
-          '';
-
+      // Local primero: no bloquear venta en modo avión.
       final doc = DocumentoCliente(
         id: id,
         clienteSyncId: syncId,
@@ -55,7 +55,7 @@ class DocumentoClienteService {
         tipo: tipo,
         numero: numero,
         nombreArchivo: nombreArchivo,
-        url: url,
+        url: '',
         localPath: archivo.path,
         creadoPor: AuthService.instance.currentUser?.usuario ?? 'sistema',
         fecha: DateTime.now(),
@@ -63,8 +63,28 @@ class DocumentoClienteService {
 
       final db = await _db.database;
       await db.insert('documentos_cliente', doc.toMap());
-      await FirestoreSyncService.instance.subirDocumento(doc);
       DataRefreshHub.instance.notifyTodo();
+
+      // Nube en background (Storage + Firestore).
+      syncInBackground(() async {
+        final url = await MediaSyncService.instance.subirPdfCliente(
+              clienteSyncId: syncId,
+              nombreArchivo: nombreArchivo,
+              file: archivo,
+            ) ??
+            '';
+        if (url.isNotEmpty) {
+          await db.update(
+            'documentos_cliente',
+            {'url': url},
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+        }
+        final actualizado = doc.copyWith(url: url);
+        await FirestoreSyncService.instance.subirDocumento(actualizado);
+      }(), tag: 'archivarPdf');
+
       return doc;
     } catch (e) {
       debugPrint('Archivar PDF: $e');

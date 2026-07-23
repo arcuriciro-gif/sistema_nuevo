@@ -108,6 +108,57 @@ class _VentasPageState extends State<VentasPage> {
     await _cargar();
   }
 
+  bool get _puedeEliminarFactura =>
+      AuthorizationService.instance.puede(
+        AuthModules.remitos,
+        AuthzAction.eliminar,
+      ) ||
+      AuthorizationService.instance.puede(
+        AuthModules.remitos,
+        AuthzAction.anular,
+      );
+
+  Future<void> _eliminarFactura(Venta v) async {
+    if (v.id == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar factura'),
+        content: Text('¿Eliminar ${v.tipoLabel} ${v.numero}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await _service.eliminar(v.id!);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Factura eliminada')),
+      );
+      await _cargar();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.toString().contains('No autorizado')
+                ? 'No tenés permiso para eliminar'
+                : 'No se pudo eliminar: $e',
+          ),
+        ),
+      );
+    }
+  }
+
   Color _colorTipo(String tipo, ColorScheme cs) {
     switch (tipo) {
       case 'factura_a':
@@ -310,6 +361,15 @@ class _VentasPageState extends State<VentasPage> {
                                       ),
                                     ),
                                   ),
+                                  if (_puedeEliminarFactura)
+                                    IconButton(
+                                      tooltip: 'Eliminar',
+                                      icon: Icon(
+                                        Icons.delete_outline_rounded,
+                                        color: AppVisuals.danger(cs),
+                                      ),
+                                      onPressed: () => _eliminarFactura(v),
+                                    ),
                                   Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     crossAxisAlignment: CrossAxisAlignment.end,
