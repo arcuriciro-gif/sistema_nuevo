@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/venta.dart';
 import '../models/venta_item.dart';
@@ -51,7 +54,7 @@ class VentaService {
       medioPago: medioPago,
       observacionesPago: observacionesPago,
     );
-    await FirestoreSyncService.instance.subirVenta(id);
+    syncInBackground(FirestoreSyncService.instance.subirVenta(id), tag: 'subirVenta');
     DataRefreshHub.instance.notifyVentas();
     return id;
   }
@@ -92,7 +95,7 @@ class VentaService {
 
   Future<void> anular(int id) async {
     AuthorizationService.instance.require(
-      'ventas',
+      AuthModules.remitos,
       AuthzAction.anular,
       operacion: 'anular venta',
     );
@@ -134,7 +137,7 @@ class VentaService {
         );
       }
     }
-    await FirestoreSyncService.instance.subirVenta(id);
+    syncInBackground(FirestoreSyncService.instance.subirVenta(id), tag: 'subirVenta');
     DataRefreshHub.instance.notifyVentas();
   }
 
@@ -174,7 +177,7 @@ class VentaService {
     if (venta.clienteId != null) {
       await _cc.recalcularSaldoCliente(venta.clienteId!);
     }
-    await FirestoreSyncService.instance.subirVenta(id);
+    syncInBackground(FirestoreSyncService.instance.subirVenta(id), tag: 'subirVenta');
     DataRefreshHub.instance.notifyVentas();
   }
 
@@ -202,12 +205,12 @@ class VentaService {
       where: 'id = ?',
       whereArgs: [id],
     );
-    await FirestoreSyncService.instance.subirVenta(id);
+    syncInBackground(FirestoreSyncService.instance.subirVenta(id), tag: 'subirVenta');
   }
 
   Future<void> eliminar(int id) async {
     AuthorizationService.instance.require(
-      'ventas',
+      AuthModules.remitos,
       AuthzAction.eliminar,
       operacion: 'eliminar venta',
     );

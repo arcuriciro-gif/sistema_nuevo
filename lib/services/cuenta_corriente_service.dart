@@ -4,6 +4,7 @@ import '../core/domain/event_bus.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/pago.dart';
 import '../models/venta.dart';
@@ -245,7 +246,10 @@ class CuentaCorrienteService {
         ),
       );
     }
-    await FirestoreSyncService.instance.subirVenta(ventaId);
+    syncInBackground(
+      FirestoreSyncService.instance.subirVenta(ventaId),
+      tag: 'subirVenta',
+    );
     DataRefreshHub.instance.notifyVentas();
     return pago;
   }
@@ -279,7 +283,11 @@ class CuentaCorrienteService {
       where: 'id = ?',
       whereArgs: [clienteId],
     );
-    await FirestoreSyncService.instance.subirCliente(clienteId, forzar: true);
+    // Saldo local primero; nube en segundo plano (modo avión / venta rápida).
+    syncInBackground(
+      FirestoreSyncService.instance.subirCliente(clienteId, forzar: true),
+      tag: 'subirCliente',
+    );
   }
 
   Future<List<Map<String, dynamic>>> remitosPendientesDeCliente(
@@ -418,7 +426,10 @@ class CuentaCorrienteService {
         ),
       );
     }
-    await FirestoreSyncService.instance.subirRemito(remitoId);
+    syncInBackground(
+      FirestoreSyncService.instance.subirRemito(remitoId),
+      tag: 'subirRemito',
+    );
     DataRefreshHub.instance.notifyTodo();
     return pago;
   }

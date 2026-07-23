@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../core/events/data_refresh_hub.dart';
 import '../core/utils/busqueda_texto.dart';
@@ -306,15 +307,79 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
         _finalizando = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+      final compartir = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Venta registrada'),
           content: Text(
-            'Venta registrada · Remito $numero · Total \$${totalVenta.toStringAsFixed(2)}',
+            'Remito $numero · Total \$${totalVenta.toStringAsFixed(2)}\n'
+            'Guardado en este equipo'
+            '${_tieneRedHint()}.\n\n¿Compartir el PDF ahora?',
           ),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 4),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Después'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(ctx, true),
+              icon: const Icon(Icons.share_rounded),
+              label: const Text('Compartir PDF'),
+            ),
+          ],
         ),
       );
+
+      if (compartir == true && mounted) {
+        try {
+          final pdfSvc = PdfService();
+          final remitoMap = {
+            'id': remitoId,
+            'numero': numero,
+            'fecha': remito.fecha.toIso8601String(),
+            'total': remito.total,
+            'descuento': 0,
+          };
+          final itemsPdf = carritoSnapshot
+              .map(
+                (e) => {
+                  'descripcion': e.producto.descripcion,
+                  'cantidad': e.cantidad,
+                  'precio': e.precioUnitario,
+                  'subtotal': e.subtotal,
+                },
+              )
+              .toList();
+          final bytes = await pdfSvc.generateRemitoPdf(
+            remitoMap,
+            itemsPdf,
+            mostrador.nombre,
+          );
+          if (bytes.isNotEmpty) {
+            final archivo =
+                await pdfSvc.guardarPdf(bytes, 'remito_$numero.pdf');
+            await SharePlus.instance.share(
+              ShareParams(files: [XFile(archivo.path)], text: numero),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('No se pudo compartir PDF: $e')),
+            );
+          }
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Venta registrada · Remito $numero · Total \$${totalVenta.toStringAsFixed(2)}',
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _finalizando = false);
@@ -326,6 +391,9 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
       );
     }
   }
+
+  String _tieneRedHint() =>
+      '. Si no hay internet, se sincroniza después';
 
   // ---------------------------------------------------------------------------
   // Build
@@ -582,8 +650,14 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
           if (_carrito.isNotEmpty)
             SafeArea(
               top: false,
+              maintainBottomViewPadding: true,
               child: Container(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+              padding: EdgeInsets.fromLTRB(
+                16,
+                16,
+                16,
+                16 + MediaQuery.viewPaddingOf(context).bottom,
+              ),
               decoration: BoxDecoration(
                 color: theme.colorScheme.surfaceContainerLowest,
                 border: Border(

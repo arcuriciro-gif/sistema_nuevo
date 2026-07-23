@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:firebase_storage/firebase_storage.dart';
@@ -244,6 +245,26 @@ class MediaSyncService {
     if (persistidas.isEmpty) return const [];
     if (!_ok) return persistidas;
 
+    // Modo avión / red lenta: no colgar el alta de producto.
+    try {
+      return await _subirFotosPersistidas(codigo, persistidas).timeout(
+        const Duration(seconds: 4),
+        onTimeout: () {
+          lastError =
+              'Sin conexión: fotos quedan en el equipo; se suben al sincronizar.';
+          return persistidas;
+        },
+      );
+    } catch (e) {
+      lastError = _mensajeError(e);
+      return persistidas;
+    }
+  }
+
+  Future<List<String>> _subirFotosPersistidas(
+    String codigo,
+    List<String> persistidas,
+  ) async {
     final resultado = <String>[];
     var i = 0;
     for (final ruta in persistidas) {

@@ -323,6 +323,14 @@ class FirestoreSyncService {
 
       await _procesarOutboxBatch();
 
+      // Config local pendiente (listas / categorías) tras cortes de red.
+      if (await _isConfigPendiente(_prefsConfigListasPendiente)) {
+        await subirListasPrecios();
+      }
+      if (await _isConfigPendiente(_prefsConfigCategoriasPendiente)) {
+        await subirCategorias();
+      }
+
       // Catch-up: encolar ausentes (sin wipe de cola).
       final db = await DatabaseHelper.instance.database;
       await _subirClientesAusentesEnNube(db);
@@ -757,6 +765,8 @@ class FirestoreSyncService {
   }
 
   Future<void> subirListasPrecios() async {
+    // Marca durable: si falla/cuelga la red, se reintenta al volver a sincronizar.
+    await _setConfigPendiente(_prefsConfigListasPendiente, true);
     if (!_puedeEscribirRemoto) return;
     try {
       final db = await DatabaseHelper.instance.database;
@@ -771,12 +781,14 @@ class FirestoreSyncService {
         }).toList(),
         'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
       });
+      await _setConfigPendiente(_prefsConfigListasPendiente, false);
     } catch (e) {
       debugPrint('Firestore subir listas: $e');
     }
   }
 
   Future<void> subirCategorias() async {
+    await _setConfigPendiente(_prefsConfigCategoriasPendiente, true);
     if (!_puedeEscribirRemoto) return;
     try {
       final db = await DatabaseHelper.instance.database;
@@ -791,6 +803,7 @@ class FirestoreSyncService {
         }).toList(),
         'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
       });
+      await _setConfigPendiente(_prefsConfigCategoriasPendiente, false);
     } catch (e) {
       debugPrint('Firestore subir categorias: $e');
     }
@@ -979,6 +992,25 @@ class FirestoreSyncService {
   static const _prefsColaRemitos = 'sync_cola_remitos_ids';
   static const _prefsColaCompras = 'sync_cola_compras_ids';
   static const _prefsColaStockOps = 'sync_cola_stock_ops_v2';
+  static const _prefsConfigListasPendiente = 'sync_config_listas_pendiente';
+  static const _prefsConfigCategoriasPendiente =
+      'sync_config_categorias_pendiente';
+
+  Future<void> _setConfigPendiente(String key, bool value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(key, value);
+    } catch (_) {}
+  }
+
+  Future<bool> _isConfigPendiente(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(key) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
   static const _prefsStockOpsHechas = 'sync_stock_ops_hechas_v2';
   final Set<String> _stockOpsHechas = {};
   bool _productosSnapshotInicial = true;
@@ -2958,26 +2990,31 @@ class _DualProductoRepository implements ProductoRepository {
   Future<int> insertar(Producto producto) async {
     final id = await local.insertar(producto);
     final conId = producto.copyWith(id: id);
-    try {
-      await remote.insertar(await _paraFirestore(conId));
-    } catch (error) {
-      debugPrint('Firestore insertar producto: $error');
-    }
+    // No bloquear el alta local si Firestore/Storage cuelga (modo avión).
+    unawaited(() async {
+      try {
+        await remote.insertar(await _paraFirestore(conId));
+      } catch (error) {
+        debugPrint('Firestore insertar producto: $error');
+      }
+    }());
     return id;
   }
 
   @override
   Future<void> insertarLista(List<Producto> productos) async {
     await local.insertarLista(productos);
-    try {
-      final remotos = <Producto>[];
-      for (final p in productos) {
-        remotos.add(await _paraFirestore(p));
+    unawaited(() async {
+      try {
+        final remotos = <Producto>[];
+        for (final p in productos) {
+          remotos.add(await _paraFirestore(p));
+        }
+        await remote.insertarLista(remotos);
+      } catch (error) {
+        debugPrint('Firestore insertarLista productos: $error');
       }
-      await remote.insertarLista(remotos);
-    } catch (error) {
-      debugPrint('Firestore insertarLista productos: $error');
-    }
+    }());
   }
 
   @override
@@ -2998,12 +3035,14 @@ class _DualProductoRepository implements ProductoRepository {
   @override
   Future<int> actualizar(Producto producto) async {
     final result = await local.actualizar(producto);
-    try {
-      // Fase 2: no pisar stock absoluto (va por ajustes atómicos).
-      await remote.actualizarSinStock(await _paraFirestore(producto));
-    } catch (error) {
-      debugPrint('Firestore actualizar producto: $error');
-    }
+    unawaited(() async {
+      try {
+        // Fase 2: no pisar stock absoluto (va por ajustes atómicos).
+        await remote.actualizarSinStock(await _paraFirestore(producto));
+      } catch (error) {
+        debugPrint('Firestore actualizar producto: $error');
+      }
+    }());
     return result;
   }
 

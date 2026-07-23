@@ -319,17 +319,59 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
             ),
           )
           .toList();
-      await _ventaSvc.crear(
+      final ventaId = await _ventaSvc.crear(
         venta,
         items,
         montoAbonado: abonado,
         medioPago: _medioPago,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+
+      final guardada = await _ventaSvc.obtenerPorId(ventaId);
+      if (guardada != null) {
+        _ventaExistente = guardada;
+        _modoLectura = true;
+      }
+      setState(() => _finalizando = false);
+
+      final messenger = ScaffoldMessenger.of(context);
+      final navigator = Navigator.of(context);
+      final compartir = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Venta guardada'),
+          content: const Text(
+            'La venta quedó registrada en este equipo.\n'
+            'Si no hay internet, se sincroniza después.\n\n'
+            '¿Compartir el PDF ahora?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Después'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(ctx, true),
+              icon: const Icon(Icons.share_rounded),
+              label: const Text('Compartir PDF'),
+            ),
+          ],
+        ),
+      );
+      if (compartir == true && mounted && _ventaExistente != null) {
+        try {
+          await _compartirPdf();
+        } catch (e) {
+          messenger.showSnackBar(
+            SnackBar(content: Text('PDF: $e')),
+          );
+        }
+      }
+      if (!mounted) return;
+      messenger.showSnackBar(
         SnackBar(content: Text('$numero guardada correctamente')),
       );
-      Navigator.pop(context);
+      navigator.pop(true);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -485,27 +527,49 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
             PopupMenuButton<String>(
               onSelected: (action) async {
                 if (action == 'anular') {
+                  final messenger = ScaffoldMessenger.of(context);
+                  final navigator = Navigator.of(context);
+                  if (_ventaExistente!.estado == 'anulada') {
+                    messenger.showSnackBar(
+                      const SnackBar(content: Text('Esta venta ya está anulada')),
+                    );
+                    return;
+                  }
                   final ok = await showDialog<bool>(
                     context: context,
-                    builder: (_) => AlertDialog(
+                    builder: (dialogCtx) => AlertDialog(
                       title: const Text('Anular venta'),
                       content: const Text('¿Confirmar anulación?'),
                       actions: [
                         TextButton(
-                          onPressed: () => Navigator.pop(context, false),
+                          onPressed: () => Navigator.pop(dialogCtx, false),
                           child: const Text('Cancelar'),
                         ),
                         ElevatedButton(
-                          onPressed: () => Navigator.pop(context, true),
+                          onPressed: () => Navigator.pop(dialogCtx, true),
                           child: const Text('Anular'),
                         ),
                       ],
                     ),
                   );
                   if (ok == true) {
-                    await _ventaSvc.anular(_ventaExistente!.id!);
-                    if (!mounted) return;
-                    Navigator.pop(context);
+                    try {
+                      await _ventaSvc.anular(_ventaExistente!.id!);
+                      messenger.showSnackBar(
+                        const SnackBar(content: Text('Venta anulada')),
+                      );
+                      navigator.pop();
+                    } catch (e) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            e.toString().contains('No autorizado')
+                                ? 'No tenés permiso para anular facturas'
+                                : 'No se pudo anular: $e',
+                          ),
+                        ),
+                      );
+                    }
                   }
                 } else if (action == 'imprimir') {
                   await _imprimirPdf();
@@ -528,21 +592,24 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                   value: 'compartir',
                   child: Text('Compartir PDF'),
                 ),
-                if ((_ventaExistente?.saldoPendiente ?? 0) > 0.009) ...[
+                if ((_ventaExistente?.saldoPendiente ?? 0) > 0.009 &&
+                    _ventaExistente?.estado != 'anulada') ...[
                   const PopupMenuDivider(),
                   const PopupMenuItem(
                     value: 'cobrar',
                     child: Text('Cobrar'),
                   ),
                 ],
-                const PopupMenuDivider(),
-                PopupMenuItem(
-                  value: 'anular',
-                  child: Text(
-                    'Anular',
-                    style: TextStyle(color: AppVisuals.danger(cs)),
+                if (_ventaExistente?.estado != 'anulada') ...[
+                  const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: 'anular',
+                    child: Text(
+                      'Anular',
+                      style: TextStyle(color: AppVisuals.danger(cs)),
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ],
@@ -689,11 +756,18 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                     },
                   ),
           ),
-          // Totales
+          // Totales — maintainBottomViewPadding: en Android edge-to-edge
+          // MediaQuery.padding.bottom suele ser 0; viewPadding sí tiene la barra.
           SafeArea(
             top: false,
+            maintainBottomViewPadding: true,
             child: Container(
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.fromLTRB(
+              12,
+              12,
+              12,
+              12 + MediaQuery.viewPaddingOf(context).bottom,
+            ),
             color: cs.surfaceContainerHighest,
             child: Column(
               children: [

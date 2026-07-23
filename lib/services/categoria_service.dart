@@ -1,17 +1,20 @@
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/categoria.dart';
 
 class CategoriaService {
   final DatabaseHelper _db = DatabaseHelper.instance;
 
-  Future<void> _syncNube() async {
-    try {
-      await FirestoreSyncService.instance.subirCategorias();
-      DataRefreshHub.instance.notifyTodo();
-    } catch (_) {}
+  /// Local primero; sync en segundo plano (misma política que listas/precios).
+  void _syncNube() {
+    DataRefreshHub.instance.notifyTodo();
+    syncInBackground(
+      FirestoreSyncService.instance.subirCategorias(),
+      tag: 'subirCategorias',
+    );
   }
 
   Future<List<Categoria>> obtenerTodas({bool soloActivas = false}) async {
@@ -40,7 +43,7 @@ class CategoriaService {
     final db = await _db.database;
     final map = categoria.toMap()..remove('id');
     final id = await db.insert('categorias', map);
-    await _syncNube();
+    _syncNube();
     return id;
   }
 
@@ -57,7 +60,7 @@ class CategoriaService {
       where: 'id = ?',
       whereArgs: [categoria.id],
     );
-    await _syncNube();
+    _syncNube();
     return n;
   }
 
@@ -69,7 +72,7 @@ class CategoriaService {
     );
     final db = await _db.database;
     final n = await db.delete('categorias', where: 'id = ?', whereArgs: [id]);
-    await _syncNube();
+    _syncNube();
     return n;
   }
 

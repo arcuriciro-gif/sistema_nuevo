@@ -9,6 +9,7 @@ import '../core/domain/event_bus.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/compra.dart';
 import '../models/compra_detalle.dart';
@@ -140,7 +141,7 @@ class CompraService {
       );
     }
 
-    await FirestoreSyncService.instance.subirCompra(compraId);
+    syncInBackground(FirestoreSyncService.instance.subirCompra(compraId), tag: 'subirCompra');
     DataRefreshHub.instance.notifyTodo();
     return compraId;
   }
@@ -236,7 +237,7 @@ class CompraService {
       );
     }
 
-    await FirestoreSyncService.instance.subirCompra(id);
+    syncInBackground(FirestoreSyncService.instance.subirCompra(id), tag: 'subirCompra');
     DataRefreshHub.instance.notifyTodo();
   }
 

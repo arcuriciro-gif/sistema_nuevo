@@ -1,17 +1,20 @@
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/lista_precio.dart';
 
 class ListaPrecioService {
   final DatabaseHelper dbHelper = DatabaseHelper.instance;
 
-  Future<void> _syncNube() async {
-    try {
-      await FirestoreSyncService.instance.subirListasPrecios();
-      DataRefreshHub.instance.notifyTodo();
-    } catch (_) {}
+  /// Local primero; la nube va en segundo plano (modo avión / corte de red).
+  void _syncNube() {
+    DataRefreshHub.instance.notifyTodo();
+    syncInBackground(
+      FirestoreSyncService.instance.subirListasPrecios(),
+      tag: 'subirListas',
+    );
   }
 
   Future<int> insertar(ListaPrecio lista) async {
@@ -22,7 +25,7 @@ class ListaPrecioService {
     );
     final db = await dbHelper.database;
     final id = await db.insert('listas_precios', lista.toMap()..remove('id'));
-    await _syncNube();
+    _syncNube();
     return id;
   }
 
@@ -39,7 +42,7 @@ class ListaPrecioService {
       where: 'id = ?',
       whereArgs: [lista.id],
     );
-    await _syncNube();
+    _syncNube();
     return n;
   }
 
@@ -55,7 +58,7 @@ class ListaPrecioService {
       where: 'id = ?',
       whereArgs: [id],
     );
-    await _syncNube();
+    _syncNube();
     return n;
   }
 

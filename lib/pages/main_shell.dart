@@ -173,8 +173,8 @@ class _MainShellState extends State<MainShell> {
 
   void _onSidebarPrefs() {
     if (!mounted) return;
-    // Las preferencias solo se editan desde Configuración: quedarse ahí
-    // (si no, al tildar/destildar el índice viejo cae en Manual u otra pantalla).
+    // Solo actualizar índice/visibilidad; las páginas se cachean para no
+    // perder el scroll de Configuración al tildar módulos.
     setState(() {
       const cfgId = 'configuracion|Configuración';
       final items = _visibleItems;
@@ -185,7 +185,19 @@ class _MainShellState extends State<MainShell> {
       } else {
         _selectedIndex = _resolverIndiceSeleccionado(items);
       }
+      // Limpiar caché de módulos que ya no están visibles.
+      final ids = items.map((e) => e.preferenciaId).toSet();
+      _pageCache.removeWhere((k, _) => !ids.contains(k));
     });
+  }
+
+  final Map<String, Widget> _pageCache = {};
+
+  Widget _cachedPage(_ShellItem item) {
+    return _pageCache.putIfAbsent(
+      item.preferenciaId,
+      () => item.builder(),
+    );
   }
 
   void _onCommsChanged() {
@@ -712,7 +724,7 @@ class _MainShellState extends State<MainShell> {
                                 for (final item in items)
                                   KeyedSubtree(
                                     key: ValueKey(item.preferenciaId),
-                                    child: item.builder(),
+                                    child: _cachedPage(item),
                                   ),
                               ],
                             ),
@@ -846,7 +858,7 @@ class _MainShellState extends State<MainShell> {
                     for (final item in items)
                       KeyedSubtree(
                         key: ValueKey(item.preferenciaId),
-                        child: item.builder(),
+                        child: _cachedPage(item),
                       ),
                   ],
                 ),

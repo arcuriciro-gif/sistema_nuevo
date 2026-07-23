@@ -1,10 +1,10 @@
-import 'dart:async';
 import 'dart:convert';
 
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../core/utils/media_path.dart';
 import '../database/database_helper.dart';
 import '../models/producto.dart';
@@ -108,12 +108,13 @@ class ProductoService {
   }) {
     if (id == null) return;
     // Si no hay sesión de nube, entra en cola persistente; si hay, re-empuja.
-    unawaited(
+    syncInBackground(
       FirestoreSyncService.instance.subirProductoPorId(
         id,
         incluirStockAbsoluto: incluirStockAbsoluto,
         forzar: incluirStockAbsoluto,
       ),
+      tag: 'subirProducto',
     );
   }
 

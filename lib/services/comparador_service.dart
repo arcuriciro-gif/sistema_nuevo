@@ -1,10 +1,14 @@
 import 'package:sqflite/sqflite.dart';
 
+import '../core/events/data_refresh_hub.dart';
+import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../core/utils/texto_producto.dart';
 import '../database/database_helper.dart';
 import '../models/comparacion.dart';
 import '../models/producto.dart';
 import 'auth_service.dart';
+import 'precio_calculador_service.dart';
 import 'producto_service.dart';
 
 class ComparadorService {
@@ -454,11 +458,14 @@ class ComparadorService {
 
   /// Actualiza **únicamente el costo** de productos ya existentes en tu lista.
   /// Los NUEVO no se crean solos: hay que darlos de alta a mano (si te interesan).
+  /// Offline-safe: escribe SQLite y encola sync (no espera la nube).
   Future<void> actualizarProductos() async {
     final comparaciones = await obtenerComparacion();
     final db = await DatabaseHelper.instance.database;
     final usuario = AuthService.instance.currentUser?.usuario ?? 'sistema';
     final ahora = DateTime.now().toIso8601String();
+    final ahoraUtc = DateTime.now().toUtc().toIso8601String();
+    final idsSync = <int>{};
 
     for (final comp in comparaciones) {
       if (comp.estado == 'NUEVO') continue;
@@ -467,9 +474,21 @@ class ComparadorService {
       if (producto == null) continue;
       if (comp.precioNuevo == comp.precioViejo) continue;
 
+      // Recalcula precios de venta según listas activas (desde el nuevo costo).
+      final conCosto = producto.copyWith(costo: comp.precioNuevo);
+      final conListas = await PrecioCalculadorService.instance
+          .aplicarListasDesdeCosto(conCosto);
+
       await db.update(
         'productos',
-        {'costo': comp.precioNuevo},
+        {
+          'costo': conListas.costo,
+          'precio': conListas.precio,
+          'precio2': conListas.precio2,
+          'precio3': conListas.precio3,
+          'precios_listas': conListas.toMap()['precios_listas'],
+          'actualizadoEn': ahoraUtc,
+        },
         where: 'id = ?',
         whereArgs: [producto.id],
       );
@@ -481,7 +500,7 @@ class ComparadorService {
         'costoAnterior': comp.precioViejo,
         'costoNuevo': comp.precioNuevo,
         'precioAnterior': producto.precio,
-        'precioNuevo': producto.precio,
+        'precioNuevo': conListas.precio,
         'porcentaje': comp.precioViejo > 0
             ? ((comp.precioNuevo - comp.precioViejo) / comp.precioViejo) * 100
             : 0.0,
@@ -489,6 +508,19 @@ class ComparadorService {
             comp.proveedor.isNotEmpty ? comp.proveedor : 'Lista proveedor',
         'motivo': 'Actualización de costo por lista (desc)',
       });
+
+      if (producto.id != null) idsSync.add(producto.id!);
+    }
+
+    // Sync en segundo plano: al volver la red, outbox empuja a todos lados.
+    for (final id in idsSync) {
+      syncInBackground(
+        FirestoreSyncService.instance.subirProductoPorId(id, forzar: true),
+        tag: 'subirProducto',
+      );
+    }
+    if (idsSync.isNotEmpty) {
+      DataRefreshHub.instance.notifyProductos();
     }
   }
 
