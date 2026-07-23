@@ -27,7 +27,9 @@ class _ItemCompra {
 }
 
 class CompraFormPage extends StatefulWidget {
-  const CompraFormPage({super.key});
+  final int? compraId;
+
+  const CompraFormPage({super.key, this.compraId});
 
   @override
   State<CompraFormPage> createState() => _CompraFormPageState();
@@ -49,8 +51,11 @@ class _CompraFormPageState extends State<CompraFormPage> {
   List<_ItemCompra> items = [];
 
   Proveedor? proveedorSeleccionado;
+  String? _numeroExistente;
   bool cargando = true;
   bool guardando = false;
+
+  bool get _esEdicion => widget.compraId != null;
 
   @override
   void initState() {
@@ -69,6 +74,69 @@ class _CompraFormPageState extends State<CompraFormPage> {
     proveedores = await proveedorService.obtenerTodos();
     productos = await productoService.obtenerTodos();
     productosFiltrados = productos;
+
+    if (_esEdicion) {
+      final compraId = widget.compraId!;
+      final compras = await compraService.obtenerTodasConProveedor();
+      Map<String, dynamic>? compra;
+      for (final c in compras) {
+        if ((c['id'] as num?)?.toInt() == compraId) {
+          compra = c;
+          break;
+        }
+      }
+      if (compra != null) {
+        _numeroExistente = compra['numero']?.toString();
+        observacionesController.text =
+            compra['observaciones']?.toString() ?? '';
+        final pid = (compra['proveedorId'] as num?)?.toInt();
+        if (pid != null) {
+          for (final p in proveedores) {
+            if (p.id == pid) {
+              proveedorSeleccionado = p;
+              break;
+            }
+          }
+        }
+        final rows = await compraService.obtenerItems(compraId);
+        items = [];
+        for (final row in rows) {
+          final productoId = (row['productoId'] as num?)?.toInt();
+          Producto? prod;
+          if (productoId != null) {
+            for (final p in productos) {
+              if (p.id == productoId) {
+                prod = p;
+                break;
+              }
+            }
+          }
+          prod ??= Producto(
+            id: productoId,
+            codigo: row['codigo']?.toString() ?? '',
+            descripcion:
+                row['productoDescripcion']?.toString() ?? 'Producto',
+            marca: row['marca']?.toString() ?? '',
+            categoria: '',
+            proveedor: '',
+            ubicacion: '',
+            stock: 0,
+            costo: (row['costo'] as num?)?.toDouble() ?? 0,
+            precio: 0,
+            observaciones: '',
+            foto: '',
+          );
+          items.add(
+            _ItemCompra(
+              producto: prod,
+              cantidad: (row['cantidad'] as num?)?.toInt() ?? 1,
+              costo: (row['costo'] as num?)?.toDouble() ?? prod.costo,
+            ),
+          );
+        }
+      }
+    }
+
     if (!mounted) return;
     setState(() => cargando = false);
   }
@@ -298,17 +366,6 @@ class _CompraFormPageState extends State<CompraFormPage> {
     setState(() => guardando = true);
 
     try {
-      final numero = await compraService.generarNumero();
-      final compra = Compra(
-        proveedorId: proveedorSeleccionado?.id,
-        proveedorNombre: proveedorSeleccionado?.nombre ?? 'Sin proveedor',
-        numero: numero,
-        fecha: DateTime.now(),
-        total: total,
-        observaciones: observacionesController.text.trim(),
-        estado: 'confirmada',
-      );
-
       final detalles = <CompraDetalle>[];
       for (final i in items) {
         final pid = i.producto.id;
@@ -319,7 +376,7 @@ class _CompraFormPageState extends State<CompraFormPage> {
         }
         detalles.add(
           CompraDetalle(
-            compraId: 0,
+            compraId: widget.compraId ?? 0,
             productoId: pid,
             productoDescripcion: i.producto.descripcion,
             cantidad: i.cantidad,
@@ -329,7 +386,31 @@ class _CompraFormPageState extends State<CompraFormPage> {
         );
       }
 
-      await compraService.insertar(compra, detalles);
+      if (_esEdicion) {
+        final compra = Compra(
+          id: widget.compraId,
+          proveedorId: proveedorSeleccionado?.id,
+          proveedorNombre: proveedorSeleccionado?.nombre ?? 'Sin proveedor',
+          numero: _numeroExistente ?? '',
+          fecha: DateTime.now(),
+          total: total,
+          observaciones: observacionesController.text.trim(),
+          estado: 'confirmada',
+        );
+        await compraService.actualizar(widget.compraId!, compra, detalles);
+      } else {
+        final numero = await compraService.generarNumero();
+        final compra = Compra(
+          proveedorId: proveedorSeleccionado?.id,
+          proveedorNombre: proveedorSeleccionado?.nombre ?? 'Sin proveedor',
+          numero: numero,
+          fecha: DateTime.now(),
+          total: total,
+          observaciones: observacionesController.text.trim(),
+          estado: 'confirmada',
+        );
+        await compraService.insertar(compra, detalles);
+      }
 
       if (!mounted) return;
       setState(() => guardando = false);
@@ -346,7 +427,10 @@ class _CompraFormPageState extends State<CompraFormPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: 'Nueva Compra'),
+      appBar: buildModuleAppBar(
+        context,
+        title: _esEdicion ? 'Editar compra' : 'Nueva Compra',
+      ),
       body: cargando
           ? const Center(child: CircularProgressIndicator())
           : Column(
@@ -538,7 +622,9 @@ class _CompraFormPageState extends State<CompraFormPage> {
                                       strokeWidth: 2),
                                 )
                               : const Icon(Icons.save),
-                          label: const Text('GUARDAR COMPRA'),
+                          label: Text(
+                            _esEdicion ? 'GUARDAR CAMBIOS' : 'GUARDAR COMPRA',
+                          ),
                         ),
                       ),
                     ],

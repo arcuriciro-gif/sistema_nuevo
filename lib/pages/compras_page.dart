@@ -252,6 +252,78 @@ class _ComprasPageState extends State<ComprasPage> {
     }
   }
 
+  Future<void> confirmarEliminar(Map<String, dynamic> compra) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Eliminar compra'),
+        content: Text(
+          '¿Eliminar la compra ${compra['numero']}? '
+          'Si estaba activa se revierte el stock y se borra del historial.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              'Eliminar',
+              style: TextStyle(
+                color: AppVisuals.danger(Theme.of(context).colorScheme),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      try {
+        await service.eliminar((compra['id'] as num).toInt());
+        await cargar();
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e.toString().contains('No autorizado')
+                  ? 'No tenés permiso para eliminar'
+                  : 'No se pudo eliminar: $e',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _editar(Map<String, dynamic> compra) async {
+    final id = (compra['id'] as num?)?.toInt();
+    if (id == null) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => CompraFormPage(compraId: id)),
+    );
+    await cargar();
+  }
+
+  bool get _puedeEditar => AuthorizationService.instance.puede(
+        AuthModules.compras,
+        AuthzAction.editar,
+      );
+
+  bool get _puedeAnular => AuthorizationService.instance.puede(
+        AuthModules.compras,
+        AuthzAction.anular,
+      );
+
+  bool get _puedeEliminar =>
+      AuthorizationService.instance.puede(
+        AuthModules.compras,
+        AuthzAction.eliminar,
+      ) ||
+      _puedeAnular;
+
   Color colorEstado(String estado) {
     final colorScheme = Theme.of(context).colorScheme;
     return estado == 'anulada'
@@ -461,11 +533,12 @@ class _ComprasPageState extends State<ComprasPage> {
                                         ),
                                       ],
                                     ),
-                                    if (estado != 'anulada') ...[
+                                    if (estado != 'anulada' ||
+                                        _puedeEliminar) ...[
                                       const Divider(height: 20),
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.end,
+                                      Wrap(
+                                        alignment: WrapAlignment.end,
+                                        spacing: 4,
                                         children: [
                                           TextButton.icon(
                                             onPressed: () =>
@@ -508,15 +581,44 @@ class _ComprasPageState extends State<ComprasPage> {
                                             ),
                                             label: const Text('Compartir'),
                                           ),
-                                          TextButton.icon(
-                                            onPressed: () =>
-                                                confirmarAnular(compra),
-                                            icon: const Icon(
-                                              Icons.block_rounded,
-                                              size: 18,
+                                          if (estado != 'anulada' &&
+                                              _puedeEditar)
+                                            TextButton.icon(
+                                              onPressed: () => _editar(compra),
+                                              icon: const Icon(
+                                                Icons.edit_rounded,
+                                                size: 18,
+                                              ),
+                                              label: const Text('Editar'),
                                             ),
-                                            label: const Text('Anular'),
-                                          ),
+                                          if (estado != 'anulada' &&
+                                              _puedeAnular)
+                                            TextButton.icon(
+                                              onPressed: () =>
+                                                  confirmarAnular(compra),
+                                              icon: const Icon(
+                                                Icons.block_rounded,
+                                                size: 18,
+                                              ),
+                                              label: const Text('Anular'),
+                                            ),
+                                          if (_puedeEliminar)
+                                            TextButton.icon(
+                                              onPressed: () =>
+                                                  confirmarEliminar(compra),
+                                              icon: const Icon(
+                                                Icons.delete_outline_rounded,
+                                                size: 18,
+                                              ),
+                                              label: const Text('Eliminar'),
+                                              style: TextButton.styleFrom(
+                                                foregroundColor: AppVisuals
+                                                    .danger(
+                                                  Theme.of(context)
+                                                      .colorScheme,
+                                                ),
+                                              ),
+                                            ),
                                         ],
                                       ),
                                     ],

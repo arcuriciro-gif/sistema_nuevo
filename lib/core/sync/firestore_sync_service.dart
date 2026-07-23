@@ -1851,6 +1851,28 @@ class FirestoreSyncService {
     }
   }
 
+  Future<void> eliminarCompraRemota(String numero, {int? localId}) async {
+    if (numero.isEmpty) return;
+    await SyncOutbox.instance.enqueueDelete(
+      entityType: 'compra',
+      remoteId: numero,
+      localId: localId,
+    );
+    if (!_puedeEscribirRemoto) return;
+    try {
+      await _aplicarTombstoneRemoto('compra', numero);
+      await _borrarLocalTrasTombstone(
+        entityType: 'compra',
+        localId: localId,
+        remoteId: numero,
+      );
+      await SyncOutbox.instance.ack('delete:compra:$numero');
+    } catch (e) {
+      await SyncOutbox.instance.fail('delete:compra:$numero', e);
+      debugPrint('Firestore eliminar compra: $e');
+    }
+  }
+
   Future<void> eliminarVentaRemota(Venta venta) async {
     final docId = venta.numero.isNotEmpty ? venta.numero : 'v_${venta.id}';
     await SyncOutbox.instance.enqueueDelete(

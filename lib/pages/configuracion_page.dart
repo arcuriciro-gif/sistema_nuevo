@@ -1345,7 +1345,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  subtitle: const Text('Colores, fuente e integridad'),
+                  subtitle: const Text('Colores, fuente, tamaño e integridad'),
                   childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                   children: [
                     const SizedBox(height: 8),
@@ -1398,6 +1398,41 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       onChanged: (value) {
                         if (value != null) {
                           themeProvider.setFuente(value);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Tamaño de letra',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Para leer mejor en celular o PC (gente mayor).',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<double>(
+                      initialValue: themeProvider.textScale,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        for (var i = 0;
+                            i < ThemeProvider.escalasTexto.length;
+                            i++)
+                          DropdownMenuItem(
+                            value: ThemeProvider.escalasTexto[i],
+                            child: Text(ThemeProvider.etiquetasEscala[i]),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          themeProvider.setTextScale(value);
                         }
                       },
                     ),

@@ -227,27 +227,56 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
     Color color, {
     VoidCallback? onTap,
   }) {
+    final wide = MediaQuery.sizeOf(context).width >= 900;
     return Card(
+      margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: ListTile(
-          leading: CircleAvatar(
-            backgroundColor: color.withValues(alpha: .15),
-            child: Icon(icono, color: color),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: wide ? 10 : 12,
+            vertical: wide ? 8 : 10,
           ),
-          title: Text(titulo),
-          subtitle: Text(
-            valor,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-            ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: wide ? 16 : 18,
+                backgroundColor: color.withValues(alpha: .15),
+                child: Icon(icono, color: color, size: wide ? 16 : 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      titulo,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: wide ? 12 : 13,
+                        height: 1.15,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      valor,
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.bold,
+                        fontSize: wide ? 16 : 17,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (onTap != null)
+                Icon(Icons.chevron_right_rounded, size: 18, color: color),
+            ],
           ),
-          trailing: onTap == null
-              ? null
-              : Icon(Icons.chevron_right_rounded, color: color),
         ),
       ),
     );
@@ -435,10 +464,14 @@ class _InteligenciaComercialPageState extends State<InteligenciaComercialPage> {
                   GridView.count(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 2,
-                    childAspectRatio: 1.55,
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
+                    crossAxisCount: MediaQuery.sizeOf(context).width >= 900
+                        ? 4
+                        : 2,
+                    childAspectRatio: MediaQuery.sizeOf(context).width >= 900
+                        ? 3.2
+                        : 2.4,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
                     children: [
                       _metricCard(
                         'Ganancia real (6 meses)',

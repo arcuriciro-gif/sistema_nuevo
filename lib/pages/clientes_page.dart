@@ -137,7 +137,7 @@ class _ClientesPageState extends State<ClientesPage> {
   Widget _avatar(Cliente c, ColorScheme cs) {
     return MediaAvatar(
       path: c.foto,
-      radius: 22,
+      radius: 30,
       fallbackLetter: c.nombre.isNotEmpty ? c.nombre[0] : '?',
       backgroundColor: cs.primaryContainer,
       foregroundColor: cs.onPrimaryContainer,

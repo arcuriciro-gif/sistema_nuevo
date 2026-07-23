@@ -145,10 +145,11 @@ class _ProveedoresPageState extends State<ProveedoresPage> {
                               ),
                               child: ListTile(
                                 leading: CircleAvatar(
-                                  radius: 28,
+                                  radius: 36,
                                   backgroundColor: colorScheme.primaryContainer,
                                   child: Icon(
                                     Icons.local_shipping_rounded,
+                                    size: 28,
                                     color: colorScheme.primary,
                                   ),
                                 ),

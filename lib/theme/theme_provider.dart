@@ -7,10 +7,21 @@ class ThemeProvider extends ChangeNotifier {
   Color _color = AppTheme.coloresDisponibles[0];
   String _fuente = 'Poppins';
   ThemeMode _mode = ThemeMode.system;
+  double _textScale = 1.0;
+
+  static const escalasTexto = <double>[0.9, 1.0, 1.15, 1.3, 1.5];
+  static const etiquetasEscala = <String>[
+    'Pequeña',
+    'Normal',
+    'Grande',
+    'Muy grande',
+    'Extra',
+  ];
 
   Color get color => _color;
   String get fuente => _fuente;
   ThemeMode get mode => _mode;
+  double get textScale => _textScale;
 
   ThemeData get lightTheme => AppTheme.light(_color, _fuente);
   ThemeData get darkTheme => AppTheme.dark(_color, _fuente);
@@ -24,6 +35,7 @@ class ThemeProvider extends ChangeNotifier {
     final colorIndex = prefs.getInt('themeColorIndex') ?? 0;
     final fuenteStr = prefs.getString('themeFuente') ?? 'Poppins';
     final modeStr = prefs.getString('themeMode') ?? 'system';
+    final scale = prefs.getDouble('themeTextScale') ?? 1.0;
 
     final safeColorIndex = colorIndex.clamp(
       0,
@@ -38,7 +50,21 @@ class ThemeProvider extends ChangeNotifier {
         : modeStr == 'dark'
             ? ThemeMode.dark
             : ThemeMode.system;
+    _textScale = _nearestScale(scale);
     notifyListeners();
+  }
+
+  double _nearestScale(double value) {
+    var best = escalasTexto.first;
+    var bestDiff = (value - best).abs();
+    for (final s in escalasTexto) {
+      final d = (value - s).abs();
+      if (d < bestDiff) {
+        best = s;
+        bestDiff = d;
+      }
+    }
+    return best;
   }
 
   Future<void> setColor(Color c) async {
@@ -52,6 +78,13 @@ class ThemeProvider extends ChangeNotifier {
     _fuente = f;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('themeFuente', f);
+    notifyListeners();
+  }
+
+  Future<void> setTextScale(double scale) async {
+    _textScale = _nearestScale(scale);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('themeTextScale', _textScale);
     notifyListeners();
   }
 

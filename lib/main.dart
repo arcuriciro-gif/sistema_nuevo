@@ -123,6 +123,15 @@ class _ElTataAppState extends State<ElTataApp> {
       theme: themeProvider.lightTheme,
       darkTheme: themeProvider.darkTheme,
       themeMode: themeProvider.mode,
+      builder: (context, child) {
+        final mq = MediaQuery.of(context);
+        return MediaQuery(
+          data: mq.copyWith(
+            textScaler: TextScaler.linear(themeProvider.textScale),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: const LoginPage(),
     );
   }
