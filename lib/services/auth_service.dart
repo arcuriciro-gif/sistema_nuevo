@@ -7,13 +7,16 @@ import 'package:flutter/foundation.dart';
 import '../core/auth/rol_util.dart';
 import '../core/auth/usuario_auth_email.dart';
 import '../core/config/backend_config_service.dart';
+import '../core/config/platform_capabilities.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/firebase/firebase_bootstrap.dart';
 import '../core/firebase/firebase_safe_mode.dart';
 import '../core/firebase/tenant_membership_service.dart';
 import '../core/security/admin_access_policy.dart';
+import '../core/sync/cloud_sync_throttle.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../core/sync/media_sync_service.dart';
 import '../core/utils/media_path.dart';
 import '../database/database_helper.dart';
@@ -399,6 +402,21 @@ class AuthService {
   }
 
   /// Conecta Firebase Auth + sync si la nube ya está habilitada.
+  /// Windows: no await del arranque de sync (listeners/catch-up tumbaban el .exe).
+  Future<void> _arrancarSyncTrasAuth() async {
+    if (PlatformCapabilities.isWindowsDesktop) {
+      syncInBackground(
+        CloudSyncThrottle.enqueue(
+          () => FirestoreSyncService.instance.start(),
+          tag: 'authStartSync',
+        ),
+        tag: 'authStartSync',
+      );
+      return;
+    }
+    await FirestoreSyncService.instance.start();
+  }
+
   Future<({bool ok, String mensaje})> conectarFirebaseDespuesDelLogin() async {
     if (!BackendConfigService.instance.firebaseEnabled) {
       await appendAppLog('POST-LOGIN nube desactivada (opt-in pendiente)');
@@ -540,7 +558,7 @@ class AuthService {
           debugPrint('Membership post-login: $e');
         }
         try {
-          await FirestoreSyncService.instance.start();
+          await _arrancarSyncTrasAuth();
           await appendAppLog('Firebase Auth OK uid=$uidActual');
         } catch (e) {
           debugPrint('Sync start post-login: $e');
@@ -717,7 +735,7 @@ class AuthService {
         debugPrint('Membership Google login: $e');
       }
       try {
-        await FirestoreSyncService.instance.start();
+        await _arrancarSyncTrasAuth();
       } catch (e) {
         debugPrint('Sync start Google login: $e');
       }
@@ -860,7 +878,7 @@ class AuthService {
       final uidActual = FirebaseAuthUsuarioService.instance.uidActual;
       if (uidActual != null) {
         try {
-          await FirestoreSyncService.instance.start();
+          await _arrancarSyncTrasAuth();
         } catch (e) {
           debugPrint('Sync post-huella: $e');
         }
@@ -983,7 +1001,7 @@ class AuthService {
         debugPrint('Firestore usuario en cambio password: $error');
       }
       try {
-        await FirestoreSyncService.instance.start();
+        await _arrancarSyncTrasAuth();
       } catch (error) {
         debugPrint('Sync en cambio password: $error');
       }

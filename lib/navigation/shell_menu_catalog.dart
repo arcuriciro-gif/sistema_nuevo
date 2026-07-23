@@ -46,6 +46,7 @@ const List<ShellMenuEntry> kShellMenuCatalog = [
   ShellMenuEntry(id: 'usuarios|Permisos', title: 'Permisos', icon: Icons.admin_panel_settings_rounded),
   ShellMenuEntry(id: 'backup|Respaldo', title: 'Respaldo', icon: Icons.cloud_upload_rounded),
   ShellMenuEntry(id: 'auditoria|Panel técnico', title: 'Panel técnico', icon: Icons.monitor_heart_rounded),
+  ShellMenuEntry(id: 'dashboard|Primeros pasos', title: 'Primeros pasos', icon: Icons.route_rounded),
   ShellMenuEntry(id: 'dashboard|Manual de usuario', title: 'Manual de usuario', icon: Icons.menu_book_rounded),
   ShellMenuEntry(id: 'configuracion|Configuración', title: 'Configuración', icon: Icons.settings_rounded),
 ];

@@ -108,6 +108,8 @@ class FirestoreSyncService {
 
   /// Reintento suave de outbox mientras la nube está activa (EXE→APK).
   Timer? _outboxPump;
+  /// Windows: pull periódico (sin listeners pesados que tumban el .exe).
+  Timer? _pullPump;
 
   CollectionReference<Map<String, dynamic>> _col(String name) {
     final tenant = BackendConfigService.instance.tenantId;
@@ -156,14 +158,24 @@ class FirestoreSyncService {
       syncStatusLabel = 'Sincronizando…';
       syncStatusDetail = null;
 
-      // Solo cambios del snapshot (no reaplicar 10k productos en cada remito:
-      // en Windows eso podía cerrar el .exe por presión de memoria/UI).
-      _productosSub = _remote.watchSnapshots(limit: 10000).listen(
-        _onProductosSnapshot,
-        onError: (Object error) => debugPrint('Sync productos: $error'),
-      );
+      final windows = PlatformCapabilities.isWindowsDesktop;
+
+      // Config chica siempre (docs únicos). En Windows NO listeners de
+      // colecciones grandes: el snapshot completo tumbaba el .exe.
       _usuariosSub = _usuariosRemote.watchTodos().listen(
-        _aplicarUsuariosRemotos,
+        (lista) {
+          if (windows) {
+            syncInBackground(
+              CloudSyncThrottle.enqueue(
+                () => _aplicarUsuariosRemotos(lista),
+                tag: 'usuariosSnap',
+              ),
+              tag: 'usuariosSnap',
+            );
+          } else {
+            unawaited(_aplicarUsuariosRemotos(lista));
+          }
+        },
         onError: (Object error) => debugPrint('Sync usuarios: $error'),
       );
       _brandingSub = _configDoc('branding').snapshots().listen(
@@ -182,47 +194,55 @@ class FirestoreSyncService {
         _aplicarCategoriasRemotas,
         onError: (Object error) => debugPrint('Sync categorias: $error'),
       );
-      _ventasSub = _ventasCol.snapshots().listen(
-        _aplicarVentasRemotas,
-        onError: (Object error) => debugPrint('Sync ventas: $error'),
-      );
-      _remitosSub = _remitosCol.snapshots().listen(
-        _aplicarRemitosRemotos,
-        onError: (Object error) => debugPrint('Sync remitos: $error'),
-      );
-      _clientesSub = _clientesCol.snapshots().listen(
-        _aplicarClientesRemotos,
-        onError: (Object error) => debugPrint('Sync clientes: $error'),
-      );
-      _proveedoresSub = _proveedoresCol.snapshots().listen(
-        _aplicarProveedoresRemotos,
-        onError: (Object error) => debugPrint('Sync proveedores: $error'),
-      );
-      _comprasSub = _comprasCol.snapshots().listen(
-        _aplicarComprasRemotas,
-        onError: (Object error) => debugPrint('Sync compras: $error'),
-      );
-      _documentosSub = _documentosCol.snapshots().listen(
-        _aplicarDocumentosRemotos,
-        onError: (Object error) => debugPrint('Sync documentos: $error'),
-      );
 
-      unawaited(_reintentarFotosLocalesPendientes());
+      if (!windows) {
+        // Solo cambios del snapshot (no reaplicar 10k productos en cada remito).
+        _productosSub = _remote.watchSnapshots(limit: 10000).listen(
+          _onProductosSnapshot,
+          onError: (Object error) => debugPrint('Sync productos: $error'),
+        );
+        _ventasSub = _ventasCol.snapshots().listen(
+          _aplicarVentasRemotas,
+          onError: (Object error) => debugPrint('Sync ventas: $error'),
+        );
+        _remitosSub = _remitosCol.snapshots().listen(
+          _aplicarRemitosRemotos,
+          onError: (Object error) => debugPrint('Sync remitos: $error'),
+        );
+        _clientesSub = _clientesCol.snapshots().listen(
+          _aplicarClientesRemotos,
+          onError: (Object error) => debugPrint('Sync clientes: $error'),
+        );
+        _proveedoresSub = _proveedoresCol.snapshots().listen(
+          _aplicarProveedoresRemotos,
+          onError: (Object error) => debugPrint('Sync proveedores: $error'),
+        );
+        _comprasSub = _comprasCol.snapshots().listen(
+          _aplicarComprasRemotas,
+          onError: (Object error) => debugPrint('Sync compras: $error'),
+        );
+        _documentosSub = _documentosCol.snapshots().listen(
+          _aplicarDocumentosRemotos,
+          onError: (Object error) => debugPrint('Sync documentos: $error'),
+        );
+        unawaited(_reintentarFotosLocalesPendientes());
+      }
+
       // Empuja branding/permisos locales la primera vez si la nube no tiene.
       unawaited(_publicarConfigLocalSiHaceFalta());
 
       // Windows: pull + upload masivo NO en el hilo de UI (cerraba el .exe).
-      if (PlatformCapabilities.isWindowsDesktop) {
+      if (windows) {
         syncStatusLabel = 'Sincronizando…';
         syncStatusDetail =
-            'Conectado. Bajando y subiendo datos en segundo plano…';
+            'Modo estable PC. Sync en segundo plano (sin listeners pesados)…';
         DataRefreshHub.instance.notifyTodo();
-        _iniciarOutboxPump();
+        _iniciarPumpsWindows();
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
-            await Future<void>.delayed(const Duration(milliseconds: 900));
+            await Future<void>.delayed(const Duration(seconds: 2));
             await _pullInicialCatchUp();
-            await Future<void>.delayed(const Duration(milliseconds: 600));
+            await Future<void>.delayed(const Duration(milliseconds: 800));
             await _vaciarColasYSubirPendientes();
             final health = await SyncHealthService.instance.snapshot();
             if (health.dead > 0) {
@@ -232,7 +252,7 @@ class FirestoreSyncService {
               syncStatusLabel = 'Sincronizando…';
               syncStatusDetail = '${health.pending} pendientes';
             } else {
-              syncStatusLabel = 'En la nube';
+              syncStatusLabel = 'En la nube (modo estable PC)';
               syncStatusDetail = null;
             }
             DataRefreshHub.instance.notifyTodo();
@@ -316,7 +336,9 @@ class FirestoreSyncService {
 
   void _iniciarOutboxPump() {
     _outboxPump?.cancel();
-    _outboxPump = Timer.periodic(const Duration(seconds: 40), (_) {
+    final windows = PlatformCapabilities.isWindowsDesktop;
+    final intervalo = windows ? const Duration(seconds: 55) : const Duration(seconds: 40);
+    _outboxPump = Timer.periodic(intervalo, (_) {
       if (!_puedeEscribirRemoto) return;
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
@@ -325,14 +347,16 @@ class FirestoreSyncService {
           );
           if (pending == 0) return;
           syncStatusDetail = '$pending pendientes…';
-          final windows = PlatformCapabilities.isWindowsDesktop;
           // Primero documentos (ventas/remitos), después productos suave.
           await _procesarOutboxDrain(
-            maxBatches: windows ? 4 : 10,
+            maxBatches: windows ? 3 : 10,
             entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
           );
+          if (windows) {
+            await Future<void>.delayed(const Duration(milliseconds: 600));
+          }
           await _procesarOutboxDrain(
-            maxBatches: windows ? 2 : 8,
+            maxBatches: windows ? 1 : 8,
             entityTypes: windows
                 ? const ['stock_op', 'producto', 'proveedor']
                 : null,
@@ -341,7 +365,9 @@ class FirestoreSyncService {
             SyncOutboxStatus.pending,
           );
           if (left == 0) {
-            syncStatusLabel = 'En la nube';
+            syncStatusLabel = windows
+                ? 'En la nube (modo estable PC)'
+                : 'En la nube';
             syncStatusDetail = null;
           } else {
             syncStatusLabel = 'Sincronizando…';
@@ -352,6 +378,45 @@ class FirestoreSyncService {
         tag: 'outboxPump',
       );
     });
+  }
+
+  /// Windows: sin listeners de colecciones; pull suave periódico.
+  void _iniciarPumpsWindows() {
+    _iniciarOutboxPump();
+    _pullPump?.cancel();
+    _pullPump = Timer.periodic(const Duration(seconds: 50), (_) {
+      if (!_puedeEscribirRemoto) return;
+      syncInBackground(
+        CloudSyncThrottle.enqueue(() async {
+          await _pullSuaveWindows();
+        }, tag: 'pullPumpWindows'),
+        tag: 'pullPumpWindows',
+      );
+    });
+  }
+
+  /// Baja solo lo crítico (ventas/remitos/clientes) con pausas.
+  Future<void> _pullSuaveWindows() async {
+    try {
+      final clientes = await _clientesCol.get();
+      await _aplicarClientesRemotos(clientes);
+    } catch (e) {
+      debugPrint('Pull suave clientes: $e');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    try {
+      final ventas = await _ventasCol.get();
+      await _aplicarVentasRemotas(ventas);
+    } catch (e) {
+      debugPrint('Pull suave ventas: $e');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    try {
+      final remitos = await _remitosCol.get();
+      await _aplicarRemitosRemotos(remitos);
+    } catch (e) {
+      debugPrint('Pull suave remitos: $e');
+    }
   }
 
   /// Trae de una el estado actual de la nube (clientes/proveedores/…).
@@ -382,7 +447,9 @@ class FirestoreSyncService {
     }
     await pausa();
     try {
-      final productos = await _remote.obtenerTodos(limit: 10000);
+      final productos = await _remote.obtenerTodos(
+        limit: windows ? 800 : 10000,
+      );
       await _aplicarProductosRemotos(productos);
     } catch (e) {
       debugPrint('Pull inicial productos: $e');
@@ -846,6 +913,8 @@ class FirestoreSyncService {
   Future<void> stop() async {
     _outboxPump?.cancel();
     _outboxPump = null;
+    _pullPump?.cancel();
+    _pullPump = null;
     await _productosSub?.cancel();
     await _usuariosSub?.cancel();
     await _brandingSub?.cancel();
@@ -1597,8 +1666,14 @@ class FirestoreSyncService {
 
     if (!_puedeEscribirRemoto) return;
     try {
-      await _procesarOutboxBatch(limit: 40);
-      await _remote.reconcilizarStockOpsPendientes(limit: 30);
+      final windows = PlatformCapabilities.isWindowsDesktop;
+      await _procesarOutboxBatch(limit: windows ? 6 : 40);
+      if (windows) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        await _remote.reconcilizarStockOpsPendientes(limit: 5);
+      } else {
+        await _remote.reconcilizarStockOpsPendientes(limit: 30);
+      }
     } catch (e) {
       debugPrint('Flush stock ops: $e');
     }
