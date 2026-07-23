@@ -311,8 +311,10 @@ class _ComparacionPageState extends State<ComparacionPage> {
                       aActualizar == 0
                           ? 'No hay costos para actualizar (solo iguales o nuevos sin alta).'
                           : '¿Actualizar el costo de $aActualizar productos del informe?\n\n'
-                              'Solo se modifica el COSTO.\n'
+                              'Se actualiza el COSTO y se recalculan los precios '
+                              'según tus listas activas.\n'
                               'Tus códigos NO se cambian.\n'
+                              'Si no hay internet, queda guardado y se sincroniza después.\n'
                               'Nada se aplica sin tu OK.',
                     ),
                     if (hermanos.isNotEmpty) ...[
