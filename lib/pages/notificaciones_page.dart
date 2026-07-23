@@ -55,9 +55,11 @@ class _NotificacionesPageState extends State<NotificacionesPage> {
         _ => cs.onSurfaceVariant,
       };
 
-  String _fmt(DateTime f) =>
-      '${f.day.toString().padLeft(2, '0')}/${f.month.toString().padLeft(2, '0')} '
-      '${f.hour.toString().padLeft(2, '0')}:${f.minute.toString().padLeft(2, '0')}';
+  String _fmt(DateTime f) {
+    final l = f.toLocal();
+    return '${l.day.toString().padLeft(2, '0')}/${l.month.toString().padLeft(2, '0')} '
+        '${l.hour.toString().padLeft(2, '0')}:${l.minute.toString().padLeft(2, '0')}';
+  }
 
   Future<void> _abrir(NotificacionInterna n) async {
     await _svc.marcarNotificacionLeida(n.id);
