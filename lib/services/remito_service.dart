@@ -11,7 +11,6 @@ import '../core/domain/inventory_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
-import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/remito.dart';
 import '../models/remito_detalle.dart';
@@ -33,7 +32,12 @@ class RemitoService {
     return 'R-${(maxN + 1).toString().padLeft(5, '0')}-$tag';
   }
 
-  Future<int> insertar(Remito remito, List<RemitoDetalle> items) async {
+  Future<int> insertar(
+    Remito remito,
+    List<RemitoDetalle> items, {
+    String medioPago = 'efectivo',
+    String observacionesPago = '',
+  }) async {
     DomainBootstrap.ensureInitialized();
     AuthorizationService.instance.require(
       AuthModules.remitos,
@@ -58,26 +62,27 @@ class RemitoService {
       );
     }
 
+    final totalPagado =
+        remito.totalPagado.clamp(0, remito.total).toDouble();
+    final saldoPendiente =
+        (remito.total - totalPagado).clamp(0, remito.total).toDouble();
+    final estadoPago = Remito.estadoDesdeMontos(remito.total, totalPagado);
+    final clienteIdInt =
+        remito.clienteId != null ? int.tryParse(remito.clienteId!) : null;
+
     final remitoId = await db.transaction((txn) async {
       final id = await txn.insert(
         'remitos',
         {
           'numero': remito.numero,
-          'clienteId': remito.clienteId != null
-              ? int.tryParse(remito.clienteId!)
-              : null,
+          'clienteId': clienteIdInt,
           'fecha': remito.fecha.toIso8601String(),
           'total': remito.total,
           'descuento': remito.descuento,
           'estado': remito.estado,
-          'estadoPago': Remito.estadoDesdeMontos(
-            remito.total,
-            remito.totalPagado,
-          ),
-          'totalPagado': remito.totalPagado,
-          'saldoPendiente': (remito.total - remito.totalPagado)
-              .clamp(0, remito.total)
-              .toDouble(),
+          'estadoPago': estadoPago,
+          'totalPagado': totalPagado,
+          'saldoPendiente': saldoPendiente,
           'observaciones': remito.observaciones,
           'fechaCreacion': DateTime.now().toIso8601String(),
         },
@@ -109,6 +114,20 @@ class RemitoService {
           'ganancia': ganancia,
         });
         // Capacidad 3: el documento NO mueve stock.
+      }
+
+      if (totalPagado > 0.009) {
+        await txn.insert('pagos', {
+          'ventaId': null,
+          'remitoId': id,
+          'clienteId': clienteIdInt,
+          'fecha': DateTime.now().toIso8601String(),
+          'monto': totalPagado,
+          'medioPago': medioPago,
+          'observaciones': observacionesPago.isNotEmpty
+              ? observacionesPago
+              : 'Pago al emitir remito',
+        });
       }
 
       return id;
@@ -146,9 +165,7 @@ class RemitoService {
     }
 
     // Offline: remito ya está en SQLite; la nube va por outbox sin bloquear UI.
-    syncInBackground(FirestoreSyncService.instance.subirRemito(remitoId), tag: 'subirRemito');
-    final clienteIdInt =
-        remito.clienteId != null ? int.tryParse(remito.clienteId!) : null;
+    FirestoreSyncService.instance.programarSubidaRemito(remitoId);
     if (clienteIdInt != null) {
       await CuentaCorrienteService().recalcularSaldoCliente(clienteIdInt);
       // Capacidad 6: remito cobrable → money ledger (además del stock).
@@ -169,7 +186,7 @@ class RemitoService {
             },
           ),
         );
-        if (remito.totalPagado > 0.009) {
+        if (totalPagado > 0.009) {
           await DomainEventBus.instance.publish(
             DomainEvent(
               eventId: 'money:remito_cobrado_inicial:$remitoId',
@@ -180,7 +197,7 @@ class RemitoService {
               payload: {
                 'clienteId': clienteIdInt,
                 'remitoId': remitoId,
-                'total': remito.totalPagado,
+                'total': totalPagado,
                 'motivo': 'Pago inicial remito ${remito.numero}',
               },
             ),
@@ -348,7 +365,7 @@ class RemitoService {
     if (clienteId != null) {
       await CuentaCorrienteService().recalcularSaldoCliente(clienteId);
     }
-    syncInBackground(FirestoreSyncService.instance.subirRemito(id), tag: 'subirRemito');
+    FirestoreSyncService.instance.programarSubidaRemito(id);
     DataRefreshHub.instance.notifyTodo();
   }
 
@@ -462,10 +479,7 @@ class RemitoService {
     }
     // Al eliminar, no subir a la nube: evita carrera upsert + tombstone (crash Windows).
     if (syncAfter) {
-      syncInBackground(
-        FirestoreSyncService.instance.subirRemito(id),
-        tag: 'subirRemito',
-      );
+      FirestoreSyncService.instance.programarSubidaRemito(id);
     }
     DataRefreshHub.instance.notifyTodo();
   }

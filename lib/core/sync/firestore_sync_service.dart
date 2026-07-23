@@ -106,6 +106,9 @@ class FirestoreSyncService {
   String syncStatusLabel = 'Local';
   String? syncStatusDetail;
 
+  /// Reintento suave de outbox mientras la nube está activa (EXE→APK).
+  Timer? _outboxPump;
+
   CollectionReference<Map<String, dynamic>> _col(String name) {
     final tenant = BackendConfigService.instance.tenantId;
     return FirebaseFirestore.instance
@@ -207,9 +210,42 @@ class FirestoreSyncService {
       unawaited(_reintentarFotosLocalesPendientes());
       // Empuja branding/permisos locales la primera vez si la nube no tiene.
       unawaited(_publicarConfigLocalSiHaceFalta());
+
+      // Windows: pull + upload masivo NO en el hilo de UI (cerraba el .exe).
+      if (PlatformCapabilities.isWindowsDesktop) {
+        syncStatusLabel = 'Sincronizando…';
+        syncStatusDetail =
+            'Conectado. Bajando y subiendo datos en segundo plano…';
+        DataRefreshHub.instance.notifyTodo();
+        _iniciarOutboxPump();
+        syncInBackground(
+          CloudSyncThrottle.enqueue(() async {
+            await Future<void>.delayed(const Duration(milliseconds: 900));
+            await _pullInicialCatchUp();
+            await Future<void>.delayed(const Duration(milliseconds: 600));
+            await _vaciarColasYSubirPendientes();
+            final health = await SyncHealthService.instance.snapshot();
+            if (health.dead > 0) {
+              syncStatusLabel = 'Sync con errores';
+              syncStatusDetail = '${health.dead} ops fallidas en outbox';
+            } else if (health.pending > 0 || health.inflight > 0) {
+              syncStatusLabel = 'Sincronizando…';
+              syncStatusDetail = '${health.pending} pendientes';
+            } else {
+              syncStatusLabel = 'En la nube';
+              syncStatusDetail = null;
+            }
+            DataRefreshHub.instance.notifyTodo();
+          }, tag: 'startCatchupWindows'),
+          tag: 'startCatchupWindows',
+        );
+        return;
+      }
+
       // Primero bajar nube, después subir pendientes (evita pisar datos buenos).
       await _pullInicialCatchUp();
       await _vaciarColasYSubirPendientes();
+      _iniciarOutboxPump();
 
       final health = await SyncHealthService.instance.snapshot();
       if (health.dead > 0) {
@@ -234,48 +270,145 @@ class FirestoreSyncService {
     }
   }
 
+  /// Sube venta sin tumbar Windows y reintenta outbox si hace falta.
+  void programarSubidaVenta(int ventaId) {
+    _programarSubidaDocumento(
+      tag: 'subirVenta',
+      job: () => subirVenta(ventaId),
+    );
+  }
+
+  /// Sube remito (Ventas totales) con el mismo patrón seguro en Windows.
+  void programarSubidaRemito(int remitoId) {
+    _programarSubidaDocumento(
+      tag: 'subirRemito',
+      job: () => subirRemito(remitoId),
+    );
+  }
+
+  void _programarSubidaDocumento({
+    required String tag,
+    required Future<void> Function() job,
+  }) {
+    if (PlatformCapabilities.isWindowsDesktop) {
+      syncInBackground(
+        CloudSyncThrottle.enqueue(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 900));
+          await job();
+          // Solo docs/cliente: drenar productos acá tumba el .exe.
+          await _procesarOutboxDrain(
+            maxBatches: 2,
+            entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
+          );
+        }, tag: tag),
+        tag: tag,
+      );
+      return;
+    }
+    syncInBackground(
+      () async {
+        await job();
+        await _procesarOutboxDrain(maxBatches: 2);
+      }(),
+      tag: tag,
+    );
+  }
+
+  void _iniciarOutboxPump() {
+    _outboxPump?.cancel();
+    _outboxPump = Timer.periodic(const Duration(seconds: 40), (_) {
+      if (!_puedeEscribirRemoto) return;
+      syncInBackground(
+        CloudSyncThrottle.enqueue(() async {
+          final pending = await SyncOutbox.instance.countByStatus(
+            SyncOutboxStatus.pending,
+          );
+          if (pending == 0) return;
+          syncStatusDetail = '$pending pendientes…';
+          final windows = PlatformCapabilities.isWindowsDesktop;
+          // Primero documentos (ventas/remitos), después productos suave.
+          await _procesarOutboxDrain(
+            maxBatches: windows ? 4 : 10,
+            entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
+          );
+          await _procesarOutboxDrain(
+            maxBatches: windows ? 2 : 8,
+            entityTypes: windows
+                ? const ['stock_op', 'producto', 'proveedor']
+                : null,
+          );
+          final left = await SyncOutbox.instance.countByStatus(
+            SyncOutboxStatus.pending,
+          );
+          if (left == 0) {
+            syncStatusLabel = 'En la nube';
+            syncStatusDetail = null;
+          } else {
+            syncStatusLabel = 'Sincronizando…';
+            syncStatusDetail = '$left pendientes';
+          }
+          DataRefreshHub.instance.notifyTodo();
+        }, tag: 'outboxPump'),
+        tag: 'outboxPump',
+      );
+    });
+  }
+
   /// Trae de una el estado actual de la nube (clientes/proveedores/…).
   Future<void> _pullInicialCatchUp() async {
     if (!BackendConfigService.instance.firebaseEnabled ||
         !FirebaseBootstrap.isReady) {
       return;
     }
+    final windows = PlatformCapabilities.isWindowsDesktop;
+    Future<void> pausa() async {
+      if (windows) {
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+      }
+    }
+
     try {
       final clientes = await _clientesCol.get();
       await _aplicarClientesRemotos(clientes);
     } catch (e) {
       debugPrint('Pull inicial clientes: $e');
     }
+    await pausa();
     try {
       final proveedores = await _proveedoresCol.get();
       await _aplicarProveedoresRemotos(proveedores);
     } catch (e) {
       debugPrint('Pull inicial proveedores: $e');
     }
+    await pausa();
     try {
       final productos = await _remote.obtenerTodos(limit: 10000);
       await _aplicarProductosRemotos(productos);
     } catch (e) {
       debugPrint('Pull inicial productos: $e');
     }
+    await pausa();
     try {
       final ventas = await _ventasCol.get();
       await _aplicarVentasRemotas(ventas);
     } catch (e) {
       debugPrint('Pull inicial ventas: $e');
     }
+    await pausa();
     try {
       final remitos = await _remitosCol.get();
       await _aplicarRemitosRemotos(remitos);
     } catch (e) {
       debugPrint('Pull inicial remitos: $e');
     }
+    await pausa();
     try {
       final compras = await _comprasCol.get();
       await _aplicarComprasRemotas(compras);
     } catch (e) {
       debugPrint('Pull inicial compras: $e');
     }
+    await pausa();
     try {
       final docs = await _documentosCol.get();
       await _aplicarDocumentosRemotos(docs);
@@ -362,7 +495,13 @@ class FirestoreSyncService {
         'ventas=$nVentas remitos=$nRemitos compras=$nCompras',
       );
 
-      await _procesarOutboxDrain(maxBatches: 25);
+      await _procesarOutboxDrain(
+        maxBatches: PlatformCapabilities.isWindowsDesktop ? 6 : 20,
+        entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
+      );
+      await _procesarOutboxDrain(
+        maxBatches: PlatformCapabilities.isWindowsDesktop ? 3 : 15,
+      );
       SyncHealthService.instance.markCollection('outbox', 'flushed');
     } catch (e) {
       cycleError = '$e';
@@ -396,8 +535,16 @@ class FirestoreSyncService {
   }
 
   /// Drena varios batches por ciclo (Capacidad 9).
-  Future<void> _procesarOutboxDrain({int maxBatches = 20}) async {
+  Future<void> _procesarOutboxDrain({
+    int maxBatches = 20,
+    List<String>? entityTypes,
+  }) async {
+    final windows = PlatformCapabilities.isWindowsDesktop;
+    final claimLimit = windows ? 15 : 80;
     for (var i = 0; i < maxBatches; i++) {
+      if (windows && i > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+      }
       final before = await SyncOutbox.instance.countByStatus(
         SyncOutboxStatus.pending,
       );
@@ -407,7 +554,10 @@ class FirestoreSyncService {
         );
         if (inflight == 0) break;
       }
-      final batch = await SyncOutbox.instance.claimBatch(limit: 80);
+      final batch = await SyncOutbox.instance.claimBatch(
+        limit: claimLimit,
+        entityTypes: entityTypes,
+      );
       if (batch.isEmpty) break;
       for (final op in batch) {
         final opId = op['op_id']?.toString() ?? '';
@@ -417,6 +567,9 @@ class FirestoreSyncService {
           await SyncOutbox.instance.ack(opId);
           SyncHealthService.instance.recordAck();
           _syncMemoryColaTrasAck(op);
+          if (windows) {
+            await Future<void>.delayed(const Duration(milliseconds: 100));
+          }
         } catch (e) {
           await SyncOutbox.instance.fail(opId, e);
           SyncHealthService.instance.recordFail();
@@ -691,6 +844,8 @@ class FirestoreSyncService {
   }
 
   Future<void> stop() async {
+    _outboxPump?.cancel();
+    _outboxPump = null;
     await _productosSub?.cancel();
     await _usuariosSub?.cancel();
     await _brandingSub?.cancel();
@@ -1352,12 +1507,20 @@ class FirestoreSyncService {
       }
 
       final locales = await db.query('productos', columns: ['id', 'codigo']);
+      final windows = PlatformCapabilities.isWindowsDesktop;
+      var subidos = 0;
       for (final row in locales) {
         final id = (row['id'] as num?)?.toInt();
         final codigo = row['codigo']?.toString().trim() ?? '';
         if (id == null || codigo.isEmpty) continue;
         if (!remoteCodigos.contains(codigo)) {
           await subirProductoPorId(id, incluirStockAbsoluto: true, forzar: true);
+          subidos += 1;
+          if (windows) {
+            await Future<void>.delayed(const Duration(milliseconds: 250));
+            // No saturar el primer ciclo: el resto sale en catch-ups siguientes.
+            if (subidos >= 40) break;
+          }
         }
       }
     } catch (e) {
@@ -1461,6 +1624,18 @@ class FirestoreSyncService {
             .toList();
       }
       if (lote.isEmpty) return;
+      // Windows: el snapshot inicial (miles de productos) no debe pelear
+      // con el resto del arranque de sync en el mismo instante.
+      if (PlatformCapabilities.isWindowsDesktop) {
+        syncInBackground(
+          CloudSyncThrottle.enqueue(
+            () => _aplicarProductosRemotos(lote),
+            tag: 'productosSnapshot',
+          ),
+          tag: 'productosSnapshot',
+        );
+        return;
+      }
       unawaited(_aplicarProductosRemotos(lote));
     } catch (e) {
       debugPrint('onProductosSnapshot: $e');
@@ -1696,6 +1871,9 @@ class FirestoreSyncService {
       unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
       syncStatusDetail =
           'Compra guardada acá. Falta sesión de nube para enviarla.';
+      if (desdeOutbox) {
+        throw StateError('Sin sesión de nube para subir compra $compraId');
+      }
       return;
     }
     try {
@@ -1706,7 +1884,12 @@ class FirestoreSyncService {
         whereArgs: [compraId],
         limit: 1,
       );
-      if (rows.isEmpty) return;
+      if (rows.isEmpty) {
+        if (desdeOutbox) {
+          throw StateError('Compra local $compraId no existe');
+        }
+        return;
+      }
       final compra = rows.first;
       final items = await db.rawQuery('''
         SELECT ci.*, p.codigo AS productoCodigo
@@ -1782,6 +1965,9 @@ class FirestoreSyncService {
       unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
       syncStatusDetail =
           'Venta guardada acá. Falta sesión de nube para enviarla.';
+      if (desdeOutbox) {
+        throw StateError('Sin sesión de nube para subir venta $ventaId');
+      }
       return;
     }
     try {
@@ -1793,7 +1979,12 @@ class FirestoreSyncService {
         LEFT JOIN clientes c ON c.id = v.clienteId
         WHERE v.id = ?
       ''', [ventaId]);
-      if (rows.isEmpty) return;
+      if (rows.isEmpty) {
+        if (desdeOutbox) {
+          throw StateError('Venta local $ventaId no existe');
+        }
+        return;
+      }
       final venta = Venta.fromMap(rows.first);
       if (venta.clienteId != null) {
         await subirCliente(venta.clienteId!);
@@ -1943,6 +2134,9 @@ class FirestoreSyncService {
       unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
       syncStatusDetail =
           'Remito guardado acá. Falta sesión de nube para enviarlo.';
+      if (desdeOutbox) {
+        throw StateError('Sin sesión de nube para subir remito $remitoId');
+      }
       return;
     }
     try {
@@ -1954,7 +2148,12 @@ class FirestoreSyncService {
         LEFT JOIN clientes c ON c.id = r.clienteId
         WHERE r.id = ?
       ''', [remitoId]);
-      if (rows.isEmpty) return;
+      if (rows.isEmpty) {
+        if (desdeOutbox) {
+          throw StateError('Remito local $remitoId no existe');
+        }
+        return;
+      }
       final remito = rows.first;
       final clienteId = (remito['clienteId'] as num?)?.toInt();
       if (clienteId != null) {
@@ -1980,7 +2179,13 @@ class FirestoreSyncService {
 
       for (final item in items) {
         final pid = (item['productoId'] as num?)?.toInt();
-        if (pid != null) await subirProductoPorId(pid);
+        if (pid == null) continue;
+        // En Windows no subir productos ya (evita tumbar el .exe / fallar el remito).
+        await SyncOutbox.instance
+            .enqueueUpsert(entityType: 'producto', localId: pid);
+        if (!PlatformCapabilities.isWindowsDesktop) {
+          await subirProductoPorId(pid);
+        }
       }
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:remito:$remitoId');

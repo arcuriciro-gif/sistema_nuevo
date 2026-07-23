@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/cliente.dart';
+import '../models/pago.dart';
 import '../models/producto.dart';
 import '../models/remito.dart';
 import '../models/remito_detalle.dart';
@@ -13,6 +16,7 @@ import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/cobrar_dialog.dart';
 import 'scanner_page.dart';
 
 class _ItemRemito {
@@ -44,6 +48,7 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
 
   final TextEditingController observacionesController = TextEditingController();
   final TextEditingController buscarProductoController = TextEditingController();
+  final TextEditingController abonadoController = TextEditingController(text: '0');
 
   List<Cliente> clientes = [];
   List<Producto> productos = [];
@@ -54,6 +59,7 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
   double descuento = 0;
   bool cargando = true;
   bool guardando = false;
+  String medioPago = 'efectivo';
 
   @override
   void initState() {
@@ -65,6 +71,7 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
   void dispose() {
     observacionesController.dispose();
     buscarProductoController.dispose();
+    abonadoController.dispose();
     super.dispose();
   }
 
@@ -109,6 +116,16 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
 
   double get total => items.fold(0, (sum, i) => sum + i.subtotal);
   double get totalConDescuento => total * (1 - descuento / 100);
+  double get montoAbonado {
+    final v = double.tryParse(abonadoController.text.replaceAll(',', '.')) ?? 0;
+    return v.clamp(0, totalConDescuento).toDouble();
+  }
+
+  double get saldoPendiente =>
+      (totalConDescuento - montoAbonado).clamp(0, totalConDescuento).toDouble();
+
+  String get estadoPagoPreview =>
+      Remito.estadoDesdeMontos(totalConDescuento, montoAbonado);
 
   void _agregarItemDirecto(
     Producto producto, {
@@ -456,13 +473,16 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
 
     try {
       final numero = await remitoService.generarNumero();
+      final abonado = montoAbonado;
       final remito = Remito(
         numero: numero,
         fecha: DateTime.now(),
         tipo: 'salida',
         clienteId: clienteSeleccionado!.id.toString(),
         estado: 'confirmado',
-        estadoPago: 'pendiente',
+        estadoPago: estadoPagoPreview,
+        totalPagado: abonado,
+        saldoPendiente: saldoPendiente,
         observaciones: observacionesController.text.trim(),
         total: totalConDescuento,
         descuento: descuento,
@@ -479,11 +499,22 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
               ))
           .toList();
 
-      final remitoId = await remitoService.insertar(remito, detalles);
+      final remitoId = await remitoService.insertar(
+        remito,
+        detalles,
+        medioPago: medioPago,
+      );
 
       if (!mounted) return;
       setState(() => guardando = false);
-      await _imprimirOCompartirRemito(remito, detalles, remitoId);
+      final msg = estadoPagoPreview == 'cobrado'
+          ? 'Remito cobrado. No suma a cuenta corriente.'
+          : estadoPagoPreview == 'parcial'
+              ? 'Remito parcial. Saldo \$${saldoPendiente.toStringAsFixed(2)} en CC.'
+              : 'Remito pendiente. Total en cuenta corriente.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      // PDF en background: no pelear con sync Firebase (crash Windows).
+      unawaited(_imprimirOCompartirRemito(remito, detalles, remitoId));
       if (!mounted) return;
       Navigator.pop(context, true);
     } catch (e) {
@@ -680,6 +711,98 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
                             onPressed: editarDescuento,
                             icon: const Icon(Icons.edit, size: 18),
                             label: const Text('Editar'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: abonadoController,
+                              decoration: const InputDecoration(
+                                labelText: 'Monto abonado',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                prefixText: '\$ ',
+                              ),
+                              keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              key: ValueKey(medioPago),
+                              initialValue: medioPago,
+                              decoration: const InputDecoration(
+                                labelText: 'Medio de pago',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              items: Pago.mediosPago
+                                  .map(
+                                    (m) => DropdownMenuItem(
+                                      value: m,
+                                      child: Text(Pago.labelMedio(m)),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (v) {
+                                if (v != null) setState(() => medioPago = v);
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Saldo: \$${saldoPendiente.toStringAsFixed(2)}'
+                              '${saldoPendiente > 0.009 ? ' → cuenta corriente' : ''}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: colorEstadoPago(
+                                  estadoPagoPreview,
+                                  Theme.of(context).colorScheme,
+                                ),
+                              ),
+                            ),
+                          ),
+                          chipEstadoPago(
+                            estadoPagoPreview,
+                            Theme.of(context).colorScheme,
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          TextButton(
+                            onPressed: () {
+                              abonadoController.text = '0';
+                              setState(() {});
+                            },
+                            child: const Text('Pendiente'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              abonadoController.text =
+                                  (totalConDescuento / 2).toStringAsFixed(2);
+                              setState(() {});
+                            },
+                            child: const Text('Parcial'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              abonadoController.text =
+                                  totalConDescuento.toStringAsFixed(2);
+                              setState(() {});
+                            },
+                            child: const Text('Cobrado'),
                           ),
                         ],
                       ),

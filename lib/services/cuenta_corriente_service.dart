@@ -246,10 +246,7 @@ class CuentaCorrienteService {
         ),
       );
     }
-    syncInBackground(
-      FirestoreSyncService.instance.subirVenta(ventaId),
-      tag: 'subirVenta',
-    );
+    FirestoreSyncService.instance.programarSubidaVenta(ventaId);
     DataRefreshHub.instance.notifyVentas();
     return pago;
   }
@@ -426,10 +423,7 @@ class CuentaCorrienteService {
         ),
       );
     }
-    syncInBackground(
-      FirestoreSyncService.instance.subirRemito(remitoId),
-      tag: 'subirRemito',
-    );
+    FirestoreSyncService.instance.programarSubidaRemito(remitoId);
     DataRefreshHub.instance.notifyTodo();
     return pago;
   }

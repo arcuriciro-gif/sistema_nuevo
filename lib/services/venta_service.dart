@@ -54,7 +54,7 @@ class VentaService {
       medioPago: medioPago,
       observacionesPago: observacionesPago,
     );
-    syncInBackground(FirestoreSyncService.instance.subirVenta(id), tag: 'subirVenta');
+    FirestoreSyncService.instance.programarSubidaVenta(id);
     DataRefreshHub.instance.notifyVentas();
     return id;
   }
@@ -137,7 +137,7 @@ class VentaService {
         );
       }
     }
-    syncInBackground(FirestoreSyncService.instance.subirVenta(id), tag: 'subirVenta');
+    FirestoreSyncService.instance.programarSubidaVenta(id);
     DataRefreshHub.instance.notifyVentas();
   }
 
@@ -177,7 +177,7 @@ class VentaService {
     if (venta.clienteId != null) {
       await _cc.recalcularSaldoCliente(venta.clienteId!);
     }
-    syncInBackground(FirestoreSyncService.instance.subirVenta(id), tag: 'subirVenta');
+    FirestoreSyncService.instance.programarSubidaVenta(id);
     DataRefreshHub.instance.notifyVentas();
   }
 
@@ -205,7 +205,7 @@ class VentaService {
       where: 'id = ?',
       whereArgs: [id],
     );
-    syncInBackground(FirestoreSyncService.instance.subirVenta(id), tag: 'subirVenta');
+    FirestoreSyncService.instance.programarSubidaVenta(id);
   }
 
   Future<void> eliminar(int id) async {

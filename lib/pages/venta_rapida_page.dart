@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../core/events/data_refresh_hub.dart';
 import '../core/utils/busqueda_texto.dart';
+import '../models/pago.dart';
 import '../models/producto.dart';
 import '../models/remito.dart';
 import '../models/remito_detalle.dart';
@@ -14,6 +15,7 @@ import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/cobrar_dialog.dart';
 import 'scanner_page.dart';
 
 // ---------------------------------------------------------------------------
@@ -198,44 +200,147 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
   Future<void> _finalizarVenta() async {
     if (_carrito.isEmpty) return;
 
-    final confirmar = await showDialog<bool>(
+    final abonadoCtrl = TextEditingController(text: _total.toStringAsFixed(2));
+    var medioPago = 'efectivo';
+
+    final confirmar = await showDialog<({bool ok, double abonado, String medio})>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Finalizar venta'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Total: \$${_total.toStringAsFixed(2)}'),
-            const SizedBox(height: 8),
-            Text('${_carrito.length} productos'),
-            const SizedBox(height: 8),
-            const Text(
-              'Se generará un remito a nombre de MOSTRADOR y se descontará el stock.',
-              style: TextStyle(fontSize: 13),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Confirmar'),
-          ),
-        ],
-      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            final abonado = (double.tryParse(
+                      abonadoCtrl.text.replaceAll(',', '.'),
+                    ) ??
+                    0)
+                .clamp(0, _total)
+                .toDouble();
+            final saldo = (_total - abonado).clamp(0, _total).toDouble();
+            final estado = Remito.estadoDesdeMontos(_total, abonado);
+            final cs = Theme.of(ctx).colorScheme;
+            return AlertDialog(
+              title: const Text('Finalizar venta'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Total: \$${_total.toStringAsFixed(2)}'),
+                    Text('${_carrito.length} productos'),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Cobro ahora (mostrador). Si queda saldo, va a cuenta corriente.',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: abonadoCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Monto abonado',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                        prefixText: '\$ ',
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      onChanged: (_) => setLocal(() {}),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      initialValue: medioPago,
+                      decoration: const InputDecoration(
+                        labelText: 'Medio de pago',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: Pago.mediosPago
+                          .map(
+                            (m) => DropdownMenuItem(
+                              value: m,
+                              child: Text(Pago.labelMedio(m)),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) setLocal(() => medioPago = v);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Saldo: \$${saldo.toStringAsFixed(2)}'
+                            '${saldo > 0.009 ? ' → CC' : ''}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: colorEstadoPago(estado, cs),
+                            ),
+                          ),
+                        ),
+                        chipEstadoPago(estado, cs),
+                      ],
+                    ),
+                    Wrap(
+                      spacing: 4,
+                      children: [
+                        TextButton(
+                          onPressed: () {
+                            abonadoCtrl.text = '0';
+                            setLocal(() {});
+                          },
+                          child: const Text('Pendiente'),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            abonadoCtrl.text =
+                                (_total / 2).toStringAsFixed(2);
+                            setLocal(() {});
+                          },
+                          child: const Text('Parcial'),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            abonadoCtrl.text = _total.toStringAsFixed(2);
+                            setLocal(() {});
+                          },
+                          child: const Text('Cobrado'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(
+                    ctx,
+                    (ok: true, abonado: abonado, medio: medioPago),
+                  ),
+                  child: const Text('Confirmar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
 
-    if (confirmar != true) return;
+    abonadoCtrl.dispose();
+    if (confirmar == null || confirmar.ok != true) return;
 
     setState(() => _finalizando = true);
 
     try {
       final mostrador = await _clienteSvc.obtenerOCrearMostrador();
       final numero = await _remitoSvc.generarNumero();
+      final abonado = confirmar.abonado.clamp(0, _total).toDouble();
+      final saldo = (_total - abonado).clamp(0, _total).toDouble();
+      final estadoPago = Remito.estadoDesdeMontos(_total, abonado);
 
       final remito = Remito(
         numero: numero,
@@ -243,7 +348,9 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
         tipo: 'salida',
         clienteId: mostrador.id?.toString(),
         estado: 'confirmado',
-        estadoPago: 'pendiente',
+        estadoPago: estadoPago,
+        totalPagado: abonado,
+        saldoPendiente: saldo,
         observaciones: 'Venta rápida en mostrador',
         total: _total,
       );
@@ -261,7 +368,11 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
           )
           .toList();
 
-      final remitoId = await _remitoSvc.insertar(remito, items);
+      final remitoId = await _remitoSvc.insertar(
+        remito,
+        items,
+        medioPago: confirmar.medio,
+      );
       final totalVenta = remito.total;
       final carritoSnapshot = List<_ItemCarrito>.from(_carrito);
 
@@ -316,6 +427,8 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
           title: const Text('Venta registrada'),
           content: Text(
             'Remito $numero · Total \$${totalVenta.toStringAsFixed(2)}\n'
+            'Pago: ${remito.estadoPago}'
+            '${remito.saldoPendiente > 0.009 ? ' · CC \$${remito.saldoPendiente.toStringAsFixed(2)}' : ''}\n'
             'Guardado en este equipo'
             '${_tieneRedHint()}.\n\n¿Compartir el PDF ahora?',
           ),

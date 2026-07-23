@@ -11,8 +11,10 @@ import '../services/sidebar_preferencias_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/comms/local_notification_service.dart';
 import '../core/config/backend_config_service.dart';
+import '../core/config/platform_capabilities.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/sync_background.dart';
 import '../theme/layout_constants.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/media_avatar.dart';
@@ -174,6 +176,14 @@ class _MainShellState extends State<MainShell> {
     }
     if (BackendConfigService.instance.firebaseEnabled) {
       // Ya activa: forzar un reconnect por si quedó a medias.
+      // Windows: no bloquear el arranque de la UI con el catch-up de sync.
+      if (PlatformCapabilities.isWindowsDesktop) {
+        syncInBackground(
+          AuthService.instance.conectarFirebaseDespuesDelLogin().then((_) {}),
+          tag: 'reconnectNubeWindows',
+        );
+        return;
+      }
       try {
         await AuthService.instance.conectarFirebaseDespuesDelLogin();
       } catch (_) {}
@@ -182,6 +192,11 @@ class _MainShellState extends State<MainShell> {
     if (!mounted) return;
     // Activación automática: el sistema tiene que funcionar online sin pasos
     // fáciles de omitir. Si Firebase falla, queda Solo local y se avisa.
+    // Windows: dar tiempo a que la UI pinte antes de conectar (evita crash).
+    if (PlatformCapabilities.isWindowsDesktop) {
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      if (!mounted) return;
+    }
     final r = await AuthService.instance.activarNube();
     if (!mounted) return;
     final detalle = r.mensaje.replaceFirst('CUENTA_NUBE_EXISTE: ', '');
@@ -189,7 +204,9 @@ class _MainShellState extends State<MainShell> {
       SnackBar(
         content: Text(
           r.ok
-              ? 'Nube activada.'
+              ? (PlatformCapabilities.isWindowsDesktop
+                  ? 'Nube activada. Sync en segundo plano…'
+                  : 'Nube activada.')
               : (detalle.isNotEmpty
                   ? 'No se pudo activar la nube: $detalle'
                   : 'No se pudo activar la nube. Reintentá en Configuración.'),
