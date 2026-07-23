@@ -46,6 +46,7 @@ import 'notificaciones_page.dart';
 import 'papelera_productos_page.dart';
 import 'perfil_usuario_page.dart';
 import 'permisos_page.dart';
+import 'primeros_pasos_page.dart';
 import 'productos_page.dart';
 import 'proveedores_page.dart';
 import 'remitos_page.dart';
@@ -453,6 +454,12 @@ class _MainShellState extends State<MainShell> {
           modulo: 'auditoria',
           builder: () => const PanelTecnicoPage(),
           soloAdmin: true,
+        ),
+        _ShellItem(
+          icon: Icons.route_rounded,
+          title: 'Primeros pasos',
+          modulo: 'dashboard',
+          builder: () => PrimerosPasosPage(onIrA: _irAModulo),
         ),
         _ShellItem(
           icon: Icons.menu_book_rounded,

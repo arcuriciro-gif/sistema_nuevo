@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
@@ -360,13 +362,15 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
         ),
       );
       if (compartir == true && mounted && _ventaExistente != null) {
-        try {
-          await _compartirPdf();
-        } catch (e) {
-          messenger.showSnackBar(
-            SnackBar(content: Text('PDF: $e')),
-          );
-        }
+        // PDF en background: no pelear con sync en Windows.
+        final messengerLocal = messenger;
+        unawaited(() async {
+          try {
+            await _compartirPdf();
+          } catch (e) {
+            messengerLocal.showSnackBar(SnackBar(content: Text('PDF: $e')));
+          }
+        }());
       }
       if (!mounted) return;
       messenger.showSnackBar(

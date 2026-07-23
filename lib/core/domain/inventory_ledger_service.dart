@@ -169,8 +169,8 @@ class InventoryLedgerService {
           }
         }
         if (windows) {
-          // Flush suave más tarde (una sola tanda).
-          await Future<void>.delayed(const Duration(seconds: 2));
+          // Flush suave mucho más tarde (una sola tanda chica).
+          await Future<void>.delayed(const Duration(seconds: 6));
           await FirestoreSyncService.instance.flushStockOpsPendientes();
         }
       }, tag: 'InventoryLedger cloud'),
