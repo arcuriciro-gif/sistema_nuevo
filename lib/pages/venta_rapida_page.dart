@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../core/config/platform_capabilities.dart';
 import '../core/events/data_refresh_hub.dart';
+import '../core/sync/cloud_sync_throttle.dart';
+import '../core/sync/sync_background.dart';
 import '../core/utils/busqueda_texto.dart';
 import '../models/cliente.dart';
 import '../models/pago.dart';
@@ -475,44 +479,70 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
         _finalizando = false;
       });
 
-      // PDF local + nube en background (no colgar en modo avión).
-      unawaited(() async {
-        try {
-          final pdfSvc = PdfService();
-          final remitoMap = {
-            'id': remitoId,
-            'numero': numero,
-            'fecha': remito.fecha.toIso8601String(),
-            'total': remito.total,
-            'descuento': 0,
-          };
-          final itemsPdf = carritoSnapshot
-              .map(
-                (e) => {
-                  'descripcion': e.producto.descripcion,
-                  'cantidad': e.cantidad,
-                  'precio': e.precioUnitario,
-                  'subtotal': e.subtotal,
-                },
-              )
-              .toList();
-          final bytes = await pdfSvc.generateRemitoPdf(
-            remitoMap,
-            itemsPdf,
-            cliente.nombre,
-          );
-          if (bytes.isEmpty) return;
-          final archivo = await pdfSvc.guardarPdf(bytes, 'remito_$numero.pdf');
-          await DocumentoClienteService.instance.archivarPdf(
-            archivo: archivo,
-            tipo: 'remito',
-            numero: numero,
-            clienteNombre: cliente.nombre,
-            clienteId: cliente.id,
-            clienteSyncId: cliente.syncId,
-          );
-        } catch (_) {}
-      }());
+      final remitoMap = {
+        'id': remitoId,
+        'numero': numero,
+        'fecha': remito.fecha.toIso8601String(),
+        'total': remito.total,
+        'descuento': 0,
+      };
+      final itemsPdf = carritoSnapshot
+          .map(
+            (e) => {
+              'descripcion': e.producto.descripcion,
+              'cantidad': e.cantidad,
+              'precio': e.precioUnitario,
+              'subtotal': e.subtotal,
+            },
+          )
+          .toList();
+      final clienteNombre = cliente.nombre;
+      final clienteId = cliente.id;
+      final clienteSyncId = cliente.syncId;
+
+      Future<File?> generarPdfLocal() async {
+        final pdfSvc = PdfService();
+        final bytes = await pdfSvc.generateRemitoPdf(
+          remitoMap,
+          itemsPdf,
+          clienteNombre,
+        );
+        if (bytes.isEmpty) return null;
+        return pdfSvc.guardarPdf(bytes, 'remito_$numero.pdf');
+      }
+
+      Future<void> archivar(File archivo) async {
+        await DocumentoClienteService.instance.archivarPdf(
+          archivo: archivo,
+          tipo: 'remito',
+          numero: numero,
+          clienteNombre: clienteNombre,
+          clienteId: clienteId,
+          clienteSyncId: clienteSyncId,
+        );
+      }
+
+      // Windows: NO generar PDF ni Storage al instante (crash .exe con sync).
+      // Android/otros: archivo local en background como antes.
+      if (PlatformCapabilities.isWindowsDesktop) {
+        syncInBackground(
+          CloudSyncThrottle.enqueue(() async {
+            await Future<void>.delayed(const Duration(seconds: 15));
+            try {
+              final archivo = await generarPdfLocal();
+              if (archivo != null) await archivar(archivo);
+            } catch (_) {}
+          }, tag: 'ventaRapidaPdf'),
+          tag: 'ventaRapidaPdf',
+        );
+      } else {
+        unawaited(() async {
+          try {
+            final archivo = await generarPdfLocal();
+            if (archivo != null) await archivar(archivo);
+          } catch (_) {}
+        }());
+      }
 
       final compartir = await showDialog<bool>(
         context: context,
@@ -541,32 +571,10 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
 
       if (compartir == true && mounted) {
         try {
-          final pdfSvc = PdfService();
-          final remitoMap = {
-            'id': remitoId,
-            'numero': numero,
-            'fecha': remito.fecha.toIso8601String(),
-            'total': remito.total,
-            'descuento': 0,
-          };
-          final itemsPdf = carritoSnapshot
-              .map(
-                (e) => {
-                  'descripcion': e.producto.descripcion,
-                  'cantidad': e.cantidad,
-                  'precio': e.precioUnitario,
-                  'subtotal': e.subtotal,
-                },
-              )
-              .toList();
-          final bytes = await pdfSvc.generateRemitoPdf(
-            remitoMap,
-            itemsPdf,
-            cliente.nombre,
-          );
-          if (bytes.isNotEmpty) {
-            final archivo =
-                await pdfSvc.guardarPdf(bytes, 'remito_$numero.pdf');
+          final archivo = await generarPdfLocal();
+          if (archivo != null) {
+            // Archivo local ya; nube va diferida (Windows) o por archivarPdf.
+            unawaited(archivar(archivo));
             await SharePlus.instance.share(
               ShareParams(files: [XFile(archivo.path)], text: numero),
             );
