@@ -506,9 +506,10 @@ class FirestoreSyncService {
       final db = await DatabaseHelper.instance.database;
       final force = !_windowsRecentDocsForced;
       if (force) _windowsRecentDocsForced = true;
-      // Primer ciclo: reabrir ACK fantasma de lo reciente (todo el negocio).
+      final already = await SyncOutbox.instance.pendingBreakdown();
+      final pendingProd = already['producto'] ?? 0;
+      // Primer ciclo: reabrir ACK fantasma solo de docs comerciales.
       final limitDocs = force ? 60 : 20;
-      final limitProd = force ? 80 : 25;
       final nRemitos = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
         db: db,
         table: 'remitos',
@@ -530,15 +531,17 @@ class FirestoreSyncService {
         limit: force ? 40 : 12,
         reopenAcked: force,
       );
-      // Productos/proveedores/clientes: NUNCA reopenAcked en masa.
-      // Eso llenaba 350 pending eternos; solo encolar los que faltan.
-      final nProductos = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
-        db: db,
-        table: 'productos',
-        entityType: 'producto',
-        limit: limitProd,
-        reopenAcked: false,
-      );
+      // Si ya hay cientos de productos pending, NO encolar más (drenar primero).
+      var nProductos = 0;
+      if (pendingProd < 80) {
+        nProductos = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
+          db: db,
+          table: 'productos',
+          entityType: 'producto',
+          limit: force ? 40 : 20,
+          reopenAcked: false,
+        );
+      }
       final nClientes = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
         db: db,
         table: 'clientes',
@@ -554,20 +557,21 @@ class FirestoreSyncService {
         limit: force ? 30 : 10,
         reopenAcked: false,
       );
-      // Catch-up secuencial chico (histórico) sin tumbar el .exe.
+      // Catch-up secuencial chico — sin productos si la cola ya está llena.
       if (!force) {
-        for (final e in const [
+        final tables = <(String, String)>[
           ('remitos', 'remito'),
           ('ventas', 'venta'),
           ('compras', 'compra'),
-          ('productos', 'producto'),
           ('clientes', 'cliente'),
-        ]) {
+          if (pendingProd < 80) ('productos', 'producto'),
+        ];
+        for (final e in tables) {
           await SyncCatchup.instance.enqueueDocumentCatchup(
             db: db,
             table: e.$1,
             entityType: e.$2,
-            pageSize: 25,
+            pageSize: 20,
             maxPagesPerCycle: 1,
           );
         }
@@ -582,7 +586,7 @@ class FirestoreSyncService {
         debugPrint(
           'Windows catch-up: remitos=$nRemitos ventas=$nVentas '
           'compras=$nCompras productos=$nProductos clientes=$nClientes '
-          'proveedores=$nProveedores force=$force',
+          'proveedores=$nProveedores force=$force pendingProd=$pendingProd',
         );
         syncStatusLabel = 'Sincronizando…';
         syncStatusDetail =
@@ -594,79 +598,107 @@ class FirestoreSyncService {
     }
   }
 
-  /// Windows: pumps recién después de la cuarentena (sin Firebase al login).
+  /// Windows: pumps tras cuarentena corta; reintenta si Auth aún no listo.
   void _iniciarPumpsWindows() {
     _windowsPumpsActivos = true;
     _pullPump?.cancel();
-    final q = WindowsSyncPolicy.quarantineAfterLogin;
-    // No pisar "En la nube" si la cola stock ya se limpió.
-    syncInBackground(() async {
+    syncInBackground(
+      _bootWindowsPumpsConRetry(),
+      tag: 'bootWindowsPumps',
+    );
+  }
+
+  /// Evita quedar eterno en "arranque 45s" con 0 intentos.
+  Future<void> _bootWindowsPumpsConRetry() async {
+    final breakdown0 = await SyncOutbox.instance.pendingBreakdown();
+    final pending0 = breakdown0.values.fold<int>(0, (a, b) => a + b);
+    final nProd0 = breakdown0['producto'] ?? 0;
+    final q = WindowsSyncPolicy.quarantineForBacklog(
+      pendingProductos: nProd0,
+    );
+    if (!_windowsPumpsActivos) return;
+    if (pending0 == 0) {
+      syncStatusLabel = 'En la nube (modo estable PC)';
+      syncStatusDetail = null;
+    } else {
+      syncStatusLabel = 'Sincronizando…';
+      syncStatusDetail =
+          '$pending0 pendientes: ${SyncOutbox.formatBreakdown(breakdown0)} '
+          '(empieza en ${q.inSeconds}s)';
+    }
+    DataRefreshHub.instance.notifyTodo();
+
+    await Future<void>.delayed(q);
+    if (!_windowsPumpsActivos) return;
+
+    // Antes: si Auth no estaba listo al vencer la cuarentena, return silencioso
+    // → pump nunca arrancaba y la UI quedaba en "arranque Xs" eterno.
+    var authOk = _puedeEscribirRemoto;
+    for (var i = 0; i < 12 && !authOk; i++) {
+      if (!_windowsPumpsActivos) return;
+      syncStatusLabel = 'Sincronizando…';
+      syncStatusDetail =
+          '$pending0 pendientes — esperando sesión de nube (${i + 1}/12)…';
+      DataRefreshHub.instance.notifyTodo();
+      await Future<void>.delayed(const Duration(seconds: 5));
+      authOk = _puedeEscribirRemoto;
+    }
+
+    // Arrancar pump igual: cada tick chequéa Auth; no dejar cola huérfana.
+    _iniciarOutboxPump();
+
+    if (!authOk) {
+      syncStatusLabel = 'Sin nube';
+      syncStatusDetail =
+          '$pending0 pendientes — reingresá o reactivá la nube en Configuración';
+      DataRefreshHub.instance.notifyTodo();
+      return;
+    }
+
+    await CloudSyncThrottle.enqueue(() async {
+      if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+      await SyncOutbox.instance.ackOrphanUpserts();
+      await _microCatchupDocsWindows();
+      // Productos primero (grueso de la cola del screenshot).
+      await _procesarOutboxDrain(
+        maxBatches: 3,
+        claimLimit: 8,
+        entityTypes: const ['producto', 'proveedor'],
+      );
+      await _procesarOutboxDrain(
+        maxBatches: 2,
+        claimLimit: 5,
+        entityTypes: const [
+          'venta',
+          'remito',
+          'compra',
+          'cliente',
+          'stock_op',
+        ],
+      );
       final breakdown = await SyncOutbox.instance.pendingBreakdown();
       final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
-      if (!_windowsPumpsActivos) return;
-      if (pending == 0) {
-        syncStatusLabel = 'En la nube (modo estable PC)';
-        syncStatusDetail = null;
-      } else {
+      if (pending > 0) {
         syncStatusLabel = 'Sincronizando…';
         syncStatusDetail =
-            '$pending pendientes: ${SyncOutbox.formatBreakdown(breakdown)} '
-            '(arranque ${q.inSeconds}s)';
+            '$pending pendientes: ${SyncOutbox.formatBreakdown(breakdown)}';
+      } else {
+        syncStatusLabel = 'En la nube (modo estable PC)';
+        syncStatusDetail = null;
       }
       DataRefreshHub.instance.notifyTodo();
-    }(), tag: 'pendingBreakdownBoot');
+    }, tag: 'primerDrainPostCuarentena');
 
-    // Outbox: tras cuarentena, primer drenaje inmediato + micro-lotes.
-    Future<void>.delayed(q, () {
-      if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
-      syncInBackground(
-        CloudSyncThrottle.enqueue(() async {
-          await SyncOutbox.instance.ackOrphanUpserts();
-          // Primero encolar ventas/remitos locales → APK deja de ver $0.
-          await _microCatchupDocsWindows();
-          // Productos primero (suelen ser el grueso de la cola).
-          await _procesarOutboxDrain(
-            maxBatches: 2,
-            claimLimit: 6,
-            entityTypes: const ['producto', 'proveedor'],
-          );
-          await _procesarOutboxDrain(
-            maxBatches: 2,
-            claimLimit: 5,
-            entityTypes: const [
-              'venta',
-              'remito',
-              'compra',
-              'cliente',
-              'stock_op',
-            ],
-          );
-          final breakdown = await SyncOutbox.instance.pendingBreakdown();
-          final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
-          if (pending > 0) {
-            syncStatusLabel = 'Sincronizando…';
-            syncStatusDetail =
-                '$pending pendientes: ${SyncOutbox.formatBreakdown(breakdown)}';
-          } else {
-            syncStatusLabel = 'En la nube (modo estable PC)';
-            syncStatusDetail = null;
-          }
-          DataRefreshHub.instance.notifyTodo();
-        }, tag: 'primerDrainPostCuarentena'),
-        tag: 'primerDrainPostCuarentena',
-      );
-      _iniciarOutboxPump();
-      syncInBackground(
-        CloudSyncThrottle.enqueue(
-          _publicarConfigLocalSiHaceFalta,
-          tag: 'publicarConfigPostCuarentena',
-        ),
+    syncInBackground(
+      CloudSyncThrottle.enqueue(
+        _publicarConfigLocalSiHaceFalta,
         tag: 'publicarConfigPostCuarentena',
-      );
-    });
+      ),
+      tag: 'publicarConfigPostCuarentena',
+    );
 
-    // Primer tirón de productos/config (precios APK→PC) sin esperar 2+ min.
-    Future<void>.delayed(q + const Duration(seconds: 25), () {
+    // Soft-pull / pull productos un poco después del primer drain.
+    Future<void>.delayed(const Duration(seconds: 20), () {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
@@ -682,8 +714,7 @@ class FirestoreSyncService {
       );
     });
 
-    // Soft-pull: más tarde que el outbox (convergencia lenta, estable).
-    Future<void>.delayed(q + const Duration(seconds: 45), () {
+    Future<void>.delayed(const Duration(seconds: 35), () {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       _pullPump?.cancel();
       _pullPump = Timer.periodic(WindowsSyncPolicy.softPullInterval, (_) {
