@@ -105,7 +105,7 @@ class DatabaseHelper {
     try {
       final db = await openDatabase(
         path,
-        version: 29,
+        version: 30,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -118,7 +118,7 @@ class DatabaseHelper {
       await _cuarentenaDb(path);
       final db = await openDatabase(
         path,
-        version: 29,
+        version: 30,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -294,6 +294,7 @@ CREATE TABLE comparacion(
     await _crearTablasSyncCertificable(db);
     await _crearTablasDominioTransaccional(db);
     await _crearTablasIntegridadV29(db);
+    await _crearTablaCrmSeguimientos(db);
     await _migrarSyncCompletoV21(db);
     await _crearIndices(db);
   }
@@ -1067,6 +1068,9 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 29) {
       await _crearTablasIntegridadV29(db);
     }
+    if (oldVersion < 30) {
+      await _crearTablaCrmSeguimientos(db);
+    }
   }
 
   /// Capacidad 8: alarmas de reconciliación stock / CC.
@@ -1351,6 +1355,32 @@ CREATE TABLE IF NOT EXISTS comentarios_internos(
     );
   }
 
+  /// CRM Lite: agenda local de seguimientos (sin sync / outbox).
+  Future<void> _crearTablaCrmSeguimientos(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS crm_seguimientos(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clienteId INTEGER NOT NULL,
+  clienteNombre TEXT NOT NULL DEFAULT '',
+  titulo TEXT NOT NULL,
+  nota TEXT DEFAULT '',
+  tipo TEXT DEFAULT 'otro',
+  fechaVencimiento TEXT NOT NULL,
+  estado TEXT DEFAULT 'pendiente',
+  creadoEn TEXT NOT NULL,
+  completadoEn TEXT DEFAULT ''
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_crm_seg_estado_fecha '
+      'ON crm_seguimientos(estado, fechaVencimiento)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_crm_seg_cliente '
+      'ON crm_seguimientos(clienteId)',
+    );
+  }
+
   Future<void> cerrar() async {
     final db = _database;
     if (db != null && db.isOpen) {
@@ -1360,5 +1390,5 @@ CREATE TABLE IF NOT EXISTS comentarios_internos(
   }
 
   /// Versión de schema declarada por la app (Capacidad 5 / panel técnico).
-  static const int schemaVersion = 29;
+  static const int schemaVersion = 30;
 }

@@ -7,6 +7,7 @@ import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/cliente_acciones_crm.dart';
 import '../widgets/comentarios_internos_sheet.dart';
+import '../widgets/crm_nuevo_seguimiento_sheet.dart';
 import '../widgets/foto_ampliada.dart';
 import '../widgets/media_avatar.dart';
 import 'cliente_form_page.dart';
@@ -277,17 +278,30 @@ class _ClienteDetallePageState extends State<ClienteDetallePage> {
               _cargarHistorial();
             },
           ),
-          if (AuthorizationService.instance.puede(
-            AuthModules.clientes,
-            AuthzAction.editar,
-          )) ...[
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: _abrirEdicion,
-              icon: const Icon(Icons.edit_rounded),
-              label: const Text('Editar ficha'),
-            ),
-          ],
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (c.id != null)
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    await showNuevoSeguimientoSheet(context, cliente: c);
+                  },
+                  icon: const Icon(Icons.event_rounded),
+                  label: const Text('Programar seguimiento'),
+                ),
+              if (AuthorizationService.instance.puede(
+                AuthModules.clientes,
+                AuthzAction.editar,
+              ))
+                OutlinedButton.icon(
+                  onPressed: _abrirEdicion,
+                  icon: const Icon(Icons.edit_rounded),
+                  label: const Text('Editar ficha'),
+                ),
+            ],
+          ),
           const SizedBox(height: 20),
           Row(
             children: [

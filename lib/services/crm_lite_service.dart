@@ -2,10 +2,11 @@ import '../database/database_helper.dart';
 import '../models/cliente.dart';
 import '../services/cliente_service.dart';
 import '../services/comentario_interno_service.dart';
+import '../services/crm_seguimiento_service.dart';
 import '../services/cuenta_corriente_service.dart';
 
 /// Lectura agregada para Seguimiento comercial (CRM Lite).
-/// Sin sync, sin tablas nuevas: solo SQLite local existente.
+/// Local-only: SQLite existente + agenda `crm_seguimientos` (sin sync).
 class CrmLiteService {
   CrmLiteService._();
   static final CrmLiteService instance = CrmLiteService._();
@@ -13,6 +14,7 @@ class CrmLiteService {
   final _clientes = ClienteService();
   final _cc = CuentaCorrienteService();
   final _notas = ComentarioInternoService.instance;
+  final _agenda = CrmSeguimientoService.instance;
 
   Future<List<ClienteDeudor>> deudores({int limite = 30}) async {
     final todos = await _cc.clientesDeudores();
@@ -81,11 +83,15 @@ class CrmLiteService {
     final i = await inactivos(limite: 500);
     final n = await conNotasRecientes(limite: 500);
     final deuda = d.fold<double>(0, (s, e) => s + e.saldoPendiente);
+    final pendientes = await _agenda.contarPendientes();
+    final vencidos = await _agenda.contarVencidos();
     return CrmLiteResumen(
       deudores: d.length,
       inactivos: i.length,
       conNotas: n.length,
       deudaTotal: deuda,
+      agendaPendientes: pendientes,
+      agendaVencidos: vencidos,
     );
   }
 }
@@ -95,11 +101,15 @@ class CrmLiteResumen {
   final int inactivos;
   final int conNotas;
   final double deudaTotal;
+  final int agendaPendientes;
+  final int agendaVencidos;
 
   const CrmLiteResumen({
     required this.deudores,
     required this.inactivos,
     required this.conNotas,
     required this.deudaTotal,
+    this.agendaPendientes = 0,
+    this.agendaVencidos = 0,
   });
 }
