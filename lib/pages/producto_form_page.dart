@@ -176,6 +176,12 @@ class _ProductoFormPageState extends State<ProductoFormPage> {
 
   Future<void> guardar() async {
     if (_guardando) return;
+    if (widget.producto == null && codigoController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El código del producto es obligatorio')),
+      );
+      return;
+    }
     setState(() => _guardando = true);
     try {
       final fotosLista = foto.trim().isEmpty
