@@ -2,21 +2,28 @@
 
 **Fecha:** 2026-07-26  
 **Versión auditada:** `1.2.33+38` (`main` @ `169627a`)  
-**Tipo:** Auditoría adversarial estática + suite de tests + revisión de reglas Firebase/Storage + análisis de escenarios destructivos  
+**Tipo:** Auditoría adversarial estática + suite de tests + walkthrough mental módulo a módulo + revisión de reglas Firebase/Storage  
 **Equipo simulado:** QA Senior · Software Tester · Arquitecto · Auditor ERP · UX/UI · Security · Flutter Senior · Firebase · SQLite  
+
+**Complemento obligatorio (ejecución mental + certeza):**  
+`docs/AUDITORIA_WALKTHROUGH_TESTER_2026-07-26.md`  
+**Suite que demuestra bugs de comportamiento (no solo “compila”):**  
+`test/auditoria_comportamiento_adversarial_test.dart`
 
 ### Metodología y límites
 
 | Hecho | No hecho en este entorno |
 |---|---|
 | Revisión de código de todos los módulos listados | UI interactiva del `.exe` / APK físico |
-| `flutter test` → **75/75 OK** | 10.000 productos reales en dispositivo |
+| Walkthrough mental módulo a módulo con etiquetas de certeza | Double-tap / FPS / crash mid-TX en hardware real |
+| `flutter test` suite existente + **11/11** adversariales de comportamiento | 10.000 productos reales en dispositivo |
 | `dart analyze lib` → sin errores | Campo Windows↔Android con dos devices |
 | Lectura adversarial de sync/outbox/ledgers | Medición FPS/CPU en hardware real |
-| Revisión `firestore.rules` + `storage.rules` | Prueba AFIP con certificados reales |
+| Revisión `firestore.rules` + `storage.rules` | Prueba AFIP / Meta API reales |
 | Evidencia de crashes recientes en campo (Sync, Venta rápida) | |
 
-Los hallazgos son **reproducibles por ruta de código** o **observados en campo**. Donde no hubo ejecución UI, se marca *hipótesis de código*.
+**Etiquetas de certeza** (ver walkthrough): **PRODUCIDO** · **OBSERVADO EN CAMPO** · **HIPÓTESIS DE CÓDIGO** · **NO VERIFICABLE AQUÍ**.  
+No se asume que “compila ⇒ funciona”.
 
 ---
 
