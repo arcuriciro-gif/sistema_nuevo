@@ -29,6 +29,7 @@ import 'chat_page.dart';
 import 'clientes_page.dart';
 import '../models/chat_conversacion.dart';
 import 'clientes_deudores_page.dart';
+import 'crm_lite_page.dart';
 import 'comparacion_page.dart';
 import 'compras_page.dart';
 import 'comunicaciones_page.dart';
@@ -91,6 +92,7 @@ String _seccionDeTitulo(String title) {
     case 'Comparador de listas':
       return 'Inventario';
     case 'Clientes':
+    case 'Seguimiento':
     case 'Archivo PDF':
     case 'Cuenta corriente':
     case 'Proveedores':
@@ -446,6 +448,12 @@ class _MainShellState extends State<MainShell> {
           title: 'Clientes',
           modulo: 'clientes',
           builder: () => const ClientesPage(),
+        ),
+        _ShellItem(
+          icon: Icons.handshake_rounded,
+          title: 'Seguimiento',
+          modulo: 'clientes',
+          builder: () => const CrmLitePage(),
         ),
         _ShellItem(
           icon: Icons.folder_shared_rounded,

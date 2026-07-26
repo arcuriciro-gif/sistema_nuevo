@@ -221,6 +221,11 @@ class _InicioPageState extends State<InicioPage> {
                         onTap: () => _go('Clientes'),
                       ),
                       ErpQuickAction(
+                        label: 'Seguimiento',
+                        icon: Icons.handshake_rounded,
+                        onTap: () => _go('Seguimiento'),
+                      ),
+                      ErpQuickAction(
                         label: 'Compra',
                         icon: Icons.shopping_cart_rounded,
                         onTap: () => _go('Compras'),
