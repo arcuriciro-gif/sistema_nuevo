@@ -50,6 +50,17 @@ class CrmSeguimientoService {
     return (rows.first['c'] as num?)?.toInt() ?? 0;
   }
 
+  Future<Set<int>> clienteIdsConPendiente() async {
+    final db = await DatabaseHelper.instance.database;
+    final rows = await db.rawQuery(
+      "SELECT DISTINCT clienteId FROM crm_seguimientos WHERE estado = 'pendiente'",
+    );
+    return rows
+        .map((r) => (r['clienteId'] as num?)?.toInt())
+        .whereType<int>()
+        .toSet();
+  }
+
   Future<int> crear(CrmSeguimiento s) async {
     final db = await DatabaseHelper.instance.database;
     final map = s.toMap()..remove('id');

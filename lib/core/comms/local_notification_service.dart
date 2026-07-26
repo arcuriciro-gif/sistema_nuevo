@@ -6,6 +6,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 /// Payload:
 /// - `chat:<conversacionId>` → abrir ese chat
 /// - `notif` → abrir lista de notificaciones
+/// - `crm:seguimiento` → abrir módulo Seguimiento
 class LocalNotificationService {
   LocalNotificationService._();
   static final LocalNotificationService instance = LocalNotificationService._();
@@ -87,6 +88,22 @@ class LocalNotificationService {
     required String cuerpo,
     String? payload,
   }) async {
+    _seq += 1;
+    await showWithId(
+      id: _seq,
+      titulo: titulo,
+      cuerpo: cuerpo,
+      payload: payload,
+    );
+  }
+
+  /// Muestra/reemplaza una notificación con id estable (p. ej. recordatorios CRM).
+  Future<void> showWithId({
+    required int id,
+    required String titulo,
+    required String cuerpo,
+    String? payload,
+  }) async {
     if (kIsWeb) return;
     await init();
     if (!_listo) return;
@@ -108,16 +125,15 @@ class LocalNotificationService {
     );
 
     try {
-      _seq += 1;
       await _plugin.show(
-        id: _seq,
+        id: id,
         title: title,
         body: body,
         notificationDetails: details,
         payload: payload,
       );
     } catch (e) {
-      debugPrint('LocalNotificationService.show: $e');
+      debugPrint('LocalNotificationService.showWithId: $e');
     }
   }
 

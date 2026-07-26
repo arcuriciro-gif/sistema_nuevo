@@ -13,6 +13,7 @@ import '../core/comms/local_notification_service.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/config/platform_capabilities.dart';
 import '../core/sync/sync_background.dart';
+import '../services/crm_reminder_service.dart';
 import '../theme/app_tokens.dart';
 import '../theme/layout_constants.dart';
 import '../theme/module_app_bar.dart';
@@ -203,7 +204,12 @@ class _MainShellState extends State<MainShell> {
       }
       if (mounted) await EmpresaOnboardingDialog.mostrarSiHaceFalta(context);
       if (mounted) await _ofrecerActivarNubeSiHaceFalta();
-      // Recordatorio CC: no modal al abrir; solo badge/flujo manual.
+      // Recordatorio agenda CRM: notificación local (máx. 1/día).
+      try {
+        await CrmReminderService.instance.revisarYNotificar();
+      } catch (e) {
+        debugPrint('CRM reminder: $e');
+      }
     });
   }
 
@@ -214,6 +220,10 @@ class _MainShellState extends State<MainShell> {
       await Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const NotificacionesPage()),
       );
+      return;
+    }
+    if (p == 'crm:seguimiento' || p.startsWith('crm:')) {
+      _irAModulo('Seguimiento');
       return;
     }
     if (p == 'chat' || p.startsWith('chat:')) {
@@ -1086,6 +1096,31 @@ class _SidebarContent extends StatefulWidget {
 
 class _SidebarContentState extends State<_SidebarContent> {
   final Set<String> _colapsadas = {};
+  int _crmBadge = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    DataRefreshHub.instance.addListener(_onDatos);
+    _cargarCrmBadge();
+  }
+
+  @override
+  void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatos);
+    super.dispose();
+  }
+
+  void _onDatos() => _cargarCrmBadge();
+
+  Future<void> _cargarCrmBadge() async {
+    try {
+      await CrmReminderService.instance.refrescarConteos();
+      final n = CrmReminderService.instance.vencidos +
+          CrmReminderService.instance.hoy;
+      if (mounted && n != _crmBadge) setState(() => _crmBadge = n);
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1171,6 +1206,7 @@ class _SidebarContentState extends State<_SidebarContent> {
                           selected: selected,
                           selectedBg: selectedBg,
                           selectedFg: selectedFg,
+                          badge: e.item.title == 'Seguimiento' ? _crmBadge : 0,
                           onTap: () => onTap(e.index),
                         );
                       })
@@ -1226,6 +1262,8 @@ class _SidebarContentState extends State<_SidebarContent> {
                             selected: selected,
                             selectedBg: selectedBg,
                             selectedFg: selectedFg,
+                            badge:
+                                e.item.title == 'Seguimiento' ? _crmBadge : 0,
                             onTap: () => onTap(e.index),
                           );
                         }),
@@ -1328,7 +1366,13 @@ class _SidebarContentState extends State<_SidebarContent> {
     required Color selectedBg,
     required Color selectedFg,
     required VoidCallback onTap,
+    int badge = 0,
   }) {
+    final icon = Icon(
+      item.icon,
+      color: selected ? selectedFg : _kSidebarInactiveIcon,
+      size: 20,
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1),
       child: Material(
@@ -1340,11 +1384,12 @@ class _SidebarContentState extends State<_SidebarContent> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppTokens.radiusSm),
           ),
-          leading: Icon(
-            item.icon,
-            color: selected ? selectedFg : _kSidebarInactiveIcon,
-            size: 20,
-          ),
+          leading: badge > 0
+              ? Badge(
+                  label: Text('$badge'),
+                  child: icon,
+                )
+              : icon,
           title: Text(
             item.title,
             style: TextStyle(

@@ -4,6 +4,7 @@ import '../core/events/data_refresh_hub.dart';
 import '../models/crm_seguimiento.dart';
 import '../services/branding_service.dart';
 import '../services/crm_lite_service.dart';
+import '../services/crm_reminder_service.dart';
 import '../services/crm_seguimiento_service.dart';
 import '../services/cuenta_corriente_service.dart';
 import '../services/whatsapp_plantillas_service.dart';
@@ -36,6 +37,8 @@ class _CrmLitePageState extends State<CrmLitePage>
   List<Map<String, dynamic>> _inactivos = [];
   List<Map<String, dynamic>> _conNotas = [];
   List<CrmSeguimiento> _agenda = [];
+  Set<int> _clientesConAgenda = {};
+  bool _avisosOn = true;
   bool _cargando = true;
 
   @override
@@ -59,11 +62,13 @@ class _CrmLitePageState extends State<CrmLitePage>
 
   Future<void> _cargar() async {
     await _tpl.cargar();
+    await CrmReminderService.instance.cargarPreferencia();
     final resumen = await _svc.resumen();
     final deudores = await _svc.deudores();
     final inactivos = await _svc.inactivos();
     final notas = await _svc.conNotasRecientes();
     final agenda = await _agendaSvc.listarPendientes();
+    final conAgenda = await _agendaSvc.clienteIdsConPendiente();
     if (!mounted) return;
     setState(() {
       _resumen = resumen;
@@ -71,6 +76,8 @@ class _CrmLitePageState extends State<CrmLitePage>
       _inactivos = inactivos;
       _conNotas = notas;
       _agenda = agenda;
+      _clientesConAgenda = conAgenda;
+      _avisosOn = CrmReminderService.instance.enabled;
       _cargando = false;
     });
   }
@@ -278,6 +285,36 @@ class _CrmLitePageState extends State<CrmLitePage>
             tooltip: 'Plantillas WhatsApp',
             icon: const Icon(Icons.sms_rounded),
             onPressed: _editarPlantillas,
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Más',
+            onSelected: (v) async {
+              if (v == 'avisos') {
+                await CrmReminderService.instance.setEnabled(!_avisosOn);
+                if (mounted) {
+                  setState(
+                    () => _avisosOn = CrmReminderService.instance.enabled,
+                  );
+                }
+              } else if (v == 'probar') {
+                await CrmReminderService.instance.revisarYNotificar(forzar: true);
+                if (!mounted) return;
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  const SnackBar(content: Text('Aviso de agenda enviado')),
+                );
+              }
+            },
+            itemBuilder: (_) => [
+              CheckedPopupMenuItem(
+                value: 'avisos',
+                checked: _avisosOn,
+                child: const Text('Avisos diarios agenda'),
+              ),
+              const PopupMenuItem(
+                value: 'probar',
+                child: Text('Probar aviso ahora'),
+              ),
+            ],
           ),
           IconButton(
             tooltip: 'Actualizar',
@@ -490,10 +527,20 @@ class _CrmLitePageState extends State<CrmLitePage>
               d.nombre,
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
-            subtitle: Text('${d.ventasPendientes} documentos pendientes'),
+            subtitle: Text(
+              '${d.ventasPendientes} documentos pendientes'
+              '${_clientesConAgenda.contains(d.clienteId) ? '' : ' · Sin agenda'}',
+            ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (!_clientesConAgenda.contains(d.clienteId))
+                  IconButton(
+                    tooltip: 'Programar seguimiento',
+                    icon: const Icon(Icons.event_rounded),
+                    color: AppTokens.syncWarn,
+                    onPressed: () => _programarDeuda(d),
+                  ),
                 Text(
                   _money(d.saldoPendiente),
                   style: const TextStyle(
