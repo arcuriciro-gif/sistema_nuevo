@@ -26,6 +26,7 @@ import 'sync_health.dart';
 import 'sync_outbox.dart';
 import 'sync_tombstone.dart';
 import 'sync_watermark_store.dart';
+import 'windows_sync_policy.dart';
 import '../../database/database_helper.dart';
 import '../../models/cliente.dart';
 import '../../models/documento_cliente.dart';
@@ -114,6 +115,9 @@ class FirestoreSyncService {
   Timer? _outboxPump;
   /// Windows: pull periódico (sin listeners pesados que tumban el .exe).
   Timer? _pullPump;
+  /// Evita doble start() en Windows (auth + shell reconectan a la vez).
+  bool _windowsBootInProgress = false;
+  bool _windowsPumpsActivos = false;
 
   CollectionReference<Map<String, dynamic>> _col(String name) {
     final tenant = BackendConfigService.instance.tenantId;
@@ -151,18 +155,24 @@ class FirestoreSyncService {
       SyncHealthService.instance.canWrite = false;
       return;
     }
+    final windows = PlatformCapabilities.isWindowsDesktop;
+    // Windows: no reiniciar sync si ya está booteando o con pumps activos.
+    if (windows && (_windowsBootInProgress || _windowsPumpsActivos)) {
+      debugPrint('Sync Windows: start ignorado (ya activo)');
+      return;
+    }
     try {
       await stop();
       await _cargarColasPersistidas();
-      await SyncOutbox.instance.reclaimStaleInflight();
-      await _migrateLegacyColasToOutbox();
+      if (!windows) {
+        await SyncOutbox.instance.reclaimStaleInflight();
+        await _migrateLegacyColasToOutbox();
+      }
       await _cargarWatermarksPersistidos();
       SyncHealthService.instance.firebaseReady = true;
       SyncHealthService.instance.canWrite = _puedeEscribirRemoto;
       syncStatusLabel = 'Sincronizando…';
       syncStatusDetail = null;
-
-      final windows = PlatformCapabilities.isWindowsDesktop;
 
       // Config chica siempre (docs únicos). En Windows NO listeners de
       // colecciones grandes: el snapshot completo tumbaba el .exe.
@@ -197,10 +207,9 @@ class FirestoreSyncService {
           onError: (Object error) => debugPrint('Sync categorias: $error'),
         );
       } else {
-        // Windows: un solo listener de config (branding). El resto via soft pull /
-        // outbox. Varios snapshots al login tumbaban el .exe.
-        Future<void>.delayed(const Duration(seconds: 8), () {
-          if (!_puedeEscribirRemoto) return;
+        // Windows: branding listener muy tarde (no pelear con boot outbox).
+        Future<void>.delayed(const Duration(seconds: 25), () {
+          if (!_puedeEscribirRemoto || !_windowsPumpsActivos) return;
           _brandingSub ??= _configDoc('branding').snapshots().listen(
             (snap) {
               winSnap('brandingSnap', () async => _aplicarBrandingRemoto(snap));
@@ -245,65 +254,52 @@ class FirestoreSyncService {
 
       // Empuja branding/permisos locales la primera vez si la nube no tiene.
       if (windows) {
-        syncInBackground(
-          CloudSyncThrottle.enqueue(
-            _publicarConfigLocalSiHaceFalta,
+        // Después del boot (no en t=0): evita ráfaga Firebase al login.
+        Future<void>.delayed(const Duration(seconds: 18), () {
+          if (!_puedeEscribirRemoto || !_windowsPumpsActivos) return;
+          syncInBackground(
+            CloudSyncThrottle.enqueue(
+              _publicarConfigLocalSiHaceFalta,
+              tag: 'publicarConfig',
+            ),
             tag: 'publicarConfig',
-          ),
-          tag: 'publicarConfig',
-        );
+          );
+        });
       } else {
         unawaited(_publicarConfigLocalSiHaceFalta());
       }
 
       // Windows: NUNCA catch-up/vaciar-colas masivo al activar Sync (tumba .exe).
-      // Solo pumps ultra-livianos: 1 colección/tick + outbox micro-drenaje.
+      // Boot: absorber colas legacy SIN reabrir acked + micro-drenaje + pumps.
       if (windows) {
+        _windowsBootInProgress = true;
         syncStatusLabel = 'Sincronizando…';
-        syncStatusDetail =
-            'Modo estable PC. Sync gradual (sin ráfagas al iniciar)…';
+        syncStatusDetail = 'Preparando sync estable…';
         DataRefreshHub.instance.notifyTodo();
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
             await FirebaseSafeMode.marcarInicioLoginFirebase();
             try {
-              await Future<void>.delayed(const Duration(seconds: 4));
-              // Solo migrar colas locales → outbox SQLite (sin Firebase pesado).
+              await Future<void>.delayed(const Duration(seconds: 3));
               await _cargarColasPersistidas();
               await SyncOutbox.instance.reclaimStaleInflight(
-                olderThan: const Duration(seconds: 90),
+                olderThan: WindowsSyncPolicy.reclaimStaleInflightAfter,
               );
               await _migrateLegacyColasToOutbox();
-              for (final id in _colaClientes) {
-                await SyncOutbox.instance
-                    .enqueueUpsert(entityType: 'cliente', localId: id);
-              }
-              for (final id in _colaProveedores) {
-                await SyncOutbox.instance
-                    .enqueueUpsert(entityType: 'proveedor', localId: id);
-              }
-              for (final id in _colaProductos) {
-                await SyncOutbox.instance
-                    .enqueueUpsert(entityType: 'producto', localId: id);
-              }
-              for (final id in _colaVentas) {
-                await SyncOutbox.instance
-                    .enqueueUpsert(entityType: 'venta', localId: id);
-              }
-              for (final id in _colaRemitos) {
-                await SyncOutbox.instance
-                    .enqueueUpsert(entityType: 'remito', localId: id);
-              }
-              for (final id in _colaCompras) {
-                await SyncOutbox.instance
-                    .enqueueUpsert(entityType: 'compra', localId: id);
-              }
-              // Micro-drenaje: 3 ops docs máximo al arrancar.
+              await _volcarColasLegacyAOutboxSeguro();
+              await _limpiarColasLegacyPrefs();
+              // Micro-drenaje: pocas ops al arrancar (sin ráfaga).
               if (_puedeEscribirRemoto) {
                 await _procesarOutboxDrain(
                   maxBatches: 1,
-                  claimLimit: 3,
-                  entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
+                  claimLimit: 2,
+                  entityTypes: const [
+                    'venta',
+                    'remito',
+                    'compra',
+                    'cliente',
+                    'producto',
+                  ],
                 );
               }
               final health = await SyncHealthService.instance.snapshot();
@@ -312,7 +308,8 @@ class FirestoreSyncService {
                 syncStatusDetail = '${health.dead} ops fallidas en outbox';
               } else if (health.pending > 0 || health.inflight > 0) {
                 syncStatusLabel = 'Sincronizando…';
-                syncStatusDetail = '${health.pending} pendientes (gradual)';
+                syncStatusDetail =
+                    '${health.pending} pendientes reales (drenaje suave)';
               } else {
                 syncStatusLabel = 'En la nube (modo estable PC)';
                 syncStatusDetail = null;
@@ -320,6 +317,7 @@ class FirestoreSyncService {
               DataRefreshHub.instance.notifyTodo();
             } finally {
               await FirebaseSafeMode.marcarFinLoginFirebase();
+              _windowsBootInProgress = false;
               _iniciarPumpsWindows();
             }
           }, tag: 'startWindowsLight'),
@@ -403,8 +401,9 @@ class FirestoreSyncService {
   void _iniciarOutboxPump() {
     _outboxPump?.cancel();
     final windows = PlatformCapabilities.isWindowsDesktop;
-    final intervalo =
-        windows ? const Duration(seconds: 60) : const Duration(seconds: 40);
+    final intervalo = windows
+        ? WindowsSyncPolicy.outboxPumpInterval
+        : const Duration(seconds: 40);
     _outboxPump = Timer.periodic(intervalo, (_) {
       if (!_puedeEscribirRemoto) return;
       syncInBackground(
@@ -412,7 +411,7 @@ class FirestoreSyncService {
           // Tras un crash quedan ops "inflight" huérfanas: recuperarlas.
           await SyncOutbox.instance.reclaimStaleInflight(
             olderThan: windows
-                ? const Duration(seconds: 90)
+                ? WindowsSyncPolicy.reclaimStaleInflightAfter
                 : const Duration(minutes: 5),
           );
 
@@ -442,25 +441,26 @@ class FirestoreSyncService {
 
           syncStatusDetail = '$pending pendientes…';
           if (windows) {
-            // Ultra-light: un solo micro-lote por tick (máx 3 ops).
+            // Fast-safe: prioriza productos (edits interactivos / cola masiva),
+            // docs y stock_ops en rotación. Un micro-lote por tick.
             final tick = _softPullTickWindows % 3;
             if (tick == 0) {
+              await _procesarOutboxDrain(
+                maxBatches: 1,
+                claimLimit: 2,
+                entityTypes: const ['producto', 'proveedor'],
+              );
+            } else if (tick == 1) {
               await _procesarOutboxDrain(
                 maxBatches: 1,
                 claimLimit: 3,
                 entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
               );
-            } else if (tick == 1) {
+            } else {
               await _procesarOutboxDrain(
                 maxBatches: 1,
                 claimLimit: 2,
                 entityTypes: const ['stock_op'],
-              );
-            } else {
-              await _procesarOutboxDrain(
-                maxBatches: 1,
-                claimLimit: 1,
-                entityTypes: const ['producto', 'proveedor'],
               );
             }
           } else {
@@ -500,17 +500,22 @@ class FirestoreSyncService {
 
   /// Windows: sin listeners de colecciones; pull suave periódico.
   void _iniciarPumpsWindows() {
+    _windowsPumpsActivos = true;
     _iniciarOutboxPump();
     _pullPump?.cancel();
-    // 2 min: 1 colección por tick → convergencia lenta pero estable.
-    _pullPump = Timer.periodic(const Duration(seconds: 120), (_) {
-      if (!_puedeEscribirRemoto) return;
-      syncInBackground(
-        CloudSyncThrottle.enqueue(() async {
-          await _pullSuaveWindows();
-        }, tag: 'pullPumpWindows'),
-        tag: 'pullPumpWindows',
-      );
+    // Soft-pull: 1 colección/tick. Arranca 20s después del outbox.
+    Future<void>.delayed(const Duration(seconds: 20), () {
+      if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+      _pullPump?.cancel();
+      _pullPump = Timer.periodic(WindowsSyncPolicy.softPullInterval, (_) {
+        if (!_puedeEscribirRemoto) return;
+        syncInBackground(
+          CloudSyncThrottle.enqueue(() async {
+            await _pullSuaveWindows();
+          }, tag: 'pullPumpWindows'),
+          tag: 'pullPumpWindows',
+        );
+      });
     });
   }
 
@@ -554,49 +559,51 @@ class FirestoreSyncService {
 
   int _softPullTickWindows = 0;
 
-  /// Una sola colección por tick (round-robin). Evita ráfagas que tumban el .exe.
+  /// Una sola colección por tick. Fast-safe: productos ~50% (otros devices
+  /// ven cambios de precio/catálogo antes); resto round-robin.
   Future<void> _pullSuaveWindows() async {
     const page = 15;
-    final tick = _softPullTickWindows % 8;
+    final tick = _softPullTickWindows;
     _softPullTickWindows++;
+    final lane = WindowsSyncPolicy.softPullLane(tick);
     try {
-      switch (tick) {
-        case 0:
+      switch (lane) {
+        case 'productos_inc':
+          await _pullProductosIncrementalWindows(maxPages: 1, pageSize: page);
+        case 'productos_cat':
+          await _pullProductosCatalogoWindows(maxPages: 1, pageSize: page);
+        case 'clientes':
           final snap = await _pullPaginaPorDocId(
             _clientesCol,
             watermarkKey: _wmClientesDoc,
             pageSize: page,
           );
           await _aplicarClientesRemotos(snap);
-        case 1:
+        case 'ventas':
           final snap = await _pullPaginaPorDocId(
             _ventasCol,
             watermarkKey: _wmVentasDoc,
             pageSize: page,
           );
           await _aplicarVentasRemotas(snap);
-        case 2:
+        case 'remitos':
           final snap = await _pullPaginaPorDocId(
             _remitosCol,
             watermarkKey: _wmRemitosDoc,
             pageSize: page,
           );
           await _aplicarRemitosRemotos(snap);
-        case 3:
-          await _pullProductosIncrementalWindows(maxPages: 1, pageSize: page);
-        case 4:
-          await _pullProductosCatalogoWindows(maxPages: 1, pageSize: page);
-        case 5:
+        case 'stock_ops':
           // Micro stock_ops: 3 por ciclo máximo.
           await _pullStockOpsRemotas(maxPages: 1, pageSize: 10, maxApply: 3);
-        case 6:
+        case 'compras':
           final snap = await _pullPaginaPorDocId(
             _comprasCol,
             watermarkKey: 'pull_compras_doc',
             pageSize: page,
           );
           await _aplicarComprasRemotas(snap);
-        case 7:
+        case 'proveedores':
           final snap = await _pullPaginaPorDocId(
             _proveedoresCol,
             watermarkKey: 'pull_proveedores_doc',
@@ -605,7 +612,7 @@ class FirestoreSyncService {
           await _aplicarProveedoresRemotos(snap);
       }
     } catch (e) {
-      debugPrint('Pull suave Windows tick=$tick: $e');
+      debugPrint('Pull suave Windows tick=$tick lane=$lane: $e');
     }
   }
 
@@ -949,32 +956,8 @@ class FirestoreSyncService {
       await _cargarColasPersistidas();
       await SyncOutbox.instance.reclaimStaleInflight();
       await _migrateLegacyColasToOutbox();
-
-      // Volcar colas en memoria → outbox (idempotente). NO borrar hasta ACK.
-      for (final id in _colaClientes) {
-        await SyncOutbox.instance
-            .enqueueUpsert(entityType: 'cliente', localId: id);
-      }
-      for (final id in _colaProveedores) {
-        await SyncOutbox.instance
-            .enqueueUpsert(entityType: 'proveedor', localId: id);
-      }
-      for (final id in _colaProductos) {
-        await SyncOutbox.instance
-            .enqueueUpsert(entityType: 'producto', localId: id);
-      }
-      for (final id in _colaVentas) {
-        await SyncOutbox.instance
-            .enqueueUpsert(entityType: 'venta', localId: id);
-      }
-      for (final id in _colaRemitos) {
-        await SyncOutbox.instance
-            .enqueueUpsert(entityType: 'remito', localId: id);
-      }
-      for (final id in _colaCompras) {
-        await SyncOutbox.instance
-            .enqueueUpsert(entityType: 'compra', localId: id);
-      }
+      await _volcarColasLegacyAOutboxSeguro();
+      await _limpiarColasLegacyPrefs();
 
       if (!_puedeEscribirRemoto) {
         SyncHealthService.instance.canWrite = false;
@@ -1391,6 +1374,8 @@ class FirestoreSyncService {
   }
 
   Future<void> stop() async {
+    _windowsPumpsActivos = false;
+    _windowsBootInProgress = false;
     _outboxPump?.cancel();
     _outboxPump = null;
     _pullPump?.cancel();
@@ -1867,6 +1852,13 @@ class FirestoreSyncService {
 
   Future<void> _cargarColasPersistidas() async {
     try {
+      // Siempre resetear memoria: si no, acumula IDs fantasma entre start().
+      _colaClientes.clear();
+      _colaProveedores.clear();
+      _colaProductos.clear();
+      _colaVentas.clear();
+      _colaRemitos.clear();
+      _colaCompras.clear();
       final prefs = await SharedPreferences.getInstance();
       for (final s in prefs.getStringList(_prefsColaClientes) ?? const []) {
         final id = int.tryParse(s);
@@ -1899,6 +1891,42 @@ class FirestoreSyncService {
         ..clear()
         ..addAll(prefs.getStringList(_prefsStockOpsHechas) ?? const []);
     } catch (_) {}
+  }
+
+  /// Absorbe prefs/colas → outbox sin reabrir ops ya `acked`.
+  Future<void> _volcarColasLegacyAOutboxSeguro() async {
+    Future<void> dump(String type, Set<int> ids) async {
+      for (final id in ids) {
+        await SyncOutbox.instance.enqueueUpsert(
+          entityType: type,
+          localId: id,
+          reopenAcked: false,
+        );
+      }
+    }
+
+    await dump('cliente', _colaClientes);
+    await dump('proveedor', _colaProveedores);
+    await dump('producto', _colaProductos);
+    await dump('venta', _colaVentas);
+    await dump('remito', _colaRemitos);
+    await dump('compra', _colaCompras);
+  }
+
+  /// Outbox es la fuente de verdad; limpia prefs legacy para no reabrir fantasmas.
+  Future<void> _limpiarColasLegacyPrefs() async {
+    _colaClientes.clear();
+    _colaProveedores.clear();
+    _colaProductos.clear();
+    _colaVentas.clear();
+    _colaRemitos.clear();
+    _colaCompras.clear();
+    await _persistirCola(_prefsColaClientes, _colaClientes);
+    await _persistirCola(_prefsColaProveedores, _colaProveedores);
+    await _persistirCola(_prefsColaProductos, _colaProductos);
+    await _persistirCola(_prefsColaVentas, _colaVentas);
+    await _persistirCola(_prefsColaRemitos, _colaRemitos);
+    await _persistirCola(_prefsColaCompras, _colaCompras);
   }
 
   Future<void> _persistirColaStockOps() async {

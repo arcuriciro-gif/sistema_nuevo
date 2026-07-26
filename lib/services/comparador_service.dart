@@ -1,8 +1,11 @@
 import 'package:sqflite/sqflite.dart';
 
+import '../core/config/platform_capabilities.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/sync_background.dart';
+import '../core/sync/sync_outbox.dart';
+import '../core/sync/windows_sync_policy.dart';
 import '../core/utils/texto_producto.dart';
 import '../database/database_helper.dart';
 import '../models/comparacion.dart';
@@ -512,12 +515,23 @@ class ComparadorService {
       if (producto.id != null) idsSync.add(producto.id!);
     }
 
-    // Sync en segundo plano: al volver la red, outbox empuja a todos lados.
-    for (final id in idsSync) {
-      syncInBackground(
-        FirestoreSyncService.instance.subirProductoPorId(id, forzar: true),
-        tag: 'subirProducto',
-      );
+    // Windows fast-safe: masivo SOLO outbox (sin N subidas concurrentes).
+    // En Android/móvil se empuja cada id en background como antes.
+    final soloOutbox = WindowsSyncPolicy.bulkSoloEncolar(
+      isWindowsDesktop: PlatformCapabilities.isWindowsDesktop,
+    );
+    if (soloOutbox) {
+      for (final id in idsSync) {
+        await SyncOutbox.instance
+            .enqueueUpsert(entityType: 'producto', localId: id);
+      }
+    } else {
+      for (final id in idsSync) {
+        syncInBackground(
+          FirestoreSyncService.instance.subirProductoPorId(id, forzar: true),
+          tag: 'subirProducto',
+        );
+      }
     }
     if (idsSync.isNotEmpty) {
       DataRefreshHub.instance.notifyProductos();
