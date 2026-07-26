@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/config/platform_capabilities.dart';
 import '../core/events/data_refresh_hub.dart';
+import '../core/sync/cloud_sync_throttle.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
 import '../core/sync/sync_background.dart';
@@ -28,7 +30,10 @@ class DocumentoClienteService {
   }) async {
     try {
       var syncId = (clienteSyncId ?? '').trim();
-      if (syncId.isEmpty && clienteId != null) {
+      // Windows: no tocar Firebase aquí (asegurarSyncId pega Firestore).
+      if (syncId.isEmpty &&
+          clienteId != null &&
+          !PlatformCapabilities.isWindowsDesktop) {
         try {
           syncId = await FirestoreSyncService.instance
               .asegurarSyncIdCliente(clienteId)
@@ -65,25 +70,49 @@ class DocumentoClienteService {
       await db.insert('documentos_cliente', doc.toMap());
       DataRefreshHub.instance.notifyTodo();
 
-      // Nube en background (Storage + Firestore).
-      syncInBackground(() async {
+      // Nube en background (Storage + Firestore). Windows: mucho más tarde
+      // y por throttle (si no, venta rápida + Storage tumba el .exe).
+      Future<void> subirNube() async {
+        var sid = syncId;
+        if (sid == 'sin_cliente' && clienteId != null) {
+          try {
+            sid = await FirestoreSyncService.instance
+                .asegurarSyncIdCliente(clienteId)
+                .timeout(const Duration(seconds: 5), onTimeout: () => sid);
+          } catch (_) {}
+        }
         final url = await MediaSyncService.instance.subirPdfCliente(
-              clienteSyncId: syncId,
+              clienteSyncId: sid,
               nombreArchivo: nombreArchivo,
               file: archivo,
             ) ??
             '';
-        if (url.isNotEmpty) {
+        if (url.isNotEmpty || sid != syncId) {
           await db.update(
             'documentos_cliente',
-            {'url': url},
+            {
+              if (url.isNotEmpty) 'url': url,
+              if (sid != syncId) 'clienteSyncId': sid,
+            },
             where: 'id = ?',
             whereArgs: [id],
           );
         }
-        final actualizado = doc.copyWith(url: url);
+        final actualizado = doc.copyWith(url: url, clienteSyncId: sid);
         await FirestoreSyncService.instance.subirDocumento(actualizado);
-      }(), tag: 'archivarPdf');
+      }
+
+      if (PlatformCapabilities.isWindowsDesktop) {
+        syncInBackground(
+          CloudSyncThrottle.enqueue(() async {
+            await Future<void>.delayed(const Duration(seconds: 20));
+            await subirNube();
+          }, tag: 'archivarPdf'),
+          tag: 'archivarPdf',
+        );
+      } else {
+        syncInBackground(subirNube(), tag: 'archivarPdf');
+      }
 
       return doc;
     } catch (e) {

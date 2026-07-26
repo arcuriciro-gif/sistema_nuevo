@@ -1,8 +1,10 @@
+import '../core/config/platform_capabilities.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
+import '../core/sync/cloud_sync_throttle.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
@@ -281,10 +283,22 @@ class CuentaCorrienteService {
       whereArgs: [clienteId],
     );
     // Saldo local primero; nube en segundo plano (modo avión / venta rápida).
-    syncInBackground(
-      FirestoreSyncService.instance.subirCliente(clienteId, forzar: true),
-      tag: 'subirCliente',
-    );
+    // Windows: throttle + delay para no pelear con subirRemito/stock (crash .exe).
+    if (PlatformCapabilities.isWindowsDesktop) {
+      syncInBackground(
+        CloudSyncThrottle.enqueue(() async {
+          await Future<void>.delayed(const Duration(seconds: 8));
+          await FirestoreSyncService.instance
+              .subirCliente(clienteId, forzar: true);
+        }, tag: 'subirCliente'),
+        tag: 'subirCliente',
+      );
+    } else {
+      syncInBackground(
+        FirestoreSyncService.instance.subirCliente(clienteId, forzar: true),
+        tag: 'subirCliente',
+      );
+    }
   }
 
   Future<List<Map<String, dynamic>>> remitosPendientesDeCliente(

@@ -60,9 +60,13 @@ class DocumentoCliente {
     );
   }
 
-  DocumentoCliente copyWith({String? url}) => DocumentoCliente(
+  DocumentoCliente copyWith({
+    String? url,
+    String? clienteSyncId,
+  }) =>
+      DocumentoCliente(
         id: id,
-        clienteSyncId: clienteSyncId,
+        clienteSyncId: clienteSyncId ?? this.clienteSyncId,
         clienteId: clienteId,
         clienteNombre: clienteNombre,
         tipo: tipo,
