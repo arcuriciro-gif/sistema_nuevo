@@ -13,17 +13,14 @@ import '../services/proveedor_service.dart';
 import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
-import '../widgets/media_avatar.dart';
+import '../widgets/erp/erp_kpi_tile.dart';
+import '../widgets/erp/erp_section_header.dart';
 import 'clientes_deudores_page.dart';
-import 'clientes_page.dart';
-import 'compras_page.dart';
-import 'productos_page.dart';
-import 'proveedores_page.dart';
-import 'remitos_page.dart';
-import 'ventas_page.dart';
 
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key});
+  const DashboardPage({super.key, this.onIrA});
+
+  final void Function(String tituloModulo)? onIrA;
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -148,6 +145,21 @@ class _DashboardPageState extends State<DashboardPage> {
     });
   }
 
+  void _irA(String titulo) {
+    final go = widget.onIrA;
+    if (go != null) {
+      go(titulo);
+      return;
+    }
+    // Fallback si el dashboard se abre fuera del shell.
+    if (titulo == 'Cuenta corriente') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ClientesDeudoresPage()),
+      ).then((_) => cargar());
+    }
+  }
+
   Widget _cuentasPorCobrarCard(
     ColorScheme cs,
     ResumenCuentasCobrar resumen,
@@ -156,14 +168,7 @@ class _DashboardPageState extends State<DashboardPage> {
       elevation: 3,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const ClientesDeudoresPage(),
-            ),
-          ).then((_) => cargar());
-        },
+        onTap: () => _irA('Cuenta corriente'),
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
@@ -226,52 +231,13 @@ class _DashboardPageState extends State<DashboardPage> {
     required Color color,
     VoidCallback? onTap,
   }) {
-    final labelColor = Theme.of(context).colorScheme.onSurfaceVariant;
-
-    return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest
-          .withValues(alpha: 0.55),
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: Row(
-            children: [
-              Icon(icono, color: color, size: 16),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      titulo,
-                      style: TextStyle(fontSize: 10, color: labelColor, height: 1.1),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      valor,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: color,
-                        height: 1.15,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              if (onTap != null)
-                Icon(Icons.chevron_right_rounded, color: labelColor, size: 14),
-            ],
-          ),
-        ),
-      ),
+    return ErpKpiTile(
+      title: titulo,
+      value: valor,
+      icon: icono,
+      accent: color,
+      onTap: onTap,
+      compact: true,
     );
   }
 
@@ -441,7 +407,7 @@ class _DashboardPageState extends State<DashboardPage> {
     return Scaffold(
       appBar: buildModuleAppBar(
         context,
-        title: 'Dashboard',
+        title: 'Centro de análisis',
         actions: [
           IconButton(
             tooltip: 'Actualizar',
@@ -460,80 +426,14 @@ class _DashboardPageState extends State<DashboardPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        MediaAvatar(
-                          path: BrandingService.instance.logoUiPath.isNotEmpty
-                              ? BrandingService.instance.logoUiPath
-                              : BrandingService.instance.imagenUiPath,
-                          radius: 28,
-                          fallbackLetter:
-                              BrandingService.instance.nombre.isNotEmpty
-                                  ? BrandingService.instance.nombre[0]
-                                  : 'T',
-                          backgroundColor: colorScheme.primaryContainer,
-                          foregroundColor: colorScheme.onPrimaryContainer,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                BrandingService.instance.nombre,
-                                style: theme.textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              if (BrandingService.instance.slogan.isNotEmpty)
-                                Text(
-                                  BrandingService.instance.slogan,
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
+                    ErpSectionHeader(
+                      title: 'Tendencias y rankings',
+                      subtitle:
+                          'Vista para el dueño del negocio · evolución y comparativas',
                     ),
                     const SizedBox(height: 16),
-                    Text(
-                      'Resumen general',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (resumenCc != null) ...[
-                      _cuentasPorCobrarCard(colorScheme, resumenCc!),
-                      const SizedBox(height: 12),
-                      if (resumenCc!.alertas.isNotEmpty) ...[
-                        Text(
-                          'Alertas de cuenta corriente',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        ...resumenCc!.alertas.map((a) {
-                          final color = a.contains('debe')
-                              ? AppVisuals.danger(colorScheme)
-                              : a.contains('vencen')
-                                  ? AppVisuals.warning(colorScheme)
-                                  : AppVisuals.warning(colorScheme);
-                          return Card(
-                            child: ListTile(
-                              leading: Icon(Icons.warning_amber_rounded,
-                                  color: color),
-                              title: Text(a),
-                              dense: true,
-                            ),
-                          );
-                        }),
-                        const SizedBox(height: 12),
-                      ],
-                    ],
+                    _chartCard(ventasColor, AppVisuals.tertiaryAccent(colorScheme)),
+                    const SizedBox(height: 16),
                     LayoutBuilder(
                       builder: (context, constraints) {
                         final w = constraints.maxWidth;
@@ -556,236 +456,95 @@ class _DashboardPageState extends State<DashboardPage> {
                           childAspectRatio: aspect,
                           children: [
                         _statCard(
-                          titulo: 'Productos',
-                          valor: '$totalProductos',
-                          icono: Icons.inventory_2_rounded,
-                          color: productosColor,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ProductosPage(),
-                              ),
-                            ).then((_) => cargar());
-                          },
-                        ),
-                        _statCard(
-                          titulo: 'Clientes',
-                          valor: '$totalClientes',
-                          icono: Icons.groups_rounded,
-                          color: clientesColor,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ClientesPage(),
-                              ),
-                            ).then((_) => cargar());
-                          },
-                        ),
-                        _statCard(
-                          titulo: 'Remitos',
-                          valor: '$totalRemitos',
-                          icono: Icons.description_rounded,
-                          color: remitosColor,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const RemitosPage(),
-                              ),
-                            ).then((_) => cargar());
-                          },
-                        ),
-                        _statCard(
-                          titulo: 'Proveedores activos',
-                          valor: '$totalProveedores',
-                          icono: Icons.local_shipping_rounded,
-                          color: AppVisuals.info(colorScheme),
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ProveedoresPage(),
-                              ),
-                            ).then((_) => cargar());
-                          },
-                        ),
-                        _statCard(
                           titulo: 'Ventas del día',
                           valor: '\$${ventasHoy.toStringAsFixed(0)}',
                           icono: Icons.today_rounded,
                           color: ventasColor,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const VentasPage(),
-                              ),
-                            ).then((_) => cargar());
-                          },
+                          onTap: () => _irA('Ventas / Facturas'),
                         ),
                         _statCard(
                           titulo: 'Ventas del mes',
                           valor: '\$${ventasMes.toStringAsFixed(0)}',
                           icono: Icons.calendar_month_rounded,
                           color: ventasColor,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const VentasPage(),
-                              ),
-                            ).then((_) => cargar());
-                          },
-                        ),
-                        _statCard(
-                          titulo: 'Compras del mes',
-                          valor: '\$${comprasMes.toStringAsFixed(0)}',
-                          icono: Icons.shopping_cart_rounded,
-                          color: stockColor,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ComprasPage(),
-                              ),
-                            ).then((_) => cargar());
-                          },
-                        ),
-                        _statCard(
-                          titulo: 'Productos críticos',
-                          valor: '$productosCriticos',
-                          icono: Icons.warning_amber_rounded,
-                          color: sinStockColor,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ProductosPage(
-                                  soloStockBajoInicial: true,
-                                ),
-                              ),
-                            ).then((_) => cargar());
-                          },
-                        ),
-                        _statCard(
-                          titulo: 'Productos sin stock',
-                          valor: '$productosSinStock',
-                          icono: Icons.remove_shopping_cart_rounded,
-                          color: sinStockColor,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ProductosPage(
-                                  soloSinStockInicial: true,
-                                ),
-                              ),
-                            ).then((_) => cargar());
-                          },
+                          onTap: () => _irA('Ventas / Facturas'),
                         ),
                         _statCard(
                           titulo: 'Ganancia del mes',
                           valor: '\$${gananciaMes.toStringAsFixed(0)}',
                           icono: Icons.trending_up_rounded,
                           color: AppVisuals.success(colorScheme),
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const VentasPage(),
-                              ),
-                            ).then((_) => cargar());
-                          },
+                          onTap: () => _irA('Ventas / Facturas'),
                         ),
                         _statCard(
                           titulo: 'Ganancia total',
                           valor: '\$${gananciaTotal.toStringAsFixed(0)}',
                           icono: Icons.savings_rounded,
                           color: AppVisuals.success(colorScheme),
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const VentasPage(),
-                              ),
-                            ).then((_) => cargar());
-                          },
-                        ),
-                        _statCard(
-                          titulo: 'Bajo margen (<15%)',
-                          valor: '$productosBajoMargen',
-                          icono: Icons.percent_rounded,
-                          color: AppVisuals.warning(colorScheme),
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ProductosPage(),
-                              ),
-                            ).then((_) => cargar());
-                          },
+                          onTap: () => _irA('Ventas / Facturas'),
                         ),
                         _statCard(
                           titulo: 'Total ventas',
                           valor: '\$${totalVentas.toStringAsFixed(0)}',
                           icono: Icons.payments_rounded,
                           color: ventasColor,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const VentasPage(),
-                              ),
-                            ).then((_) => cargar());
-                          },
+                          onTap: () => _irA('Ventas / Facturas'),
+                        ),
+                        _statCard(
+                          titulo: 'Compras del mes',
+                          valor: '\$${comprasMes.toStringAsFixed(0)}',
+                          icono: Icons.shopping_cart_rounded,
+                          color: stockColor,
+                          onTap: () => _irA('Compras'),
+                        ),
+                        _statCard(
+                          titulo: 'Valor del stock',
+                          valor: '\$${valorStock.toStringAsFixed(0)}',
+                          icono: Icons.warehouse_rounded,
+                          color: stockColor,
+                          onTap: () => _irA('Productos'),
+                        ),
+                        _statCard(
+                          titulo: 'Bajo margen (<15%)',
+                          valor: '$productosBajoMargen',
+                          icono: Icons.percent_rounded,
+                          color: AppVisuals.warning(colorScheme),
+                          onTap: () => _irA('Productos'),
+                        ),
+                        _statCard(
+                          titulo: 'Productos',
+                          valor: '$totalProductos',
+                          icono: Icons.inventory_2_rounded,
+                          color: productosColor,
+                          onTap: () => _irA('Productos'),
+                        ),
+                        _statCard(
+                          titulo: 'Clientes',
+                          valor: '$totalClientes',
+                          icono: Icons.groups_rounded,
+                          color: clientesColor,
+                          onTap: () => _irA('Clientes'),
+                        ),
+                        _statCard(
+                          titulo: 'Remitos',
+                          valor: '$totalRemitos',
+                          icono: Icons.description_rounded,
+                          color: remitosColor,
+                          onTap: () => _irA('Remitos'),
+                        ),
+                        _statCard(
+                          titulo: 'Proveedores',
+                          valor: '$totalProveedores',
+                          icono: Icons.local_shipping_rounded,
+                          color: AppVisuals.info(colorScheme),
+                          onTap: () => _irA('Proveedores'),
                         ),
                       ],
                         );
                       },
                     ),
                     const SizedBox(height: 20),
-                    Card(
-                      elevation: 3,
-                      child: ListTile(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const ProductosPage(
-                                ordenarPorValorStockInicial: true,
-                              ),
-                            ),
-                          ).then((_) => cargar());
-                        },
-                        leading: CircleAvatar(
-                          backgroundColor: stockColor.withValues(alpha: .15),
-                          child: Icon(Icons.warehouse_rounded, color: stockColor),
-                        ),
-                        title: const Text('Valor del stock'),
-                        subtitle: const Text(
-                          'Productos que forman el monto (precio × cantidad)',
-                        ),
-                        trailing: Text(
-                          '\$${valorStock.toStringAsFixed(0)}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
-                            color: stockColor,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    _chartCard(ventasColor, AppVisuals.tertiaryAccent(colorScheme)),
-                    const SizedBox(height: 20),
-                    Text(
-                      'Top 5 productos más vendidos',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    const ErpSectionHeader(title: 'Top productos más vendidos'),
                     const SizedBox(height: 8),
                     if (productosTop.isEmpty)
                       const Card(child: ListTile(title: Text('Sin ventas registradas')))
@@ -801,23 +560,11 @@ class _DashboardPageState extends State<DashboardPage> {
                               '\$${((producto['totalMonto'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
                           icono: Icons.sell_rounded,
                           color: topProductosColor,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ProductosPage(),
-                              ),
-                            ).then((_) => cargar());
-                          },
+                          onTap: () => _irA('Productos'),
                         ),
                       ),
                     const SizedBox(height: 20),
-                    Text(
-                      'Top 5 clientes',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    const ErpSectionHeader(title: 'Top clientes'),
                     const SizedBox(height: 8),
                     if (clientesTop.isEmpty)
                       const Card(child: ListTile(title: Text('Sin clientes con compras')))
@@ -831,16 +578,20 @@ class _DashboardPageState extends State<DashboardPage> {
                               '\$${((cliente['totalCompras'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
                           icono: Icons.workspace_premium_rounded,
                           color: topClientesColor,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ClientesPage(),
-                              ),
-                            ).then((_) => cargar());
-                          },
+                          onTap: () => _irA('Clientes'),
                         ),
                       ),
+                    if (resumenCc != null) ...[
+                      const SizedBox(height: 20),
+                      Text(
+                        'Cuentas por cobrar',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _cuentasPorCobrarCard(colorScheme, resumenCc!),
+                    ],
                     if (bajoMargen.isNotEmpty) ...[
                       const SizedBox(height: 20),
                       Text(
@@ -853,14 +604,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       ...bajoMargen.map(
                         (p) => Card(
                           child: ListTile(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const ProductosPage(),
-                                ),
-                              ).then((_) => cargar());
-                            },
+                            onTap: () => _irA('Productos'),
                             leading: CircleAvatar(
                               backgroundColor:
                                   AppVisuals.warning(colorScheme).withValues(alpha: .15),
@@ -891,14 +635,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       ...sinStock.map(
                         (p) => Card(
                           child: ListTile(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const ProductosPage(),
-                                ),
-                              ).then((_) => cargar());
-                            },
+                            onTap: () => _irA('Productos'),
                             leading: CircleAvatar(
                               backgroundColor: sinStockColor.withValues(alpha: .15),
                               child: Icon(

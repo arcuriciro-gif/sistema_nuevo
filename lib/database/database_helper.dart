@@ -105,7 +105,7 @@ class DatabaseHelper {
     try {
       final db = await openDatabase(
         path,
-        version: 29,
+        version: 32,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -118,7 +118,7 @@ class DatabaseHelper {
       await _cuarentenaDb(path);
       final db = await openDatabase(
         path,
-        version: 29,
+        version: 32,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -294,6 +294,9 @@ CREATE TABLE comparacion(
     await _crearTablasSyncCertificable(db);
     await _crearTablasDominioTransaccional(db);
     await _crearTablasIntegridadV29(db);
+    await _crearTablaCrmSeguimientos(db);
+    await _crearTablaWaMensajesLog(db);
+    await _crearTablaWaCatalogItems(db);
     await _migrarSyncCompletoV21(db);
     await _crearIndices(db);
   }
@@ -1067,6 +1070,15 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 29) {
       await _crearTablasIntegridadV29(db);
     }
+    if (oldVersion < 30) {
+      await _crearTablaCrmSeguimientos(db);
+    }
+    if (oldVersion < 31) {
+      await _crearTablaWaMensajesLog(db);
+    }
+    if (oldVersion < 32) {
+      await _crearTablaWaCatalogItems(db);
+    }
   }
 
   /// Capacidad 8: alarmas de reconciliación stock / CC.
@@ -1351,6 +1363,78 @@ CREATE TABLE IF NOT EXISTS comentarios_internos(
     );
   }
 
+  /// CRM Lite: agenda local de seguimientos (sin sync / outbox).
+  Future<void> _crearTablaCrmSeguimientos(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS crm_seguimientos(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clienteId INTEGER NOT NULL,
+  clienteNombre TEXT NOT NULL DEFAULT '',
+  titulo TEXT NOT NULL,
+  nota TEXT DEFAULT '',
+  tipo TEXT DEFAULT 'otro',
+  fechaVencimiento TEXT NOT NULL,
+  estado TEXT DEFAULT 'pendiente',
+  creadoEn TEXT NOT NULL,
+  completadoEn TEXT DEFAULT ''
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_crm_seg_estado_fecha '
+      'ON crm_seguimientos(estado, fechaVencimiento)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_crm_seg_cliente '
+      'ON crm_seguimientos(clienteId)',
+    );
+  }
+
+  /// Plugin WhatsApp: log local de envíos (sin sync).
+  Future<void> _crearTablaWaMensajesLog(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS wa_mensajes_log(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clienteId INTEGER,
+  telefono TEXT NOT NULL,
+  cuerpo TEXT NOT NULL DEFAULT '',
+  modo TEXT NOT NULL DEFAULT 'deeplink',
+  estado TEXT NOT NULL DEFAULT '',
+  error TEXT DEFAULT '',
+  waMessageId TEXT DEFAULT '',
+  fecha TEXT NOT NULL
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_wa_log_fecha '
+      'ON wa_mensajes_log(fecha)',
+    );
+  }
+
+  /// Plugin WhatsApp: estado local de sync de catálogo Commerce (sin sync nube).
+  Future<void> _crearTablaWaCatalogItems(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS wa_catalog_items(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  productoId INTEGER,
+  codigo TEXT NOT NULL UNIQUE,
+  retailerId TEXT NOT NULL,
+  metaProductId TEXT DEFAULT '',
+  titulo TEXT DEFAULT '',
+  precio REAL DEFAULT 0,
+  currency TEXT DEFAULT 'ARS',
+  imageUrl TEXT DEFAULT '',
+  estado TEXT DEFAULT '',
+  error TEXT DEFAULT '',
+  creadoEn TEXT,
+  actualizadoEn TEXT
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_wa_catalog_estado '
+      'ON wa_catalog_items(estado)',
+    );
+  }
+
   Future<void> cerrar() async {
     final db = _database;
     if (db != null && db.isOpen) {
@@ -1360,5 +1444,5 @@ CREATE TABLE IF NOT EXISTS comentarios_internos(
   }
 
   /// Versión de schema declarada por la app (Capacidad 5 / panel técnico).
-  static const int schemaVersion = 29;
+  static const int schemaVersion = 32;
 }

@@ -44,9 +44,11 @@ PreferredSizeWidget? buildModuleAppBar(
   if (embedded) {
     final acts = actions ?? const <Widget>[];
     if (acts.isEmpty && bottom == null) return null;
+    final actionsH = acts.isEmpty ? 0.0 : 40.0;
     return PreferredSize(
-      preferredSize:
-          Size.fromHeight(bottom == null ? 40 : 40 + bottom.preferredSize.height),
+      preferredSize: Size.fromHeight(
+        actionsH + (bottom?.preferredSize.height ?? 0),
+      ),
       child: Material(
         color: Theme.of(context).colorScheme.surface,
         child: SafeArea(
@@ -54,16 +56,17 @@ PreferredSizeWidget? buildModuleAppBar(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(
-                height: 40,
-                child: Row(
-                  children: [
-                    const SizedBox(width: 4),
-                    ...acts,
-                    const Spacer(),
-                  ],
+              if (acts.isNotEmpty)
+                SizedBox(
+                  height: 40,
+                  child: Row(
+                    children: [
+                      const Spacer(),
+                      ...acts,
+                      const SizedBox(width: 4),
+                    ],
+                  ),
                 ),
-              ),
               ?bottom,
             ],
           ),

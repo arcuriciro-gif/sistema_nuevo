@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'app_tokens.dart';
+
 class AppTheme {
   static const List<Color> coloresDisponibles = [
-    Color(0xFFFF7A00), // Naranja Tata
+    AppTokens.brandOrange,
     Color(0xFFFF9E1B),
     Color(0xFFFFC166),
     Color(0xFF6B7280), // Gris

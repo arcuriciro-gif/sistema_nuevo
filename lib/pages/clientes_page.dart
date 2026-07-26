@@ -9,6 +9,7 @@ import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/media_avatar.dart';
 import '../widgets/compartir_chat_dialog.dart';
+import '../widgets/cliente_acciones_crm.dart';
 import '../widgets/comentarios_internos_sheet.dart';
 import '../widgets/cobrar_dialog.dart';
 import 'cliente_form_page.dart';
@@ -185,7 +186,7 @@ class _ClientesPageState extends State<ClientesPage> {
                 hintText: "Buscar cliente...",
                 prefixIcon: const Icon(Icons.search),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12),
               ),
@@ -305,6 +306,11 @@ class _ClientesPageState extends State<ClientesPage> {
                                               entidadId: '${c.id}',
                                               titulo: c.nombreCompleto,
                                             );
+                                          case 'wa':
+                                            await ClienteAccionesCrm.abrirWhatsApp(
+                                              context,
+                                              c,
+                                            );
                                           case 'share':
                                             await showCompartirEnChatDialog(
                                               context,
@@ -359,6 +365,10 @@ class _ClientesPageState extends State<ClientesPage> {
                                           const PopupMenuItem(
                                             value: 'coment',
                                             child: Text('Comentarios'),
+                                          ),
+                                          const PopupMenuItem(
+                                            value: 'wa',
+                                            child: Text('WhatsApp'),
                                           ),
                                           const PopupMenuItem(
                                             value: 'share',

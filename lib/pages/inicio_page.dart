@@ -1,26 +1,34 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../services/analytics_service.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
-import '../services/cliente_service.dart';
 import '../services/compra_service.dart';
 import '../services/cuenta_corriente_service.dart';
+import '../services/crm_reminder_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
+import '../theme/app_tokens.dart';
 import '../theme/module_app_bar.dart';
-import '../widgets/media_avatar.dart';
-import 'calculadora_page.dart';
-import 'clientes_deudores_page.dart';
-import 'clientes_page.dart';
-import 'compras_page.dart';
-import 'productos_page.dart';
-import 'ventas_page.dart';
-import 'ventas_totales_page.dart';
+import '../widgets/erp/erp_kpi_tile.dart';
+import '../widgets/erp/erp_quick_action_bar.dart';
+import '../widgets/erp/erp_section_header.dart';
+import '../widgets/shell/shell_sync_badge.dart';
 
+/// Centro de Operaciones: info útil para empezar el día (sin gráficos grandes).
 class InicioPage extends StatefulWidget {
-  const InicioPage({super.key});
+  const InicioPage({
+    super.key,
+    this.onIrA,
+    this.onBuscar,
+    this.onEscanear,
+  });
+
+  final void Function(String tituloModulo)? onIrA;
+  final VoidCallback? onBuscar;
+  final VoidCallback? onEscanear;
 
   @override
   State<InicioPage> createState() => _InicioPageState();
@@ -28,489 +36,391 @@ class InicioPage extends StatefulWidget {
 
 class _InicioPageState extends State<InicioPage> {
   final _productoService = ProductoService();
-  final _clienteService = ClienteService();
   final _remitoService = RemitoService();
   final _compraService = CompraService();
   final _ccService = CuentaCorrienteService();
 
-  int _totalProductos = 0;
-  int _stockTotal = 0;
-  int _sinStock = 0;
-  int _conStock = 0;
-  int _totalClientes = 0;
-  int _totalVentasDocs = 0;
+  double _ventasDia = 0;
   double _ventasMes = 0;
-  double _comprasMes = 0;
-  double _valorStock = 0;
-  ResumenCuentasCobrar? _resumenCc;
+  double _gananciaDia = 0;
+  int _sinStock = 0;
+  int _criticos = 0;
+  int _clientesDeuda = 0;
+  double _deudaTotal = 0;
+  int _agendaVencidos = 0;
+  int _agendaHoy = 0;
+  List<Map<String, dynamic>> _ultimosDocs = [];
+  List<Map<String, dynamic>> _actividad = [];
   bool _cargando = true;
 
   @override
   void initState() {
     super.initState();
-    DataRefreshHub.instance.addListener(_onDatosActualizados);
+    DataRefreshHub.instance.addListener(_onDatos);
     _cargar();
   }
 
-  void _onDatosActualizados() {
-    if (!mounted) return;
-    _cargar();
+  void _onDatos() {
+    if (mounted) _cargar();
   }
 
   @override
   void dispose() {
-    DataRefreshHub.instance.removeListener(_onDatosActualizados);
+    DataRefreshHub.instance.removeListener(_onDatos);
     super.dispose();
   }
 
   Future<void> _cargar() async {
-    setState(() => _cargando = true);
-    final productos = await _productoService.obtenerTodos();
-    final clientes = await _clienteService.obtenerTodos();
-    final docsVenta =
-        await AnalyticsService.instance.cantidadDocumentosVenta();
     final ahora = DateTime.now();
+    final inicioDia = DateTime(ahora.year, ahora.month, ahora.day);
     final inicioMes = DateTime(ahora.year, ahora.month, 1);
-    final ventasMes =
-        await _remitoService.totalVentasPorPeriodo(inicioMes, ahora);
-    final comprasMes =
-        await _compraService.totalComprasPorPeriodo(inicioMes, ahora);
+
+    final productos = await _productoService.obtenerTodos();
+    final ventasDia = await AnalyticsService.instance.ventasTotales(
+      desde: inicioDia,
+      hasta: ahora,
+    );
+    final ventasMes = await AnalyticsService.instance.ventasTotales(
+      desde: inicioMes,
+      hasta: ahora,
+    );
+    final gananciaDia = await AnalyticsService.instance.gananciaReal(
+      desde: inicioDia,
+      hasta: ahora,
+    );
     final resumenCc = await _ccService.resumenDashboard();
+    final docs = await AnalyticsService.instance.listarDocumentosVenta();
+    final compras = await _compraService.obtenerTodasConProveedor();
+
+    final sinStock = productos.where((p) => p.stock <= 0).length;
+    final criticos = productos.where((p) => p.stock > 0 && p.stock <= 5).length;
+
+    final actividad = <Map<String, dynamic>>[];
+    for (final d in docs.take(8)) {
+      actividad.add({
+        'tipo': 'venta',
+        'titulo': 'Venta ${d['numero'] ?? ''}',
+        'detalle': d['clienteNombre'] ?? d['tipo'] ?? '',
+        'cuando': d['fecha'] ?? d['fechaCreacion'],
+        'monto': d['total'],
+      });
+    }
+    for (final c in compras.take(5)) {
+      actividad.add({
+        'tipo': 'compra',
+        'titulo': 'Compra ${c['numero'] ?? ''}',
+        'detalle': c['proveedorNombreActual'] ?? 'Proveedor',
+        'cuando': c['fecha'] ?? c['fechaCreacion'],
+        'monto': c['total'],
+      });
+    }
+    actividad.sort((a, b) {
+      final da = DateTime.tryParse('${a['cuando']}') ?? DateTime(1970);
+      final db = DateTime.tryParse('${b['cuando']}') ?? DateTime(1970);
+      return db.compareTo(da);
+    });
+
+    // Remitos recientes también en “últimos movimientos”.
+    final remitos = await _remitoService.obtenerTodosConCliente();
+    await CrmReminderService.instance.refrescarConteos();
+    final agendaVencidos = CrmReminderService.instance.vencidos;
+    final agendaHoy = CrmReminderService.instance.hoy;
 
     if (!mounted) return;
     setState(() {
-      _totalProductos = productos.length;
-      _stockTotal = productos.fold(0, (s, p) => s + p.stock);
-      _sinStock = productos.where((p) => p.stock == 0).length;
-      _conStock = productos.where((p) => p.stock > 0).length;
-      _valorStock = productos.fold(0.0, (s, p) => s + p.precio * p.stock);
-      _totalClientes = clientes.length;
-      _totalVentasDocs = docsVenta;
+      _ventasDia = ventasDia;
       _ventasMes = ventasMes;
-      _comprasMes = comprasMes;
-      _resumenCc = resumenCc;
+      _gananciaDia = gananciaDia;
+      _sinStock = sinStock;
+      _criticos = criticos;
+      _clientesDeuda = resumenCc.clientesConDeuda;
+      _deudaTotal = resumenCc.montoTotalPendiente;
+      _agendaVencidos = agendaVencidos;
+      _agendaHoy = agendaHoy;
+      _ultimosDocs = docs.take(6).toList();
+      _actividad = [
+        {
+          'tipo': 'sync',
+          'titulo': FirestoreSyncService.instance.syncStatusLabel,
+          'detalle': FirestoreSyncService.instance.syncStatusDetail ??
+              'Estado de sincronización',
+          'cuando': DateTime.now().toIso8601String(),
+        },
+        ...actividad.take(10),
+        ...remitos.take(3).map(
+              (r) => {
+                'tipo': 'remito',
+                'titulo': 'Remito ${r['numero'] ?? ''}',
+                'detalle': r['clienteNombre'] ?? '',
+                'cuando': r['fecha'] ?? r['fechaCreacion'],
+                'monto': r['total'],
+              },
+            ),
+      ];
       _cargando = false;
     });
   }
 
-  static String _fmt(num v) {
-    if (v >= 1000000) return '${(v / 1000000).toStringAsFixed(1)}M';
-    if (v >= 1000) {
-      final s = v.toStringAsFixed(0);
-      final buf = StringBuffer();
-      for (int i = 0; i < s.length; i++) {
-        if (i > 0 && (s.length - i) % 3 == 0) buf.write('.');
-        buf.write(s[i]);
-      }
-      return buf.toString();
+  static String _money(num v) {
+    final s = v.toStringAsFixed(0);
+    final buf = StringBuffer();
+    for (var i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 == 0) buf.write('.');
+      buf.write(s[i]);
     }
-    return v.toStringAsFixed(0);
+    return '\$${buf.toString()}';
   }
+
+  void _go(String title) => widget.onIrA?.call(title);
 
   @override
   Widget build(BuildContext context) {
-    final branding = BrandingService.instance;
-    final userName =
-        AuthService.instance.currentUser?.nombre ?? 'Usuario';
     final cs = Theme.of(context).colorScheme;
-    final ahora = DateTime.now();
-    const meses = [
-      'enero',
-      'febrero',
-      'marzo',
-      'abril',
-      'mayo',
-      'junio',
-      'julio',
-      'agosto',
-      'septiembre',
-      'octubre',
-      'noviembre',
-      'diciembre',
-    ];
-    final fecha =
-        '${ahora.day} de ${meses[ahora.month - 1]} de ${ahora.year}';
+    final user = AuthService.instance.currentUser?.nombre ?? 'Usuario';
+    final marca = BrandingService.instance.nombre;
 
     return Scaffold(
-      appBar: buildModuleAppBar(
-        context,
-        title: 'Inicio',
-        actions: [
-          IconButton(
-            tooltip: 'Actualizar',
-            icon: const Icon(Icons.refresh_rounded),
-            onPressed: _cargar,
-          ),
-        ],
-      ),
-      backgroundColor: cs.surface,
+      appBar: buildModuleAppBar(context, title: 'Centro de operaciones'),
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _cargar,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // ── Encabezado de bienvenida ─────────────────────────────
-                    Row(
-                      children: [
-                        MediaAvatar(
-                          path: branding.logoUiPath.isNotEmpty
-                              ? branding.logoUiPath
-                              : branding.imagenUiPath,
-                          radius: 24,
-                          fallbackLetter: branding.nombre.isNotEmpty
-                              ? branding.nombre[0]
-                              : 'T',
-                          backgroundColor: cs.primaryContainer,
-                          foregroundColor: cs.onPrimaryContainer,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Hola, $user',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .headlineSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            Text(
+                              '$marca · listo para vender',
+                              style: TextStyle(color: cs.onSurfaceVariant),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                      ),
+                      const ShellSyncBadge(),
+                    ],
+                  ),
+                  if (_agendaVencidos > 0 || _agendaHoy > 0) ...[
+                    const SizedBox(height: 12),
+                    Material(
+                      color: (_agendaVencidos > 0
+                              ? AppTokens.danger
+                              : AppTokens.syncWarn)
+                          .withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+                      child: InkWell(
+                        onTap: () => _go('Seguimiento'),
+                        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          child: Row(
                             children: [
-                              Text(
-                                branding.nombre,
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
-                                  color: cs.primary,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                              Icon(
+                                Icons.event_available_rounded,
+                                color: _agendaVencidos > 0
+                                    ? AppTokens.danger
+                                    : AppTokens.syncWarn,
                               ),
-                              Text(
-                                'Bienvenido, $userName',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: cs.onSurface,
-                                ),
-                              ),
-                              Text(
-                                fecha,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: cs.onSurfaceVariant,
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _agendaVencidos > 0
+                                      ? 'Agenda: $_agendaVencidos vencido(s)'
+                                          '${_agendaHoy > 0 ? ' · $_agendaHoy para hoy' : ''}'
+                                      : 'Agenda: $_agendaHoy seguimiento(s) para hoy',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
+                              const Icon(Icons.chevron_right_rounded),
                             ],
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    // ── Calculadora rápida ───────────────────────────────────
-                    Card(
-                      clipBehavior: Clip.antiAlias,
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        leading: CircleAvatar(
-                          backgroundColor: cs.primaryContainer,
-                          child: Icon(
-                            Icons.calculate_rounded,
-                            color: cs.primary,
-                          ),
-                        ),
-                        title: const Text(
-                          'Calculadora',
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        subtitle: const Text(
-                          'Sumas, restos, %, cambio rápido en mostrador',
-                        ),
-                        trailing: const Icon(Icons.chevron_right_rounded),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const CalculadoraPage(),
-                            ),
-                          );
-                        },
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    // ── KPI Cards ────────────────────────────────────────────
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final cols = constraints.maxWidth < 500 ? 2 : 4;
-                        return GridView.count(
-                          crossAxisCount: cols,
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          crossAxisSpacing: 10,
-                          mainAxisSpacing: 10,
-                          childAspectRatio: cols == 2 ? 1.8 : 2.2,
-                          children: [
-                            _KpiCard(
-                              title: 'Productos',
-                              value: _fmt(_totalProductos),
-                              icon: Icons.inventory_2_rounded,
-                              color: const Color(0xFF8B5CF6),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const ProductosPage(),
-                                  ),
-                                ).then((_) => _cargar());
-                              },
-                            ),
-                            _KpiCard(
-                              title: 'Stock total',
-                              value: _fmt(_stockTotal),
-                              icon: Icons.layers_rounded,
-                              color: const Color(0xFF22C55E),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const ProductosPage(
-                                      soloConStockInicial: true,
-                                    ),
-                                  ),
-                                ).then((_) => _cargar());
-                              },
-                            ),
-                            _KpiCard(
-                              title: 'Valor stock',
-                              value: '\$${_fmt(_valorStock)}',
-                              icon: Icons.attach_money_rounded,
-                              color: const Color(0xFF3B82F6),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const ProductosPage(
-                                      ordenarPorValorStockInicial: true,
-                                    ),
-                                  ),
-                                ).then((_) => _cargar());
-                              },
-                            ),
-                            _KpiCard(
-                              title: 'Sin stock',
-                              value: _fmt(_sinStock),
-                              icon: Icons.warning_amber_rounded,
-                              color: const Color(0xFFEF4444),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const ProductosPage(
-                                      soloSinStockInicial: true,
-                                    ),
-                                  ),
-                                ).then((_) => _cargar());
-                              },
-                            ),
-                            _KpiCard(
-                              title: 'Con stock',
-                              value: _fmt(_conStock),
-                              icon: Icons.check_circle_outline_rounded,
-                              color: const Color(0xFF10B981),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const ProductosPage(
-                                      soloConStockInicial: true,
-                                    ),
-                                  ),
-                                ).then((_) => _cargar());
-                              },
-                            ),
-                            _KpiCard(
-                              title: 'Clientes',
-                              value: _fmt(_totalClientes),
-                              icon: Icons.groups_rounded,
-                              color: const Color(0xFF0891B2),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const ClientesPage(),
-                                  ),
-                                ).then((_) => _cargar());
-                              },
-                            ),
-                            _KpiCard(
-                              title: 'Ventas totales',
-                              value: _fmt(_totalVentasDocs),
-                              icon: Icons.receipt_long_rounded,
-                              color: const Color(0xFFF59E0B),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const VentasTotalesPage(),
-                                  ),
-                                ).then((_) => _cargar());
-                              },
-                            ),
-                            _KpiCard(
-                              title: 'Ventas del mes',
-                              value: '\$${_fmt(_ventasMes)}',
-                              icon: Icons.payments_rounded,
-                              color: const Color(0xFF16A34A),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const VentasPage(),
-                                  ),
-                                ).then((_) => _cargar());
-                              },
-                            ),
-                            _KpiCard(
-                              title: 'Compras del mes',
-                              value: '\$${_fmt(_comprasMes)}',
-                              icon: Icons.shopping_cart_rounded,
-                              color: const Color(0xFF7C3AED),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const ComprasPage(),
-                                  ),
-                                ).then((_) => _cargar());
-                              },
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                    if (_resumenCc != null) ...[
-                      const SizedBox(height: 16),
-                      Card(
-                        clipBehavior: Clip.antiAlias,
-                        child: InkWell(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ClientesDeudoresPage(),
-                              ),
-                            ).then((_) => _cargar());
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Cuentas por cobrar',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  '\$${_fmt(_resumenCc!.montoTotalPendiente)}',
-                                  style: TextStyle(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                    color: cs.error,
-                                  ),
-                                ),
-                                Text('${_resumenCc!.clientesConDeuda} clientes'),
-                                Text(
-                                  '${_resumenCc!.ventasPendientes} ventas pendientes',
-                                ),
-                                const SizedBox(height: 8),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Text(
-                                    'Ver detalle →',
-                                    style: TextStyle(
-                                      color: cs.primary,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
+                  ],
+                  const SizedBox(height: 16),
+                  ErpQuickActionBar(
+                    actions: [
+                      ErpQuickAction(
+                        label: 'Nueva venta',
+                        icon: Icons.point_of_sale_rounded,
+                        onTap: () => _go('Venta Rápida'),
+                      ),
+                      ErpQuickAction(
+                        label: 'Producto',
+                        icon: Icons.add_box_outlined,
+                        onTap: () => _go('Productos'),
+                      ),
+                      ErpQuickAction(
+                        label: 'Cliente',
+                        icon: Icons.person_add_alt_1_rounded,
+                        onTap: () => _go('Clientes'),
+                      ),
+                      ErpQuickAction(
+                        label: 'Seguimiento',
+                        icon: Icons.handshake_rounded,
+                        onTap: () => _go('Seguimiento'),
+                      ),
+                      ErpQuickAction(
+                        label: 'Compra',
+                        icon: Icons.shopping_cart_rounded,
+                        onTap: () => _go('Compras'),
+                      ),
+                      ErpQuickAction(
+                        label: 'Buscar',
+                        icon: Icons.search_rounded,
+                        onTap: widget.onBuscar,
+                      ),
+                      ErpQuickAction(
+                        label: 'Escanear',
+                        icon: Icons.qr_code_scanner_rounded,
+                        onTap: widget.onEscanear,
                       ),
                     ],
-                    const SizedBox(height: 8),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 16),
+                  const ErpSectionHeader(title: 'Hoy'),
+                  const SizedBox(height: 8),
+                  LayoutBuilder(
+                    builder: (context, c) {
+                      final cols = c.maxWidth >= 900
+                          ? 4
+                          : c.maxWidth >= 600
+                              ? 2
+                              : 2;
+                      return GridView.count(
+                        crossAxisCount: cols,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        mainAxisSpacing: 10,
+                        crossAxisSpacing: 10,
+                        childAspectRatio: 1.55,
+                        children: [
+                          ErpKpiTile(
+                            title: 'Ventas del día',
+                            value: _money(_ventasDia),
+                            icon: Icons.payments_rounded,
+                            accent: cs.primary,
+                            onTap: () => _go('Ventas / Facturas'),
+                          ),
+                          ErpKpiTile(
+                            title: 'Ganancia estimada',
+                            value: _money(_gananciaDia),
+                            icon: Icons.trending_up_rounded,
+                            accent: Colors.green.shade700,
+                            onTap: () => _go('Dashboard'),
+                          ),
+                          ErpKpiTile(
+                            title: 'Ventas del mes',
+                            value: _money(_ventasMes),
+                            icon: Icons.calendar_month_rounded,
+                            accent: cs.secondary,
+                            onTap: () => _go('Dashboard'),
+                          ),
+                          ErpKpiTile(
+                            title: 'Clientes con deuda',
+                            value: '$_clientesDeuda',
+                            icon: Icons.account_balance_wallet_rounded,
+                            accent: Colors.red.shade700,
+                            subtitle: _money(_deudaTotal),
+                            onTap: () => _go('Cuenta corriente'),
+                          ),
+                          ErpKpiTile(
+                            title: 'Sin stock',
+                            value: '$_sinStock',
+                            icon: Icons.inventory_2_outlined,
+                            accent: Colors.orange.shade800,
+                            onTap: () => _go('Stock'),
+                          ),
+                          ErpKpiTile(
+                            title: 'Productos críticos',
+                            value: '$_criticos',
+                            icon: Icons.warning_amber_rounded,
+                            accent: Colors.deepOrange,
+                            onTap: () => _go('Productos'),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  const ErpSectionHeader(title: 'Últimos movimientos'),
+                  const SizedBox(height: 8),
+                  if (_ultimosDocs.isEmpty)
+                    Text(
+                      'Sin ventas recientes',
+                      style: TextStyle(color: cs.onSurfaceVariant),
+                    )
+                  else
+                    ..._ultimosDocs.map(
+                      (d) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          backgroundColor: cs.primaryContainer,
+                          child: Icon(Icons.receipt_long_rounded,
+                              color: cs.onPrimaryContainer, size: 18),
+                        ),
+                        title: Text('${d['numero'] ?? 'Doc'}'),
+                        subtitle: Text('${d['clienteNombre'] ?? ''}'),
+                        trailing: Text(
+                          _money((d['total'] as num?) ?? 0),
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        onTap: () => _go('Ventas / Facturas'),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  const ErpSectionHeader(title: 'Centro de actividad'),
+                  const SizedBox(height: 8),
+                  ..._actividad.take(12).map((a) {
+                    final icon = switch (a['tipo']) {
+                      'compra' => Icons.shopping_cart_outlined,
+                      'remito' => Icons.local_shipping_outlined,
+                      'sync' => Icons.sync_rounded,
+                      _ => Icons.point_of_sale_outlined,
+                    };
+                    final destino = switch (a['tipo']) {
+                      'compra' => 'Compras',
+                      'remito' => 'Remitos',
+                      'venta' => 'Ventas / Facturas',
+                      _ => null,
+                    };
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      elevation: 0,
+                      color: cs.surfaceContainerHighest.withValues(alpha: 0.45),
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(icon, color: cs.primary),
+                        title: Text('${a['titulo']}'),
+                        subtitle: Text('${a['detalle'] ?? ''}'),
+                        trailing: a['monto'] == null
+                            ? null
+                            : Text(_money((a['monto'] as num?) ?? 0)),
+                        onTap: destino == null ? null : () => _go(destino),
+                      ),
+                    );
+                  }),
+                ],
               ),
             ),
     );
   }
-}
 
-class _KpiCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-  final VoidCallback? onTap;
-
-  const _KpiCard({
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Card(
-      margin: EdgeInsets.zero,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      title,
-                      style:
-                          TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      value,
-                      style: const TextStyle(
-                          fontSize: 20, fontWeight: FontWeight.bold),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              CircleAvatar(
-                radius: 17,
-                backgroundColor: color.withValues(alpha: 0.15),
-                child: Icon(icon, color: color, size: 18),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }

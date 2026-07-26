@@ -11,7 +11,15 @@ import 'kardex_page.dart';
 class BusquedaGlobalPage extends StatefulWidget {
   final String? consultaInicial;
 
-  const BusquedaGlobalPage({super.key, this.consultaInicial});
+  /// Si se provee, al tocar un resultado (excepto Productos→Kardex)
+  /// navega al módulo del shell en lugar del diálogo crudo.
+  final void Function(String moduloShell)? onIrAModulo;
+
+  const BusquedaGlobalPage({
+    super.key,
+    this.consultaInicial,
+    this.onIrAModulo,
+  });
 
   @override
   State<BusquedaGlobalPage> createState() => _BusquedaGlobalPageState();
@@ -22,6 +30,7 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
   final Map<String, List<Map<String, dynamic>>> _resultados = {
     'Productos': [],
     'Clientes': [],
+    'Ventas': [],
     'Proveedores': [],
     'Remitos': [],
     'Compras': [],
@@ -112,6 +121,20 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
       ''',
       likeArgs(),
     );
+    final ventas = await db.rawQuery(
+      '''
+      SELECT v.*, c.nombre AS clienteNombre, c.apellido AS clienteApellido
+      FROM ventas v
+      LEFT JOIN clientes c ON c.id = v.clienteId
+      WHERE ${likeClause('v.numero')}
+         OR ${likeClause('c.nombre')}
+         OR ${likeClause('c.apellido')}
+         OR ${likeClause('v.tipo')}
+      ORDER BY datetime(COALESCE(v.fechaCreacion, v.fecha)) DESC
+      LIMIT 10
+      ''',
+      [...likeArgs(), ...likeArgs(), ...likeArgs(), ...likeArgs()],
+    );
     final remitos = await db.rawQuery(
       '''
       SELECT r.*, c.nombre AS clienteNombre
@@ -137,6 +160,7 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
     setState(() {
       _resultados['Productos'] = productos;
       _resultados['Clientes'] = clientes;
+      _resultados['Ventas'] = ventas;
       _resultados['Proveedores'] = proveedores;
       _resultados['Remitos'] = remitos;
       _resultados['Compras'] = compras;
@@ -149,7 +173,22 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
     _debounce = Timer(const Duration(milliseconds: 150), () => _buscar(value));
   }
 
-  Future<void> _abrirResultado(String categoria, Map<String, dynamic> item) async {
+  String? _moduloShell(String categoria) {
+    return switch (categoria) {
+      'Clientes' => 'Clientes',
+      'Ventas' => 'Ventas / Facturas',
+      'Proveedores' => 'Proveedores',
+      'Remitos' => 'Remitos',
+      'Compras' => 'Compras',
+      'Productos' => 'Productos',
+      _ => null,
+    };
+  }
+
+  Future<void> _abrirResultado(
+    String categoria,
+    Map<String, dynamic> item,
+  ) async {
     if (categoria == 'Productos') {
       final producto = Producto.fromMap(item);
       await Navigator.push(
@@ -159,11 +198,23 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
       return;
     }
 
+    final go = widget.onIrAModulo;
+    final modulo = _moduloShell(categoria);
+    if (go != null && modulo != null) {
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      go(modulo);
+      return;
+    }
+
     final titulo = switch (categoria) {
       'Clientes' => (item['apellido'] ?? '').toString().isEmpty
           ? (item['nombre'] ?? 'Cliente').toString()
           : '${item['nombre']} ${item['apellido']}',
       'Proveedores' => (item['nombre'] ?? 'Proveedor').toString(),
+      'Ventas' =>
+        '${(item['tipo'] ?? 'Venta').toString().toUpperCase()} ${item['numero'] ?? ''}',
       'Remitos' => 'Remito ${item['numero'] ?? ''}',
       'Compras' => 'Compra ${item['numero'] ?? ''}',
       _ => categoria,
@@ -178,11 +229,16 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: item.entries
-                .where((entry) => entry.value != null && entry.value.toString().isNotEmpty)
-                .map((entry) => Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text('${entry.key}: ${entry.value}'),
-                    ))
+                .where(
+                  (entry) =>
+                      entry.value != null && entry.value.toString().isNotEmpty,
+                )
+                .map(
+                  (entry) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text('${entry.key}: ${entry.value}'),
+                  ),
+                )
                 .toList(),
           ),
         ),
@@ -209,7 +265,8 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
               onChanged: _onChanged,
               autofocus: true,
               decoration: InputDecoration(
-                hintText: 'Buscar productos, clientes, proveedores, remitos o compras...',
+                hintText:
+                    'Buscar productos, clientes, ventas, remitos, compras, proveedores...',
                 prefixIcon: const Icon(Icons.search_rounded),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -247,10 +304,16 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
                                     contentPadding: EdgeInsets.zero,
                                     title: Text(
                                       switch (entry.key) {
-                                        'Productos' => item['descripcion']?.toString() ?? '',
-                                        'Clientes' => item['nombreCompleto']?.toString() ??
-                                            '${item['nombre'] ?? ''} ${item['apellido'] ?? ''}'.trim(),
-                                        'Proveedores' => item['nombre']?.toString() ?? '',
+                                        'Productos' =>
+                                          item['descripcion']?.toString() ?? '',
+                                        'Clientes' =>
+                                          item['nombreCompleto']?.toString() ??
+                                              '${item['nombre'] ?? ''} ${item['apellido'] ?? ''}'
+                                                  .trim(),
+                                        'Proveedores' =>
+                                          item['nombre']?.toString() ?? '',
+                                        'Ventas' =>
+                                          '${item['tipo'] ?? 'venta'} ${item['numero'] ?? ''}',
                                         _ => item['numero']?.toString() ?? '',
                                       },
                                     ),
@@ -262,14 +325,22 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
                                           'CUIT: ${item['cuit'] ?? '-'} • Tel: ${item['telefono'] ?? '-'}',
                                         'Proveedores' =>
                                           'Tel: ${item['telefono'] ?? '-'} • Email: ${item['email'] ?? '-'}',
+                                        'Ventas' =>
+                                          'Cliente: ${'${item['clienteNombre'] ?? ''} ${item['clienteApellido'] ?? ''}'.trim().isEmpty ? 'Sin cliente' : '${item['clienteNombre'] ?? ''} ${item['clienteApellido'] ?? ''}'.trim()} • Total: \$${((item['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
                                         'Remitos' =>
                                           'Cliente: ${item['clienteNombre'] ?? 'Sin cliente'} • Total: \$${((item['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
                                         _ =>
                                           'Proveedor: ${item['proveedorNombre'] ?? 'Sin proveedor'} • Total: \$${((item['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
                                       },
                                     ),
-                                    trailing: const Icon(Icons.open_in_new_rounded),
-                                    onTap: () => _abrirResultado(entry.key, item),
+                                    trailing: Icon(
+                                      widget.onIrAModulo != null &&
+                                              entry.key != 'Productos'
+                                          ? Icons.arrow_forward_rounded
+                                          : Icons.open_in_new_rounded,
+                                    ),
+                                    onTap: () =>
+                                        _abrirResultado(entry.key, item),
                                   ),
                                 ),
                             ],

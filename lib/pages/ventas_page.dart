@@ -19,7 +19,7 @@ class VentasPage extends StatefulWidget {
 
   const VentasPage({
     super.key,
-    this.titulo = 'Ventas',
+    this.titulo = 'Ventas / Facturas',
     this.tipos,
   });
 
@@ -245,10 +245,12 @@ class _VentasPageState extends State<VentasPage> {
                 Expanded(
                   child: TextField(
                     controller: _buscarCtrl,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: 'Buscar por número o cliente...',
-                      prefixIcon: Icon(Icons.search),
-                      border: OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.search),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       isDense: true,
                     ),
                     onChanged: (_) => _aplicarFiltro(),
@@ -288,10 +290,10 @@ class _VentasPageState extends State<VentasPage> {
                       )
                     : ListView.builder(
                         padding: EdgeInsets.fromLTRB(
+                          12,
                           8,
-                          8,
-                          8,
-                          8 + MediaQuery.viewPaddingOf(context).bottom,
+                          12,
+                          80 + MediaQuery.viewPaddingOf(context).bottom,
                         ),
                         itemCount: _filtradas.length,
                         itemBuilder: (context, i) {
@@ -299,7 +301,6 @@ class _VentasPageState extends State<VentasPage> {
                           final colorTipo = _colorTipo(v.tipo, cs);
                           return Card(
                             margin: const EdgeInsets.symmetric(
-                              horizontal: 4,
                               vertical: 4,
                             ),
                             child: ListTile(

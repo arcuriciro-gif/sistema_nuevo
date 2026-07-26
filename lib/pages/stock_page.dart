@@ -310,7 +310,7 @@ class _StockPageState extends State<StockPage> {
                             hintText: 'Buscar movimiento...',
                             prefixIcon: const Icon(Icons.search),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(12),
                             ),
                           ),
                         ),
@@ -324,6 +324,10 @@ class _StockPageState extends State<StockPage> {
                                 ),
                               )
                             : ListView.builder(
+                                padding: EdgeInsets.only(
+                                  bottom: 80 +
+                                      MediaQuery.viewPaddingOf(context).bottom,
+                                ),
                                 itemCount: movimientosFiltrados.length,
                                 itemBuilder: (context, index) {
                                   final movimiento = movimientosFiltrados[index];
@@ -382,6 +386,10 @@ class _StockPageState extends State<StockPage> {
                           ),
                         )
                       : ListView.builder(
+                          padding: EdgeInsets.only(
+                            bottom:
+                                80 + MediaQuery.viewPaddingOf(context).bottom,
+                          ),
                           itemCount: alertas.length,
                           itemBuilder: (context, index) {
                             final producto = alertas[index];

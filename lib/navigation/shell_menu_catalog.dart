@@ -33,6 +33,8 @@ const List<ShellMenuEntry> kShellMenuCatalog = [
   ShellMenuEntry(id: 'compras|Compras', title: 'Compras', icon: Icons.shopping_cart_rounded),
   ShellMenuEntry(id: 'remitos|Remitos', title: 'Remitos', icon: Icons.description_rounded),
   ShellMenuEntry(id: 'clientes|Clientes', title: 'Clientes', icon: Icons.groups_rounded),
+  ShellMenuEntry(id: 'clientes|Seguimiento', title: 'Seguimiento', icon: Icons.handshake_rounded),
+  ShellMenuEntry(id: 'comunicaciones|WhatsApp Business', title: 'WhatsApp Business', icon: Icons.chat_rounded),
   ShellMenuEntry(id: 'clientes|Archivo PDF', title: 'Archivo PDF', icon: Icons.folder_shared_rounded),
   ShellMenuEntry(id: 'clientes|Cuenta corriente', title: 'Cuenta corriente', icon: Icons.account_balance_wallet_rounded),
   ShellMenuEntry(id: 'proveedores|Proveedores', title: 'Proveedores', icon: Icons.local_shipping_rounded),

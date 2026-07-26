@@ -5,6 +5,9 @@ import '../models/cliente.dart';
 import '../services/remito_service.dart';
 import '../theme/app_visuals.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/cliente_acciones_crm.dart';
+import '../widgets/comentarios_internos_sheet.dart';
+import '../widgets/crm_nuevo_seguimiento_sheet.dart';
 import '../widgets/foto_ampliada.dart';
 import '../widgets/media_avatar.dart';
 import 'cliente_form_page.dart';
@@ -116,6 +119,12 @@ class _ClienteDetallePageState extends State<ClienteDetallePage> {
         context,
         title: 'Ficha del cliente',
         actions: [
+          if (c.id != null)
+            ComentariosInternosButton(
+              entidadTipo: 'cliente',
+              entidadId: '${c.id}',
+              titulo: c.nombreCompleto,
+            ),
           if (AuthorizationService.instance.puede(
             AuthModules.clientes,
             AuthzAction.editar,
@@ -244,40 +253,44 @@ class _ClienteDetallePageState extends State<ClienteDetallePage> {
             ),
           ),
           const SizedBox(height: 12),
+          ClienteAccionesCrm(
+            cliente: c,
+            onCuentaCorriente: c.id == null
+                ? null
+                : () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => CuentaCorrienteClientePage(
+                          clienteId: c.id!,
+                          clienteNombre: c.nombreCompleto,
+                        ),
+                      ),
+                    );
+                  },
+            onHistorial: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ClienteHistorialPage(cliente: c),
+                ),
+              );
+              _cargarHistorial();
+            },
+          ),
+          const SizedBox(height: 8),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              FilledButton.tonalIcon(
-                onPressed: c.id == null
-                    ? null
-                    : () async {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => CuentaCorrienteClientePage(
-                              clienteId: c.id!,
-                              clienteNombre: c.nombreCompleto,
-                            ),
-                          ),
-                        );
-                      },
-                icon: const Icon(Icons.account_balance_rounded),
-                label: const Text('Cuenta corriente'),
-              ),
-              FilledButton.tonalIcon(
-                onPressed: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ClienteHistorialPage(cliente: c),
-                    ),
-                  );
-                  _cargarHistorial();
-                },
-                icon: const Icon(Icons.history_rounded),
-                label: const Text('Historial completo'),
-              ),
+              if (c.id != null)
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    await showNuevoSeguimientoSheet(context, cliente: c);
+                  },
+                  icon: const Icon(Icons.event_rounded),
+                  label: const Text('Programar seguimiento'),
+                ),
               if (AuthorizationService.instance.puede(
                 AuthModules.clientes,
                 AuthzAction.editar,
@@ -285,7 +298,7 @@ class _ClienteDetallePageState extends State<ClienteDetallePage> {
                 OutlinedButton.icon(
                   onPressed: _abrirEdicion,
                   icon: const Icon(Icons.edit_rounded),
-                  label: const Text('Editar'),
+                  label: const Text('Editar ficha'),
                 ),
             ],
           ),
