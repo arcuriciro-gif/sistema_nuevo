@@ -94,6 +94,38 @@ void main() {
       );
     });
 
+    test('purgeStuckStockOps ACK reclaim eternos', () async {
+      await SyncOutbox.instance.enqueueStockOp(
+        opId: 'op-stuck',
+        codigo: 'S',
+        delta: -1,
+      );
+      final db = await DatabaseHelper.instance.database;
+      await db.update(
+        'sync_outbox',
+        {
+          'attempts': 5,
+          'last_error': 'reclaimed_stale_inflight',
+        },
+        where: 'op_id = ?',
+        whereArgs: ['stock_op:op-stuck'],
+      );
+
+      final n = await SyncOutbox.instance.purgeStuckStockOps(
+        minAttempts: 2,
+        onlyLastErrorContains: 'reclaimed_stale_inflight',
+      );
+      expect(n, 1);
+      expect(
+        await SyncOutbox.instance.countByStatus(SyncOutboxStatus.acked),
+        1,
+      );
+      expect(
+        await SyncOutbox.instance.countByStatus(SyncOutboxStatus.pending),
+        0,
+      );
+    });
+
     test('payload stock_op se guarda con opId', () async {
       await SyncOutbox.instance.enqueueStockOp(
         opId: 'op-json',

@@ -492,7 +492,21 @@ class AuthService {
   }) async {
     await FirebaseSafeMode.desactivar();
     await BackendConfigService.instance.setFirebaseEnabled(true);
-    return _conectarFirebaseInterno(passwordOverride: passwordOverride);
+    // Mismo single-flight que post-login (evitar Auth×2 desde el botón Sync).
+    final inflight = _conectarInFlight;
+    if (inflight != null) {
+      await appendAppLog('activarNube: connect ya en curso (reuso)');
+      return inflight;
+    }
+    final run = _conectarFirebaseInterno(passwordOverride: passwordOverride);
+    _conectarInFlight = run;
+    try {
+      return await run;
+    } finally {
+      if (identical(_conectarInFlight, run)) {
+        _conectarInFlight = null;
+      }
+    }
   }
 
   Future<({bool ok, String mensaje})> _conectarFirebaseInterno({

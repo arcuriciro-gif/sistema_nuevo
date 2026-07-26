@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 
 import '../core/config/backend_config_service.dart';
+import '../core/config/platform_capabilities.dart';
 import '../models/producto.dart';
 import 'producto_repository.dart';
 
@@ -179,6 +181,12 @@ class FirestoreProductoRepository implements ProductoRepository {
     final cod = codigo.trim();
     if (cod.isEmpty || delta == 0 || opId.isEmpty) return;
 
+    // Windows: runTransaction cuelga/tumba el .exe → camino sin txn.
+    if (PlatformCapabilities.isWindowsDesktop) {
+      await _ajustarStockWindowsSafe(cod: cod, delta: delta, opId: opId);
+      return;
+    }
+
     try {
       await _ajustarStockEnTransaccion(cod: cod, delta: delta, opId: opId);
     } catch (e) {
@@ -192,6 +200,47 @@ class FirestoreProductoRepository implements ProductoRepository {
       debugPrint('stock_ops txn unavailable: $e — fallback create-only');
       await _ajustarStockConCreate(cod: cod, delta: delta, opId: opId);
     }
+  }
+
+  /// Windows: get + claim + increment con timeouts (sin runTransaction).
+  /// Idempotente: si `stock_ops/{opId}` ya existe, no re-incrementa.
+  Future<void> _ajustarStockWindowsSafe({
+    required String cod,
+    required int delta,
+    required String opId,
+  }) async {
+    final opRef = _stockOpsCol.doc(opId);
+    final prodRef = _collection.doc(cod);
+    final ahora = DateTime.now().toUtc().toIso8601String();
+    final claim = const Uuid().v4();
+
+    final existing = await opRef.get().timeout(const Duration(seconds: 8));
+    if (existing.exists) return;
+
+    await opRef
+        .set({
+          'codigo': cod,
+          'delta': delta,
+          'status': 'applied',
+          'at': ahora,
+          'appliedAt': ahora,
+          'via': 'windows_safe',
+          'claim': claim,
+        })
+        .timeout(const Duration(seconds: 8));
+
+    // Si perdimos la carrera, el claim no es nuestro → no incrementar.
+    final check = await opRef.get().timeout(const Duration(seconds: 5));
+    if ((check.data()?['claim']?.toString() ?? '') != claim) return;
+
+    await prodRef
+        .set({
+          'codigo': cod,
+          'stock': FieldValue.increment(delta),
+          'actualizadoEn': ahora,
+          'ultimaStockOp': opId,
+        }, SetOptions(merge: true))
+        .timeout(const Duration(seconds: 8));
   }
 
   /// Idempotente estricto: si `stock_ops/{opId}` ya existe → no re-incrementa.

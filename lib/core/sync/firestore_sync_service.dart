@@ -263,9 +263,15 @@ class FirestoreSyncService {
               final orphans = await SyncOutbox.instance.ackOrphanUpserts();
               final stockDone = await SyncOutbox.instance
                   .ackStockOpsYaHechas(_stockOpsHechas);
-              if (orphans > 0 || stockDone > 0) {
+              // Windows: stock_op trachados en reclaim no deben ensuciar la UI.
+              final purged = await SyncOutbox.instance.purgeStuckStockOps(
+                minAttempts: 2,
+                onlyLastErrorContains: 'reclaimed_stale_inflight',
+              );
+              if (orphans > 0 || stockDone > 0 || purged > 0) {
                 debugPrint(
-                  'Outbox: ACK $orphans huérfanos, $stockDone stock ya hechos',
+                  'Outbox: ACK $orphans huérfanos, $stockDone stock hechos, '
+                  'purge $purged stock stuck',
                 );
               }
               // Sin drain Firebase aquí: la cuarentena evita ráfaga al login.
@@ -373,9 +379,15 @@ class FirestoreSyncService {
       if (!_puedeEscribirRemoto) return;
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
-          // Limpieza barata antes de Firebase: huérfanos + stock ya hecho.
+          // Limpieza barata antes de Firebase: huérfanos + stock ya hecho/stuck.
           await SyncOutbox.instance.ackOrphanUpserts();
           await SyncOutbox.instance.ackStockOpsYaHechas(_stockOpsHechas);
+          if (windows) {
+            await SyncOutbox.instance.purgeStuckStockOps(
+              minAttempts: 2,
+              onlyLastErrorContains: 'reclaimed_stale_inflight',
+            );
+          }
 
           // Tras un crash quedan ops "inflight" huérfanas: recuperarlas.
           // Si ya pasaron maxAttempts → dead (corta loop reclaim).
@@ -1216,16 +1228,14 @@ class FirestoreSyncService {
 
     final windows = PlatformCapabilities.isWindowsDesktop;
     try {
-      // Siempre intentar remoto: stock_ops/{opId} es idempotente.
-      // (Antes se salteaba si estaba en hechas → ACK sin subir a la nube.)
+      // Remoto idempotente por opId. Windows usa camino sin runTransaction.
       final future = _remote.ajustarStock(
         codigo: codigo,
         delta: delta,
         opId: opId,
       );
       if (windows) {
-        // Evita hang eterno de txn Firestore en .exe → reclaim loop.
-        await future.timeout(const Duration(seconds: 12));
+        await future.timeout(const Duration(seconds: 20));
       } else {
         await future;
       }
@@ -1234,6 +1244,7 @@ class FirestoreSyncService {
         await _persistirStockOpsHechas();
       }
     } on TimeoutException {
+      // Windows: no dejar reclaim eterno — fallar con backoff; purge limpia.
       throw StateError('stock_op timeout Windows ($opId)');
     }
   }
