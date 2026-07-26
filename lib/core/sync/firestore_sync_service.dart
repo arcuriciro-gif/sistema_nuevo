@@ -475,8 +475,8 @@ class FirestoreSyncService {
   void _iniciarPumpsWindows() {
     _iniciarOutboxPump();
     _pullPump?.cancel();
-    // Más espaciado: menos ráfagas Firebase nativas.
-    _pullPump = Timer.periodic(const Duration(seconds: 75), (_) {
+    // Más espaciado: menos ráfagas Firebase/ledger nativas (anti-crash).
+    _pullPump = Timer.periodic(const Duration(seconds: 90), (_) {
       if (!_puedeEscribirRemoto) return;
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
@@ -525,14 +525,19 @@ class FirestoreSyncService {
     return snap;
   }
 
+  int _softPullTickWindows = 0;
+
   /// Baja docs + stock/productos paginado (sin listeners pesados).
+  /// Alterna trabajo pesado: un ciclo productos, el siguiente stock_ops.
   Future<void> _pullSuaveWindows() async {
     Future<void> pausa() =>
-        Future<void>.delayed(const Duration(milliseconds: 700));
+        Future<void>.delayed(const Duration(milliseconds: 900));
+    _softPullTickWindows++;
     try {
       final clientes = await _pullPaginaPorDocId(
         _clientesCol,
         watermarkKey: _wmClientesDoc,
+        pageSize: 40,
       );
       await _aplicarClientesRemotos(clientes);
     } catch (e) {
@@ -543,6 +548,7 @@ class FirestoreSyncService {
       final ventas = await _pullPaginaPorDocId(
         _ventasCol,
         watermarkKey: _wmVentasDoc,
+        pageSize: 40,
       );
       await _aplicarVentasRemotas(ventas);
     } catch (e) {
@@ -553,29 +559,33 @@ class FirestoreSyncService {
       final remitos = await _pullPaginaPorDocId(
         _remitosCol,
         watermarkKey: _wmRemitosDoc,
+        pageSize: 40,
       );
       await _aplicarRemitosRemotos(remitos);
     } catch (e) {
       debugPrint('Pull suave remitos: $e');
     }
     await pausa();
-    // Stock/productos: poco a poco (páginas chicas = menos riesgo de crash).
-    try {
-      await _pullProductosIncrementalWindows(maxPages: 1, pageSize: 60);
-    } catch (e) {
-      debugPrint('Pull suave productos incremental: $e');
-    }
-    await pausa();
-    try {
-      await _pullProductosCatalogoWindows(maxPages: 1, pageSize: 60);
-    } catch (e) {
-      debugPrint('Pull suave productos catálogo: $e');
-    }
-    await pausa();
-    try {
-      await _pullStockOpsRemotas(maxPages: 2, pageSize: 60);
-    } catch (e) {
-      debugPrint('Pull suave stock_ops: $e');
+    // Alternar: evita productos + stock_ops + ledger en el mismo ciclo.
+    if (_softPullTickWindows.isOdd) {
+      try {
+        await _pullProductosIncrementalWindows(maxPages: 1, pageSize: 30);
+      } catch (e) {
+        debugPrint('Pull suave productos incremental: $e');
+      }
+      await pausa();
+      try {
+        await _pullProductosCatalogoWindows(maxPages: 1, pageSize: 30);
+      } catch (e) {
+        debugPrint('Pull suave productos catálogo: $e');
+      }
+    } else {
+      try {
+        // Pocas ops por ciclo; el resto en siguientes ticks.
+        await _pullStockOpsRemotas(maxPages: 1, pageSize: 20, maxApply: 10);
+      } catch (e) {
+        debugPrint('Pull suave stock_ops: $e');
+      }
     }
   }
 
@@ -664,8 +674,9 @@ class FirestoreSyncService {
       }
     }
 
-    final maxDocPages = windows ? 2 : 50;
-    final pageSize = windows ? 50 : 100;
+    // Windows: catch-up mínimo; el resto lo completa el pull suave (anti-crash).
+    final maxDocPages = windows ? 1 : 50;
+    final pageSize = windows ? 30 : 100;
 
     try {
       await _pullColeccionPaginada(
@@ -693,10 +704,8 @@ class FirestoreSyncService {
     await pausa();
     try {
       if (windows) {
-        // Catch-up liviano: el resto lo completa el pull suave periódico.
-        await _pullProductosIncrementalWindows(maxPages: 1, pageSize: 50);
-        await pausa();
-        await _pullProductosCatalogoWindows(maxPages: 1, pageSize: 50);
+        // Solo 1 página chica de productos; catálogo/stock_ops → pull suave.
+        await _pullProductosIncrementalWindows(maxPages: 1, pageSize: 25);
       } else {
         await _pullProductosCatalogoWindows(
           maxPages: maxDocPages,
@@ -755,27 +764,36 @@ class FirestoreSyncService {
     } catch (e) {
       debugPrint('Pull inicial documentos: $e');
     }
-    await pausa();
-    try {
-      // Convergencia multi-dispositivo: stock via stock_ops → ledger local.
-      await _pullStockOpsRemotas(
-        maxPages: windows ? 2 : maxDocPages,
-        pageSize: pageSize,
-      );
-    } catch (e) {
-      debugPrint('Pull inicial stock_ops: $e');
+    // Windows: NO aplicar stock_ops en catch-up (ráfaga ledger tumba el .exe).
+    // Android/otros: convergencia multi-dispositivo vía stock_ops → ledger.
+    if (!windows) {
+      await pausa();
+      try {
+        await _pullStockOpsRemotas(
+          maxPages: maxDocPages,
+          pageSize: pageSize,
+        );
+      } catch (e) {
+        debugPrint('Pull inicial stock_ops: $e');
+      }
     }
   }
 
   /// Aplica stock_ops remotos al ledger local (sin re-upload).
+  /// [maxApply] limita cuántas ops se escriben por llamada (Windows).
   Future<void> _pullStockOpsRemotas({
     int maxPages = 5,
     int pageSize = 80,
+    int? maxApply,
   }) async {
     DomainBootstrap.ensureInitialized();
     final meta = await SyncWatermarkStore.instance.loadMap(_wmStockOpsDoc);
     var afterId = meta['afterDocId']?.toString();
+    var appliedTotal = 0;
+    final limitApply = maxApply ?? (pageSize * maxPages);
+
     for (var i = 0; i < maxPages; i++) {
+      if (appliedTotal >= limitApply) break;
       final page = await _remote.obtenerStockOpsPagina(
         afterDocId: afterId,
         limit: pageSize,
@@ -787,7 +805,10 @@ class FirestoreSyncService {
         });
         break;
       }
+
+      final batch = <({String opId, int productoId, String codigo, int delta})>[];
       for (final op in page.items) {
+        if (appliedTotal + batch.length >= limitApply) break;
         final opId = op['opId']?.toString() ?? '';
         final codigo = op['codigo']?.toString().trim() ?? '';
         final delta = (op['delta'] as num?)?.toInt() ?? 0;
@@ -799,25 +820,36 @@ class FirestoreSyncService {
         final local = await _cache.buscarPorCodigo(codigo);
         if (local?.id == null) continue;
 
-        final applied = await InventoryLedgerService.instance.applyRemoteStockOp(
+        batch.add((
           opId: opId,
           productoId: local!.id!,
           codigo: codigo,
           delta: delta,
-        );
-        _stockOpsHechas.add(opId);
-        if (applied) {
-          debugPrint('stock_op inbound aplicado: $opId Δ$delta ($codigo)');
-        }
+        ));
       }
+
+      if (batch.isNotEmpty) {
+        final n =
+            await InventoryLedgerService.instance.applyRemoteStockOpsBatch(batch);
+        appliedTotal += n;
+        for (final op in batch) {
+          _stockOpsHechas.add(op.opId);
+        }
+        debugPrint('stock_ops inbound: $n aplicadas (ciclo ≤$limitApply)');
+      }
+
       afterId = page.lastDocId;
       await SyncWatermarkStore.instance.saveMap(_wmStockOpsDoc, {
         'afterDocId': afterId,
         if (page.done)
           'completedAt': DateTime.now().toUtc().toIso8601String(),
       });
+      // Persistir hechas una sola vez por página (menos I/O en Windows).
       await _persistirStockOpsHechas();
-      if (page.done) break;
+      if (page.done || appliedTotal >= limitApply) break;
+      if (PlatformCapabilities.isWindowsDesktop) {
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+      }
     }
   }
 

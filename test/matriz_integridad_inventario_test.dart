@@ -786,6 +786,32 @@ void main() {
       expect(await stockDe(pid), 7);
       expect(await ledgerSum(pid), 7);
     });
+
+    test('applyRemoteStockOpsBatch aplica varias en una TX', () async {
+      final pid = await seedProducto(codigo: 'SYNC-B', stock: 20);
+      final n = await InventoryLedgerService.instance.applyRemoteStockOpsBatch([
+        (
+          opId: 'op:batch:a',
+          productoId: pid,
+          codigo: 'SYNC-B',
+          delta: -2,
+        ),
+        (
+          opId: 'op:batch:b',
+          productoId: pid,
+          codigo: 'SYNC-B',
+          delta: -3,
+        ),
+        (
+          opId: 'op:batch:a', // idempotente
+          productoId: pid,
+          codigo: 'SYNC-B',
+          delta: -2,
+        ),
+      ]);
+      expect(n, 2);
+      expect(await stockDe(pid), 15);
+    });
   });
 
   group('R4 metadata no pisa stock', () {
