@@ -6,6 +6,7 @@ import '../core/config/device_identity.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
+import '../core/domain/document_stock_reversal_policy.dart';
 import '../core/domain/inventory_delivery_policy.dart';
 import '../core/domain/inventory_ledger_service.dart';
 import '../core/domain/money_ledger_service.dart';
@@ -156,9 +157,14 @@ class VentaService {
         ).toJson());
       }
 
-      // Fuente de verdad: neto del ledger del documento (cubre legado + restore).
+      // net<0: entrega atribuida. net==0 solo si el tipo entrega (seguidor).
       final net = await _ledgerNetVenta(txn, id);
-      final debeRevertirStock = invLines.isNotEmpty && net < 0;
+      final debeRevertirStock =
+          DocumentStockReversalPolicy.shouldReverseOnAnular(
+        ledgerNet: net,
+        hasLines: invLines.isNotEmpty,
+        treatZeroNetAsDelivered: venta.mueveStock,
+      );
 
       await txn.update(
         'ventas',
@@ -291,7 +297,8 @@ class VentaService {
         ).toJson());
       }
 
-      // Re-entrega solo si el tipo entrega O hubo entrega histórica (legado).
+      // Re-entrega solo si el tipo entrega O hubo entrega histórica (legado),
+      // y el neto del documento no indica entrega ya activa (anti doble).
       final entregaCanon = await txn.query(
         'domain_events',
         columns: ['event_id'],
@@ -302,8 +309,14 @@ class VentaService {
         ],
         limit: 1,
       );
-      final debeEntregar = invLines.isNotEmpty &&
+      final net = await _ledgerNetVenta(txn, id);
+      final candidata = invLines.isNotEmpty &&
           (venta.mueveStock || entregaCanon.isNotEmpty);
+      final debeEntregar = candidata &&
+          DocumentStockReversalPolicy.shouldRedeliverOnRestore(
+            ledgerNet: net,
+            hasLines: invLines.isNotEmpty,
+          );
 
       await txn.update(
         'ventas',

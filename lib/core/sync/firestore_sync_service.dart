@@ -24,9 +24,11 @@ import 'sync_catchup.dart';
 import 'sync_health.dart';
 import 'sync_outbox.dart';
 import 'sync_tombstone.dart';
+import 'stock_ops_pull_policy.dart';
 import 'stock_ops_watermark.dart';
 import 'sync_watermark_store.dart';
 import 'windows_sync_policy.dart';
+import '../../services/cuenta_corriente_service.dart';
 import '../../database/database_helper.dart';
 import '../../models/cliente.dart';
 import '../../models/documento_cliente.dart';
@@ -265,6 +267,8 @@ class FirestoreSyncService {
               final purged = await SyncOutbox.instance.purgeStuckStockOps(
                 minAttempts: 5,
                 onlyLastErrorContains: 'reclaimed_stale_inflight',
+                proveCloudApplied: (remoteOpId) =>
+                    _remote.stockOpCloudApplied(remoteOpId),
               );
               final deadAck = await SyncOutbox.instance.ackDeadStockOps();
               if (purged > 0 || deadAck > 0) {
@@ -399,6 +403,8 @@ class FirestoreSyncService {
             await SyncOutbox.instance.purgeStuckStockOps(
               minAttempts: 8,
               onlyLastErrorContains: 'reclaimed_stale_inflight',
+              proveCloudApplied: (remoteOpId) =>
+                  _remote.stockOpCloudApplied(remoteOpId),
             );
           }
 
@@ -1061,14 +1067,23 @@ class FirestoreSyncService {
   }
 
   /// Aplica una lista de docs stock_ops al ledger (sin re-upload).
-  /// Devuelve cuántas se aplicaron.
-  Future<int> _aplicarStockOpsItems(
+  Future<({int applied, int consideredValid, int skippedMissingProduct})>
+      _aplicarStockOpsItems(
     List<Map<String, dynamic>> items, {
     int? maxApply,
   }) async {
     DomainBootstrap.ensureInitialized();
     final limit = maxApply ?? items.length;
-    final batch = <({String opId, int productoId, String codigo, int delta})>[];
+    final batch = <({
+      String opId,
+      int productoId,
+      String codigo,
+      int delta,
+      String? documentType,
+      String? documentId,
+    })>[];
+    var consideredValid = 0;
+    var skippedMissingProduct = 0;
     for (final op in items) {
       if (batch.length >= limit) break;
       final opId = op['opId']?.toString() ?? '';
@@ -1077,19 +1092,36 @@ class FirestoreSyncService {
       final status = op['status']?.toString() ?? '';
       if (opId.isEmpty || codigo.isEmpty || delta == 0) continue;
       if (status == 'pending_apply' || status == 'claimed') continue;
+      consideredValid++;
       if (_stockOpsHechas.contains(opId)) continue;
 
       final local = await _cache.buscarPorCodigo(codigo);
-      if (local?.id == null) continue;
+      if (local?.id == null) {
+        skippedMissingProduct++;
+        continue;
+      }
 
+      final meta = resolveStockOpDocumentMeta(
+        opId: opId,
+        documentType: op['documentType']?.toString(),
+        documentId: op['documentId']?.toString(),
+      );
       batch.add((
         opId: opId,
         productoId: local!.id!,
         codigo: codigo,
         delta: delta,
+        documentType: meta.documentType,
+        documentId: meta.documentId,
       ));
     }
-    if (batch.isEmpty) return 0;
+    if (batch.isEmpty) {
+      return (
+        applied: 0,
+        consideredValid: consideredValid,
+        skippedMissingProduct: skippedMissingProduct,
+      );
+    }
     final n =
         await InventoryLedgerService.instance.applyRemoteStockOpsBatch(batch);
     for (final op in batch) {
@@ -1101,7 +1133,11 @@ class FirestoreSyncService {
       DataRefreshHub.instance.notifyProductos();
       await _persistirStockOpsHechas();
     }
-    return n;
+    return (
+      applied: n,
+      consideredValid: consideredValid,
+      skippedMissingProduct: skippedMissingProduct,
+    );
   }
 
   /// Near-live: últimas N ops (APK) — idempotente; no mueve watermark.
@@ -1114,7 +1150,7 @@ class FirestoreSyncService {
   }
 
   /// Aplica stock_ops remotos al ledger local (sin re-upload).
-  /// Watermark por `at` (no UUID solo: si no, el APK pierde ops nuevas).
+  /// Watermark por `at`+docId; NO avanza si se saltaron ops por producto ausente.
   Future<void> _pullStockOpsRemotas({
     int maxPages = 5,
     int pageSize = 80,
@@ -1147,11 +1183,23 @@ class FirestoreSyncService {
       }
 
       final remaining = limitApply - appliedTotal;
-      final n = await _aplicarStockOpsItems(
+      final result = await _aplicarStockOpsItems(
         page.items,
         maxApply: remaining,
       );
-      appliedTotal += n;
+      appliedTotal += result.applied;
+
+      // C4: si faltó producto local, no avanzar watermark (se reintentan).
+      if (!shouldAdvanceStockOpsWatermark(
+        consideredValid: result.consideredValid,
+        skippedMissingProduct: result.skippedMissingProduct,
+      )) {
+        debugPrint(
+          'stock_ops watermark: hold '
+          '(missingProduct=${result.skippedMissingProduct})',
+        );
+        break;
+      }
 
       afterId = page.lastDocId ?? afterId;
       afterAt = page.lastAt ?? afterAt;
@@ -1470,6 +1518,8 @@ class FirestoreSyncService {
     if (opId.isEmpty || codigo.isEmpty || delta == 0) {
       return;
     }
+    final documentType = map['documentType']?.toString();
+    final documentId = map['documentId']?.toString();
 
     final windows = PlatformCapabilities.isWindowsDesktop;
     try {
@@ -1478,6 +1528,8 @@ class FirestoreSyncService {
         codigo: codigo,
         delta: delta,
         opId: opId,
+        documentType: documentType,
+        documentId: documentId,
       );
       if (windows) {
         await future.timeout(const Duration(seconds: 20));
@@ -2424,11 +2476,15 @@ class FirestoreSyncService {
   ///
   /// [flushImmediately]: en Windows conviene `false` tras compras/remitos
   /// para no tumbar el .exe con ráfagas Firebase.
+  ///
+  /// [documentType]/[documentId]: atribución al doc comercial (anular seguidor).
   Future<void> ajustarStockEnNube({
     required int productoId,
     required int delta,
     String? opId,
     bool flushImmediately = true,
+    String? documentType,
+    String? documentId,
   }) async {
     if (delta == 0) return;
     final idOp = (opId == null || opId.isEmpty) ? const Uuid().v4() : opId;
@@ -2455,6 +2511,8 @@ class FirestoreSyncService {
       opId: idOp,
       codigo: codigo,
       delta: delta,
+      documentType: documentType,
+      documentId: documentId,
     );
     if (!_colaStockOps.contains(token)) {
       _colaStockOps.add(token);
@@ -2468,7 +2526,13 @@ class FirestoreSyncService {
         CloudSyncThrottle.enqueue(() async {
           try {
             await _remote
-                .ajustarStock(codigo: codigo, delta: delta, opId: idOp)
+                .ajustarStock(
+                  codigo: codigo,
+                  delta: delta,
+                  opId: idOp,
+                  documentType: documentType,
+                  documentId: documentId,
+                )
                 .timeout(const Duration(seconds: 20));
             await SyncOutbox.instance.ack('stock_op:$idOp');
             _colaStockOps.remove(token);
@@ -3851,6 +3915,31 @@ class FirestoreSyncService {
       await _persistirWatermarkRemitos();
 
       if (hubo) {
+        // C7: CC local desde saldos de docs remotos (ventas día/mes + saldo).
+        final clienteIds = <int>{};
+        for (final doc in actual.docs) {
+          final data = doc.data();
+          if (isRemoteTombstone(data)) continue;
+          final numero = data['numero']?.toString() ?? doc.id;
+          final rows = await db.query(
+            'remitos',
+            columns: ['clienteId'],
+            where: 'numero = ?',
+            whereArgs: [numero],
+            limit: 1,
+          );
+          final cid = (rows.isEmpty
+                  ? null
+                  : (rows.first['clienteId'] as num?)?.toInt());
+          if (cid != null) clienteIds.add(cid);
+        }
+        for (final cid in clienteIds) {
+          try {
+            await CuentaCorrienteService().recalcularSaldoCliente(cid);
+          } catch (e) {
+            debugPrint('CC recalc remito remoto $cid: $e');
+          }
+        }
         // Inicio KPI (ventas día/mes) suma remitos — refrescar al llegar del PC.
         DataRefreshHub.instance.notifyVentas();
         DataRefreshHub.instance.notifyTodo();
@@ -4027,6 +4116,34 @@ class FirestoreSyncService {
         }
       }
       if (huboCambios) {
+        // C7: alinear saldo CC con docs remotos aplicados.
+        final clienteIds = <int>{};
+        for (final doc in actual.docs) {
+          try {
+            final data = doc.data();
+            if (isRemoteTombstone(data)) continue;
+            final numero = data['numero']?.toString() ?? doc.id;
+            if (numero.isEmpty) continue;
+            final rows = await db.query(
+              'ventas',
+              columns: ['clienteId'],
+              where: 'numero = ?',
+              whereArgs: [numero],
+              limit: 1,
+            );
+            final cid = (rows.isEmpty
+                    ? null
+                    : (rows.first['clienteId'] as num?)?.toInt());
+            if (cid != null) clienteIds.add(cid);
+          } catch (_) {}
+        }
+        for (final cid in clienteIds) {
+          try {
+            await CuentaCorrienteService().recalcularSaldoCliente(cid);
+          } catch (e) {
+            debugPrint('CC recalc venta remota $cid: $e');
+          }
+        }
         DataRefreshHub.instance.notifyVentas();
       }
       final pendiente = _snapVentasPendiente;

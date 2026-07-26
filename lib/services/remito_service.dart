@@ -7,6 +7,7 @@ import '../core/config/device_identity.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
+import '../core/domain/document_stock_reversal_policy.dart';
 import '../core/domain/inventory_delivery_policy.dart';
 import '../core/domain/inventory_ledger_service.dart';
 import '../core/domain/money_ledger_service.dart';
@@ -470,7 +471,12 @@ class RemitoService {
       }
 
       final net = await _ledgerNetRemito(txn, id);
-      final debeRevertir = lines.isNotEmpty && net < 0;
+      // Remito siempre entrega: net==0 + líneas = seguidor legado → revertir.
+      final debeRevertir = DocumentStockReversalPolicy.shouldReverseOnAnular(
+        ledgerNet: net,
+        hasLines: lines.isNotEmpty,
+        treatZeroNetAsDelivered: true,
+      );
 
       await txn.update(
         'remitos',
@@ -612,7 +618,12 @@ class RemitoService {
         whereArgs: [id],
       );
 
-      if (lines.isNotEmpty) {
+      final net = await _ledgerNetRemito(txn, id);
+      final debeEntregar = DocumentStockReversalPolicy.shouldRedeliverOnRestore(
+        ledgerNet: net,
+        hasLines: lines.isNotEmpty,
+      );
+      if (debeEntregar) {
         invEvent = DomainEvent(
           eventId:
               InventoryDeliveryPolicy.eventIdEntregaRestoreRemito(id, rev: rev),

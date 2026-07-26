@@ -208,6 +208,8 @@ class InventoryLedgerService {
     required int productoId,
     required String codigo,
     required int delta,
+    String? documentType,
+    String? documentId,
     bool notify = true,
   }) async {
     if (delta == 0 || opId.isEmpty) return false;
@@ -219,6 +221,8 @@ class InventoryLedgerService {
         productoId: productoId,
         codigo: codigo,
         delta: delta,
+        documentType: documentType,
+        documentId: documentId,
       );
     });
     if (applied && notify) {
@@ -230,7 +234,15 @@ class InventoryLedgerService {
 
   /// Aplica varios stock_ops en una sola TX (Windows: evita ráfagas que tumban el .exe).
   Future<int> applyRemoteStockOpsBatch(
-    List<({String opId, int productoId, String codigo, int delta})> ops,
+    List<
+        ({
+          String opId,
+          int productoId,
+          String codigo,
+          int delta,
+          String? documentType,
+          String? documentId,
+        })> ops,
   ) async {
     if (ops.isEmpty) return 0;
     final db = await DatabaseHelper.instance.database;
@@ -243,6 +255,8 @@ class InventoryLedgerService {
           productoId: op.productoId,
           codigo: op.codigo,
           delta: op.delta,
+          documentType: op.documentType,
+          documentId: op.documentId,
         );
         if (ok) applied++;
       }
@@ -260,9 +274,16 @@ class InventoryLedgerService {
     required int productoId,
     required String codigo,
     required int delta,
+    String? documentType,
+    String? documentId,
   }) async {
     if (delta == 0 || opId.isEmpty) return false;
     final tipo = delta > 0 ? 'entrada' : 'salida';
+    // Atribuir al documento comercial cuando viene en la op (anular seguidor).
+    final dt = (documentType ?? '').trim();
+    final di = (documentId ?? '').trim();
+    final docType = dt.isNotEmpty ? dt : 'stock_op';
+    final docId = di.isNotEmpty ? di : opId;
     final event = DomainEvent(
       eventId: opId,
       type: DomainEventType.ajusteInventario,
@@ -272,8 +293,8 @@ class InventoryLedgerService {
       payload: {
         'tipo': tipo,
         'motivo': 'Sync stock_op $opId',
-        'documentType': 'stock_op',
-        'documentId': opId,
+        'documentType': docType,
+        'documentId': docId,
         'lines': [
           InventoryLine(
             productoId: productoId,
@@ -361,6 +382,8 @@ class InventoryLedgerService {
             delta: delta,
             opId: '${event.eventId}_${line.productoId}',
             flushImmediately: !windows,
+            documentType: event.payload['documentType']?.toString(),
+            documentId: event.payload['documentId']?.toString(),
           );
           if (!windows) {
             await FirestoreSyncService.instance
