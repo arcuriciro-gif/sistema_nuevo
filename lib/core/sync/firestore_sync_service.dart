@@ -598,12 +598,15 @@ class FirestoreSyncService {
   Future<void> _pullProductosCatalogoWindows({
     int maxPages = 2,
     int pageSize = 120,
+    bool forceRestart = false,
   }) async {
     final meta = await SyncWatermarkStore.instance.loadMap(_wmProductosDoc);
     var afterId = meta['afterDocId']?.toString();
     final completed = meta['completed'] == true;
     // Si ya barrió todo, reinicia cada tanto para no quedar congelado.
-    if (completed) {
+    if (forceRestart) {
+      afterId = null;
+    } else if (completed) {
       final lastDone = DateTime.tryParse(meta['completedAt']?.toString() ?? '');
       final stale = lastDone == null ||
           DateTime.now().toUtc().difference(lastDone) >
@@ -637,7 +640,8 @@ class FirestoreSyncService {
     }
   }
 
-  /// Trae de una el estado actual de la nube (clientes/proveedores/…).
+  /// Trae el estado de la nube con paginación (nunca `.get()` completo).
+  /// En Windows hace pocas páginas; el resto lo completa el pull suave.
   Future<void> _pullInicialCatchUp() async {
     if (!BackendConfigService.instance.firebaseEnabled ||
         !FirebaseBootstrap.isReady) {
@@ -650,16 +654,29 @@ class FirestoreSyncService {
       }
     }
 
+    final maxDocPages = windows ? 2 : 50;
+    final pageSize = windows ? 50 : 100;
+
     try {
-      final clientes = await _clientesCol.get();
-      await _aplicarClientesRemotos(clientes);
+      await _pullColeccionPaginada(
+        _clientesCol,
+        apply: _aplicarClientesRemotos,
+        maxPages: maxDocPages,
+        pageSize: pageSize,
+        pausa: pausa,
+      );
     } catch (e) {
       debugPrint('Pull inicial clientes: $e');
     }
     await pausa();
     try {
-      final proveedores = await _proveedoresCol.get();
-      await _aplicarProveedoresRemotos(proveedores);
+      await _pullColeccionPaginada(
+        _proveedoresCol,
+        apply: _aplicarProveedoresRemotos,
+        maxPages: maxDocPages,
+        pageSize: pageSize,
+        pausa: pausa,
+      );
     } catch (e) {
       debugPrint('Pull inicial proveedores: $e');
     }
@@ -667,44 +684,90 @@ class FirestoreSyncService {
     try {
       if (windows) {
         // Catch-up liviano: el resto lo completa el pull suave periódico.
-        // Páginas grandes + Storage concurrente tumbaban el .exe al Sync.
         await _pullProductosIncrementalWindows(maxPages: 1, pageSize: 50);
         await pausa();
         await _pullProductosCatalogoWindows(maxPages: 1, pageSize: 50);
       } else {
-        final productos = await _remote.obtenerTodos(limit: 10000);
-        await _aplicarProductosRemotos(productos);
+        await _pullProductosCatalogoWindows(
+          maxPages: maxDocPages,
+          pageSize: pageSize,
+          forceRestart: true,
+        );
       }
     } catch (e) {
       debugPrint('Pull inicial productos: $e');
     }
     await pausa();
     try {
-      final ventas = await _ventasCol.get();
-      await _aplicarVentasRemotas(ventas);
+      await _pullColeccionPaginada(
+        _ventasCol,
+        apply: _aplicarVentasRemotas,
+        maxPages: maxDocPages,
+        pageSize: pageSize,
+        pausa: pausa,
+      );
     } catch (e) {
       debugPrint('Pull inicial ventas: $e');
     }
     await pausa();
     try {
-      final remitos = await _remitosCol.get();
-      await _aplicarRemitosRemotos(remitos);
+      await _pullColeccionPaginada(
+        _remitosCol,
+        apply: _aplicarRemitosRemotos,
+        maxPages: maxDocPages,
+        pageSize: pageSize,
+        pausa: pausa,
+      );
     } catch (e) {
       debugPrint('Pull inicial remitos: $e');
     }
     await pausa();
     try {
-      final compras = await _comprasCol.get();
-      await _aplicarComprasRemotas(compras);
+      await _pullColeccionPaginada(
+        _comprasCol,
+        apply: _aplicarComprasRemotas,
+        maxPages: maxDocPages,
+        pageSize: pageSize,
+        pausa: pausa,
+      );
     } catch (e) {
       debugPrint('Pull inicial compras: $e');
     }
     await pausa();
     try {
-      final docs = await _documentosCol.get();
-      await _aplicarDocumentosRemotos(docs);
+      await _pullColeccionPaginada(
+        _documentosCol,
+        apply: _aplicarDocumentosRemotos,
+        maxPages: maxDocPages,
+        pageSize: pageSize,
+        pausa: pausa,
+      );
     } catch (e) {
       debugPrint('Pull inicial documentos: $e');
+    }
+  }
+
+  /// Barrido paginado por documentId — evita `.get()` completo (R6).
+  Future<void> _pullColeccionPaginada(
+    CollectionReference<Map<String, dynamic>> col, {
+    required Future<void> Function(QuerySnapshot<Map<String, dynamic>>) apply,
+    required int maxPages,
+    required int pageSize,
+    required Future<void> Function() pausa,
+  }) async {
+    String? afterId;
+    for (var i = 0; i < maxPages; i++) {
+      Query<Map<String, dynamic>> q =
+          col.orderBy(FieldPath.documentId).limit(pageSize);
+      if (afterId != null && afterId.isNotEmpty) {
+        q = q.startAfter([afterId]);
+      }
+      final snap = await q.get();
+      if (snap.docs.isEmpty) break;
+      await apply(snap);
+      afterId = snap.docs.last.id;
+      if (snap.docs.length < pageSize) break;
+      await pausa();
     }
   }
 
@@ -3501,21 +3564,13 @@ class FirestoreSyncService {
           final locTs = _parseUtc(local?.actualizadoEn);
           final remTs = _parseUtc(producto.actualizadoEn);
 
-          // LWW metadata: si lo local es más nuevo, solo tomar stock remoto
-          // (Firestore es autoridad de stock vía increments).
+          // R6/R7: stock local (ledger / stock_ops) es autoridad.
+          // Nunca sobrescribir proyección local con stock absoluto remoto.
           if (local != null &&
               locTs != null &&
               remTs != null &&
               locTs.isAfter(remTs)) {
-            if (local.stock != producto.stock) {
-              huboCambios = true;
-              batch.update(
-                'productos',
-                {'stock': producto.stock},
-                where: 'id = ?',
-                whereArgs: [local.id],
-              );
-            }
+            // Metadata local más nueva: no tocar stock ni pisar fila.
             continue;
           }
 
@@ -3523,7 +3578,18 @@ class FirestoreSyncService {
           if (producto.estaEliminado) {
             merged = merged.copyWith(deletedAt: producto.deletedAt);
           }
+          // Producto existente: conservar stock local (fuente = ledger).
+          // Producto nuevo (bootstrap): aceptar stock remoto como semilla.
+          if (local != null) {
+            merged = merged.copyWith(stock: local.stock);
+          }
           if (local != null && _productoSinCambiosRelevantes(local, merged)) {
+            continue;
+          }
+          // Si hay ops/outbox pendientes del producto, no pisar metadata stock.
+          if (local?.id != null &&
+              await SyncOutbox.instance
+                  .hasPendingLocalId('producto', local!.id!)) {
             continue;
           }
           huboCambios = true;
@@ -3532,6 +3598,8 @@ class FirestoreSyncService {
               merged.actualizadoEn ??
               DateTime.now().toUtc().toIso8601String();
           if (local?.id != null) {
+            // Nunca escribir stock absoluto en update de sync metadata.
+            data.remove('stock');
             batch.update(
               'productos',
               data..remove('id'),

@@ -1,5 +1,10 @@
 import 'dart:convert';
 
+import '../core/config/device_identity.dart';
+import '../core/domain/domain_bootstrap.dart';
+import '../core/domain/domain_event.dart';
+import '../core/domain/event_bus.dart';
+import '../core/domain/inventory_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/events/producto_side_effects.dart';
 import '../core/security/authorization_service.dart';
@@ -145,6 +150,56 @@ class ProductoService {
     }
   }
 
+  /// R4/R5: stock solo vía ledger. Nunca `productos.stock = N` absoluto.
+  Future<void> _aplicarAjusteStockLedger({
+    required int productoId,
+    required int delta,
+    required String motivo,
+    required String eventId,
+  }) async {
+    if (delta == 0) return;
+    DomainBootstrap.ensureInitialized();
+    final tipo = delta > 0 ? 'entrada' : 'salida';
+    final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+    final tag = await DeviceIdentity.shortTag();
+    final event = DomainEvent(
+      eventId: eventId,
+      type: DomainEventType.ajusteInventario,
+      aggregateType: 'producto',
+      aggregateId: '$productoId',
+      createdBy: user,
+      deviceId: tag,
+      payload: {
+        'tipo': tipo,
+        'motivo': motivo,
+        'documentType': 'ajuste',
+        'documentId': eventId,
+        'lines': [
+          InventoryLine(
+            productoId: productoId,
+            cantidad: delta.abs(),
+          ).toJson(),
+        ],
+      },
+    );
+    final db = await _databaseHelper.database;
+    final applied = await db.transaction((txn) async {
+      return InventoryLedgerService.instance.applyInTxn(
+        txn,
+        event,
+        sign: delta > 0 ? 1 : -1,
+        movimientoTipo: tipo,
+      );
+    });
+    if (applied) {
+      InventoryLedgerService.instance.enqueueCloudAfterApply(
+        event,
+        sign: delta > 0 ? 1 : -1,
+      );
+      await DomainEventBus.instance.publish(event);
+    }
+  }
+
   Future<int> insertar(Producto producto) async {
     AuthorizationService.instance.require(
       AuthModules.productos,
@@ -156,8 +211,18 @@ class ProductoService {
       producto.copyWith(codigo: producto.codigo.trim()),
     );
     final preparado = await _precioCalculador.aplicarListasDesdeCosto(conFotos);
-    final id = await _repo.insertar(preparado);
-    final guardado = preparado.copyWith(id: id);
+    final stockInicial = preparado.stock;
+    // Inserta con stock 0; el saldo inicial va por movimiento de ledger.
+    final id = await _repo.insertar(preparado.copyWith(stock: 0));
+    if (stockInicial != 0) {
+      await _aplicarAjusteStockLedger(
+        productoId: id,
+        delta: stockInicial,
+        motivo: 'Inventario inicial alta ${preparado.codigo}',
+        eventId: 'inv:ajuste:alta:$id:${DateTime.now().toUtc().microsecondsSinceEpoch}',
+      );
+    }
+    final guardado = preparado.copyWith(id: id, stock: stockInicial);
 
     await AuthService.instance.registrarCambio(
       'ALTA_PRODUCTO',
@@ -165,9 +230,10 @@ class ProductoService {
       'Nuevo producto: ${guardado.descripcion}',
       valorNuevo: _snapshot(guardado),
     );
-    // Alta: el stock inicial tiene que ir a la nube.
-    _asegurarSyncProducto(id, incluirStockAbsoluto: true);
+    // Alta: sync metadata; stock via stock_ops del ledger.
+    _asegurarSyncProducto(id, incluirStockAbsoluto: false);
     DataRefreshHub.instance.notifyProductos();
+    DataRefreshHub.instance.notifyStock();
     ProductoSideEffects.scheduleAfterSave(guardado, op: 'upsert');
 
     return id;
@@ -180,6 +246,7 @@ class ProductoService {
       operacion: 'importar productos',
     );
     final preparados = <Producto>[];
+    final stockPorCodigo = <String, int>{};
     final vistos = <String>{};
     for (final producto in productos) {
       final codigo = producto.codigo.trim();
@@ -193,21 +260,33 @@ class ProductoService {
         throw StateError('Código duplicado en la importación: $codigo');
       }
       await _validarProducto(producto.copyWith(codigo: codigo));
-      preparados.add(
-        await _precioCalculador.aplicarListasDesdeCosto(
-          producto.copyWith(codigo: codigo),
-        ),
+      final prep = await _precioCalculador.aplicarListasDesdeCosto(
+        producto.copyWith(codigo: codigo),
       );
+      stockPorCodigo[codigo] = prep.stock;
+      preparados.add(prep.copyWith(stock: 0));
     }
     await _repo.insertarLista(preparados);
-    // Tras import masivo, encolar los recién cargados (si no hay sesión nube).
+    final batchTs = DateTime.now().toUtc().microsecondsSinceEpoch;
     try {
       for (final p in preparados) {
         final local = await buscarPorCodigo(p.codigo);
-        _asegurarSyncProducto(local?.id);
+        final localId = local?.id;
+        if (localId == null) continue;
+        final stock = stockPorCodigo[p.codigo] ?? 0;
+        if (stock != 0) {
+          await _aplicarAjusteStockLedger(
+            productoId: localId,
+            delta: stock,
+            motivo: 'Inventario inicial importación ${p.codigo}',
+            eventId: 'inv:ajuste:import:$batchTs:${p.codigo}',
+          );
+        }
+        _asegurarSyncProducto(localId);
       }
     } catch (_) {}
     DataRefreshHub.instance.notifyProductos();
+    DataRefreshHub.instance.notifyStock();
   }
 
   Future<List<Producto>> obtenerTodos({int? limit, int? offset}) =>
@@ -329,35 +408,46 @@ class ProductoService {
           });
         }
 
-        final result = await _repo.actualizar(actualizado);
+        // R4: nunca sobrescribir stock absoluto desde el formulario.
+        // Si el caller envió otro stock, se convierte en movimiento de ajuste.
+        final stockDeseado = actualizado.stock;
+        final stockActual = anteriorProducto.stock;
+        final metaOnly = actualizado.copyWith(stock: stockActual);
+        final result = await _repo.actualizar(metaOnly);
+        final delta = stockDeseado - stockActual;
+        if (delta != 0) {
+          await _aplicarAjusteStockLedger(
+            productoId: actualizado.id!,
+            delta: delta,
+            motivo: 'Ajuste por edición producto ${actualizado.codigo}',
+            eventId:
+                'inv:ajuste:edit:${actualizado.id}:${DateTime.now().toUtc().microsecondsSinceEpoch}',
+          );
+        }
+        final finalSnap = metaOnly.copyWith(stock: stockActual + delta);
         await AuthService.instance.registrarCambio(
           'MODIFICACION_PRODUCTO',
           'productos',
           'Producto actualizado: ${actualizado.descripcion}',
           valorAnterior: _snapshot(anteriorProducto),
-          valorNuevo: _snapshot(actualizado),
+          valorNuevo: _snapshot(finalSnap),
         );
-        // Si cambiaron el stock a mano en el formulario, hay que subir el
-        // valor absoluto (los remitos usan deltas aparte).
-        final stockCambio = anteriorProducto.stock != actualizado.stock;
-        _asegurarSyncProducto(
-          actualizado.id,
-          incluirStockAbsoluto: stockCambio,
-        );
+        _asegurarSyncProducto(actualizado.id, incluirStockAbsoluto: false);
         DataRefreshHub.instance.notifyProductos();
-        ProductoSideEffects.scheduleAfterSave(actualizado, op: 'upsert');
+        DataRefreshHub.instance.notifyStock();
+        ProductoSideEffects.scheduleAfterSave(finalSnap, op: 'upsert');
         return result;
       }
     }
 
-    final result = await _repo.actualizar(conFotos);
+    final result = await _repo.actualizar(conFotos.copyWith(stock: 0));
     await AuthService.instance.registrarCambio(
       'MODIFICACION_PRODUCTO',
       'productos',
       'Producto actualizado: ${conFotos.descripcion}',
       valorNuevo: _snapshot(conFotos),
     );
-    _asegurarSyncProducto(conFotos.id, incluirStockAbsoluto: true);
+    _asegurarSyncProducto(conFotos.id, incluirStockAbsoluto: false);
     DataRefreshHub.instance.notifyProductos();
     ProductoSideEffects.scheduleAfterSave(conFotos, op: 'upsert');
     return result;

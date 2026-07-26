@@ -7,6 +7,7 @@ import '../core/config/platform_capabilities.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
+import '../core/domain/inventory_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/cloud_sync_throttle.dart';
@@ -31,6 +32,52 @@ class CompraService {
     return 'C-${(maxN + 1).toString().padLeft(5, '0')}-$tag';
   }
 
+  Future<void> _actualizarCostoEnTxn(
+    DatabaseExecutor txn, {
+    required int productoId,
+    required double costoNuevo,
+    required String motivo,
+  }) async {
+    final productoRows = await txn.query(
+      'productos',
+      columns: ['costo', 'precio'],
+      where: 'id = ?',
+      whereArgs: [productoId],
+      limit: 1,
+    );
+    final costoAnterior =
+        (productoRows.isNotEmpty ? productoRows.first['costo'] as num? : 0)
+                ?.toDouble() ??
+            0;
+    final precioAnterior =
+        (productoRows.isNotEmpty ? productoRows.first['precio'] as num? : 0)
+                ?.toDouble() ??
+            0;
+
+    await txn.rawUpdate(
+      'UPDATE productos SET costo = ?, actualizadoEn = ? WHERE id = ?',
+      [costoNuevo, DateTime.now().toUtc().toIso8601String(), productoId],
+    );
+
+    if (costoAnterior != costoNuevo) {
+      final variacion = costoAnterior > 0
+          ? ((costoNuevo - costoAnterior) / costoAnterior) * 100
+          : 0.0;
+      await txn.insert('historial_precios', {
+        'productoId': productoId,
+        'fecha': DateTime.now().toIso8601String(),
+        'usuario': AuthService.instance.currentUser?.usuario ?? 'sistema',
+        'costoAnterior': costoAnterior,
+        'costoNuevo': costoNuevo,
+        'precioAnterior': precioAnterior,
+        'precioNuevo': precioAnterior,
+        'porcentaje': variacion,
+        'listaModificada': 'Costo',
+        'motivo': motivo,
+      });
+    }
+  }
+
   Future<int> insertar(Compra compra, List<CompraDetalle> items) async {
     DomainBootstrap.ensureInitialized();
     AuthorizationService.instance.require(
@@ -39,9 +86,12 @@ class CompraService {
       operacion: 'crear compra',
     );
     final db = await dbHelper.database;
+    final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+    final tag = await DeviceIdentity.shortTag();
+    DomainEvent? invEvent;
 
     final compraId = await db.transaction((txn) async {
-      final compraId = await txn.insert('compras', {
+      final id = await txn.insert('compras', {
         'proveedorId': compra.proveedorId,
         'proveedorNombre': compra.proveedorNombre,
         'numero': compra.numero,
@@ -55,95 +105,63 @@ class CompraService {
         'estado': compra.estado,
       });
 
+      final lines = <Map<String, dynamic>>[];
       for (final item in items) {
         await txn.insert('compra_items', {
-          'compraId': compraId,
+          'compraId': id,
           'productoId': item.productoId,
           'productoDescripcion': item.productoDescripcion,
           'cantidad': item.cantidad,
           'costo': item.costo,
           'subtotal': item.subtotal,
         });
-
-        final productoRows = await txn.query(
-          'productos',
-          columns: ['costo', 'precio'],
-          where: 'id = ?',
-          whereArgs: [item.productoId],
-          limit: 1,
+        await _actualizarCostoEnTxn(
+          txn,
+          productoId: item.productoId,
+          costoNuevo: item.costo,
+          motivo: 'Compra ${compra.numero}',
         );
-        final costoAnterior =
-            (productoRows.isNotEmpty ? productoRows.first['costo'] as num? : 0)
-                    ?.toDouble() ??
-                0;
-        final precioAnterior =
-            (productoRows.isNotEmpty ? productoRows.first['precio'] as num? : 0)
-                    ?.toDouble() ??
-                0;
-
-        // Costo de catálogo (no es movimiento de inventario).
-        await txn.rawUpdate(
-          'UPDATE productos SET costo = ?, actualizadoEn = ? WHERE id = ?',
-          [
-            item.costo,
-            DateTime.now().toUtc().toIso8601String(),
-            item.productoId,
-          ],
-        );
-
-        if (costoAnterior != item.costo) {
-          final variacion = costoAnterior > 0
-              ? ((item.costo - costoAnterior) / costoAnterior) * 100
-              : 0.0;
-          await txn.insert('historial_precios', {
-            'productoId': item.productoId,
-            'fecha': DateTime.now().toIso8601String(),
-            'usuario': AuthService.instance.currentUser?.usuario ?? 'sistema',
-            'costoAnterior': costoAnterior,
-            'costoNuevo': item.costo,
-            'precioAnterior': precioAnterior,
-            'precioNuevo': precioAnterior,
-            'porcentaje': variacion,
-            'listaModificada': 'Costo',
-            'motivo': 'Compra ${compra.numero}',
-          });
+        if (item.cantidad != 0) {
+          lines.add(InventoryLine(
+            productoId: item.productoId,
+            cantidad: item.cantidad,
+          ).toJson());
         }
       }
 
-      return compraId;
-    });
-
-    final lines = <Map<String, dynamic>>[];
-    for (final item in items) {
-      if (item.cantidad == 0) continue;
-      lines.add(InventoryLine(
-        productoId: item.productoId,
-        cantidad: item.cantidad,
-      ).toJson());
-    }
-    if (lines.isNotEmpty) {
-      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
-      final tag = await DeviceIdentity.shortTag();
-      await DomainEventBus.instance.publish(
-        DomainEvent(
-          eventId: 'inv:recepcion:compra:$compraId',
+      if (lines.isNotEmpty) {
+        invEvent = DomainEvent(
+          eventId: 'inv:recepcion:compra:$id',
           type: DomainEventType.mercaderiaRecibida,
           aggregateType: 'compra',
-          aggregateId: '$compraId',
+          aggregateId: '$id',
           createdBy: user,
           deviceId: tag,
           payload: {
             'documentType': 'compra',
-            'documentId': '$compraId',
+            'documentId': '$id',
             'documentNumero': compra.numero,
             'motivo': 'Recepción por compra ${compra.numero}',
             'lines': lines,
           },
-        ),
-      );
+        );
+        await InventoryLedgerService.instance.applyInTxn(
+          txn,
+          invEvent!,
+          sign: 1,
+          movimientoTipo: 'entrada',
+        );
+      }
+
+      return id;
+    });
+
+    if (invEvent != null) {
+      InventoryLedgerService.instance
+          .enqueueCloudAfterApply(invEvent!, sign: 1);
+      await DomainEventBus.instance.publish(invEvent!);
     }
 
-    // Primero devolver control a la UI; la nube va en cola suave (Windows).
     if (PlatformCapabilities.isWindowsDesktop) {
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
@@ -190,9 +208,9 @@ class CompraService {
       operacion: 'anular compra',
     );
     final db = await dbHelper.database;
-
-    String? numero;
-    final lines = <Map<String, dynamic>>[];
+    final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+    final tag = await DeviceIdentity.shortTag();
+    DomainEvent? invEvent;
 
     await db.transaction((txn) async {
       final compras = await txn.query(
@@ -205,7 +223,7 @@ class CompraService {
 
       final compra = compras.first;
       if (compra['estado'] == 'anulada') return;
-      numero = compra['numero']?.toString();
+      final numero = compra['numero']?.toString();
 
       final items = await txn.query(
         'compra_items',
@@ -213,9 +231,11 @@ class CompraService {
         whereArgs: [id],
       );
 
+      final lines = <Map<String, dynamic>>[];
       for (final item in items) {
-        final productoId = item['productoId'] as int;
-        final cantidad = item['cantidad'] as int? ?? 0;
+        final productoId = (item['productoId'] as num?)?.toInt();
+        if (productoId == null) continue;
+        final cantidad = (item['cantidad'] as num?)?.toInt() ?? 0;
         if (cantidad == 0) continue;
         lines.add(InventoryLine(
           productoId: productoId,
@@ -229,13 +249,9 @@ class CompraService {
         where: 'id = ?',
         whereArgs: [id],
       );
-    });
 
-    if (lines.isNotEmpty) {
-      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
-      final tag = await DeviceIdentity.shortTag();
-      await DomainEventBus.instance.publish(
-        DomainEvent(
+      if (lines.isNotEmpty) {
+        invEvent = DomainEvent(
           eventId: 'inv:recepcion_rev:compra:$id',
           type: DomainEventType.mercaderiaRecepcionRevertida,
           aggregateType: 'compra',
@@ -249,8 +265,20 @@ class CompraService {
             'motivo': 'Reverso recepción compra ${numero ?? id}',
             'lines': lines,
           },
-        ),
-      );
+        );
+        await InventoryLedgerService.instance.applyInTxn(
+          txn,
+          invEvent!,
+          sign: -1,
+          movimientoTipo: 'salida',
+        );
+      }
+    });
+
+    if (invEvent != null) {
+      InventoryLedgerService.instance
+          .enqueueCloudAfterApply(invEvent!, sign: -1);
+      await DomainEventBus.instance.publish(invEvent!);
     }
 
     if (syncAfter) {
@@ -274,10 +302,12 @@ class CompraService {
       operacion: 'editar compra',
     );
     final db = await dbHelper.database;
-
-    String? numero;
-    var estabaActiva = false;
-    final linesOld = <Map<String, dynamic>>[];
+    final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+    final tag = await DeviceIdentity.shortTag();
+    // Cada edición tiene revision única → no hay skip idempotente falso.
+    final rev = DateTime.now().toUtc().microsecondsSinceEpoch;
+    DomainEvent? revEvent;
+    DomainEvent? newEvent;
 
     await db.transaction((txn) async {
       final rows = await txn.query(
@@ -293,17 +323,18 @@ class CompraService {
       if (actual['estado'] == 'anulada') {
         throw StateError('No se puede editar una compra anulada');
       }
-      estabaActiva = true;
-      numero = actual['numero']?.toString() ?? compra.numero;
+      final numero = actual['numero']?.toString() ?? compra.numero;
 
       final oldItems = await txn.query(
         'compra_items',
         where: 'compraId = ?',
         whereArgs: [id],
       );
+      final linesOld = <Map<String, dynamic>>[];
       for (final item in oldItems) {
-        final productoId = item['productoId'] as int;
-        final cantidad = item['cantidad'] as int? ?? 0;
+        final productoId = (item['productoId'] as num?)?.toInt();
+        if (productoId == null) continue;
+        final cantidad = (item['cantidad'] as num?)?.toInt() ?? 0;
         if (cantidad == 0) continue;
         linesOld.add(InventoryLine(
           productoId: productoId,
@@ -333,6 +364,7 @@ class CompraService {
         whereArgs: [id],
       );
 
+      final linesNew = <Map<String, dynamic>>[];
       for (final item in items) {
         await txn.insert('compra_items', {
           'compraId': id,
@@ -342,59 +374,23 @@ class CompraService {
           'costo': item.costo,
           'subtotal': item.subtotal,
         });
-
-        final productoRows = await txn.query(
-          'productos',
-          columns: ['costo', 'precio'],
-          where: 'id = ?',
-          whereArgs: [item.productoId],
-          limit: 1,
+        await _actualizarCostoEnTxn(
+          txn,
+          productoId: item.productoId,
+          costoNuevo: item.costo,
+          motivo: 'Edición compra $numero',
         );
-        final costoAnterior =
-            (productoRows.isNotEmpty ? productoRows.first['costo'] as num? : 0)
-                    ?.toDouble() ??
-                0;
-        final precioAnterior =
-            (productoRows.isNotEmpty ? productoRows.first['precio'] as num? : 0)
-                    ?.toDouble() ??
-                0;
-
-        await txn.rawUpdate(
-          'UPDATE productos SET costo = ?, actualizadoEn = ? WHERE id = ?',
-          [
-            item.costo,
-            DateTime.now().toUtc().toIso8601String(),
-            item.productoId,
-          ],
-        );
-
-        if (costoAnterior != item.costo) {
-          final variacion = costoAnterior > 0
-              ? ((item.costo - costoAnterior) / costoAnterior) * 100
-              : 0.0;
-          await txn.insert('historial_precios', {
-            'productoId': item.productoId,
-            'fecha': DateTime.now().toIso8601String(),
-            'usuario': AuthService.instance.currentUser?.usuario ?? 'sistema',
-            'costoAnterior': costoAnterior,
-            'costoNuevo': item.costo,
-            'precioAnterior': precioAnterior,
-            'precioNuevo': precioAnterior,
-            'porcentaje': variacion,
-            'listaModificada': 'Costo',
-            'motivo': 'Edición compra ${numero ?? id}',
-          });
+        if (item.cantidad != 0) {
+          linesNew.add(InventoryLine(
+            productoId: item.productoId,
+            cantidad: item.cantidad,
+          ).toJson());
         }
       }
-    });
 
-    final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
-    final tag = await DeviceIdentity.shortTag();
-
-    if (estabaActiva && linesOld.isNotEmpty) {
-      await DomainEventBus.instance.publish(
-        DomainEvent(
-          eventId: 'inv:recepcion_rev:compra:$id:edit',
+      if (linesOld.isNotEmpty) {
+        revEvent = DomainEvent(
+          eventId: 'inv:recepcion_rev:compra:$id:edit:$rev',
           type: DomainEventType.mercaderiaRecepcionRevertida,
           aggregateType: 'compra',
           aggregateId: '$id',
@@ -404,25 +400,21 @@ class CompraService {
             'documentType': 'compra',
             'documentId': '$id',
             'documentNumero': numero,
-            'motivo': 'Reverso por edición compra ${numero ?? id}',
+            'motivo': 'Reverso por edición compra $numero',
             'lines': linesOld,
           },
-        ),
-      );
-    }
+        );
+        await InventoryLedgerService.instance.applyInTxn(
+          txn,
+          revEvent!,
+          sign: -1,
+          movimientoTipo: 'salida',
+        );
+      }
 
-    final linesNew = <Map<String, dynamic>>[];
-    for (final item in items) {
-      if (item.cantidad == 0) continue;
-      linesNew.add(InventoryLine(
-        productoId: item.productoId,
-        cantidad: item.cantidad,
-      ).toJson());
-    }
-    if (linesNew.isNotEmpty) {
-      await DomainEventBus.instance.publish(
-        DomainEvent(
-          eventId: 'inv:recepcion:compra:$id:edit',
+      if (linesNew.isNotEmpty) {
+        newEvent = DomainEvent(
+          eventId: 'inv:recepcion:compra:$id:edit:$rev',
           type: DomainEventType.mercaderiaRecibida,
           aggregateType: 'compra',
           aggregateId: '$id',
@@ -432,11 +424,28 @@ class CompraService {
             'documentType': 'compra',
             'documentId': '$id',
             'documentNumero': numero,
-            'motivo': 'Recepción por edición compra ${numero ?? id}',
+            'motivo': 'Recepción por edición compra $numero',
             'lines': linesNew,
           },
-        ),
-      );
+        );
+        await InventoryLedgerService.instance.applyInTxn(
+          txn,
+          newEvent!,
+          sign: 1,
+          movimientoTipo: 'entrada',
+        );
+      }
+    });
+
+    if (revEvent != null) {
+      InventoryLedgerService.instance
+          .enqueueCloudAfterApply(revEvent!, sign: -1);
+      await DomainEventBus.instance.publish(revEvent!);
+    }
+    if (newEvent != null) {
+      InventoryLedgerService.instance
+          .enqueueCloudAfterApply(newEvent!, sign: 1);
+      await DomainEventBus.instance.publish(newEvent!);
     }
 
     if (PlatformCapabilities.isWindowsDesktop) {
@@ -516,36 +525,15 @@ class CompraService {
     DateTime hasta,
   ) async {
     final db = await dbHelper.database;
-    final fin = DateTime(hasta.year, hasta.month, hasta.day, 23, 59, 59);
-    return db.rawQuery('''
+    return db.rawQuery(
+      '''
       SELECT c.*, p.nombre AS proveedorNombreActual
       FROM compras c
       LEFT JOIN proveedores p ON p.id = c.proveedorId
-      WHERE c.estado != 'anulada'
-        AND c.fecha >= ?
-        AND c.fecha <= ?
-      ORDER BY datetime(c.fecha) DESC, datetime(c.fechaCreacion) DESC
-    ''', [desde.toIso8601String(), fin.toIso8601String()]);
-  }
-
-  Future<double> totalComprasPorPeriodo(DateTime desde, DateTime hasta) async {
-    final db = await dbHelper.database;
-    final r = await db.rawQuery(
-      "SELECT SUM(total) total FROM compras WHERE estado != 'anulada' AND fecha >= ? AND fecha <= ?",
+      WHERE datetime(c.fecha) >= datetime(?) AND datetime(c.fecha) <= datetime(?)
+      ORDER BY datetime(c.fecha) DESC
+      ''',
       [desde.toIso8601String(), hasta.toIso8601String()],
     );
-    return (r.first['total'] as num?)?.toDouble() ?? 0;
-  }
-
-  Future<List<Map<String, dynamic>>> comprasPorMes({int meses = 6}) async {
-    final db = await dbHelper.database;
-    return db.rawQuery('''
-      SELECT strftime('%Y-%m', fecha) AS mes, SUM(total) AS total
-      FROM compras
-      WHERE estado != 'anulada'
-      AND fecha >= date('now', '-$meses months')
-      GROUP BY strftime('%Y-%m', fecha)
-      ORDER BY mes ASC
-    ''');
   }
 }

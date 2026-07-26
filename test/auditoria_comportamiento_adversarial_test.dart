@@ -147,7 +147,7 @@ void main() {
       expect(await stockDe(pid), 7);
     });
 
-    test('PRODUCIDO: factura B SÍ baja stock (fix P0)', () async {
+    test('PRODUCIDO: factura B NO baja stock (política Opción B)', () async {
       final pid = await seedProducto(stock: 10);
       final cid = await seedCliente();
       await CuentaCorrienteService().crearVentaConPago(
@@ -176,7 +176,8 @@ void main() {
         ],
         montoAbonado: 300,
       );
-      expect(await stockDe(pid), 7);
+      // Factura documenta; remito/nota entrega. Stock intacto.
+      expect(await stockDe(pid), 10);
     });
 
     test('PRODUCIDO: presupuesto NO baja stock', () async {

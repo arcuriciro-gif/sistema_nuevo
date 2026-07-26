@@ -85,8 +85,26 @@ class InventoryLedgerService {
       return false;
     }
 
-    final lines = _linesFrom(event);
-    if (lines.isEmpty) return false;
+    final rawLines = _linesFrom(event);
+    if (rawLines.isEmpty) return false;
+
+    // Agregar líneas duplicadas del mismo producto (evita choque UNIQUE event_id).
+    final aggregated = <int, int>{};
+    for (final line in rawLines) {
+      if (line.cantidad < 0) {
+        throw ArgumentError(
+          'Cantidad negativa inválida en ledger (producto ${line.productoId}).',
+        );
+      }
+      aggregated.update(
+        line.productoId,
+        (prev) => prev + line.cantidad.abs(),
+        ifAbsent: () => line.cantidad.abs(),
+      );
+    }
+    final lines = aggregated.entries
+        .map((e) => InventoryLine(productoId: e.key, cantidad: e.value))
+        .toList();
 
     // Validación de política dentro de la misma TX (stock actual).
     for (final line in lines) {
@@ -97,13 +115,15 @@ class InventoryLedgerService {
         whereArgs: [line.productoId],
         limit: 1,
       );
-      final stockBefore =
-          (prod.isNotEmpty ? prod.first['stock'] as num? : 0)?.toInt() ?? 0;
+      if (prod.isEmpty) {
+        throw StateError(
+          'Producto ${line.productoId} inexistente: no se puede mover stock.',
+        );
+      }
+      final stockBefore = (prod.first['stock'] as num?)?.toInt() ?? 0;
       final stockAfter = stockBefore + sign * line.cantidad.abs();
       if (!await IntegrityPolicy.instance.permiteStockResultante(stockAfter)) {
-        final codigo = prod.isNotEmpty
-            ? (prod.first['codigo']?.toString() ?? '${line.productoId}')
-            : '${line.productoId}';
+        final codigo = prod.first['codigo']?.toString() ?? '${line.productoId}';
         throw StateError(
           'Stock insuficiente para $codigo '
           '(hay $stockBefore, se necesitan ${line.cantidad.abs()}). '
@@ -128,17 +148,25 @@ class InventoryLedgerService {
         whereArgs: [line.productoId],
         limit: 1,
       );
-      final stockBefore =
-          (prod.isNotEmpty ? prod.first['stock'] as num? : 0)?.toInt() ?? 0;
-      final codigo = line.productoCodigo ??
-          (prod.isNotEmpty ? prod.first['codigo']?.toString() : null);
+      if (prod.isEmpty) {
+        throw StateError(
+          'Producto ${line.productoId} inexistente durante applyInTxn.',
+        );
+      }
+      final stockBefore = (prod.first['stock'] as num?)?.toInt() ?? 0;
+      final codigo = line.productoCodigo ?? prod.first['codigo']?.toString();
       final delta = sign * line.cantidad.abs();
       final stockAfter = stockBefore + delta;
 
-      await txn.rawUpdate(
+      final updated = await txn.rawUpdate(
         'UPDATE productos SET stock = stock + ?, actualizadoEn = ? WHERE id = ?',
         [delta, DateTime.now().toUtc().toIso8601String(), line.productoId],
       );
+      if (updated != 1) {
+        throw StateError(
+          'No se pudo proyectar stock del producto ${line.productoId}.',
+        );
+      }
 
       final lineEventId = '${event.eventId}:${line.productoId}';
       await txn.insert('inventory_ledger', {

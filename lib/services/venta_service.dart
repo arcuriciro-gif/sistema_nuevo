@@ -4,6 +4,9 @@ import '../core/config/device_identity.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
+import '../core/domain/inventory_delivery_policy.dart';
+import '../core/domain/inventory_ledger_service.dart';
+import '../core/domain/money_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
@@ -94,7 +97,9 @@ class VentaService {
     return rows.map(VentaItem.fromMap).toList();
   }
 
-  Future<void> anular(int id) async {
+  /// Anula venta: estado + reverso de stock (si hubo entrega) + money ledger
+  /// en la misma TX. Idempotente si ya está anulada.
+  Future<void> anular(int id, {bool syncAfter = true}) async {
     AuthorizationService.instance.require(
       AuthModules.remitos,
       AuthzAction.anular,
@@ -102,39 +107,70 @@ class VentaService {
     );
     DomainBootstrap.ensureInitialized();
     final db = await _db.database;
-    final venta = await obtenerPorId(id);
-    if (venta == null) return;
-    if (venta.estado == 'anulada') return;
+    final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+    final tag = await DeviceIdentity.shortTag();
 
-    final saldoAntes = venta.saldoPendiente;
-    final items = await obtenerItems(id);
-    final invLines = <Map<String, dynamic>>[];
-    if (venta.mueveStock) {
-      for (final item in items) {
-        if (item.cantidad == 0) continue;
+    int? clienteId;
+    DomainEvent? invRevEvent;
+
+    await db.transaction((txn) async {
+      final rows = await txn.rawQuery('''
+        SELECT v.*, c.nombre AS clienteNombre
+        FROM ventas v
+        LEFT JOIN clientes c ON c.id = v.clienteId
+        WHERE v.id = ?
+      ''', [id]);
+      if (rows.isEmpty) return;
+      final venta = Venta.fromMap(rows.first);
+      if (venta.estado == 'anulada') return;
+
+      clienteId = venta.clienteId;
+      final saldoAntes = venta.saldoPendiente;
+
+      final itemRows = await txn.query(
+        'ventas_items',
+        where: 'ventaId = ?',
+        whereArgs: [id],
+      );
+      final invLines = <Map<String, dynamic>>[];
+      for (final item in itemRows) {
+        final productoId = (item['productoId'] as num?)?.toInt();
+        if (productoId == null) continue;
+        final cantidad = (item['cantidad'] as num?)?.toInt() ?? 0;
+        if (cantidad == 0) continue;
         invLines.add(InventoryLine(
-          productoId: item.productoId,
-          cantidad: item.cantidad,
+          productoId: productoId,
+          cantidad: cantidad,
         ).toJson());
       }
-    }
 
-    await db.update(
-      'ventas',
-      {
-        'estado': 'anulada',
-        'saldoPendiente': 0,
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+      // Revertir stock si la política actual mueve stock O si hubo entrega
+      // legado (facturas que descontaban antes de Opción B).
+      final entregaEventId = InventoryDeliveryPolicy.eventIdEntregaVenta(id);
+      final entregaExistente = await txn.query(
+        'domain_events',
+        columns: ['event_id'],
+        where: 'event_id = ?',
+        whereArgs: [entregaEventId],
+        limit: 1,
+      );
+      final debeRevertirStock =
+          invLines.isNotEmpty &&
+          (venta.mueveStock || entregaExistente.isNotEmpty);
 
-    if (invLines.isNotEmpty) {
-      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
-      final tag = await DeviceIdentity.shortTag();
-      await DomainEventBus.instance.publish(
-        DomainEvent(
-          eventId: 'inv:entrega_rev:venta:$id',
+      await txn.update(
+        'ventas',
+        {
+          'estado': 'anulada',
+          'saldoPendiente': 0,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+
+      if (debeRevertirStock) {
+        invRevEvent = DomainEvent(
+          eventId: InventoryDeliveryPolicy.eventIdEntregaRevVenta(id),
           type: DomainEventType.mercaderiaEntregaRevertida,
           aggregateType: 'venta',
           aggregateId: '$id',
@@ -147,17 +183,19 @@ class VentaService {
             'motivo': 'Reverso entrega venta ${venta.numero}',
             'lines': invLines,
           },
-        ),
-      );
-    }
+        );
+        await InventoryLedgerService.instance.applyInTxn(
+          txn,
+          invRevEvent!,
+          sign: 1,
+          movimientoTipo: 'entrada',
+        );
+      }
 
-    if (venta.clienteId != null) {
-      await _cc.recalcularSaldoCliente(venta.clienteId!);
-      // Anulación = nuevo evento (no borrar historial del ledger).
-      if (saldoAntes > 0.009) {
-        final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
-        await DomainEventBus.instance.publish(
-          DomainEvent(
+      if (venta.clienteId != null && saldoAntes > 0.009) {
+        await MoneyLedgerService.instance.appendInTxn(
+          txn,
+          event: DomainEvent(
             eventId: 'money:venta_cc_rev:$id',
             type: DomainEventType.ventaCcRevertida,
             aggregateType: 'venta',
@@ -170,10 +208,28 @@ class VentaService {
               'motivo': 'Anulación venta ${venta.numero}',
             },
           ),
+          accountType: 'cliente_cc',
+          accountId: '${venta.clienteId}',
+          delta: -saldoAntes.abs(),
+          reason: 'Anulación venta ${venta.numero}',
+          documentType: 'venta',
+          documentId: '$id',
         );
       }
+    });
+
+    if (invRevEvent != null) {
+      InventoryLedgerService.instance
+          .enqueueCloudAfterApply(invRevEvent!, sign: 1);
+      await DomainEventBus.instance.publish(invRevEvent!);
     }
-    FirestoreSyncService.instance.programarSubidaVenta(id);
+
+    if (clienteId != null) {
+      await _cc.recalcularSaldoCliente(clienteId!);
+    }
+    if (syncAfter) {
+      FirestoreSyncService.instance.programarSubidaVenta(id);
+    }
     DataRefreshHub.instance.notifyVentas();
     DataRefreshHub.instance.notifyStock();
   }
@@ -245,8 +301,8 @@ class VentaService {
     FirestoreSyncService.instance.programarSubidaVenta(id);
   }
 
+  /// Anula (si hace falta) y borra la venta. Nunca hard-delete sin reverso.
   Future<void> eliminar(int id) async {
-    // Encargado (editar/anular) también puede borrar facturas; empleado no.
     final auth = AuthorizationService.instance;
     if (!auth.puede(AuthModules.remitos, AuthzAction.eliminar) &&
         !auth.puede(AuthModules.remitos, AuthzAction.anular)) {
@@ -258,22 +314,27 @@ class VentaService {
     }
     final db = await _db.database;
     final venta = await obtenerPorId(id);
+    if (venta == null) return;
+
+    if (venta.estado != 'anulada') {
+      await anular(id, syncAfter: false);
+    }
+
+    syncInBackground(
+      FirestoreSyncService.instance.eliminarVentaRemota(venta),
+      tag: 'eliminarVentaRemota',
+    );
+
     await db.transaction((txn) async {
       await txn.delete('pagos', where: 'ventaId = ?', whereArgs: [id]);
-      await txn
-          .delete('ventas_items', where: 'ventaId = ?', whereArgs: [id]);
+      await txn.delete('ventas_items', where: 'ventaId = ?', whereArgs: [id]);
       await txn.delete('ventas', where: 'id = ?', whereArgs: [id]);
     });
-    // Nube en background: no bloquear UI / modo avión.
-    if (venta != null) {
-      syncInBackground(
-        FirestoreSyncService.instance.eliminarVentaRemota(venta),
-        tag: 'eliminarVentaRemota',
-      );
-    }
-    if (venta?.clienteId != null) {
-      await _cc.recalcularSaldoCliente(venta!.clienteId!);
+
+    if (venta.clienteId != null) {
+      await _cc.recalcularSaldoCliente(venta.clienteId!);
     }
     DataRefreshHub.instance.notifyVentas();
+    DataRefreshHub.instance.notifyStock();
   }
 }
