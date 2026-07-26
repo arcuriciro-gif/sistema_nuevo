@@ -5,7 +5,8 @@ class WindowsSyncPolicy {
   WindowsSyncPolicy._();
 
   /// Tras login: solo absorber outbox local; sin Firebase de colección.
-  static const Duration quarantineAfterLogin = Duration(seconds: 60);
+  /// 45s: UI estable y sync de negocio más pronto (antes 60s).
+  static const Duration quarantineAfterLogin = Duration(seconds: 45);
 
   /// Delay entre jobs normales del throttle (outbox/pull).
   static const Duration throttleDelayNormal = Duration(milliseconds: 600);
@@ -13,11 +14,11 @@ class WindowsSyncPolicy {
   /// Delay corto para acción de usuario (1 producto / listas).
   static const Duration throttleDelayInteractive = Duration(milliseconds: 100);
 
-  /// Outbox pump (tras cuarentena): micro-lotes.
-  static const Duration outboxPumpInterval = Duration(seconds: 50);
+  /// Outbox pump (tras cuarentena): micro-lotes más frecuentes.
+  static const Duration outboxPumpInterval = Duration(seconds: 35);
 
-  /// Soft-pull (tras cuarentena + margen): 1 colección/tick.
-  static const Duration softPullInterval = Duration(seconds: 120);
+  /// Soft-pull: convergencia APK→PC (ventas/compras/productos).
+  static const Duration softPullInterval = Duration(seconds: 75);
 
   /// Reclaim inflight huérfanos tras crash.
   static const Duration reclaimStaleInflightAfter = Duration(minutes: 3);

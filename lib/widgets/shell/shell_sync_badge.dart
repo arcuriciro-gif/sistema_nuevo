@@ -95,10 +95,12 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
         subtitle: detail ?? '$dead ops con error',
       );
     }
-    final lastTxt = last == null
+    // lastSyncAt se guarda en UTC; mostrar hora local (AR ≠ 18:xx).
+    final local = last?.toLocal();
+    final lastTxt = local == null
         ? 'Al día'
-        : 'Última: ${last.hour.toString().padLeft(2, '0')}:'
-            '${last.minute.toString().padLeft(2, '0')}';
+        : 'Última: ${local.hour.toString().padLeft(2, '0')}:'
+            '${local.minute.toString().padLeft(2, '0')}';
     return (
       tone: ShellSyncTone.ok,
       title: 'Sincronizado',
@@ -205,7 +207,9 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
                 }),
               ],
               if (h?.lastSyncAt != null)
-                Text('Última sync: ${h!.lastSyncAt}'),
+                Text(
+                  'Última sync: ${h!.lastSyncAt!.toLocal()}',
+                ),
               const SizedBox(height: 8),
               Text(
                 'Estado: ${FirestoreSyncService.instance.syncStatusLabel}',

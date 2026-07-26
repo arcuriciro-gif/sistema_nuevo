@@ -331,17 +331,28 @@ class _MainShellState extends State<MainShell> {
       final items = _visibleItems;
       _selectedIndex = _resolverIndiceSeleccionado(items);
       final ids = items.map((e) => e.preferenciaId).toSet();
-      _pageCache.removeWhere((k, _) => !ids.contains(k));
+      // Cache keys: "d|modulo|title" / "m|modulo|title"
+      _pageCache.removeWhere((k, _) {
+        final prefId = k.length > 2 && (k.startsWith('d|') || k.startsWith('m|'))
+            ? k.substring(2)
+            : k;
+        return !ids.contains(prefId);
+      });
     });
   }
 
   final Map<String, Widget> _pageCache = {};
+  bool? _cacheDesktopLayout;
 
-  Widget _cachedPage(_ShellItem item) {
-    return _pageCache.putIfAbsent(
-      item.preferenciaId,
-      () => item.builder(),
-    );
+  /// Cache por layout: reusar la misma página al girar móvil↔desktop
+  /// reparentaba el Element y cerraba el APK.
+  Widget _cachedPage(_ShellItem item, {required bool desktop}) {
+    if (_cacheDesktopLayout != desktop) {
+      _cacheDesktopLayout = desktop;
+      _pageCache.clear();
+    }
+    final key = '${desktop ? 'd' : 'm'}|${item.preferenciaId}';
+    return _pageCache.putIfAbsent(key, () => item.builder());
   }
 
   void _onCommsChanged() {
@@ -366,7 +377,7 @@ class _MainShellState extends State<MainShell> {
           builder: () => InicioPage(
             onIrA: _irAModulo,
             onBuscar: () => _abrirBusqueda(
-              desktop: MediaQuery.sizeOf(context).width >= kDesktopBreakpoint,
+              desktop: isDesktopShellLayout(MediaQuery.sizeOf(context)),
             ),
             onEscanear: _abrirScanner,
           ),
@@ -812,7 +823,7 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    final desktop = MediaQuery.sizeOf(context).width >= kDesktopBreakpoint;
+    final desktop = isDesktopShellLayout(MediaQuery.sizeOf(context));
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
         const SingleActivator(LogicalKeyboardKey.keyK, control: true): () =>
@@ -845,7 +856,8 @@ class _MainShellState extends State<MainShell> {
         autofocus: true,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final isDesktop = constraints.maxWidth >= kDesktopBreakpoint;
+            // Celular landscape NO usa shell desktop (crash al volver).
+            final isDesktop = isDesktopShellLayout(constraints.biggest);
             if (isDesktop) {
               return _buildDesktopLayout();
             }
@@ -900,8 +912,8 @@ class _MainShellState extends State<MainShell> {
                               children: [
                                 for (final item in items)
                                   KeyedSubtree(
-                                    key: ValueKey(item.preferenciaId),
-                                    child: _cachedPage(item),
+                                    key: ValueKey('d|${item.preferenciaId}'),
+                                    child: _cachedPage(item, desktop: true),
                                   ),
                               ],
                             ),
@@ -1047,8 +1059,8 @@ class _MainShellState extends State<MainShell> {
                   children: [
                     for (final item in items)
                       KeyedSubtree(
-                        key: ValueKey(item.preferenciaId),
-                        child: _cachedPage(item),
+                        key: ValueKey('m|${item.preferenciaId}'),
+                        child: _cachedPage(item, desktop: false),
                       ),
                   ],
                 ),

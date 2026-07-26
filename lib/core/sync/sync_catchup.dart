@@ -16,6 +16,45 @@ class SyncCatchup {
   static const defaultPageSize = 250;
   static const defaultMaxPagesPerCycle = 8; // hasta 2000/ciclo, rotando
 
+  /// Encola los documentos más recientes (id DESC) que aún no estánieron.
+  ///
+  /// Prioriza ventas/remitos de hoy para que el APK no quede en $0 mientras
+  /// el catch-up secuencial termina. [reopenAcked] sirve para un empujón
+  /// único si hubo ACK fantasma sin doc en Firestore.
+  Future<int> enqueueRecentDocumentCatchup({
+    required Database db,
+    required String table,
+    required String entityType,
+    int limit = 40,
+    bool reopenAcked = false,
+  }) async {
+    final rows = await db.query(
+      table,
+      columns: ['id'],
+      orderBy: 'id DESC',
+      limit: limit.clamp(1, 120),
+    );
+    var enqueued = 0;
+    for (final row in rows) {
+      final id = (row['id'] as num?)?.toInt();
+      if (id == null) continue;
+      if (!reopenAcked &&
+          !await SyncOutbox.instance.needsCatchupUpsert(
+            entityType: entityType,
+            localId: id,
+          )) {
+        continue;
+      }
+      await SyncOutbox.instance.enqueueUpsert(
+        entityType: entityType,
+        localId: id,
+        reopenAcked: reopenAcked,
+      );
+      enqueued++;
+    }
+    return enqueued;
+  }
+
   /// Avanza el cursor de [table]/[entityType] y encola upserts necesarios.
   ///
   /// Retorna cuántos IDs encoló en este ciclo.

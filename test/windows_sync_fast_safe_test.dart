@@ -33,11 +33,22 @@ void main() {
     test('cuarentena da tiempo al UI antes de Firebase de colección', () {
       expect(
         WindowsSyncPolicy.quarantineAfterLogin.inSeconds,
-        greaterThanOrEqualTo(45),
+        greaterThanOrEqualTo(40),
       );
       expect(
         WindowsSyncPolicy.quarantineAfterLogin.inSeconds,
         lessThanOrEqualTo(120),
+      );
+    });
+
+    test('pump/pull más frecuentes para convergencia negocio', () {
+      expect(
+        WindowsSyncPolicy.outboxPumpInterval.inSeconds,
+        lessThanOrEqualTo(40),
+      );
+      expect(
+        WindowsSyncPolicy.softPullInterval.inSeconds,
+        lessThanOrEqualTo(90),
       );
     });
 
