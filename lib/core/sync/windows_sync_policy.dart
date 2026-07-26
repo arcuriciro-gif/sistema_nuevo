@@ -47,6 +47,43 @@ class WindowsSyncPolicy {
     return softPullOtherLanes[otherIdx];
   }
 
+  /// Plan de drain del outbox Windows: qué buckets tocar este tick.
+  ///
+  /// Si hay productos pendientes, SIEMPRE van primero (antes un tick
+  /// compartido con soft-pull quedaba en 0 y nunca los subía).
+  static List<({List<String> types, int claim})> outboxDrainPlan({
+    required Map<String, int> breakdown,
+    required int tick,
+  }) {
+    final nProd = breakdown['producto'] ?? 0;
+    final nProv = breakdown['proveedor'] ?? 0;
+    final nDocs = (breakdown['venta'] ?? 0) +
+        (breakdown['remito'] ?? 0) +
+        (breakdown['compra'] ?? 0) +
+        (breakdown['cliente'] ?? 0);
+    final nStock = breakdown['stock_op'] ?? 0;
+    final plan = <({List<String> types, int claim})>[];
+    if (nProd + nProv > 0) {
+      plan.add((
+        types: const ['producto', 'proveedor'],
+        claim: (nProd + nProv) >= 20 ? 6 : 4,
+      ));
+    }
+    if (nDocs > 0 || tick % 2 == 0) {
+      plan.add((
+        types: const ['venta', 'remito', 'compra', 'cliente'],
+        claim: 4,
+      ));
+    }
+    if (nStock > 0 || tick % 3 == 2) {
+      plan.add((
+        types: const ['stock_op'],
+        claim: 2,
+      ));
+    }
+    return plan;
+  }
+
   /// En Windows el masivo (análisis de lista) solo encola outbox.
   static bool bulkSoloEncolar({required bool isWindowsDesktop}) =>
       isWindowsDesktop;
