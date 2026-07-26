@@ -604,6 +604,161 @@ void main() {
     });
   });
 
+  group('R1 restaurar venta / R2 reabrir compra', () {
+    test('anular→restaurar→anular nota_entrega restaura stock exacto', () async {
+      final pid = await seedProducto(stock: 10);
+      final cid = await seedCliente();
+      final vid = await CuentaCorrienteService().crearVentaConPago(
+        venta: Venta(
+          tipo: 'nota_entrega',
+          numero: 'NE-REST-1',
+          clienteId: cid,
+          fecha: DateTime.now(),
+          subtotal: 300,
+          total: 300,
+          totalPagado: 0,
+          saldoPendiente: 300,
+          estado: 'confirmada',
+          estadoPago: 'pendiente',
+        ),
+        items: [
+          VentaItem(
+            ventaId: 0,
+            productoId: pid,
+            productoDescripcion: 'Prod',
+            cantidad: 3,
+            precio: 100,
+            subtotal: 300,
+          ),
+        ],
+      );
+      final svc = VentaService();
+      expect(await stockDe(pid), 7);
+      expect(await saldoCliente(cid), closeTo(300, 0.01));
+
+      await svc.anular(vid);
+      expect(await stockDe(pid), 10);
+      expect(await saldoCliente(cid), closeTo(0, 0.01));
+
+      await svc.restaurar(vid);
+      expect(await stockDe(pid), 7);
+      expect(await saldoCliente(cid), closeTo(300, 0.01));
+
+      await svc.anular(vid);
+      expect(await stockDe(pid), 10);
+      expect(await saldoCliente(cid), closeTo(0, 0.01));
+      expect(
+        await InventoryLedgerService.instance.verificarProyeccion(pid),
+        isTrue,
+      );
+    });
+
+    test('restaurar factura B no mueve stock', () async {
+      final pid = await seedProducto(stock: 10);
+      final cid = await seedCliente();
+      final vid = await CuentaCorrienteService().crearVentaConPago(
+        venta: Venta(
+          tipo: 'factura_b',
+          numero: 'B-REST-1',
+          clienteId: cid,
+          fecha: DateTime.now(),
+          subtotal: 100,
+          total: 100,
+          totalPagado: 0,
+          saldoPendiente: 100,
+          estado: 'confirmada',
+          estadoPago: 'pendiente',
+        ),
+        items: [
+          VentaItem(
+            ventaId: 0,
+            productoId: pid,
+            productoDescripcion: 'Prod',
+            cantidad: 1,
+            precio: 100,
+            subtotal: 100,
+          ),
+        ],
+      );
+      final svc = VentaService();
+      await svc.anular(vid);
+      await svc.restaurar(vid);
+      expect(await stockDe(pid), 10);
+      expect(await saldoCliente(cid), closeTo(100, 0.01));
+    });
+
+    test('compra anular→reabrir→anular sin doble suma', () async {
+      final pid = await seedProducto(stock: 5);
+      final svc = CompraService();
+      final id = await svc.insertar(
+        Compra(
+          proveedorId: null,
+          proveedorNombre: 'Prov',
+          numero: 'C-REOPEN-1-T',
+          factura: '',
+          fecha: DateTime.now(),
+          total: 200,
+          descuento: 0,
+          iva: 0,
+          observaciones: '',
+          estado: 'confirmada',
+        ),
+        [
+          CompraDetalle(
+            compraId: 0,
+            productoId: pid,
+            productoDescripcion: 'Prod',
+            cantidad: 4,
+            costo: 40,
+            subtotal: 160,
+          ),
+        ],
+      );
+      expect(await stockDe(pid), 9);
+      await svc.anular(id);
+      expect(await stockDe(pid), 5);
+      await svc.reabrir(id);
+      expect(await stockDe(pid), 9);
+      await svc.anular(id);
+      expect(await stockDe(pid), 5);
+      expect(await ledgerSum(pid), 5);
+    });
+  });
+
+  group('R4 metadata no pisa stock', () {
+    test('toggleFavorito no clobber stock tras movimiento', () async {
+      final pid = await seedProducto(codigo: 'FAV-1', stock: 10);
+      await StockService().registrarMovimiento(
+        MovimientoStock(
+          productoId: pid,
+          tipo: 'salida',
+          cantidad: 3,
+          fecha: DateTime.now(),
+          motivo: 'ajuste',
+          usuario: 'admin',
+        ),
+      );
+      expect(await stockDe(pid), 7);
+      // Snapshot "viejo" con stock 10 — no debe pisar proyección.
+      final stale = Producto(
+        id: pid,
+        codigo: 'FAV-1',
+        descripcion: 'Prod FAV-1',
+        marca: '',
+        categoria: 'General',
+        proveedor: '',
+        ubicacion: '',
+        stock: 10,
+        precio: 100,
+        costo: 40,
+        observaciones: '',
+        foto: '',
+      );
+      await ProductoService().toggleFavorito(stale);
+      expect(await stockDe(pid), 7);
+    });
+  });
+
   group('Idempotencia / proyección', () {
     test('doble anular remito no duplica stock', () async {
       final pid = await seedProducto(stock: 10);

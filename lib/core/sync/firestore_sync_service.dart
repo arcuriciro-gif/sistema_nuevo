@@ -3750,7 +3750,8 @@ class _DualProductoRepository implements ProductoRepository {
         actualizadoEn: DateTime.now().toUtc().toIso8601String(),
       );
       try {
-        await remote.actualizar(producto);
+        // Soft-delete: metadata only — never merge absolute stock.
+        await remote.actualizarSinStock(producto);
       } catch (error) {
         debugPrint('Firestore soft-delete producto: $error');
       }

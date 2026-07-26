@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:sqflite/sqflite.dart';
+
 import '../core/config/device_identity.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
@@ -97,7 +99,16 @@ class VentaService {
     return rows.map(VentaItem.fromMap).toList();
   }
 
-  /// Anula venta: estado + reverso de stock (si hubo entrega) + money ledger
+  Future<int> _ledgerNetVenta(DatabaseExecutor txn, int ventaId) async {
+    final r = await txn.rawQuery(
+      "SELECT COALESCE(SUM(delta), 0) s FROM inventory_ledger "
+      "WHERE document_type = 'venta' AND document_id = ?",
+      ['$ventaId'],
+    );
+    return (r.first['s'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Anula venta: estado + reverso de stock (si el ledger neto entregó) + money
   /// en la misma TX. Idempotente si ya está anulada.
   Future<void> anular(int id, {bool syncAfter = true}) async {
     AuthorizationService.instance.require(
@@ -109,6 +120,7 @@ class VentaService {
     final db = await _db.database;
     final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
     final tag = await DeviceIdentity.shortTag();
+    final rev = DateTime.now().toUtc().microsecondsSinceEpoch;
 
     int? clienteId;
     DomainEvent? invRevEvent;
@@ -144,19 +156,9 @@ class VentaService {
         ).toJson());
       }
 
-      // Revertir stock si la política actual mueve stock O si hubo entrega
-      // legado (facturas que descontaban antes de Opción B).
-      final entregaEventId = InventoryDeliveryPolicy.eventIdEntregaVenta(id);
-      final entregaExistente = await txn.query(
-        'domain_events',
-        columns: ['event_id'],
-        where: 'event_id = ?',
-        whereArgs: [entregaEventId],
-        limit: 1,
-      );
-      final debeRevertirStock =
-          invLines.isNotEmpty &&
-          (venta.mueveStock || entregaExistente.isNotEmpty);
+      // Fuente de verdad: neto del ledger del documento (cubre legado + restore).
+      final net = await _ledgerNetVenta(txn, id);
+      final debeRevertirStock = invLines.isNotEmpty && net < 0;
 
       await txn.update(
         'ventas',
@@ -170,7 +172,7 @@ class VentaService {
 
       if (debeRevertirStock) {
         invRevEvent = DomainEvent(
-          eventId: InventoryDeliveryPolicy.eventIdEntregaRevVenta(id),
+          eventId: InventoryDeliveryPolicy.eventIdEntregaRevVenta(id, rev: rev),
           type: DomainEventType.mercaderiaEntregaRevertida,
           aggregateType: 'venta',
           aggregateId: '$id',
@@ -196,7 +198,7 @@ class VentaService {
         await MoneyLedgerService.instance.appendInTxn(
           txn,
           event: DomainEvent(
-            eventId: 'money:venta_cc_rev:$id',
+            eventId: 'money:venta_cc_rev:$id:$rev',
             type: DomainEventType.ventaCcRevertida,
             aggregateType: 'venta',
             aggregateId: '$id',
@@ -222,6 +224,153 @@ class VentaService {
       InventoryLedgerService.instance
           .enqueueCloudAfterApply(invRevEvent!, sign: 1);
       await DomainEventBus.instance.publish(invRevEvent!);
+    }
+
+    if (clienteId != null) {
+      await _cc.recalcularSaldoCliente(clienteId!);
+    }
+    if (syncAfter) {
+      FirestoreSyncService.instance.programarSubidaVenta(id);
+    }
+    DataRefreshHub.instance.notifyVentas();
+    DataRefreshHub.instance.notifyStock();
+  }
+
+  /// Restaura una venta anulada: reabre estado/CC y re-entrega stock si aplica.
+  /// Todo vía ledger (nunca write absoluto). Ciclos anular↔restaurar son seguros.
+  Future<void> restaurar(int id, {bool syncAfter = true}) async {
+    AuthorizationService.instance.require(
+      AuthModules.remitos,
+      AuthzAction.anular,
+      operacion: 'restaurar venta',
+    );
+    DomainBootstrap.ensureInitialized();
+    final db = await _db.database;
+    final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+    final tag = await DeviceIdentity.shortTag();
+    final rev = DateTime.now().toUtc().microsecondsSinceEpoch;
+
+    int? clienteId;
+    DomainEvent? invEvent;
+
+    await db.transaction((txn) async {
+      final rows = await txn.rawQuery('''
+        SELECT v.*, c.nombre AS clienteNombre
+        FROM ventas v
+        LEFT JOIN clientes c ON c.id = v.clienteId
+        WHERE v.id = ?
+      ''', [id]);
+      if (rows.isEmpty) {
+        throw StateError('Venta no encontrada');
+      }
+      final venta = Venta.fromMap(rows.first);
+      if (venta.estado != 'anulada') {
+        throw StateError('Solo se pueden restaurar ventas anuladas');
+      }
+
+      clienteId = venta.clienteId;
+      final saldo = (venta.total - venta.totalPagado).clamp(0, venta.total).toDouble();
+      final estadoPago = saldo <= 0.009
+          ? 'cobrado'
+          : (venta.totalPagado > 0.009 ? 'parcial' : 'pendiente');
+
+      final itemRows = await txn.query(
+        'ventas_items',
+        where: 'ventaId = ?',
+        whereArgs: [id],
+      );
+      final invLines = <Map<String, dynamic>>[];
+      for (final item in itemRows) {
+        final productoId = (item['productoId'] as num?)?.toInt();
+        if (productoId == null) continue;
+        final cantidad = (item['cantidad'] as num?)?.toInt() ?? 0;
+        if (cantidad == 0) continue;
+        invLines.add(InventoryLine(
+          productoId: productoId,
+          cantidad: cantidad,
+        ).toJson());
+      }
+
+      // Re-entrega solo si el tipo entrega O hubo entrega histórica (legado).
+      final entregaCanon = await txn.query(
+        'domain_events',
+        columns: ['event_id'],
+        where: "event_id = ? OR event_id LIKE ?",
+        whereArgs: [
+          InventoryDeliveryPolicy.eventIdEntregaVenta(id),
+          'inv:entrega:venta:$id:%',
+        ],
+        limit: 1,
+      );
+      final debeEntregar = invLines.isNotEmpty &&
+          (venta.mueveStock || entregaCanon.isNotEmpty);
+
+      await txn.update(
+        'ventas',
+        {
+          'estado': 'confirmada',
+          'saldoPendiente': saldo,
+          'estadoPago': estadoPago,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+
+      if (debeEntregar) {
+        invEvent = DomainEvent(
+          eventId:
+              InventoryDeliveryPolicy.eventIdEntregaRestoreVenta(id, rev: rev),
+          type: DomainEventType.mercaderiaEntregada,
+          aggregateType: 'venta',
+          aggregateId: '$id',
+          createdBy: user,
+          deviceId: tag,
+          payload: {
+            'documentType': 'venta',
+            'documentId': '$id',
+            'documentNumero': venta.numero,
+            'motivo': 'Restauración entrega venta ${venta.numero}',
+            'lines': invLines,
+          },
+        );
+        await InventoryLedgerService.instance.applyInTxn(
+          txn,
+          invEvent!,
+          sign: -1,
+          movimientoTipo: 'salida',
+        );
+      }
+
+      if (venta.clienteId != null && saldo > 0.009) {
+        await MoneyLedgerService.instance.appendInTxn(
+          txn,
+          event: DomainEvent(
+            eventId: 'money:venta_cc:restore:$id:$rev',
+            type: DomainEventType.ventaCargadaCc,
+            aggregateType: 'venta',
+            aggregateId: '$id',
+            createdBy: user,
+            payload: {
+              'clienteId': venta.clienteId,
+              'ventaId': id,
+              'total': venta.total,
+              'saldo': saldo,
+              'motivo': 'Restauración venta ${venta.numero} a cuenta',
+            },
+          ),
+          accountType: 'cliente_cc',
+          accountId: '${venta.clienteId}',
+          delta: saldo.abs(),
+          reason: 'Restauración venta ${venta.numero} a cuenta',
+          documentType: 'venta',
+          documentId: '$id',
+        );
+      }
+    });
+
+    if (invEvent != null) {
+      InventoryLedgerService.instance.enqueueCloudAfterApply(invEvent!, sign: -1);
+      await DomainEventBus.instance.publish(invEvent!);
     }
 
     if (clienteId != null) {

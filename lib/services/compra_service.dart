@@ -7,6 +7,7 @@ import '../core/config/platform_capabilities.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
+import '../core/domain/inventory_delivery_policy.dart';
 import '../core/domain/inventory_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
@@ -200,6 +201,15 @@ class CompraService {
     ''', [compraId]);
   }
 
+  Future<int> _ledgerNetCompra(DatabaseExecutor txn, int compraId) async {
+    final r = await txn.rawQuery(
+      "SELECT COALESCE(SUM(delta), 0) s FROM inventory_ledger "
+      "WHERE document_type = 'compra' AND document_id = ?",
+      ['$compraId'],
+    );
+    return (r.first['s'] as num?)?.toInt() ?? 0;
+  }
+
   Future<void> anular(int id, {bool syncAfter = true}) async {
     DomainBootstrap.ensureInitialized();
     AuthorizationService.instance.require(
@@ -210,6 +220,7 @@ class CompraService {
     final db = await dbHelper.database;
     final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
     final tag = await DeviceIdentity.shortTag();
+    final rev = DateTime.now().toUtc().microsecondsSinceEpoch;
     DomainEvent? invEvent;
 
     await db.transaction((txn) async {
@@ -243,6 +254,9 @@ class CompraService {
         ).toJson());
       }
 
+      final net = await _ledgerNetCompra(txn, id);
+      final debeRevertir = lines.isNotEmpty && net > 0;
+
       await txn.update(
         'compras',
         {'estado': 'anulada'},
@@ -250,9 +264,12 @@ class CompraService {
         whereArgs: [id],
       );
 
-      if (lines.isNotEmpty) {
+      if (debeRevertir) {
         invEvent = DomainEvent(
-          eventId: 'inv:recepcion_rev:compra:$id',
+          eventId: InventoryDeliveryPolicy.eventIdRecepcionRevCompra(
+            id,
+            rev: rev,
+          ),
           type: DomainEventType.mercaderiaRecepcionRevertida,
           aggregateType: 'compra',
           aggregateId: '$id',
@@ -278,6 +295,102 @@ class CompraService {
     if (invEvent != null) {
       InventoryLedgerService.instance
           .enqueueCloudAfterApply(invEvent!, sign: -1);
+      await DomainEventBus.instance.publish(invEvent!);
+    }
+
+    if (syncAfter) {
+      syncInBackground(
+        FirestoreSyncService.instance.subirCompra(id),
+        tag: 'subirCompra',
+      );
+    }
+    DataRefreshHub.instance.notifyTodo();
+  }
+
+  /// Reabre una compra anulada: vuelve a confirmar y re-aplica vía ledger.
+  Future<void> reabrir(int id, {bool syncAfter = true}) async {
+    DomainBootstrap.ensureInitialized();
+    AuthorizationService.instance.require(
+      AuthModules.compras,
+      AuthzAction.anular,
+      operacion: 'reabrir compra',
+    );
+    final db = await dbHelper.database;
+    final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+    final tag = await DeviceIdentity.shortTag();
+    final rev = DateTime.now().toUtc().microsecondsSinceEpoch;
+    DomainEvent? invEvent;
+
+    await db.transaction((txn) async {
+      final compras = await txn.query(
+        'compras',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (compras.isEmpty) {
+        throw StateError('Compra no encontrada');
+      }
+      final compra = compras.first;
+      if (compra['estado'] != 'anulada') {
+        throw StateError('Solo se pueden reabrir compras anuladas');
+      }
+      final numero = compra['numero']?.toString() ?? '';
+
+      final items = await txn.query(
+        'compra_items',
+        where: 'compraId = ?',
+        whereArgs: [id],
+      );
+      final lines = <Map<String, dynamic>>[];
+      for (final item in items) {
+        final productoId = (item['productoId'] as num?)?.toInt();
+        if (productoId == null) continue;
+        final cantidad = (item['cantidad'] as num?)?.toInt() ?? 0;
+        if (cantidad == 0) continue;
+        lines.add(InventoryLine(
+          productoId: productoId,
+          cantidad: cantidad,
+        ).toJson());
+      }
+
+      await txn.update(
+        'compras',
+        {'estado': 'confirmada'},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+
+      if (lines.isNotEmpty) {
+        invEvent = DomainEvent(
+          eventId: InventoryDeliveryPolicy.eventIdRecepcionReopenCompra(
+            id,
+            rev: rev,
+          ),
+          type: DomainEventType.mercaderiaRecibida,
+          aggregateType: 'compra',
+          aggregateId: '$id',
+          createdBy: user,
+          deviceId: tag,
+          payload: {
+            'documentType': 'compra',
+            'documentId': '$id',
+            'documentNumero': numero,
+            'motivo': 'Reapertura recepción compra $numero',
+            'lines': lines,
+          },
+        );
+        await InventoryLedgerService.instance.applyInTxn(
+          txn,
+          invEvent!,
+          sign: 1,
+          movimientoTipo: 'entrada',
+        );
+      }
+    });
+
+    if (invEvent != null) {
+      InventoryLedgerService.instance.enqueueCloudAfterApply(invEvent!, sign: 1);
       await DomainEventBus.instance.publish(invEvent!);
     }
 

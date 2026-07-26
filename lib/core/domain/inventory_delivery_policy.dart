@@ -15,6 +15,9 @@
 /// física vía Remito + Factura, porque la factura no entrega.
 ///
 /// La venta rápida del sistema emite **Remito**, que es el canal de stock.
+///
+/// Ciclos anular↔restaurar usan eventIds con revision (microseconds) para
+/// no chocar con la idempotencia del ledger.
 class InventoryDeliveryPolicy {
   InventoryDeliveryPolicy._();
 
@@ -35,9 +38,23 @@ class InventoryDeliveryPolicy {
     }
   }
 
-  /// Event id canónico de entrega por venta (para anular/revertir legado).
+  /// Event id canónico de entrega al crear venta (una sola vez por alta).
   static String eventIdEntregaVenta(int ventaId) => 'inv:entrega:venta:$ventaId';
 
-  static String eventIdEntregaRevVenta(int ventaId) =>
-      'inv:entrega_rev:venta:$ventaId';
+  /// Reverso de entrega (ciclo anular; [rev] evita colisión tras restaurar).
+  static String eventIdEntregaRevVenta(int ventaId, {required int rev}) =>
+      'inv:entrega_rev:venta:$ventaId:$rev';
+
+  /// Re-entrega al restaurar una venta anulada.
+  static String eventIdEntregaRestoreVenta(int ventaId, {required int rev}) =>
+      'inv:entrega:venta:$ventaId:restore:$rev';
+
+  static String eventIdRecepcionCompra(int compraId) =>
+      'inv:recepcion:compra:$compraId';
+
+  static String eventIdRecepcionRevCompra(int compraId, {required int rev}) =>
+      'inv:recepcion_rev:compra:$compraId:$rev';
+
+  static String eventIdRecepcionReopenCompra(int compraId, {required int rev}) =>
+      'inv:recepcion:compra:$compraId:reopen:$rev';
 }

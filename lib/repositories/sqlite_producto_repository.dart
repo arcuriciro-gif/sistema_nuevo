@@ -111,7 +111,9 @@ class SqliteProductoRepository implements ProductoRepository {
   @override
   Future<int> actualizar(Producto producto) async {
     final db = await _databaseHelper.database;
-    final map = producto.toMap();
+    // R4/R7: metadata nunca escribe stock absoluto.
+    // La proyección solo cambia vía InventoryLedgerService (stock = stock + Δ).
+    final map = producto.toMap()..remove('stock');
     map['actualizadoEn'] = producto.actualizadoEn?.isNotEmpty == true
         ? producto.actualizadoEn
         : DateTime.now().toUtc().toIso8601String();
