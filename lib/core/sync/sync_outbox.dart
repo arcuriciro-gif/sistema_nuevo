@@ -540,8 +540,28 @@ ORDER BY c DESC
     return n;
   }
 
-  /// Windows boot: limpia TODA la cola stock_op (pending/inflight/dead).
-  /// Evita badge rojo eterno por reclaim; el stock local ya está en ledger.
+  /// ACK solo stock_op en estado `dead` (limpia badge sin borrar pending reales).
+  Future<int> ackDeadStockOps() async {
+    final db = await _db;
+    final rows = await db.query(
+      'sync_outbox',
+      columns: ['op_id'],
+      where: "entity_type = 'stock_op' AND status = ?",
+      whereArgs: [SyncOutboxStatus.dead],
+      limit: 500,
+    );
+    var n = 0;
+    for (final r in rows) {
+      final opId = r['op_id']?.toString() ?? '';
+      if (opId.isEmpty) continue;
+      await ack(opId);
+      n++;
+    }
+    return n;
+  }
+
+  /// @Deprecated: preferir [purgeStuckStockOps] / [ackDeadStockOps].
+  /// No usar en pump: borraba stock fresco y el APK no veía cambios.
   Future<int> clearAllStockOpsOutbox() async {
     final db = await _db;
     final rows = await db.query(

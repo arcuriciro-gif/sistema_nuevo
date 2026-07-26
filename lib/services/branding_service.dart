@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/config/platform_capabilities.dart';
 import '../core/utils/media_path.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/media_sync_service.dart';
@@ -455,11 +456,13 @@ class BrandingService extends ChangeNotifier {
     var nuevoLogo = logoPath;
     var nuevoIcono = iconoPath;
 
-    if (logoUrl.isNotEmpty && esUrlRemota(logoUrl)) {
+    // Windows: no bajar logo/icono (HTTP/Storage tumbaba el .exe). Solo texto.
+    final bajarImagenes = !PlatformCapabilities.isWindowsDesktop;
+    if (bajarImagenes && logoUrl.isNotEmpty && esUrlRemota(logoUrl)) {
       final local = await _descargarImagen(logoUrl, 'logo_sync');
       if (local != null) nuevoLogo = local;
     }
-    if (iconoUrl.isNotEmpty && esUrlRemota(iconoUrl)) {
+    if (bajarImagenes && iconoUrl.isNotEmpty && esUrlRemota(iconoUrl)) {
       final local = await _descargarImagen(iconoUrl, 'icono_sync');
       if (local != null) nuevoIcono = local;
     }

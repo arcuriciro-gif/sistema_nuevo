@@ -24,6 +24,7 @@ import 'sync_catchup.dart';
 import 'sync_health.dart';
 import 'sync_outbox.dart';
 import 'sync_tombstone.dart';
+import 'stock_ops_watermark.dart';
 import 'sync_watermark_store.dart';
 import 'windows_sync_policy.dart';
 import '../../database/database_helper.dart';
@@ -114,6 +115,9 @@ class FirestoreSyncService {
   Timer? _outboxPump;
   /// Windows: pull periódico (sin listeners pesados que tumban el .exe).
   Timer? _pullPump;
+  /// APK/móvil: pull periódico de stock_ops (no hay listener; el stock
+  /// remoto en productos se ignora — R6/R7: autoridad = ledger/stock_ops).
+  Timer? _stockOpsPullPump;
   /// Evita doble start() en Windows (auth + shell reconectan a la vez).
   bool _windowsBootInProgress = false;
   bool _windowsPumpsActivos = false;
@@ -251,18 +255,21 @@ class FirestoreSyncService {
           CloudSyncThrottle.enqueue(() async {
             try {
               await _cargarColasPersistidas();
-              // PRIMERO: vaciar stock_op stuck/dead (antes del reclaim que los
-              // reabre). El stock local ya está en ledger; evita badge rojo.
-              final cleared =
-                  await SyncOutbox.instance.clearAllStockOpsOutbox();
-              if (cleared > 0) {
-                debugPrint('Outbox Windows: clear $cleared stock_op');
+              // Solo stock MUERTO/reclaim eterno — NO borrar pending frescos
+              // (si no, el stock del .exe nunca llega al APK).
+              final purged = await SyncOutbox.instance.purgeStuckStockOps(
+                minAttempts: 5,
+                onlyLastErrorContains: 'reclaimed_stale_inflight',
+              );
+              final deadAck = await SyncOutbox.instance.ackDeadStockOps();
+              if (purged > 0 || deadAck > 0) {
+                debugPrint(
+                  'Outbox Windows: purge reclaim=$purged deadAck=$deadAck',
+                );
               }
               await SyncOutbox.instance.reclaimStaleInflight(
                 olderThan: WindowsSyncPolicy.reclaimStaleInflightAfter,
               );
-              // Por si reclaim dejó stock de nuevo (no debería): clear otra vez.
-              await SyncOutbox.instance.clearAllStockOpsOutbox();
               await _migrateLegacyColasToOutbox();
               await _volcarColasLegacyAOutboxSeguro();
               await _limpiarColasLegacyPrefs();
@@ -270,8 +277,6 @@ class FirestoreSyncService {
               if (orphans > 0) {
                 debugPrint('Outbox: ACK $orphans huérfanos');
               }
-              // Otra pasada stock (por si migró algo a stock_op).
-              await SyncOutbox.instance.clearAllStockOpsOutbox();
 
               final breakdown = await SyncOutbox.instance.pendingBreakdown();
               final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
@@ -299,6 +304,9 @@ class FirestoreSyncService {
       await _pullInicialCatchUp();
       await _vaciarColasYSubirPendientes();
       _iniciarOutboxPump();
+      // Stock del .exe → Firestore → APK: hay que seguir tirando stock_ops
+      // (el listener de productos ignora stock absoluto).
+      _iniciarStockOpsPullMobile();
 
       final health = await SyncHealthService.instance.snapshot();
       if (health.dead > 0) {
@@ -380,12 +388,13 @@ class FirestoreSyncService {
         CloudSyncThrottle.enqueue(() async {
           // Limpieza barata antes de Firebase.
           await SyncOutbox.instance.ackOrphanUpserts();
+          await SyncOutbox.instance.ackStockOpsYaHechas(_stockOpsHechas);
           if (windows) {
-            // Windows: no drenar stock_op por pump (txn/reclaim loop).
-            // Se limpian acá; el alta nueva va por camino safe al momento.
-            await SyncOutbox.instance.clearAllStockOpsOutbox();
-          } else {
-            await SyncOutbox.instance.ackStockOpsYaHechas(_stockOpsHechas);
+            // Solo reclaim eternos; NUNCA borrar stock pending fresco.
+            await SyncOutbox.instance.purgeStuckStockOps(
+              minAttempts: 8,
+              onlyLastErrorContains: 'reclaimed_stale_inflight',
+            );
           }
 
           // Tras un crash quedan ops "inflight" huérfanas: recuperarlas.
@@ -422,19 +431,25 @@ class FirestoreSyncService {
 
           syncStatusDetail = '$pending pendientes…';
           if (windows) {
-            // Fast-safe: productos / docs. SIN stock_op (reclaim loop en .exe).
-            final tick = _softPullTickWindows % 2;
+            // Productos/docs + 1 stock_op safe (sin txn) por ciclo.
+            final tick = _softPullTickWindows % 3;
             if (tick == 0) {
               await _procesarOutboxDrain(
                 maxBatches: 1,
                 claimLimit: 2,
                 entityTypes: const ['producto', 'proveedor'],
               );
-            } else {
+            } else if (tick == 1) {
               await _procesarOutboxDrain(
                 maxBatches: 1,
                 claimLimit: 3,
                 entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
+              );
+            } else {
+              await _procesarOutboxDrain(
+                maxBatches: 1,
+                claimLimit: 1,
+                entityTypes: const ['stock_op'],
               );
             }
           } else {
@@ -506,7 +521,6 @@ class FirestoreSyncService {
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
           await SyncOutbox.instance.ackOrphanUpserts();
-          await SyncOutbox.instance.clearAllStockOpsOutbox();
           await _procesarOutboxDrain(
             maxBatches: 1,
             claimLimit: 2,
@@ -517,6 +531,7 @@ class FirestoreSyncService {
               'compra',
               'cliente',
               'proveedor',
+              'stock_op',
             ],
           );
           final breakdown = await SyncOutbox.instance.pendingBreakdown();
@@ -543,8 +558,25 @@ class FirestoreSyncService {
       );
     });
 
+    // Primer tirón de productos/config (precios APK→PC) sin esperar 2+ min.
+    Future<void>.delayed(q + const Duration(seconds: 25), () {
+      if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+      syncInBackground(
+        CloudSyncThrottle.enqueue(() async {
+          try {
+            await _pullProductosIncrementalWindows(maxPages: 2, pageSize: 25);
+            await _pullConfigWindowsLane('listas');
+            await _pullConfigWindowsLane('branding_text');
+          } catch (e) {
+            debugPrint('Primer pull productos/config Windows: $e');
+          }
+        }, tag: 'primerPullProductosWindows'),
+        tag: 'primerPullProductosWindows',
+      );
+    });
+
     // Soft-pull: más tarde que el outbox (convergencia lenta, estable).
-    Future<void>.delayed(q + const Duration(seconds: 90), () {
+    Future<void>.delayed(q + const Duration(seconds: 45), () {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       _pullPump?.cancel();
       _pullPump = Timer.periodic(WindowsSyncPolicy.softPullInterval, (_) {
@@ -650,9 +682,32 @@ class FirestoreSyncService {
             pageSize: page,
           );
           await _aplicarProveedoresRemotos(snap);
+        case 'listas':
+        case 'categorias':
+        case 'permisos':
+        case 'branding_text':
+          await _pullConfigWindowsLane(lane);
       }
     } catch (e) {
       debugPrint('Pull suave Windows tick=$tick lane=$lane: $e');
+    }
+  }
+
+  /// Config de nube → PC (get único, sin listeners ni descarga de logo).
+  Future<void> _pullConfigWindowsLane(String lane) async {
+    switch (lane) {
+      case 'listas':
+        final snap = await _configDoc('listas_precios').get();
+        await _aplicarListasPreciosRemotas(snap);
+      case 'categorias':
+        final snap = await _configDoc('categorias').get();
+        await _aplicarCategoriasRemotas(snap);
+      case 'permisos':
+        final snap = await _configDoc('permisos').get();
+        await _aplicarPermisosRemotos(snap);
+      case 'branding_text':
+        final snap = await _configDoc('branding').get();
+        await _aplicarBrandingRemoto(snap);
     }
   }
 
@@ -846,8 +901,82 @@ class FirestoreSyncService {
     }
   }
 
+  /// APK: tira stock_ops cada ~25s (EXE→nube→celular).
+  void _iniciarStockOpsPullMobile() {
+    _stockOpsPullPump?.cancel();
+    _stockOpsPullPump = Timer.periodic(const Duration(seconds: 25), (_) {
+      if (!_puedeEscribirRemoto) return;
+      if (PlatformCapabilities.isWindowsDesktop) return;
+      syncInBackground(
+        () async {
+          try {
+            await _pullStockOpsRemotas(maxPages: 2, pageSize: 40);
+            // Red de seguridad: últimas ops por `at` (idempotente por opId).
+            await _pullStockOpsRecientes(limit: 40);
+          } catch (e) {
+            debugPrint('Pull stock_ops mobile: $e');
+          }
+        }(),
+        tag: 'stockOpsPullMobile',
+      );
+    });
+  }
+
+  /// Aplica una lista de docs stock_ops al ledger (sin re-upload).
+  /// Devuelve cuántas se aplicaron.
+  Future<int> _aplicarStockOpsItems(
+    List<Map<String, dynamic>> items, {
+    int? maxApply,
+  }) async {
+    DomainBootstrap.ensureInitialized();
+    final limit = maxApply ?? items.length;
+    final batch = <({String opId, int productoId, String codigo, int delta})>[];
+    for (final op in items) {
+      if (batch.length >= limit) break;
+      final opId = op['opId']?.toString() ?? '';
+      final codigo = op['codigo']?.toString().trim() ?? '';
+      final delta = (op['delta'] as num?)?.toInt() ?? 0;
+      final status = op['status']?.toString() ?? '';
+      if (opId.isEmpty || codigo.isEmpty || delta == 0) continue;
+      if (status == 'pending_apply' || status == 'claimed') continue;
+      if (_stockOpsHechas.contains(opId)) continue;
+
+      final local = await _cache.buscarPorCodigo(codigo);
+      if (local?.id == null) continue;
+
+      batch.add((
+        opId: opId,
+        productoId: local!.id!,
+        codigo: codigo,
+        delta: delta,
+      ));
+    }
+    if (batch.isEmpty) return 0;
+    final n =
+        await InventoryLedgerService.instance.applyRemoteStockOpsBatch(batch);
+    for (final op in batch) {
+      _stockOpsHechas.add(op.opId);
+    }
+    if (n > 0) {
+      debugPrint('stock_ops inbound: $n aplicadas');
+      DataRefreshHub.instance.notifyStock();
+      DataRefreshHub.instance.notifyProductos();
+      await _persistirStockOpsHechas();
+    }
+    return n;
+  }
+
+  /// Near-live: últimas N ops (APK) — idempotente; no mueve watermark.
+  Future<void> _pullStockOpsRecientes({int limit = 40}) async {
+    final items = await _remote.obtenerStockOpsRecientes(limit: limit);
+    if (items.isEmpty) return;
+    // Firestore trae desc; aplicar en orden cronológico.
+    final chronological = items.reversed.toList(growable: false);
+    await _aplicarStockOpsItems(chronological);
+  }
+
   /// Aplica stock_ops remotos al ledger local (sin re-upload).
-  /// [maxApply] limita cuántas ops se escriben por llamada (Windows).
+  /// Watermark por `at` (no UUID solo: si no, el APK pierde ops nuevas).
   Future<void> _pullStockOpsRemotas({
     int maxPages = 5,
     int pageSize = 80,
@@ -855,64 +984,46 @@ class FirestoreSyncService {
   }) async {
     DomainBootstrap.ensureInitialized();
     final meta = await SyncWatermarkStore.instance.loadMap(_wmStockOpsDoc);
-    var afterId = meta['afterDocId']?.toString();
+    // Migración: watermark viejo solo-docId (UUID) → reiniciar por tiempo.
+    final cursor = migrateStockOpsWatermark(meta);
+    var afterId = cursor.afterId;
+    var afterAt = cursor.afterAt;
     var appliedTotal = 0;
     final limitApply = maxApply ?? (pageSize * maxPages);
 
     for (var i = 0; i < maxPages; i++) {
       if (appliedTotal >= limitApply) break;
       final page = await _remote.obtenerStockOpsPagina(
-        afterDocId: afterId,
+        afterDocId: afterId.isEmpty ? null : afterId,
+        afterAt: afterAt.isEmpty ? null : afterAt,
         limit: pageSize,
       );
       if (page.items.isEmpty) {
         await SyncWatermarkStore.instance.saveMap(_wmStockOpsDoc, {
-          'afterDocId': afterId ?? '',
+          'afterDocId': afterId,
+          'afterAt': afterAt,
+          'v': 'at_v2',
           'completedAt': DateTime.now().toUtc().toIso8601String(),
         });
         break;
       }
 
-      final batch = <({String opId, int productoId, String codigo, int delta})>[];
-      for (final op in page.items) {
-        if (appliedTotal + batch.length >= limitApply) break;
-        final opId = op['opId']?.toString() ?? '';
-        final codigo = op['codigo']?.toString().trim() ?? '';
-        final delta = (op['delta'] as num?)?.toInt() ?? 0;
-        final status = op['status']?.toString() ?? '';
-        if (opId.isEmpty || codigo.isEmpty || delta == 0) continue;
-        if (status == 'pending_apply' || status == 'claimed') continue;
-        if (_stockOpsHechas.contains(opId)) continue;
+      final remaining = limitApply - appliedTotal;
+      final n = await _aplicarStockOpsItems(
+        page.items,
+        maxApply: remaining,
+      );
+      appliedTotal += n;
 
-        final local = await _cache.buscarPorCodigo(codigo);
-        if (local?.id == null) continue;
-
-        batch.add((
-          opId: opId,
-          productoId: local!.id!,
-          codigo: codigo,
-          delta: delta,
-        ));
-      }
-
-      if (batch.isNotEmpty) {
-        final n =
-            await InventoryLedgerService.instance.applyRemoteStockOpsBatch(batch);
-        appliedTotal += n;
-        for (final op in batch) {
-          _stockOpsHechas.add(op.opId);
-        }
-        debugPrint('stock_ops inbound: $n aplicadas (ciclo ≤$limitApply)');
-      }
-
-      afterId = page.lastDocId;
+      afterId = page.lastDocId ?? afterId;
+      afterAt = page.lastAt ?? afterAt;
       await SyncWatermarkStore.instance.saveMap(_wmStockOpsDoc, {
         'afterDocId': afterId,
+        'afterAt': afterAt,
+        'v': 'at_v2',
         if (page.done)
           'completedAt': DateTime.now().toUtc().toIso8601String(),
       });
-      // Persistir hechas una sola vez por página (menos I/O en Windows).
-      await _persistirStockOpsHechas();
       if (page.done || appliedTotal >= limitApply) break;
       if (PlatformCapabilities.isWindowsDesktop) {
         await Future<void>.delayed(const Duration(milliseconds: 400));
@@ -1439,6 +1550,8 @@ class FirestoreSyncService {
     _outboxPump = null;
     _pullPump?.cancel();
     _pullPump = null;
+    _stockOpsPullPump?.cancel();
+    _stockOpsPullPump = null;
     await _productosSub?.cancel();
     await _usuariosSub?.cancel();
     await _brandingSub?.cancel();
@@ -2208,7 +2321,8 @@ class FirestoreSyncService {
       await _persistirColaStockOps();
     }
 
-    // Windows: un disparo safe (sin txn) y ACK. No dejar cola reclaim.
+    // Windows: disparo safe (sin txn). ACK solo si subió; si falla queda
+    // pending para el pump (antes se ACK-eaba igual → el APK nunca veía stock).
     if (PlatformCapabilities.isWindowsDesktop) {
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
@@ -2216,12 +2330,14 @@ class FirestoreSyncService {
             await _remote
                 .ajustarStock(codigo: codigo, delta: delta, opId: idOp)
                 .timeout(const Duration(seconds: 20));
+            await SyncOutbox.instance.ack('stock_op:$idOp');
+            _colaStockOps.remove(token);
+            await _persistirColaStockOps();
+            debugPrint('Windows stock_op OK $idOp Δ$delta $codigo');
           } catch (e) {
-            debugPrint('Windows stock_op one-shot: $e');
+            debugPrint('Windows stock_op fail (reintento pump): $e');
+            await SyncOutbox.instance.fail('stock_op:$idOp', e);
           }
-          await SyncOutbox.instance.ack('stock_op:$idOp');
-          _colaStockOps.remove(token);
-          await _persistirColaStockOps();
         }, tag: 'stockOpWinSafe', interactive: true),
         tag: 'stockOpWinSafe',
       );

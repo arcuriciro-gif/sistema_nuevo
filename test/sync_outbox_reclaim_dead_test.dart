@@ -135,6 +135,45 @@ void main() {
       );
     });
 
+    test('ackDeadStockOps solo cierra dead; deja pending fresco', () async {
+      await SyncOutbox.instance.enqueueStockOp(
+        opId: 'fresh',
+        codigo: 'F',
+        delta: 1,
+      );
+      await SyncOutbox.instance.enqueueStockOp(
+        opId: 'dead-one',
+        codigo: 'D',
+        delta: -1,
+      );
+      final db = await DatabaseHelper.instance.database;
+      await db.update(
+        'sync_outbox',
+        {
+          'status': SyncOutboxStatus.dead,
+          'attempts': 99,
+          'last_error': 'boom',
+        },
+        where: 'op_id = ?',
+        whereArgs: ['stock_op:dead-one'],
+      );
+
+      final n = await SyncOutbox.instance.ackDeadStockOps();
+      expect(n, 1);
+      expect(
+        await SyncOutbox.instance.countByStatus(SyncOutboxStatus.pending),
+        1,
+      );
+      expect(
+        await SyncOutbox.instance.countByStatus(SyncOutboxStatus.dead),
+        0,
+      );
+      expect(
+        await SyncOutbox.instance.countByStatus(SyncOutboxStatus.acked),
+        1,
+      );
+    });
+
     test('purgeStuckStockOps ACK reclaim eternos', () async {
       await SyncOutbox.instance.enqueueStockOp(
         opId: 'op-stuck',

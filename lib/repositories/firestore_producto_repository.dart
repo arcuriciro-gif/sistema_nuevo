@@ -308,16 +308,24 @@ class FirestoreProductoRepository implements ProductoRepository {
     );
   }
 
-  /// Página de stock_ops aplicadas (para convergencia multi-dispositivo).
-  Future<({List<Map<String, dynamic>> items, String? lastDocId, bool done})>
-      obtenerStockOpsPagina({
+  /// Página de stock_ops por tiempo (`at`) — no por docId (UUID random
+  /// hacía perder ops nuevas respecto del watermark).
+  Future<
+      ({
+        List<Map<String, dynamic>> items,
+        String? lastAt,
+        String? lastDocId,
+        bool done,
+      })> obtenerStockOpsPagina({
     String? afterDocId,
+    String? afterAt,
     int limit = 80,
   }) async {
-    Query<Map<String, dynamic>> q =
-        _stockOpsCol.orderBy(FieldPath.documentId).limit(limit);
-    if (afterDocId != null && afterDocId.isNotEmpty) {
-      q = q.startAfter([afterDocId]);
+    // Un solo orderBy('at'): índice automático, sin composite.
+    Query<Map<String, dynamic>> q = _stockOpsCol.orderBy('at').limit(limit);
+    final at = (afterAt ?? '').trim();
+    if (at.isNotEmpty) {
+      q = q.startAfter([at]);
     }
     final snap = await q.get();
     final items = <Map<String, dynamic>>[];
@@ -326,11 +334,31 @@ class FirestoreProductoRepository implements ProductoRepository {
       data['opId'] = doc.id;
       items.add(data);
     }
+    String? lastAtOut = afterAt;
+    String? lastDocOut = afterDocId;
+    if (snap.docs.isNotEmpty) {
+      lastDocOut = snap.docs.last.id;
+      lastAtOut = snap.docs.last.data()['at']?.toString() ?? lastAtOut;
+    }
     return (
       items: items,
-      lastDocId: snap.docs.isEmpty ? afterDocId : snap.docs.last.id,
+      lastAt: lastAtOut,
+      lastDocId: lastDocOut,
       done: snap.docs.length < limit,
     );
+  }
+
+  /// Últimas stock_ops (APK/desktop) para convergencia casi en vivo.
+  Future<List<Map<String, dynamic>>> obtenerStockOpsRecientes({
+    int limit = 40,
+  }) async {
+    final snap =
+        await _stockOpsCol.orderBy('at', descending: true).limit(limit).get();
+    return snap.docs.map((doc) {
+      final data = Map<String, dynamic>.from(doc.data());
+      data['opId'] = doc.id;
+      return data;
+    }).toList();
   }
 
   /// Completa ops pending/claimed solo si el producto aún no refleja la op.

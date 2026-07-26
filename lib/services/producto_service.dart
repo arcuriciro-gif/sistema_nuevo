@@ -141,7 +141,8 @@ class ProductoService {
           () => FirestoreSyncService.instance.subirProductoPorId(
             id,
             incluirStockAbsoluto: incluirStockAbsoluto,
-            forzar: incluirStockAbsoluto,
+            // Edición del usuario: subir precios/costos sí o sí (LWW no frena).
+            forzar: true,
           ),
           tag: 'subirProductoInteractivo',
           interactive: true,
@@ -155,7 +156,7 @@ class ProductoService {
       FirestoreSyncService.instance.subirProductoPorId(
         id,
         incluirStockAbsoluto: incluirStockAbsoluto,
-        forzar: incluirStockAbsoluto,
+        forzar: true,
       ),
       tag: 'subirProducto',
     );
@@ -449,7 +450,10 @@ class ProductoService {
         // Si el caller envió otro stock, se convierte en movimiento de ajuste.
         final stockDeseado = actualizado.stock;
         final stockActual = anteriorProducto.stock;
-        final metaOnly = actualizado.copyWith(stock: stockActual);
+        final metaOnly = actualizado.copyWith(
+          stock: stockActual,
+          actualizadoEn: DateTime.now().toUtc().toIso8601String(),
+        );
         final result = await _repo.actualizar(metaOnly);
         final delta = stockDeseado - stockActual;
         if (delta != 0) {

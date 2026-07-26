@@ -273,9 +273,8 @@ class _MainShellState extends State<MainShell> {
     if (BackendConfigService.instance.firebaseEnabled) {
       // Ya activa. Windows: si Auth ya OK (login_page lo hizo), NO reconectar
       // (doble connect = Auth OK ×2 y crash del .exe).
+      final yaAuth = FirebaseAuthUsuarioService.instance.uidActual != null;
       if (PlatformCapabilities.isWindowsDesktop) {
-        final yaAuth =
-            FirebaseAuthUsuarioService.instance.uidActual != null;
         if (yaAuth) {
           debugPrint('Shell Windows: nube ya autenticada, skip reconnect');
           return;
@@ -284,6 +283,11 @@ class _MainShellState extends State<MainShell> {
           AuthService.instance.conectarFirebaseDespuesDelLogin().then((_) {}),
           tag: 'reconnectNubeWindows',
         );
+        return;
+      }
+      // APK huella: Auth ya quedó; no await reconnect (colgaba el shell).
+      if (yaAuth) {
+        debugPrint('Shell Android: Auth OK, skip reconnect bloqueante');
         return;
       }
       try {

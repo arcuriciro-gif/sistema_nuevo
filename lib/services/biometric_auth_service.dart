@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -78,16 +79,25 @@ class BiometricAuthService {
     try {
       // Pequeña pausa: evita choque si acabamos de cerrar un diálogo.
       await Future<void>.delayed(const Duration(milliseconds: 250));
-      final ok = await _auth.authenticate(
-        localizedReason: motivo,
-        options: const AuthenticationOptions(
-          biometricOnly: false,
-          stickyAuth: false,
-          useErrorDialogs: true,
-          sensitiveTransaction: false,
-        ),
-      );
-      if (!ok) {
+      final ok = await _auth
+          .authenticate(
+            localizedReason: motivo,
+            options: const AuthenticationOptions(
+              biometricOnly: false,
+              stickyAuth: false,
+              useErrorDialogs: true,
+              sensitiveTransaction: false,
+            ),
+          )
+          .timeout(
+            const Duration(seconds: 45),
+            onTimeout: () {
+              lastError =
+                  'La verificación tardó demasiado. Probá de nuevo o entró con clave.';
+              return false;
+            },
+          );
+      if (!ok && lastError == null) {
         lastError =
             'No se confirmó la identidad. Probá de nuevo o usá el PIN/patrón del celular.';
       }
