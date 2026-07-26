@@ -1,8 +1,11 @@
 # Informe — Sprint P0: Integridad del Inventario y Reglas de Negocio
 
-**Versión:** 1.2.37+42  
+**Versión:** 1.2.38+43  
 **Fecha:** 2026-07-26  
 **Alcance:** Solo consistencia de negocio (sin UI / CRM / WhatsApp / diseño)
+
+> Actualización 1.2.38: convergencia multi-dispositivo via pull de `stock_ops`,
+> remito restaurar + eventIds `$rev`, tombstones con reverso local.
 
 ---
 

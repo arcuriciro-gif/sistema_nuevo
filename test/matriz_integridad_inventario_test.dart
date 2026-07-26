@@ -725,6 +725,69 @@ void main() {
     });
   });
 
+  group('Remito restaurar / cobro cycles', () {
+    test('remito anular→restaurar→anular sin doble movimiento', () async {
+      final pid = await seedProducto(stock: 10);
+      final cid = await seedCliente();
+      final rid = await RemitoService().insertar(
+        Remito(
+          numero: 'R-REST-1-T',
+          fecha: DateTime.now(),
+          tipo: 'salida',
+          clienteId: '$cid',
+          estado: 'confirmado',
+          total: 200,
+          totalPagado: 0,
+          saldoPendiente: 200,
+          observaciones: '',
+        ),
+        [
+          RemitoDetalle(
+            remitoId: 0,
+            productoId: pid,
+            cantidad: 2,
+            precioUnitario: 100,
+            subtotal: 200,
+          ),
+        ],
+      );
+      final svc = RemitoService();
+      expect(await stockDe(pid), 8);
+      await svc.anular(rid);
+      expect(await stockDe(pid), 10);
+      await svc.restaurar(rid);
+      expect(await stockDe(pid), 8);
+      await svc.anular(rid);
+      expect(await stockDe(pid), 10);
+      expect(
+        await InventoryLedgerService.instance.verificarProyeccion(pid),
+        isTrue,
+      );
+    });
+  });
+
+  group('Sync stock_op inbound', () {
+    test('applyRemoteStockOp es idempotente y no duplica', () async {
+      final pid = await seedProducto(codigo: 'SYNC-1', stock: 10);
+      final ok1 = await InventoryLedgerService.instance.applyRemoteStockOp(
+        opId: 'inv:entrega:remito:99_1',
+        productoId: pid,
+        codigo: 'SYNC-1',
+        delta: -3,
+      );
+      final ok2 = await InventoryLedgerService.instance.applyRemoteStockOp(
+        opId: 'inv:entrega:remito:99_1',
+        productoId: pid,
+        codigo: 'SYNC-1',
+        delta: -3,
+      );
+      expect(ok1, isTrue);
+      expect(ok2, isFalse);
+      expect(await stockDe(pid), 7);
+      expect(await ledgerSum(pid), 7);
+    });
+  });
+
   group('R4 metadata no pisa stock', () {
     test('toggleFavorito no clobber stock tras movimiento', () async {
       final pid = await seedProducto(codigo: 'FAV-1', stock: 10);

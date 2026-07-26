@@ -201,6 +201,107 @@ class InventoryLedgerService {
     return true;
   }
 
+  /// Aplica un stock_op remoto al ledger local (sin re-subir a la nube).
+  /// Idempotente por [opId] (= event_id).
+  Future<bool> applyRemoteStockOp({
+    required String opId,
+    required int productoId,
+    required String codigo,
+    required int delta,
+  }) async {
+    if (delta == 0 || opId.isEmpty) return false;
+    final tipo = delta > 0 ? 'entrada' : 'salida';
+    final event = DomainEvent(
+      eventId: opId,
+      type: DomainEventType.ajusteInventario,
+      aggregateType: 'producto',
+      aggregateId: '$productoId',
+      createdBy: 'sync',
+      payload: {
+        'tipo': tipo,
+        'motivo': 'Sync stock_op $opId',
+        'documentType': 'stock_op',
+        'documentId': opId,
+        'lines': [
+          InventoryLine(
+            productoId: productoId,
+            cantidad: delta.abs(),
+            productoCodigo: codigo,
+          ).toJson(),
+        ],
+      },
+    );
+    final db = await DatabaseHelper.instance.database;
+    final applied = await db.transaction((txn) async {
+      return applyInTxn(
+        txn,
+        event,
+        sign: delta > 0 ? 1 : -1,
+        movimientoTipo: tipo,
+      );
+    });
+    if (applied) {
+      DataRefreshHub.instance.notifyStock();
+      DataRefreshHub.instance.notifyProductos();
+    }
+    return applied;
+  }
+
+  /// Reverso local de stock de un documento (p. ej. tombstone remoto).
+  /// No encola cloud — los deltas remotos llegan por stock_ops.
+  Future<bool> reverseDocumentLocally({
+    required String documentType,
+    required String documentId,
+    required String eventId,
+    required List<InventoryLine> lines,
+    required int sign,
+    required String movimientoTipo,
+    String motivo = 'Reverso local por sync',
+  }) async {
+    if (lines.isEmpty) return false;
+    final event = DomainEvent(
+      eventId: eventId,
+      type: sign > 0
+          ? DomainEventType.mercaderiaEntregaRevertida
+          : DomainEventType.mercaderiaRecepcionRevertida,
+      aggregateType: documentType,
+      aggregateId: documentId,
+      createdBy: 'sync',
+      payload: {
+        'documentType': documentType,
+        'documentId': documentId,
+        'motivo': motivo,
+        'lines': lines.map((l) => l.toJson()).toList(),
+      },
+    );
+    final db = await DatabaseHelper.instance.database;
+    final applied = await db.transaction((txn) async {
+      return applyInTxn(
+        txn,
+        event,
+        sign: sign,
+        movimientoTipo: movimientoTipo,
+      );
+    });
+    if (applied) {
+      DataRefreshHub.instance.notifyStock();
+    }
+    return applied;
+  }
+
+  Future<int> ledgerNetForDocument({
+    required String documentType,
+    required String documentId,
+  }) async {
+    final db = await DatabaseHelper.instance.database;
+    final r = await db.rawQuery(
+      'SELECT COALESCE(SUM(delta), 0) s FROM inventory_ledger '
+      'WHERE document_type = ? AND document_id = ?',
+      [documentType, documentId],
+    );
+    return (r.first['s'] as num?)?.toInt() ?? 0;
+  }
+
   /// Encola sync nube tras commit de TX comercial (no bloquear UI).
   void enqueueCloudAfterApply(DomainEvent event, {required int sign}) {
     final lines = _linesFrom(event);

@@ -259,6 +259,31 @@ class FirestoreProductoRepository implements ProductoRepository {
     );
   }
 
+  /// Página de stock_ops aplicadas (para convergencia multi-dispositivo).
+  Future<({List<Map<String, dynamic>> items, String? lastDocId, bool done})>
+      obtenerStockOpsPagina({
+    String? afterDocId,
+    int limit = 80,
+  }) async {
+    Query<Map<String, dynamic>> q =
+        _stockOpsCol.orderBy(FieldPath.documentId).limit(limit);
+    if (afterDocId != null && afterDocId.isNotEmpty) {
+      q = q.startAfter([afterDocId]);
+    }
+    final snap = await q.get();
+    final items = <Map<String, dynamic>>[];
+    for (final doc in snap.docs) {
+      final data = Map<String, dynamic>.from(doc.data());
+      data['opId'] = doc.id;
+      items.add(data);
+    }
+    return (
+      items: items,
+      lastDocId: snap.docs.isEmpty ? afterDocId : snap.docs.last.id,
+      done: snap.docs.length < limit,
+    );
+  }
+
   /// Completa ops pending/claimed solo si el producto aún no refleja la op.
   Future<int> reconcilizarStockOpsPendientes({int limit = 50}) async {
     var ok = 0;

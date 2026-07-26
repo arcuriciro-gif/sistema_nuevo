@@ -57,4 +57,13 @@ class InventoryDeliveryPolicy {
 
   static String eventIdRecepcionReopenCompra(int compraId, {required int rev}) =>
       'inv:recepcion:compra:$compraId:reopen:$rev';
+
+  static String eventIdEntregaRemito(int remitoId) =>
+      'inv:entrega:remito:$remitoId';
+
+  static String eventIdEntregaRevRemito(int remitoId, {required int rev}) =>
+      'inv:entrega_rev:remito:$remitoId:$rev';
+
+  static String eventIdEntregaRestoreRemito(int remitoId, {required int rev}) =>
+      'inv:entrega:remito:$remitoId:restore:$rev';
 }
