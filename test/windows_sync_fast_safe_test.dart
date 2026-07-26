@@ -52,6 +52,25 @@ void main() {
       );
     });
 
+    test('outboxDrainPlan prioriza productos si hay cola (no tick=0 eterno)', () {
+      final plan = WindowsSyncPolicy.outboxDrainPlan(
+        breakdown: const {'producto': 350, 'proveedor': 4},
+        tick: 0,
+      );
+      expect(plan, isNotEmpty);
+      expect(plan.first.types, contains('producto'));
+      expect(plan.first.claim, greaterThanOrEqualTo(6));
+    });
+
+    test('outboxDrainPlan vacío no inventa drains', () {
+      final plan = WindowsSyncPolicy.outboxDrainPlan(
+        breakdown: const {},
+        tick: 1,
+      );
+      // tick%2==0 es false → sin docs; tick%3==2 false → sin stock
+      expect(plan.where((s) => s.types.contains('producto')), isEmpty);
+    });
+
     test('throttle interactivo es más corto que el normal', () {
       expect(
         WindowsSyncPolicy.throttleDelayInteractive.inMilliseconds,

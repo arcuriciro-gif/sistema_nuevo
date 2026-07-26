@@ -123,6 +123,9 @@ class FirestoreSyncService {
   bool _windowsPumpsActivos = false;
   /// Un empujón de remitos/ventas recientes (reopen ACK fantasma) por sesión.
   bool _windowsRecentDocsForced = false;
+  /// Contador propio del outbox pump (NO reutilizar soft-pull: si no,
+  /// tick queda en 0 y nunca drena productos → 350 pending eternos).
+  int _outboxDrainTickWindows = 0;
 
   CollectionReference<Map<String, dynamic>> _col(String name) {
     final tenant = BackendConfigService.instance.tenantId;
@@ -439,25 +442,18 @@ class FirestoreSyncService {
 
           syncStatusDetail = '$pending pendientes…';
           if (windows) {
-            // Round-robin: docs comerciales → productos → stock_ops.
-            final tick = _softPullTickWindows % 3;
-            if (tick == 0) {
+            // Drain con plan propio (NO soft-pull tick — productos quedaban
+            // eternamente en "intentos 0").
+            final tick = _outboxDrainTickWindows++;
+            final breakdown = await SyncOutbox.instance.pendingBreakdown();
+            for (final step in WindowsSyncPolicy.outboxDrainPlan(
+              breakdown: breakdown,
+              tick: tick,
+            )) {
               await _procesarOutboxDrain(
                 maxBatches: 1,
-                claimLimit: 5,
-                entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
-              );
-            } else if (tick == 1) {
-              await _procesarOutboxDrain(
-                maxBatches: 1,
-                claimLimit: 4,
-                entityTypes: const ['producto', 'proveedor'],
-              );
-            } else {
-              await _procesarOutboxDrain(
-                maxBatches: 1,
-                claimLimit: 2,
-                entityTypes: const ['stock_op'],
+                claimLimit: step.claim,
+                entityTypes: step.types,
               );
             }
           } else {
@@ -534,19 +530,21 @@ class FirestoreSyncService {
         limit: force ? 40 : 12,
         reopenAcked: force,
       );
+      // Productos/proveedores/clientes: NUNCA reopenAcked en masa.
+      // Eso llenaba 350 pending eternos; solo encolar los que faltan.
       final nProductos = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
         db: db,
         table: 'productos',
         entityType: 'producto',
         limit: limitProd,
-        reopenAcked: force,
+        reopenAcked: false,
       );
       final nClientes = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
         db: db,
         table: 'clientes',
         entityType: 'cliente',
         limit: force ? 40 : 12,
-        reopenAcked: force,
+        reopenAcked: false,
       );
       final nProveedores =
           await SyncCatchup.instance.enqueueRecentDocumentCatchup(
@@ -554,7 +552,7 @@ class FirestoreSyncService {
         table: 'proveedores',
         entityType: 'proveedor',
         limit: force ? 30 : 10,
-        reopenAcked: force,
+        reopenAcked: false,
       );
       // Catch-up secuencial chico (histórico) sin tumbar el .exe.
       if (!force) {
@@ -626,16 +624,20 @@ class FirestoreSyncService {
           await SyncOutbox.instance.ackOrphanUpserts();
           // Primero encolar ventas/remitos locales → APK deja de ver $0.
           await _microCatchupDocsWindows();
+          // Productos primero (suelen ser el grueso de la cola).
           await _procesarOutboxDrain(
-            maxBatches: 3,
+            maxBatches: 2,
+            claimLimit: 6,
+            entityTypes: const ['producto', 'proveedor'],
+          );
+          await _procesarOutboxDrain(
+            maxBatches: 2,
             claimLimit: 5,
             entityTypes: const [
               'venta',
               'remito',
               'compra',
               'cliente',
-              'producto',
-              'proveedor',
               'stock_op',
             ],
           );
@@ -1652,6 +1654,7 @@ class FirestoreSyncService {
     _windowsPumpsActivos = false;
     _windowsBootInProgress = false;
     _windowsRecentDocsForced = false;
+    _outboxDrainTickWindows = 0;
     _outboxPump?.cancel();
     _outboxPump = null;
     _pullPump?.cancel();
