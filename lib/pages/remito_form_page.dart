@@ -441,6 +441,7 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
   }
 
   Future<void> guardar() async {
+    if (guardando) return;
     if (clienteSeleccionado == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Seleccioná un cliente')),
@@ -458,11 +459,11 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
       (item) => item.cantidad > item.producto.stock,
     );
     if (hayStockInsuficiente) {
-      // Informativo: no bloquea. Stock 0 es válido (retiro en proveedor, etc.).
+      // Informativo: el bloqueo real lo decide IntegrityPolicy en el servicio.
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Algunos ítems superan el stock cargado. El remito se guarda igual.',
+            'Algunos ítems superan el stock cargado. Se validará al guardar.',
           ),
           duration: Duration(seconds: 2),
         ),

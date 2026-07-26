@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../core/config/device_identity.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
@@ -99,12 +100,25 @@ class VentaService {
       AuthzAction.anular,
       operacion: 'anular venta',
     );
+    DomainBootstrap.ensureInitialized();
     final db = await _db.database;
     final venta = await obtenerPorId(id);
     if (venta == null) return;
     if (venta.estado == 'anulada') return;
 
     final saldoAntes = venta.saldoPendiente;
+    final items = await obtenerItems(id);
+    final invLines = <Map<String, dynamic>>[];
+    if (venta.mueveStock) {
+      for (final item in items) {
+        if (item.cantidad == 0) continue;
+        invLines.add(InventoryLine(
+          productoId: item.productoId,
+          cantidad: item.cantidad,
+        ).toJson());
+      }
+    }
+
     await db.update(
       'ventas',
       {
@@ -114,11 +128,33 @@ class VentaService {
       where: 'id = ?',
       whereArgs: [id],
     );
+
+    if (invLines.isNotEmpty) {
+      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+      final tag = await DeviceIdentity.shortTag();
+      await DomainEventBus.instance.publish(
+        DomainEvent(
+          eventId: 'inv:entrega_rev:venta:$id',
+          type: DomainEventType.mercaderiaEntregaRevertida,
+          aggregateType: 'venta',
+          aggregateId: '$id',
+          createdBy: user,
+          deviceId: tag,
+          payload: {
+            'documentType': 'venta',
+            'documentId': '$id',
+            'documentNumero': venta.numero,
+            'motivo': 'Reverso entrega venta ${venta.numero}',
+            'lines': invLines,
+          },
+        ),
+      );
+    }
+
     if (venta.clienteId != null) {
       await _cc.recalcularSaldoCliente(venta.clienteId!);
       // Anulación = nuevo evento (no borrar historial del ledger).
       if (saldoAntes > 0.009) {
-        DomainBootstrap.ensureInitialized();
         final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
         await DomainEventBus.instance.publish(
           DomainEvent(
@@ -139,6 +175,7 @@ class VentaService {
     }
     FirestoreSyncService.instance.programarSubidaVenta(id);
     DataRefreshHub.instance.notifyVentas();
+    DataRefreshHub.instance.notifyStock();
   }
 
   Future<void> actualizarEstadoPago(int id, String estadoPago) async {

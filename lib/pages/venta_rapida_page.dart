@@ -294,7 +294,8 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
   // Finalizar venta
   // ---------------------------------------------------------------------------
   Future<void> _finalizarVenta() async {
-    if (_carrito.isEmpty) return;
+    if (_carrito.isEmpty || _finalizando) return;
+    setState(() => _finalizando = true);
 
     final abonadoCtrl = TextEditingController(text: _total.toStringAsFixed(2));
     var medioPago = _medioPago;
@@ -427,9 +428,10 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
     );
 
     abonadoCtrl.dispose();
-    if (confirmar == null || confirmar.ok != true) return;
-
-    setState(() => _finalizando = true);
+    if (confirmar == null || confirmar.ok != true) {
+      if (mounted) setState(() => _finalizando = false);
+      return;
+    }
 
     try {
       final cliente =

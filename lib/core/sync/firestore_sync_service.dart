@@ -949,6 +949,11 @@ class FirestoreSyncService {
           'numero': remoteId,
           'estado': 'anulada',
         }, SetOptions(merge: true));
+      case 'producto':
+        await _col('productos').doc(remoteId).set({
+          ...tombstone,
+          'codigo': remoteId,
+        }, SetOptions(merge: true));
       default:
         throw StateError('Tombstone no soportado: $entityType');
     }
@@ -1008,6 +1013,16 @@ class FirestoreSyncService {
           await db
               .delete('compra_items', where: 'compraId = ?', whereArgs: [id]);
           await db.delete('compras', where: 'id = ?', whereArgs: [id]);
+        }
+      case 'producto':
+        if (localId != null) {
+          await db.delete('productos', where: 'id = ?', whereArgs: [localId]);
+        } else if (remoteId != null && remoteId.isNotEmpty) {
+          await db.delete(
+            'productos',
+            where: 'codigo = ?',
+            whereArgs: [remoteId],
+          );
         }
       default:
         break;
@@ -2344,6 +2359,41 @@ class FirestoreSyncService {
     }
   }
 
+  Future<void> eliminarProductoRemoto(String codigo, {int? localId}) async {
+    final cod = codigo.trim();
+    if (cod.isEmpty) return;
+    await SyncOutbox.instance.enqueueDelete(
+      entityType: 'producto',
+      remoteId: cod,
+      localId: localId,
+    );
+    if (!_puedeEscribirRemoto) return;
+
+    Future<void> aplicar() async {
+      try {
+        await _aplicarTombstoneRemoto('producto', cod);
+        await _borrarLocalTrasTombstone(
+          entityType: 'producto',
+          localId: localId,
+          remoteId: cod,
+        );
+        await SyncOutbox.instance.ack('delete:producto:$cod');
+      } catch (e) {
+        await SyncOutbox.instance.fail('delete:producto:$cod', e);
+        debugPrint('Firestore eliminar producto: $e');
+      }
+    }
+
+    if (PlatformCapabilities.isWindowsDesktop) {
+      syncInBackground(
+        CloudSyncThrottle.enqueue(aplicar, tag: 'eliminarProductoRemoto'),
+        tag: 'eliminarProductoRemoto',
+      );
+      return;
+    }
+    await aplicar();
+  }
+
   Future<void> eliminarRemitoRemoto(String numero, {int? localId}) async {
     if (numero.isEmpty) return;
     await SyncOutbox.instance.enqueueDelete(
@@ -3388,6 +3438,23 @@ class FirestoreSyncService {
         for (final producto in actual) {
           final local =
               await _cache.buscarPorCodigoIncluyendoEliminados(producto.codigo);
+
+          // Hard-delete remoto (tombstone): borrar fila local, no soft-delete.
+          if (producto.esTombstoneRemoto) {
+            if (local?.id != null &&
+                !_colaProductos.contains(local!.id) &&
+                !await SyncOutbox.instance
+                    .hasPendingLocalId('producto', local.id!)) {
+              huboCambios = true;
+              batch.delete(
+                'productos',
+                where: 'id = ?',
+                whereArgs: [local.id],
+              );
+            }
+            continue;
+          }
+
           final locTs = _parseUtc(local?.actualizadoEn);
           final remTs = _parseUtc(producto.actualizadoEn);
 

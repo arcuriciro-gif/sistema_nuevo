@@ -119,13 +119,42 @@ class ProductoService {
     );
   }
 
+  Future<void> _validarProducto(Producto producto, {int? excludeId}) async {
+    final codigo = producto.codigo.trim();
+    if (codigo.isEmpty) {
+      throw ArgumentError('El código del producto es obligatorio.');
+    }
+    if (producto.costo < 0) {
+      throw ArgumentError('El costo no puede ser negativo.');
+    }
+    if (producto.precio < 0 || producto.precio2 < 0 || producto.precio3 < 0) {
+      throw ArgumentError('Los precios no pueden ser negativos.');
+    }
+    final db = await _databaseHelper.database;
+    final dups = await db.query(
+      'productos',
+      columns: ['id'],
+      where: excludeId == null
+          ? "codigo = ? AND (deleted_at IS NULL OR deleted_at = '')"
+          : "codigo = ? AND id != ? AND (deleted_at IS NULL OR deleted_at = '')",
+      whereArgs: excludeId == null ? [codigo] : [codigo, excludeId],
+      limit: 1,
+    );
+    if (dups.isNotEmpty) {
+      throw StateError('Ya existe un producto con el código "$codigo".');
+    }
+  }
+
   Future<int> insertar(Producto producto) async {
     AuthorizationService.instance.require(
       AuthModules.productos,
       AuthzAction.crear,
       operacion: 'crear producto',
     );
-    final conFotos = await _conFotosEnNube(producto);
+    await _validarProducto(producto);
+    final conFotos = await _conFotosEnNube(
+      producto.copyWith(codigo: producto.codigo.trim()),
+    );
     final preparado = await _precioCalculador.aplicarListasDesdeCosto(conFotos);
     final id = await _repo.insertar(preparado);
     final guardado = preparado.copyWith(id: id);
@@ -151,8 +180,24 @@ class ProductoService {
       operacion: 'importar productos',
     );
     final preparados = <Producto>[];
+    final vistos = <String>{};
     for (final producto in productos) {
-      preparados.add(await _precioCalculador.aplicarListasDesdeCosto(producto));
+      final codigo = producto.codigo.trim();
+      if (codigo.isEmpty) {
+        throw ArgumentError('Hay productos sin código en la importación.');
+      }
+      if (producto.costo < 0) {
+        throw ArgumentError('Costo negativo en producto $codigo.');
+      }
+      if (!vistos.add(codigo)) {
+        throw StateError('Código duplicado en la importación: $codigo');
+      }
+      await _validarProducto(producto.copyWith(codigo: codigo));
+      preparados.add(
+        await _precioCalculador.aplicarListasDesdeCosto(
+          producto.copyWith(codigo: codigo),
+        ),
+      );
     }
     await _repo.insertarLista(preparados);
     // Tras import masivo, encolar los recién cargados (si no hay sesión nube).
@@ -231,6 +276,12 @@ class ProductoService {
       AuthzAction.editar,
       operacion: 'editar producto',
     );
+    if (producto.costo < 0) {
+      throw ArgumentError('El costo no puede ser negativo.');
+    }
+    if (producto.precio < 0 || producto.precio2 < 0 || producto.precio3 < 0) {
+      throw ArgumentError('Los precios no pueden ser negativos.');
+    }
     final conFotos = await _conFotosEnNube(producto);
     final db = await _databaseHelper.database;
     Producto? anteriorProducto;
@@ -411,11 +462,27 @@ class ProductoService {
     );
     if (rows.isEmpty) return;
     final producto = Producto.fromMap(rows.first);
-    await db.delete('productos', where: 'id = ?', whereArgs: [id]);
+    final codigo = producto.codigo.trim();
+    // Capacidad 7: tombstone en outbox ANTES del hard-delete local.
+    if (codigo.isNotEmpty) {
+      try {
+        await FirestoreSyncService.instance.eliminarProductoRemoto(
+          codigo,
+          localId: id,
+        );
+      } catch (e) {
+        assert(() {
+          // ignore: avoid_print
+          print('eliminarProductoRemoto: $e');
+          return true;
+        }());
+      }
+    }
     try {
-      // Soft-delete remoto ya aplicado; forzar borrado remoto vía actualizar no aplica.
-      // El Dual repo no expone hard delete; se deja solo local + audit.
-    } catch (_) {}
+      await db.delete('productos', where: 'id = ?', whereArgs: [id]);
+    } catch (_) {
+      // Puede haberlo borrado el tombstone remoto en paralelo.
+    }
     await AuthService.instance.registrarCambio(
       'ELIMINAR_DEFINITIVO_PRODUCTO',
       'productos',

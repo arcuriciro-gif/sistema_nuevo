@@ -236,6 +236,7 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
 
   // ── Guardar ────────────────────────────────────────────────────────────────
   Future<void> _finalizar() async {
+    if (_finalizando) return;
     if (_carrito.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('El carrito está vacío')),

@@ -105,7 +105,7 @@ class DatabaseHelper {
     try {
       final db = await openDatabase(
         path,
-        version: 32,
+        version: 33,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -118,7 +118,7 @@ class DatabaseHelper {
       await _cuarentenaDb(path);
       final db = await openDatabase(
         path,
-        version: 32,
+        version: 33,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -704,6 +704,7 @@ CREATE TABLE IF NOT EXISTS ventas_items(
   Future<void> _crearIndices(Database db) async {
     const indices = [
       'CREATE INDEX IF NOT EXISTS idx_productos_codigo ON productos(codigo)',
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_productos_codigo_activo_unique ON productos(codigo) WHERE deleted_at IS NULL OR deleted_at = ''",
       'CREATE INDEX IF NOT EXISTS idx_productos_descripcion ON productos(descripcion)',
       'CREATE INDEX IF NOT EXISTS idx_productos_marca ON productos(marca)',
       'CREATE INDEX IF NOT EXISTS idx_productos_categoria ON productos(categoria)',
@@ -1079,6 +1080,66 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 32) {
       await _crearTablaWaCatalogItems(db);
     }
+    if (oldVersion < 33) {
+      await _migrarCodigoProductoUnicoV33(db);
+    }
+  }
+
+  /// Códigos únicos en productos activos (auditoría C3).
+  Future<void> _migrarCodigoProductoUnicoV33(Database db) async {
+    // Códigos vacíos → placeholder estable por id.
+    final vacios = await db.query(
+      'productos',
+      columns: ['id'],
+      where: "TRIM(codigo) = '' OR codigo IS NULL",
+    );
+    for (final row in vacios) {
+      final id = (row['id'] as num?)?.toInt();
+      if (id == null) continue;
+      await db.update(
+        'productos',
+        {'codigo': 'SKU-LEGACY-$id'},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    }
+    // Duplicados activos: conservar el de menor id; renombrar el resto.
+    final dups = await db.rawQuery('''
+      SELECT codigo, COUNT(*) AS c
+      FROM productos
+      WHERE deleted_at IS NULL OR deleted_at = ''
+      GROUP BY codigo
+      HAVING c > 1
+    ''');
+    for (final row in dups) {
+      final codigo = row['codigo']?.toString() ?? '';
+      if (codigo.isEmpty) continue;
+      final rows = await db.query(
+        'productos',
+        columns: ['id'],
+        where: "codigo = ? AND (deleted_at IS NULL OR deleted_at = '')",
+        whereArgs: [codigo],
+        orderBy: 'id ASC',
+      );
+      for (var i = 1; i < rows.length; i++) {
+        final id = (rows[i]['id'] as num?)?.toInt();
+        if (id == null) continue;
+        await db.update(
+          'productos',
+          {'codigo': '$codigo-DUP-$id'},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+    }
+    try {
+      await db.execute(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_productos_codigo_activo_unique '
+        "ON productos(codigo) WHERE deleted_at IS NULL OR deleted_at = ''",
+      );
+    } catch (e) {
+      debugPrint('Índice único productos.codigo: $e');
+    }
   }
 
   /// Capacidad 8: alarmas de reconciliación stock / CC.
@@ -1444,5 +1505,5 @@ CREATE TABLE IF NOT EXISTS wa_catalog_items(
   }
 
   /// Versión de schema declarada por la app (Capacidad 5 / panel técnico).
-  static const int schemaVersion = 32;
+  static const int schemaVersion = 33;
 }

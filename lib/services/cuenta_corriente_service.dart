@@ -1,7 +1,9 @@
+import '../core/config/device_identity.dart';
 import '../core/config/platform_capabilities.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
+import '../core/domain/inventory_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/cloud_sync_throttle.dart';
@@ -56,6 +58,38 @@ class CuentaCorrienteService {
   static String estadoDesdeMontos(double total, double pagado) =>
       Venta.calcularEstadoPago(total, pagado);
 
+  /// Bloquea operación a CC si el saldo resultante supera [Cliente.limiteCuenta].
+  /// `limiteCuenta <= 0` = sin tope.
+  Future<void> assertDentroLimiteCuenta({
+    required int? clienteId,
+    required double saldoAdicional,
+  }) async {
+    if (clienteId == null) return;
+    if (saldoAdicional <= 0.009) return;
+    final db = await _db.database;
+    final rows = await db.query(
+      'clientes',
+      columns: ['saldo', 'limiteCuenta', 'nombre'],
+      where: 'id = ?',
+      whereArgs: [clienteId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final limite = (rows.first['limiteCuenta'] as num?)?.toDouble() ?? 0;
+    if (limite <= 0.009) return;
+    final saldoActual = (rows.first['saldo'] as num?)?.toDouble() ?? 0;
+    final proyectado = saldoActual + saldoAdicional;
+    if (proyectado > limite + 0.009) {
+      final nombre = rows.first['nombre']?.toString() ?? 'Cliente';
+      throw StateError(
+        '$nombre supera el límite de cuenta '
+        '(\$${limite.toStringAsFixed(2)}). '
+        'Saldo actual \$${saldoActual.toStringAsFixed(2)} + '
+        'esta operación \$${saldoAdicional.toStringAsFixed(2)}.',
+      );
+    }
+  }
+
   Future<int> crearVentaConPago({
     required Venta venta,
     required List<VentaItem> items,
@@ -63,6 +97,7 @@ class CuentaCorrienteService {
     String medioPago = 'efectivo',
     String observacionesPago = '',
   }) async {
+    DomainBootstrap.ensureInitialized();
     AuthorizationService.instance.require(
       AuthModules.remitos,
       AuthzAction.crear,
@@ -76,6 +111,29 @@ class CuentaCorrienteService {
         venta.fecha.add(
           Duration(days: BrandingService.instance.diasVencimiento),
         );
+
+    await assertDentroLimiteCuenta(
+      clienteId: venta.clienteId,
+      saldoAdicional: saldo,
+    );
+
+    // Factura / nota de entrega: misma política de stock que remito.
+    final preLines = <InventoryLine>[];
+    if (venta.mueveStock) {
+      for (final item in items) {
+        if (item.cantidad == 0) continue;
+        preLines.add(InventoryLine(
+          productoId: item.productoId,
+          cantidad: item.cantidad,
+        ));
+      }
+      if (preLines.isNotEmpty) {
+        await InventoryLedgerService.instance.assertPuedeAplicar(
+          lines: preLines,
+          sign: -1,
+        );
+      }
+    }
 
     final ventaMap = venta.toMap()
       ..remove('id')
@@ -119,9 +177,31 @@ class CuentaCorrienteService {
       return id;
     });
 
+    if (venta.mueveStock && preLines.isNotEmpty) {
+      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+      final tag = await DeviceIdentity.shortTag();
+      final lines = preLines.map((l) => l.toJson()).toList();
+      await DomainEventBus.instance.publish(
+        DomainEvent(
+          eventId: 'inv:entrega:venta:$ventaId',
+          type: DomainEventType.mercaderiaEntregada,
+          aggregateType: 'venta',
+          aggregateId: '$ventaId',
+          createdBy: user,
+          deviceId: tag,
+          payload: {
+            'documentType': 'venta',
+            'documentId': '$ventaId',
+            'documentNumero': venta.numero,
+            'motivo': 'Entrega por ${venta.tipo} ${venta.numero}',
+            'lines': lines,
+          },
+        ),
+      );
+    }
+
     if (venta.clienteId != null) {
       await recalcularSaldoCliente(venta.clienteId!);
-      DomainBootstrap.ensureInitialized();
       final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
       // Cargo el total; el abono inicial resta vía PAGO_REGISTRADO (neto = saldo).
       if (venta.total > 0.009) {
@@ -162,6 +242,7 @@ class CuentaCorrienteService {
       }
     }
     DataRefreshHub.instance.notifyVentas();
+    DataRefreshHub.instance.notifyStock();
     return ventaId;
   }
 

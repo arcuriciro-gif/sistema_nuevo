@@ -176,4 +176,7 @@ class Venta {
 
   bool get esFactura =>
       tipo == 'factura_a' || tipo == 'factura_b' || tipo == 'factura_c';
+
+  /// Presupuesto no entrega mercadería; el resto de ventas confirmadas sí.
+  bool get mueveStock => tipo != 'presupuesto';
 }

@@ -159,10 +159,14 @@ class Producto {
       preciosListas: _parsePreciosListas(map['precios_listas']),
       preciosBloqueados: _parseStringSet(map['precios_bloqueados']),
       favorito: (map['favorito'] ?? 0) == 1 || map['favorito'] == true,
-      deletedAt: map['deleted_at']?.toString(),
+      deletedAt: (map['deleted_at'] ?? map['deletedAt'])?.toString(),
       actualizadoEn: (map['actualizadoEn'] ?? map['actualizado_en'])?.toString(),
     );
   }
+
+  /// Hard-delete remoto: payload tombstone o soft-delete vacío sin catálogo.
+  bool get esTombstoneRemoto =>
+      estaEliminado && descripcion.trim().isEmpty;
 
   Map<String, dynamic> toFirestore() {
     final data = Map<String, dynamic>.from(toMap()..remove('id'));
@@ -188,8 +192,17 @@ class Producto {
 
   factory Producto.fromFirestore(Map<String, dynamic> data, {String? docId}) {
     final map = Map<String, dynamic>.from(data);
-    if (docId != null && map['codigo'] == null) {
+    if (docId != null && (map['codigo'] == null || '${map['codigo']}'.isEmpty)) {
       map['codigo'] = docId;
+    }
+    // Tombstone remoto usa camelCase; SQLite usa snake_case.
+    if (map['deleted_at'] == null && map['deletedAt'] != null) {
+      map['deleted_at'] = map['deletedAt'];
+    }
+    // Hard-delete: sin descripción → peer borra fila local.
+    if (map['tombstone'] == true) {
+      map['deleted_at'] ??= DateTime.now().toUtc().toIso8601String();
+      map['descripcion'] ??= '';
     }
     return Producto.fromMap(map);
   }

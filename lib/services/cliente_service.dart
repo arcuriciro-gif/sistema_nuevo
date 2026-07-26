@@ -81,9 +81,14 @@ class ClienteService {
           );
 
     final ahora = DateTime.now().toUtc().toIso8601String();
+    // El saldo lo calcula CuentaCorrienteService; el formulario no puede pisarlo.
+    final map = listo.toMap()..['actualizadoEn'] = ahora;
+    if (clienteAnterior != null) {
+      map['saldo'] = clienteAnterior.saldo;
+    }
     final result = await db.update(
       'clientes',
-      listo.toMap()..['actualizadoEn'] = ahora,
+      map,
       where: 'id=?',
       whereArgs: [listo.id],
     );

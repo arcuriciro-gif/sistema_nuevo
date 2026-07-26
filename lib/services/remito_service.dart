@@ -70,6 +70,11 @@ class RemitoService {
     final clienteIdInt =
         remito.clienteId != null ? int.tryParse(remito.clienteId!) : null;
 
+    await CuentaCorrienteService().assertDentroLimiteCuenta(
+      clienteId: clienteIdInt,
+      saldoAdicional: saldoPendiente,
+    );
+
     final remitoId = await db.transaction((txn) async {
       final id = await txn.insert(
         'remitos',
