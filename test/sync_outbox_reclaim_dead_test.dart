@@ -135,7 +135,7 @@ void main() {
       );
     });
 
-    test('ackDeadStockOps solo cierra dead; deja pending fresco', () async {
+    test('ackDeadStockOps reencola dead; no ACK ciego; deja fresco', () async {
       await SyncOutbox.instance.enqueueStockOp(
         opId: 'fresh',
         codigo: 'F',
@@ -160,9 +160,10 @@ void main() {
 
       final n = await SyncOutbox.instance.ackDeadStockOps();
       expect(n, 1);
+      // fresh + dead reencolado
       expect(
         await SyncOutbox.instance.countByStatus(SyncOutboxStatus.pending),
-        1,
+        2,
       );
       expect(
         await SyncOutbox.instance.countByStatus(SyncOutboxStatus.dead),
@@ -170,11 +171,11 @@ void main() {
       );
       expect(
         await SyncOutbox.instance.countByStatus(SyncOutboxStatus.acked),
-        1,
+        0,
       );
     });
 
-    test('purgeStuckStockOps ACK reclaim eternos', () async {
+    test('purgeStuckStockOps sin prueba reencola (no ACK ciego)', () async {
       await SyncOutbox.instance.enqueueStockOp(
         opId: 'op-stuck',
         codigo: 'S',
@@ -198,11 +199,40 @@ void main() {
       expect(n, 1);
       expect(
         await SyncOutbox.instance.countByStatus(SyncOutboxStatus.acked),
-        1,
+        0,
       );
       expect(
         await SyncOutbox.instance.countByStatus(SyncOutboxStatus.pending),
-        0,
+        1,
+      );
+    });
+
+    test('purgeStuckStockOps ACK solo con prueba cloud', () async {
+      await SyncOutbox.instance.enqueueStockOp(
+        opId: 'op-ok',
+        codigo: 'S',
+        delta: -1,
+      );
+      final db = await DatabaseHelper.instance.database;
+      await db.update(
+        'sync_outbox',
+        {
+          'attempts': 5,
+          'last_error': 'reclaimed_stale_inflight',
+        },
+        where: 'op_id = ?',
+        whereArgs: ['stock_op:op-ok'],
+      );
+
+      final n = await SyncOutbox.instance.purgeStuckStockOps(
+        minAttempts: 2,
+        onlyLastErrorContains: 'reclaimed_stale_inflight',
+        proveCloudApplied: (remoteId) async => remoteId == 'op-ok',
+      );
+      expect(n, 1);
+      expect(
+        await SyncOutbox.instance.countByStatus(SyncOutboxStatus.acked),
+        1,
       );
     });
 

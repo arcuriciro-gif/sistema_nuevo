@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/config/backend_config_service.dart';
 import '../core/config/platform_capabilities.dart';
+import '../core/sync/stock_ops_windows_policy.dart';
 import '../models/producto.dart';
 import 'producto_repository.dart';
 
@@ -177,18 +178,32 @@ class FirestoreProductoRepository implements ProductoRepository {
     required String codigo,
     required int delta,
     required String opId,
+    String? documentType,
+    String? documentId,
   }) async {
     final cod = codigo.trim();
     if (cod.isEmpty || delta == 0 || opId.isEmpty) return;
 
     // Windows: runTransaction cuelga/tumba el .exe → camino sin txn.
     if (PlatformCapabilities.isWindowsDesktop) {
-      await _ajustarStockWindowsSafe(cod: cod, delta: delta, opId: opId);
+      await _ajustarStockWindowsSafe(
+        cod: cod,
+        delta: delta,
+        opId: opId,
+        documentType: documentType,
+        documentId: documentId,
+      );
       return;
     }
 
     try {
-      await _ajustarStockEnTransaccion(cod: cod, delta: delta, opId: opId);
+      await _ajustarStockEnTransaccion(
+        cod: cod,
+        delta: delta,
+        opId: opId,
+        documentType: documentType,
+        documentId: documentId,
+      );
     } catch (e) {
       // Solo fallback si la plataforma no soporta txn (no ante errores lógicos).
       final msg = e.toString().toLowerCase();
@@ -198,109 +213,194 @@ class FirestoreProductoRepository implements ProductoRepository {
           msg.contains('no firebase app');
       if (!txnUnavailable) rethrow;
       debugPrint('stock_ops txn unavailable: $e — fallback create-only');
-      await _ajustarStockConCreate(cod: cod, delta: delta, opId: opId);
+      await _ajustarStockConCreate(
+        cod: cod,
+        delta: delta,
+        opId: opId,
+        documentType: documentType,
+        documentId: documentId,
+      );
     }
   }
 
-  /// Windows: get + claim + increment con timeouts (sin runTransaction).
-  /// Idempotente: si `stock_ops/{opId}` ya existe, no re-incrementa.
+  Map<String, dynamic> _stockOpMeta({
+    required String cod,
+    required int delta,
+    required String opId,
+    required String ahora,
+    String? documentType,
+    String? documentId,
+  }) {
+    final meta = <String, dynamic>{
+      'codigo': cod,
+      'delta': delta,
+      'at': ahora,
+      'opId': opId,
+    };
+    final dt = (documentType ?? '').trim();
+    final di = (documentId ?? '').trim();
+    if (dt.isNotEmpty) meta['documentType'] = dt;
+    if (di.isNotEmpty) meta['documentId'] = di;
+    return meta;
+  }
+
+  /// Windows: pending_apply → increment → applied (nunca applied sin increment).
   Future<void> _ajustarStockWindowsSafe({
     required String cod,
     required int delta,
     required String opId,
+    String? documentType,
+    String? documentId,
   }) async {
     final opRef = _stockOpsCol.doc(opId);
     final prodRef = _collection.doc(cod);
     final ahora = DateTime.now().toUtc().toIso8601String();
     final claim = const Uuid().v4();
+    final base = _stockOpMeta(
+      cod: cod,
+      delta: delta,
+      opId: opId,
+      ahora: ahora,
+      documentType: documentType,
+      documentId: documentId,
+    );
 
     final existing = await opRef.get().timeout(const Duration(seconds: 8));
-    if (existing.exists) return;
+    final prodSnap = await prodRef.get().timeout(const Duration(seconds: 8));
+    final ultima = prodSnap.data()?['ultimaStockOp']?.toString();
+    final phase = classifyStockOpCloud(
+      exists: existing.exists,
+      status: existing.data()?['status']?.toString(),
+      ultimaStockOpProducto: ultima,
+      opId: opId,
+    );
+
+    if (phase == StockOpCloudPhase.appliedComplete) return;
+
+    if (phase == StockOpCloudPhase.missing) {
+      await opRef
+          .set({
+            ...base,
+            'status': 'pending_apply',
+            'via': 'windows_safe',
+            'claim': claim,
+          })
+          .timeout(const Duration(seconds: 8));
+      final check = await opRef.get().timeout(const Duration(seconds: 5));
+      if ((check.data()?['claim']?.toString() ?? '') != claim) {
+        // Perdimos la carrera: el otro device completa.
+        return;
+      }
+    }
+
+    // Completar increment si falta (pending o applied incompleto tras crash).
+    if (stockOpNeedsIncrement(phase) || phase == StockOpCloudPhase.missing) {
+      final ultima2 = (await prodRef.get().timeout(const Duration(seconds: 5)))
+          .data()?['ultimaStockOp']
+          ?.toString();
+      if (ultima2 != opId) {
+        await prodRef
+            .set({
+              'codigo': cod,
+              'stock': FieldValue.increment(delta),
+              'actualizadoEn': ahora,
+              'ultimaStockOp': opId,
+            }, SetOptions(merge: true))
+            .timeout(const Duration(seconds: 8));
+      }
+    }
 
     await opRef
         .set({
-          'codigo': cod,
-          'delta': delta,
+          ...base,
           'status': 'applied',
-          'at': ahora,
           'appliedAt': ahora,
           'via': 'windows_safe',
-          'claim': claim,
-        })
-        .timeout(const Duration(seconds: 8));
-
-    // Si perdimos la carrera, el claim no es nuestro → no incrementar.
-    final check = await opRef.get().timeout(const Duration(seconds: 5));
-    if ((check.data()?['claim']?.toString() ?? '') != claim) return;
-
-    await prodRef
-        .set({
-          'codigo': cod,
-          'stock': FieldValue.increment(delta),
-          'actualizadoEn': ahora,
-          'ultimaStockOp': opId,
         }, SetOptions(merge: true))
         .timeout(const Duration(seconds: 8));
   }
 
-  /// Idempotente estricto: si `stock_ops/{opId}` ya existe → no re-incrementa.
+  /// Idempotente estricto: si `stock_ops/{opId}` ya applied completo → no-op.
   Future<void> _ajustarStockEnTransaccion({
     required String cod,
     required int delta,
     required String opId,
+    String? documentType,
+    String? documentId,
   }) async {
     final opRef = _stockOpsCol.doc(opId);
     final prodRef = _collection.doc(cod);
     final ahora = DateTime.now().toUtc().toIso8601String();
+    final base = _stockOpMeta(
+      cod: cod,
+      delta: delta,
+      opId: opId,
+      ahora: ahora,
+      documentType: documentType,
+      documentId: documentId,
+    );
 
     await _firestore.runTransaction((txn) async {
       final opSnap = await txn.get(opRef);
-      if (opSnap.exists) {
-        // Ya aplicada o claimed por otro: NUNCA incrementar de nuevo.
-        return;
-      }
-      txn.set(opRef, {
-        'codigo': cod,
-        'delta': delta,
-        'status': 'applied',
-        'at': ahora,
-        'appliedAt': ahora,
-      });
       final prodSnap = await txn.get(prodRef);
       final ultima = prodSnap.data()?['ultimaStockOp']?.toString();
-      if (ultima == opId) {
-        // Producto ya refleja esta op (retry raro) — solo asegurar op applied.
-        return;
-      }
-      txn.set(
-        prodRef,
-        {
-          'codigo': cod,
-          'stock': FieldValue.increment(delta),
-          'actualizadoEn': ahora,
-          'ultimaStockOp': opId,
-        },
-        SetOptions(merge: true),
+      final phase = classifyStockOpCloud(
+        exists: opSnap.exists,
+        status: opSnap.data()?['status']?.toString(),
+        ultimaStockOpProducto: ultima,
+        opId: opId,
       );
+      if (phase == StockOpCloudPhase.appliedComplete) return;
+
+      if (phase == StockOpCloudPhase.missing) {
+        txn.set(opRef, {
+          ...base,
+          'status': 'pending_apply',
+        });
+      }
+
+      if (ultima != opId) {
+        txn.set(
+          prodRef,
+          {
+            'codigo': cod,
+            'stock': FieldValue.increment(delta),
+            'actualizadoEn': ahora,
+            'ultimaStockOp': opId,
+          },
+          SetOptions(merge: true),
+        );
+      }
+      txn.set(opRef, {
+        ...base,
+        'status': 'applied',
+        'appliedAt': ahora,
+      }, SetOptions(merge: true));
     });
   }
 
   /// Fallback sin txn: solo marca pending; el próximo flush reintenta txn.
-  /// Nunca incrementa stock fuera de transacción (evita doble delta).
   Future<void> _ajustarStockConCreate({
     required String cod,
     required int delta,
     required String opId,
+    String? documentType,
+    String? documentId,
   }) async {
     final opRef = _stockOpsCol.doc(opId);
     final existing = await opRef.get();
     if (existing.exists) return;
     final ahora = DateTime.now().toUtc().toIso8601String();
     await opRef.set({
-      'codigo': cod,
-      'delta': delta,
+      ..._stockOpMeta(
+        cod: cod,
+        delta: delta,
+        opId: opId,
+        ahora: ahora,
+        documentType: documentType,
+        documentId: documentId,
+      ),
       'status': 'pending_apply',
-      'at': ahora,
       'error': 'txn_unavailable',
     }, SetOptions(merge: true));
     throw StateError(
@@ -308,8 +408,8 @@ class FirestoreProductoRepository implements ProductoRepository {
     );
   }
 
-  /// Página de stock_ops por tiempo (`at`) — no por docId (UUID random
-  /// hacía perder ops nuevas respecto del watermark).
+  /// Página de stock_ops por (`at`, docId) — tie-break evita saltar ops
+  /// con el mismo timestamp (C5).
   Future<
       ({
         List<Map<String, dynamic>> items,
@@ -321,11 +421,14 @@ class FirestoreProductoRepository implements ProductoRepository {
     String? afterAt,
     int limit = 80,
   }) async {
-    // Un solo orderBy('at'): índice automático, sin composite.
-    Query<Map<String, dynamic>> q = _stockOpsCol.orderBy('at').limit(limit);
+    Query<Map<String, dynamic>> q = _stockOpsCol
+        .orderBy('at')
+        .orderBy(FieldPath.documentId)
+        .limit(limit);
     final at = (afterAt ?? '').trim();
+    final docId = (afterDocId ?? '').trim();
     if (at.isNotEmpty) {
-      q = q.startAfter([at]);
+      q = q.startAfter([at, docId]);
     }
     final snap = await q.get();
     final items = <Map<String, dynamic>>[];
@@ -361,10 +464,28 @@ class FirestoreProductoRepository implements ProductoRepository {
     }).toList();
   }
 
-  /// Completa ops pending/claimed solo si el producto aún no refleja la op.
+  /// Prueba C6: ¿la op quedó applied completo en nube?
+  Future<bool> stockOpCloudApplied(String opId) async {
+    if (opId.trim().isEmpty) return false;
+    final opSnap = await _stockOpsCol.doc(opId).get();
+    if (!opSnap.exists) return false;
+    final data = opSnap.data() ?? const <String, dynamic>{};
+    final cod = data['codigo']?.toString().trim() ?? '';
+    if (cod.isEmpty) return false;
+    final prod = await _collection.doc(cod).get();
+    final phase = classifyStockOpCloud(
+      exists: true,
+      status: data['status']?.toString(),
+      ultimaStockOpProducto: prod.data()?['ultimaStockOp']?.toString(),
+      opId: opId,
+    );
+    return phase == StockOpCloudPhase.appliedComplete;
+  }
+
+  /// Completa ops pending/claimed/applied-incompletas si el producto no refleja la op.
   Future<int> reconcilizarStockOpsPendientes({int limit = 50}) async {
     var ok = 0;
-    for (final status in const ['pending_apply', 'claimed']) {
+    for (final status in const ['pending_apply', 'claimed', 'applied']) {
       final snap = await _stockOpsCol
           .where('status', isEqualTo: status)
           .limit(limit)
@@ -377,52 +498,30 @@ class FirestoreProductoRepository implements ProductoRepository {
         try {
           final prod = await _collection.doc(cod).get();
           final ultima = prod.data()?['ultimaStockOp']?.toString();
-          if (ultima == doc.id) {
-            await doc.reference.set({
-              'status': 'applied',
-              'appliedAt': DateTime.now().toUtc().toIso8601String(),
-            }, SetOptions(merge: true));
-            ok++;
-            continue;
-          }
-          // Borrar claim incompleto y reaplicar vía txn idempotente.
-          // Si otro device ya aplicó, txn verá op inexistente o…
-          // Mantener el doc: txn actual exige !exists. Si pending existe,
-          // hay que borrarlo o actualizar status en la txn.
-          await _firestore.runTransaction((txn) async {
-            final opRef = doc.reference;
-            final opSnap = await txn.get(opRef);
-            if (!opSnap.exists) return;
-            final st = opSnap.data()?['status']?.toString() ?? '';
-            if (st == 'applied') return;
-            final prodRef = _collection.doc(cod);
-            final prodSnap = await txn.get(prodRef);
-            if (prodSnap.data()?['ultimaStockOp']?.toString() == doc.id) {
-              txn.set(opRef, {
+          final phase = classifyStockOpCloud(
+            exists: true,
+            status: data['status']?.toString(),
+            ultimaStockOpProducto: ultima,
+            opId: doc.id,
+          );
+          if (phase == StockOpCloudPhase.appliedComplete) {
+            if (status != 'applied') {
+              await doc.reference.set({
                 'status': 'applied',
                 'appliedAt': DateTime.now().toUtc().toIso8601String(),
               }, SetOptions(merge: true));
-              return;
+              ok++;
             }
-            final ahora = DateTime.now().toUtc().toIso8601String();
-            txn.set(
-              prodRef,
-              {
-                'codigo': cod,
-                'stock': FieldValue.increment(delta),
-                'actualizadoEn': ahora,
-                'ultimaStockOp': doc.id,
-              },
-              SetOptions(merge: true),
-            );
-            txn.set(opRef, {
-              'codigo': cod,
-              'delta': delta,
-              'status': 'applied',
-              'at': ahora,
-              'appliedAt': ahora,
-            }, SetOptions(merge: true));
-          });
+            continue;
+          }
+          // Heal: pending o appliedIncomplete → increment idempotente + applied.
+          await ajustarStock(
+            codigo: cod,
+            delta: delta,
+            opId: doc.id,
+            documentType: data['documentType']?.toString(),
+            documentId: data['documentId']?.toString(),
+          );
           ok++;
         } catch (e) {
           debugPrint('reconcilizar stock_ops ${doc.id}: $e');

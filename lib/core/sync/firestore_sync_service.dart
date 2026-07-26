@@ -24,9 +24,11 @@ import 'sync_catchup.dart';
 import 'sync_health.dart';
 import 'sync_outbox.dart';
 import 'sync_tombstone.dart';
+import 'stock_ops_pull_policy.dart';
 import 'stock_ops_watermark.dart';
 import 'sync_watermark_store.dart';
 import 'windows_sync_policy.dart';
+import '../../services/cuenta_corriente_service.dart';
 import '../../database/database_helper.dart';
 import '../../models/cliente.dart';
 import '../../models/documento_cliente.dart';
@@ -265,6 +267,8 @@ class FirestoreSyncService {
               final purged = await SyncOutbox.instance.purgeStuckStockOps(
                 minAttempts: 5,
                 onlyLastErrorContains: 'reclaimed_stale_inflight',
+                proveCloudApplied: (remoteOpId) =>
+                    _remote.stockOpCloudApplied(remoteOpId),
               );
               final deadAck = await SyncOutbox.instance.ackDeadStockOps();
               if (purged > 0 || deadAck > 0) {
@@ -399,6 +403,8 @@ class FirestoreSyncService {
             await SyncOutbox.instance.purgeStuckStockOps(
               minAttempts: 8,
               onlyLastErrorContains: 'reclaimed_stale_inflight',
+              proveCloudApplied: (remoteOpId) =>
+                  _remote.stockOpCloudApplied(remoteOpId),
             );
           }
 
@@ -506,9 +512,10 @@ class FirestoreSyncService {
       final db = await DatabaseHelper.instance.database;
       final force = !_windowsRecentDocsForced;
       if (force) _windowsRecentDocsForced = true;
-      // Primer ciclo: reabrir ACK fantasma de lo reciente (todo el negocio).
+      final already = await SyncOutbox.instance.pendingBreakdown();
+      final pendingProd = already['producto'] ?? 0;
+      // Primer ciclo: reabrir ACK fantasma solo de docs comerciales.
       final limitDocs = force ? 60 : 20;
-      final limitProd = force ? 80 : 25;
       final nRemitos = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
         db: db,
         table: 'remitos',
@@ -530,15 +537,17 @@ class FirestoreSyncService {
         limit: force ? 40 : 12,
         reopenAcked: force,
       );
-      // Productos/proveedores/clientes: NUNCA reopenAcked en masa.
-      // Eso llenaba 350 pending eternos; solo encolar los que faltan.
-      final nProductos = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
-        db: db,
-        table: 'productos',
-        entityType: 'producto',
-        limit: limitProd,
-        reopenAcked: false,
-      );
+      // Si ya hay cientos de productos pending, NO encolar más (drenar primero).
+      var nProductos = 0;
+      if (pendingProd < 80) {
+        nProductos = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
+          db: db,
+          table: 'productos',
+          entityType: 'producto',
+          limit: force ? 40 : 20,
+          reopenAcked: false,
+        );
+      }
       final nClientes = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
         db: db,
         table: 'clientes',
@@ -554,20 +563,21 @@ class FirestoreSyncService {
         limit: force ? 30 : 10,
         reopenAcked: false,
       );
-      // Catch-up secuencial chico (histórico) sin tumbar el .exe.
+      // Catch-up secuencial chico — sin productos si la cola ya está llena.
       if (!force) {
-        for (final e in const [
+        final tables = <(String, String)>[
           ('remitos', 'remito'),
           ('ventas', 'venta'),
           ('compras', 'compra'),
-          ('productos', 'producto'),
           ('clientes', 'cliente'),
-        ]) {
+          if (pendingProd < 80) ('productos', 'producto'),
+        ];
+        for (final e in tables) {
           await SyncCatchup.instance.enqueueDocumentCatchup(
             db: db,
             table: e.$1,
             entityType: e.$2,
-            pageSize: 25,
+            pageSize: 20,
             maxPagesPerCycle: 1,
           );
         }
@@ -582,7 +592,7 @@ class FirestoreSyncService {
         debugPrint(
           'Windows catch-up: remitos=$nRemitos ventas=$nVentas '
           'compras=$nCompras productos=$nProductos clientes=$nClientes '
-          'proveedores=$nProveedores force=$force',
+          'proveedores=$nProveedores force=$force pendingProd=$pendingProd',
         );
         syncStatusLabel = 'Sincronizando…';
         syncStatusDetail =
@@ -594,79 +604,107 @@ class FirestoreSyncService {
     }
   }
 
-  /// Windows: pumps recién después de la cuarentena (sin Firebase al login).
+  /// Windows: pumps tras cuarentena corta; reintenta si Auth aún no listo.
   void _iniciarPumpsWindows() {
     _windowsPumpsActivos = true;
     _pullPump?.cancel();
-    final q = WindowsSyncPolicy.quarantineAfterLogin;
-    // No pisar "En la nube" si la cola stock ya se limpió.
-    syncInBackground(() async {
+    syncInBackground(
+      _bootWindowsPumpsConRetry(),
+      tag: 'bootWindowsPumps',
+    );
+  }
+
+  /// Evita quedar eterno en "arranque 45s" con 0 intentos.
+  Future<void> _bootWindowsPumpsConRetry() async {
+    final breakdown0 = await SyncOutbox.instance.pendingBreakdown();
+    final pending0 = breakdown0.values.fold<int>(0, (a, b) => a + b);
+    final nProd0 = breakdown0['producto'] ?? 0;
+    final q = WindowsSyncPolicy.quarantineForBacklog(
+      pendingProductos: nProd0,
+    );
+    if (!_windowsPumpsActivos) return;
+    if (pending0 == 0) {
+      syncStatusLabel = 'En la nube (modo estable PC)';
+      syncStatusDetail = null;
+    } else {
+      syncStatusLabel = 'Sincronizando…';
+      syncStatusDetail =
+          '$pending0 pendientes: ${SyncOutbox.formatBreakdown(breakdown0)} '
+          '(empieza en ${q.inSeconds}s)';
+    }
+    DataRefreshHub.instance.notifyTodo();
+
+    await Future<void>.delayed(q);
+    if (!_windowsPumpsActivos) return;
+
+    // Antes: si Auth no estaba listo al vencer la cuarentena, return silencioso
+    // → pump nunca arrancaba y la UI quedaba en "arranque Xs" eterno.
+    var authOk = _puedeEscribirRemoto;
+    for (var i = 0; i < 12 && !authOk; i++) {
+      if (!_windowsPumpsActivos) return;
+      syncStatusLabel = 'Sincronizando…';
+      syncStatusDetail =
+          '$pending0 pendientes — esperando sesión de nube (${i + 1}/12)…';
+      DataRefreshHub.instance.notifyTodo();
+      await Future<void>.delayed(const Duration(seconds: 5));
+      authOk = _puedeEscribirRemoto;
+    }
+
+    // Arrancar pump igual: cada tick chequéa Auth; no dejar cola huérfana.
+    _iniciarOutboxPump();
+
+    if (!authOk) {
+      syncStatusLabel = 'Sin nube';
+      syncStatusDetail =
+          '$pending0 pendientes — reingresá o reactivá la nube en Configuración';
+      DataRefreshHub.instance.notifyTodo();
+      return;
+    }
+
+    await CloudSyncThrottle.enqueue(() async {
+      if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+      await SyncOutbox.instance.ackOrphanUpserts();
+      await _microCatchupDocsWindows();
+      // Productos primero (grueso de la cola del screenshot).
+      await _procesarOutboxDrain(
+        maxBatches: 3,
+        claimLimit: 8,
+        entityTypes: const ['producto', 'proveedor'],
+      );
+      await _procesarOutboxDrain(
+        maxBatches: 2,
+        claimLimit: 5,
+        entityTypes: const [
+          'venta',
+          'remito',
+          'compra',
+          'cliente',
+          'stock_op',
+        ],
+      );
       final breakdown = await SyncOutbox.instance.pendingBreakdown();
       final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
-      if (!_windowsPumpsActivos) return;
-      if (pending == 0) {
-        syncStatusLabel = 'En la nube (modo estable PC)';
-        syncStatusDetail = null;
-      } else {
+      if (pending > 0) {
         syncStatusLabel = 'Sincronizando…';
         syncStatusDetail =
-            '$pending pendientes: ${SyncOutbox.formatBreakdown(breakdown)} '
-            '(arranque ${q.inSeconds}s)';
+            '$pending pendientes: ${SyncOutbox.formatBreakdown(breakdown)}';
+      } else {
+        syncStatusLabel = 'En la nube (modo estable PC)';
+        syncStatusDetail = null;
       }
       DataRefreshHub.instance.notifyTodo();
-    }(), tag: 'pendingBreakdownBoot');
+    }, tag: 'primerDrainPostCuarentena');
 
-    // Outbox: tras cuarentena, primer drenaje inmediato + micro-lotes.
-    Future<void>.delayed(q, () {
-      if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
-      syncInBackground(
-        CloudSyncThrottle.enqueue(() async {
-          await SyncOutbox.instance.ackOrphanUpserts();
-          // Primero encolar ventas/remitos locales → APK deja de ver $0.
-          await _microCatchupDocsWindows();
-          // Productos primero (suelen ser el grueso de la cola).
-          await _procesarOutboxDrain(
-            maxBatches: 2,
-            claimLimit: 6,
-            entityTypes: const ['producto', 'proveedor'],
-          );
-          await _procesarOutboxDrain(
-            maxBatches: 2,
-            claimLimit: 5,
-            entityTypes: const [
-              'venta',
-              'remito',
-              'compra',
-              'cliente',
-              'stock_op',
-            ],
-          );
-          final breakdown = await SyncOutbox.instance.pendingBreakdown();
-          final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
-          if (pending > 0) {
-            syncStatusLabel = 'Sincronizando…';
-            syncStatusDetail =
-                '$pending pendientes: ${SyncOutbox.formatBreakdown(breakdown)}';
-          } else {
-            syncStatusLabel = 'En la nube (modo estable PC)';
-            syncStatusDetail = null;
-          }
-          DataRefreshHub.instance.notifyTodo();
-        }, tag: 'primerDrainPostCuarentena'),
-        tag: 'primerDrainPostCuarentena',
-      );
-      _iniciarOutboxPump();
-      syncInBackground(
-        CloudSyncThrottle.enqueue(
-          _publicarConfigLocalSiHaceFalta,
-          tag: 'publicarConfigPostCuarentena',
-        ),
+    syncInBackground(
+      CloudSyncThrottle.enqueue(
+        _publicarConfigLocalSiHaceFalta,
         tag: 'publicarConfigPostCuarentena',
-      );
-    });
+      ),
+      tag: 'publicarConfigPostCuarentena',
+    );
 
-    // Primer tirón de productos/config (precios APK→PC) sin esperar 2+ min.
-    Future<void>.delayed(q + const Duration(seconds: 25), () {
+    // Soft-pull / pull productos un poco después del primer drain.
+    Future<void>.delayed(const Duration(seconds: 20), () {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
@@ -682,8 +720,7 @@ class FirestoreSyncService {
       );
     });
 
-    // Soft-pull: más tarde que el outbox (convergencia lenta, estable).
-    Future<void>.delayed(q + const Duration(seconds: 45), () {
+    Future<void>.delayed(const Duration(seconds: 35), () {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       _pullPump?.cancel();
       _pullPump = Timer.periodic(WindowsSyncPolicy.softPullInterval, (_) {
@@ -1030,14 +1067,23 @@ class FirestoreSyncService {
   }
 
   /// Aplica una lista de docs stock_ops al ledger (sin re-upload).
-  /// Devuelve cuántas se aplicaron.
-  Future<int> _aplicarStockOpsItems(
+  Future<({int applied, int consideredValid, int skippedMissingProduct})>
+      _aplicarStockOpsItems(
     List<Map<String, dynamic>> items, {
     int? maxApply,
   }) async {
     DomainBootstrap.ensureInitialized();
     final limit = maxApply ?? items.length;
-    final batch = <({String opId, int productoId, String codigo, int delta})>[];
+    final batch = <({
+      String opId,
+      int productoId,
+      String codigo,
+      int delta,
+      String? documentType,
+      String? documentId,
+    })>[];
+    var consideredValid = 0;
+    var skippedMissingProduct = 0;
     for (final op in items) {
       if (batch.length >= limit) break;
       final opId = op['opId']?.toString() ?? '';
@@ -1046,19 +1092,36 @@ class FirestoreSyncService {
       final status = op['status']?.toString() ?? '';
       if (opId.isEmpty || codigo.isEmpty || delta == 0) continue;
       if (status == 'pending_apply' || status == 'claimed') continue;
+      consideredValid++;
       if (_stockOpsHechas.contains(opId)) continue;
 
       final local = await _cache.buscarPorCodigo(codigo);
-      if (local?.id == null) continue;
+      if (local?.id == null) {
+        skippedMissingProduct++;
+        continue;
+      }
 
+      final meta = resolveStockOpDocumentMeta(
+        opId: opId,
+        documentType: op['documentType']?.toString(),
+        documentId: op['documentId']?.toString(),
+      );
       batch.add((
         opId: opId,
         productoId: local!.id!,
         codigo: codigo,
         delta: delta,
+        documentType: meta.documentType,
+        documentId: meta.documentId,
       ));
     }
-    if (batch.isEmpty) return 0;
+    if (batch.isEmpty) {
+      return (
+        applied: 0,
+        consideredValid: consideredValid,
+        skippedMissingProduct: skippedMissingProduct,
+      );
+    }
     final n =
         await InventoryLedgerService.instance.applyRemoteStockOpsBatch(batch);
     for (final op in batch) {
@@ -1070,7 +1133,11 @@ class FirestoreSyncService {
       DataRefreshHub.instance.notifyProductos();
       await _persistirStockOpsHechas();
     }
-    return n;
+    return (
+      applied: n,
+      consideredValid: consideredValid,
+      skippedMissingProduct: skippedMissingProduct,
+    );
   }
 
   /// Near-live: últimas N ops (APK) — idempotente; no mueve watermark.
@@ -1083,7 +1150,7 @@ class FirestoreSyncService {
   }
 
   /// Aplica stock_ops remotos al ledger local (sin re-upload).
-  /// Watermark por `at` (no UUID solo: si no, el APK pierde ops nuevas).
+  /// Watermark por `at`+docId; NO avanza si se saltaron ops por producto ausente.
   Future<void> _pullStockOpsRemotas({
     int maxPages = 5,
     int pageSize = 80,
@@ -1116,11 +1183,23 @@ class FirestoreSyncService {
       }
 
       final remaining = limitApply - appliedTotal;
-      final n = await _aplicarStockOpsItems(
+      final result = await _aplicarStockOpsItems(
         page.items,
         maxApply: remaining,
       );
-      appliedTotal += n;
+      appliedTotal += result.applied;
+
+      // C4: si faltó producto local, no avanzar watermark (se reintentan).
+      if (!shouldAdvanceStockOpsWatermark(
+        consideredValid: result.consideredValid,
+        skippedMissingProduct: result.skippedMissingProduct,
+      )) {
+        debugPrint(
+          'stock_ops watermark: hold '
+          '(missingProduct=${result.skippedMissingProduct})',
+        );
+        break;
+      }
 
       afterId = page.lastDocId ?? afterId;
       afterAt = page.lastAt ?? afterAt;
@@ -1439,6 +1518,8 @@ class FirestoreSyncService {
     if (opId.isEmpty || codigo.isEmpty || delta == 0) {
       return;
     }
+    final documentType = map['documentType']?.toString();
+    final documentId = map['documentId']?.toString();
 
     final windows = PlatformCapabilities.isWindowsDesktop;
     try {
@@ -1447,6 +1528,8 @@ class FirestoreSyncService {
         codigo: codigo,
         delta: delta,
         opId: opId,
+        documentType: documentType,
+        documentId: documentId,
       );
       if (windows) {
         await future.timeout(const Duration(seconds: 20));
@@ -2393,11 +2476,15 @@ class FirestoreSyncService {
   ///
   /// [flushImmediately]: en Windows conviene `false` tras compras/remitos
   /// para no tumbar el .exe con ráfagas Firebase.
+  ///
+  /// [documentType]/[documentId]: atribución al doc comercial (anular seguidor).
   Future<void> ajustarStockEnNube({
     required int productoId,
     required int delta,
     String? opId,
     bool flushImmediately = true,
+    String? documentType,
+    String? documentId,
   }) async {
     if (delta == 0) return;
     final idOp = (opId == null || opId.isEmpty) ? const Uuid().v4() : opId;
@@ -2424,6 +2511,8 @@ class FirestoreSyncService {
       opId: idOp,
       codigo: codigo,
       delta: delta,
+      documentType: documentType,
+      documentId: documentId,
     );
     if (!_colaStockOps.contains(token)) {
       _colaStockOps.add(token);
@@ -2437,7 +2526,13 @@ class FirestoreSyncService {
         CloudSyncThrottle.enqueue(() async {
           try {
             await _remote
-                .ajustarStock(codigo: codigo, delta: delta, opId: idOp)
+                .ajustarStock(
+                  codigo: codigo,
+                  delta: delta,
+                  opId: idOp,
+                  documentType: documentType,
+                  documentId: documentId,
+                )
                 .timeout(const Duration(seconds: 20));
             await SyncOutbox.instance.ack('stock_op:$idOp');
             _colaStockOps.remove(token);
@@ -3820,6 +3915,31 @@ class FirestoreSyncService {
       await _persistirWatermarkRemitos();
 
       if (hubo) {
+        // C7: CC local desde saldos de docs remotos (ventas día/mes + saldo).
+        final clienteIds = <int>{};
+        for (final doc in actual.docs) {
+          final data = doc.data();
+          if (isRemoteTombstone(data)) continue;
+          final numero = data['numero']?.toString() ?? doc.id;
+          final rows = await db.query(
+            'remitos',
+            columns: ['clienteId'],
+            where: 'numero = ?',
+            whereArgs: [numero],
+            limit: 1,
+          );
+          final cid = (rows.isEmpty
+                  ? null
+                  : (rows.first['clienteId'] as num?)?.toInt());
+          if (cid != null) clienteIds.add(cid);
+        }
+        for (final cid in clienteIds) {
+          try {
+            await CuentaCorrienteService().recalcularSaldoCliente(cid);
+          } catch (e) {
+            debugPrint('CC recalc remito remoto $cid: $e');
+          }
+        }
         // Inicio KPI (ventas día/mes) suma remitos — refrescar al llegar del PC.
         DataRefreshHub.instance.notifyVentas();
         DataRefreshHub.instance.notifyTodo();
@@ -3996,6 +4116,34 @@ class FirestoreSyncService {
         }
       }
       if (huboCambios) {
+        // C7: alinear saldo CC con docs remotos aplicados.
+        final clienteIds = <int>{};
+        for (final doc in actual.docs) {
+          try {
+            final data = doc.data();
+            if (isRemoteTombstone(data)) continue;
+            final numero = data['numero']?.toString() ?? doc.id;
+            if (numero.isEmpty) continue;
+            final rows = await db.query(
+              'ventas',
+              columns: ['clienteId'],
+              where: 'numero = ?',
+              whereArgs: [numero],
+              limit: 1,
+            );
+            final cid = (rows.isEmpty
+                    ? null
+                    : (rows.first['clienteId'] as num?)?.toInt());
+            if (cid != null) clienteIds.add(cid);
+          } catch (_) {}
+        }
+        for (final cid in clienteIds) {
+          try {
+            await CuentaCorrienteService().recalcularSaldoCliente(cid);
+          } catch (e) {
+            debugPrint('CC recalc venta remota $cid: $e');
+          }
+        }
         DataRefreshHub.instance.notifyVentas();
       }
       final pendiente = _snapVentasPendiente;

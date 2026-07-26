@@ -5,8 +5,15 @@ class WindowsSyncPolicy {
   WindowsSyncPolicy._();
 
   /// Tras login: solo absorber outbox local; sin Firebase de colección.
-  /// 45s: UI estable y sync de negocio más pronto (antes 60s).
-  static const Duration quarantineAfterLogin = Duration(seconds: 45);
+  static const Duration quarantineAfterLogin = Duration(seconds: 20);
+
+  /// Si hay mucha cola de productos, acortar cuarentena (no dejar
+  /// "arranque 45s" con 500 pending y 0 intentos).
+  static Duration quarantineForBacklog({required int pendingProductos}) {
+    if (pendingProductos >= 50) return const Duration(seconds: 10);
+    if (pendingProductos >= 10) return const Duration(seconds: 15);
+    return quarantineAfterLogin;
+  }
 
   /// Delay entre jobs normales del throttle (outbox/pull).
   static const Duration throttleDelayNormal = Duration(milliseconds: 600);
@@ -64,9 +71,14 @@ class WindowsSyncPolicy {
     final nStock = breakdown['stock_op'] ?? 0;
     final plan = <({List<String> types, int claim})>[];
     if (nProd + nProv > 0) {
+      final claim = (nProd + nProv) >= 100
+          ? 8
+          : (nProd + nProv) >= 20
+              ? 6
+              : 4;
       plan.add((
         types: const ['producto', 'proveedor'],
-        claim: (nProd + nProv) >= 20 ? 6 : 4,
+        claim: claim,
       ));
     }
     if (nDocs > 0 || tick % 2 == 0) {

@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "stock_ops",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "at", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

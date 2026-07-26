@@ -30,14 +30,18 @@ void main() {
       );
     });
 
-    test('cuarentena da tiempo al UI antes de Firebase de colección', () {
+    test('cuarentena corta; con backlog de productos aún más corta', () {
       expect(
         WindowsSyncPolicy.quarantineAfterLogin.inSeconds,
-        greaterThanOrEqualTo(40),
+        lessThanOrEqualTo(30),
       );
       expect(
+        WindowsSyncPolicy.quarantineForBacklog(pendingProductos: 500).inSeconds,
+        lessThanOrEqualTo(12),
+      );
+      expect(
+        WindowsSyncPolicy.quarantineForBacklog(pendingProductos: 0).inSeconds,
         WindowsSyncPolicy.quarantineAfterLogin.inSeconds,
-        lessThanOrEqualTo(120),
       );
     });
 
@@ -59,7 +63,7 @@ void main() {
       );
       expect(plan, isNotEmpty);
       expect(plan.first.types, contains('producto'));
-      expect(plan.first.claim, greaterThanOrEqualTo(6));
+      expect(plan.first.claim, greaterThanOrEqualTo(8));
     });
 
     test('outboxDrainPlan vacío no inventa drains', () {

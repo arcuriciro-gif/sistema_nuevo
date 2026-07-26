@@ -119,19 +119,26 @@ class SyncOutbox {
     required String opId,
     required String codigo,
     required int delta,
+    String? documentType,
+    String? documentId,
   }) async {
     if (opId.isEmpty || codigo.isEmpty || delta == 0) return;
+    final payload = <String, dynamic>{
+      'opId': opId,
+      'codigo': codigo,
+      'delta': delta,
+    };
+    final dt = (documentType ?? '').trim();
+    final di = (documentId ?? '').trim();
+    if (dt.isNotEmpty) payload['documentType'] = dt;
+    if (di.isNotEmpty) payload['documentId'] = di;
     await _upsertPending(
       SyncOutboxOp(
         opId: 'stock_op:$opId',
         entityType: 'stock_op',
         operation: 'upsert',
         entityRemoteId: opId,
-        payloadJson: jsonEncode({
-          'opId': opId,
-          'codigo': codigo,
-          'delta': delta,
-        }),
+        payloadJson: jsonEncode(payload),
       ),
     );
   }
@@ -507,22 +514,32 @@ ORDER BY c DESC
     return n;
   }
 
-  /// Cierra stock_ops trabados en reclaim eterno (Windows).
-  /// Los ACK (no dead): el stock local ya se aplicó por ledger; dejan de
-  /// ensuciar el badge. Nuevos stock_op usan camino Windows safe.
+  /// Stock_ops trabados (reclaim eterno).
+  ///
+  /// **C6:** NUNCA ACK sin prueba de apply en nube. Sin [proveCloudApplied]
+  /// se reencolan a `pending` (el apply remoto es idempotente por opId).
+  /// Con prueba `true` → ACK; `false` → reencola.
   Future<int> purgeStuckStockOps({
     int minAttempts = 3,
     String? onlyLastErrorContains,
+    Future<bool> Function(String remoteOpId)? proveCloudApplied,
   }) async {
     final db = await _db;
     final rows = await db.query(
       'sync_outbox',
-      columns: ['op_id', 'attempts', 'last_error', 'status'],
+      columns: [
+        'op_id',
+        'attempts',
+        'last_error',
+        'status',
+        'entity_remote_id',
+      ],
       where: "entity_type = 'stock_op' AND status IN (?, ?)",
       whereArgs: [SyncOutboxStatus.pending, SyncOutboxStatus.inflight],
       limit: 300,
     );
     var n = 0;
+    final ahora = DateTime.now().toUtc().toIso8601String();
     for (final r in rows) {
       final opId = r['op_id']?.toString() ?? '';
       if (opId.isEmpty) continue;
@@ -534,13 +551,42 @@ ORDER BY c DESC
           !err.contains(onlyLastErrorContains)) {
         continue;
       }
-      await ack(opId);
+      final remoteOpId = r['entity_remote_id']?.toString() ??
+          opId.replaceFirst('stock_op:', '');
+      var proven = false;
+      if (proveCloudApplied != null && remoteOpId.isNotEmpty) {
+        try {
+          proven = await proveCloudApplied(remoteOpId);
+        } catch (_) {
+          proven = false;
+        }
+      }
+      if (proven) {
+        await ack(opId);
+      } else {
+        // Reencolar: no tirar el movimiento.
+        await db.update(
+          'sync_outbox',
+          {
+            'status': SyncOutboxStatus.pending,
+            'updated_at': ahora,
+            'next_attempt_at': DateTime.now()
+                .toUtc()
+                .add(const Duration(seconds: 30))
+                .toIso8601String(),
+            'last_error': 'requeued_awaiting_cloud_proof',
+          },
+          where: 'op_id = ?',
+          whereArgs: [opId],
+        );
+      }
       n++;
     }
     return n;
   }
 
-  /// ACK solo stock_op en estado `dead` (limpia badge sin borrar pending reales).
+  /// Reencola stock_op `dead` a pending (C6: no ACK ciego).
+  /// El apply es idempotente; con pending_apply→applied se completa.
   Future<int> ackDeadStockOps() async {
     final db = await _db;
     final rows = await db.query(
@@ -551,11 +597,22 @@ ORDER BY c DESC
       limit: 500,
     );
     var n = 0;
+    final ahora = DateTime.now().toUtc().toIso8601String();
     for (final r in rows) {
       final opId = r['op_id']?.toString() ?? '';
       if (opId.isEmpty) continue;
-      await ack(opId);
-      n++;
+      n += await db.update(
+        'sync_outbox',
+        {
+          'status': SyncOutboxStatus.pending,
+          'attempts': 0,
+          'last_error': 'requeued_from_dead',
+          'updated_at': ahora,
+          'next_attempt_at': null,
+        },
+        where: 'op_id = ?',
+        whereArgs: [opId],
+      );
     }
     return n;
   }

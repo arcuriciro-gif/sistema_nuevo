@@ -795,22 +795,140 @@ void main() {
           productoId: pid,
           codigo: 'SYNC-B',
           delta: -2,
+          documentType: null,
+          documentId: null,
         ),
         (
           opId: 'op:batch:b',
           productoId: pid,
           codigo: 'SYNC-B',
           delta: -3,
+          documentType: null,
+          documentId: null,
         ),
         (
           opId: 'op:batch:a', // idempotente
           productoId: pid,
           codigo: 'SYNC-B',
           delta: -2,
+          documentType: null,
+          documentId: null,
         ),
       ]);
       expect(n, 2);
       expect(await stockDe(pid), 15);
+    });
+
+    test('stock_op con meta remito atribuye ledger → anular seguidor revierte',
+        () async {
+      final pid = await seedProducto(codigo: 'SEG-1', stock: 10);
+      final cid = await seedCliente();
+      // Remito "remoto" sin ledger local de entrega (como llega al APK).
+      final db = await DatabaseHelper.instance.database;
+      final rid = await db.insert('remitos', {
+        'numero': 'R-SEG-1-T',
+        'fecha': DateTime.now().toIso8601String(),
+        'clienteId': cid,
+        'total': 200,
+        'descuento': 0,
+        'estado': 'confirmado',
+        'estadoPago': 'pendiente',
+        'totalPagado': 0,
+        'saldoPendiente': 200,
+        'observaciones': '',
+        'fechaCreacion': DateTime.now().toIso8601String(),
+      });
+      await db.insert('remito_items', {
+        'remitoId': rid,
+        'productoId': pid,
+        'cantidad': 2,
+        'precio': 100,
+        'subtotal': 200,
+        'costoUnitario': 40,
+        'ganancia': 120,
+      });
+
+      // Stock llegó vía stock_op con document meta (fix C2).
+      await InventoryLedgerService.instance.applyRemoteStockOp(
+        opId: 'cloud-op-seg-1_$pid',
+        productoId: pid,
+        codigo: 'SEG-1',
+        delta: -2,
+        documentType: 'remito',
+        documentId: '$rid',
+      );
+      expect(await stockDe(pid), 8);
+      final net = await InventoryLedgerService.instance.ledgerNetForDocument(
+        documentType: 'remito',
+        documentId: '$rid',
+      );
+      expect(net, -2);
+
+      await RemitoService().anular(rid, syncAfter: false);
+      expect(await stockDe(pid), 10);
+
+      // Restaurar no debe doble-aplicar si net ya refleja entrega.
+      await RemitoService().restaurar(rid, syncAfter: false);
+      expect(await stockDe(pid), 8);
+    });
+
+    test('seguidor legado net==0: anular con líneas revierte; restore anti-doble',
+        () async {
+      final pid = await seedProducto(codigo: 'SEG-L', stock: 10);
+      final cid = await seedCliente();
+      final db = await DatabaseHelper.instance.database;
+      final rid = await db.insert('remitos', {
+        'numero': 'R-SEG-L-T',
+        'fecha': DateTime.now().toIso8601String(),
+        'clienteId': cid,
+        'total': 100,
+        'descuento': 0,
+        'estado': 'confirmado',
+        'estadoPago': 'cobrado',
+        'totalPagado': 100,
+        'saldoPendiente': 0,
+        'observaciones': '',
+        'fechaCreacion': DateTime.now().toIso8601String(),
+      });
+      await db.insert('remito_items', {
+        'remitoId': rid,
+        'productoId': pid,
+        'cantidad': 1,
+        'precio': 100,
+        'subtotal': 100,
+        'costoUnitario': 40,
+        'ganancia': 60,
+      });
+
+      // Legado: stock_op sin meta → ledger bajo stock_op, net(remito)==0.
+      await InventoryLedgerService.instance.applyRemoteStockOp(
+        opId: 'legacy-op_$pid',
+        productoId: pid,
+        codigo: 'SEG-L',
+        delta: -1,
+      );
+      expect(await stockDe(pid), 9);
+      final netAntes =
+          await InventoryLedgerService.instance.ledgerNetForDocument(
+        documentType: 'remito',
+        documentId: '$rid',
+      );
+      expect(netAntes, 0);
+
+      await RemitoService().anular(rid, syncAfter: false);
+      // Fallback seguidor: revierte aunque net(remito)==0.
+      expect(await stockDe(pid), 10);
+
+      // Si alguien restaura con net ya >0 tras reverse, re-entrega 1 vez.
+      await RemitoService().restaurar(rid, syncAfter: false);
+      expect(await stockDe(pid), 9);
+
+      // Segunda restauración bloqueada por estado != anulado.
+      expect(
+        () => RemitoService().restaurar(rid, syncAfter: false),
+        throwsA(isA<StateError>()),
+      );
+      expect(await stockDe(pid), 9);
     });
   });
 
