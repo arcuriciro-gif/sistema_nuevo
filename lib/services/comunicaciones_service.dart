@@ -10,8 +10,10 @@ import 'package:uuid/uuid.dart';
 
 import '../core/comms/chat_alert_service.dart';
 import '../core/config/backend_config_service.dart';
+import '../core/config/platform_capabilities.dart';
 import '../core/firebase/firebase_bootstrap.dart';
 import '../core/sync/media_sync_service.dart';
+import '../core/sync/windows_sync_policy.dart';
 import '../database/database_helper.dart';
 import '../models/chat_conversacion.dart';
 import '../models/chat_mensaje.dart';
@@ -68,6 +70,13 @@ class ComunicacionesService extends ChangeNotifier {
 
   Future<void> iniciar() async {
     await refrescar();
+    // Windows: listeners de chats/notif tumban el .exe al login.
+    // Badge local desde SQLite; el remoto se puede reactivar después si hace falta.
+    if (WindowsSyncPolicy.disableRemoteMediaAndChatListeners(
+      isWindowsDesktop: PlatformCapabilities.isWindowsDesktop,
+    )) {
+      return;
+    }
     _escucharRemoto();
   }
 

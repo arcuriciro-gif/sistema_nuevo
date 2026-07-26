@@ -5,7 +5,6 @@ import 'package:uuid/uuid.dart';
 
 import '../core/config/platform_capabilities.dart';
 import '../core/events/data_refresh_hub.dart';
-import '../core/sync/cloud_sync_throttle.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
 import '../core/sync/sync_background.dart';
@@ -102,15 +101,8 @@ class DocumentoClienteService {
         await FirestoreSyncService.instance.subirDocumento(actualizado);
       }
 
-      if (PlatformCapabilities.isWindowsDesktop) {
-        syncInBackground(
-          CloudSyncThrottle.enqueue(() async {
-            await Future<void>.delayed(const Duration(seconds: 20));
-            await subirNube();
-          }, tag: 'archivarPdf'),
-          tag: 'archivarPdf',
-        );
-      } else {
+      // Windows: PDF solo local (Storage tumba el .exe). Otros dispositivos suben.
+      if (!PlatformCapabilities.isWindowsDesktop) {
         syncInBackground(subirNube(), tag: 'archivarPdf');
       }
 

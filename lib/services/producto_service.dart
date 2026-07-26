@@ -49,6 +49,24 @@ class ProductoService {
         producto.todasLasFotos.where((f) => f.isNotEmpty).toList();
     if (entrantes.isEmpty) return producto;
 
+    // Windows: solo persistir local (Storage deshabilitado — estabilidad .exe).
+    if (PlatformCapabilities.isWindowsDesktop) {
+      final locales = <String>[];
+      for (final f in entrantes) {
+        if (esUrlRemota(f)) {
+          locales.add(f);
+          continue;
+        }
+        final local = await MediaSyncService.instance.persistirFotoLocal(
+          sourcePath: f,
+          codigoProducto: producto.codigo,
+        );
+        if (local != null && local.isNotEmpty) locales.add(local);
+      }
+      if (locales.isEmpty) return producto;
+      return producto.copyWith(foto: locales.first, fotos: locales);
+    }
+
     final fotos = await MediaSyncService.instance.sincronizarFotosProducto(
       producto.codigo,
       entrantes,

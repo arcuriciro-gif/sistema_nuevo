@@ -156,13 +156,19 @@ class FirestoreSyncService {
       return;
     }
     final windows = PlatformCapabilities.isWindowsDesktop;
-    // Windows: no reiniciar sync si ya está booteando o con pumps activos.
-    if (windows && (_windowsBootInProgress || _windowsPumpsActivos)) {
-      debugPrint('Sync Windows: start ignorado (ya activo)');
-      return;
+    // Flag síncrono ANTES de cualquier await (evita doble start en carrera).
+    if (windows) {
+      if (_windowsBootInProgress || _windowsPumpsActivos) {
+        debugPrint('Sync Windows: start ignorado (ya activo)');
+        return;
+      }
+      _windowsBootInProgress = true;
     }
     try {
       await stop();
+      // stop() limpia flags Windows; reponer boot si aplica.
+      if (windows) _windowsBootInProgress = true;
+
       await _cargarColasPersistidas();
       if (!windows) {
         await SyncOutbox.instance.reclaimStaleInflight();
@@ -173,17 +179,6 @@ class FirestoreSyncService {
       SyncHealthService.instance.canWrite = _puedeEscribirRemoto;
       syncStatusLabel = 'Sincronizando…';
       syncStatusDetail = null;
-
-      // Config chica siempre (docs únicos). En Windows NO listeners de
-      // colecciones grandes: el snapshot completo tumbaba el .exe.
-      // Además en Windows TODO snapshot de config va por throttle (si no,
-      // 4 listeners disparan Firebase a la vez al activar Sync).
-      void winSnap(String tag, Future<void> Function() job) {
-        syncInBackground(
-          CloudSyncThrottle.enqueue(job, tag: tag),
-          tag: tag,
-        );
-      }
 
       if (!windows) {
         _usuariosSub = _usuariosRemote.watchTodos().listen(
@@ -206,18 +201,8 @@ class FirestoreSyncService {
           _aplicarCategoriasRemotas,
           onError: (Object error) => debugPrint('Sync categorias: $error'),
         );
-      } else {
-        // Windows: branding listener muy tarde (no pelear con boot outbox).
-        Future<void>.delayed(const Duration(seconds: 25), () {
-          if (!_puedeEscribirRemoto || !_windowsPumpsActivos) return;
-          _brandingSub ??= _configDoc('branding').snapshots().listen(
-            (snap) {
-              winSnap('brandingSnap', () async => _aplicarBrandingRemoto(snap));
-            },
-            onError: (Object error) => debugPrint('Sync branding: $error'),
-          );
-        });
       }
+      // Windows: SIN branding listener (snapshot + descarga logo tumbaba .exe).
 
       if (!windows) {
         // Solo cambios del snapshot (no reaplicar 10k productos en cada remito).
@@ -253,34 +238,21 @@ class FirestoreSyncService {
       }
 
       // Empuja branding/permisos locales la primera vez si la nube no tiene.
-      if (windows) {
-        // Después del boot (no en t=0): evita ráfaga Firebase al login.
-        Future<void>.delayed(const Duration(seconds: 18), () {
-          if (!_puedeEscribirRemoto || !_windowsPumpsActivos) return;
-          syncInBackground(
-            CloudSyncThrottle.enqueue(
-              _publicarConfigLocalSiHaceFalta,
-              tag: 'publicarConfig',
-            ),
-            tag: 'publicarConfig',
-          );
-        });
-      } else {
+      if (!windows) {
         unawaited(_publicarConfigLocalSiHaceFalta());
       }
+      // Windows: publicarConfig SOLO tras cuarentena (y sin Storage).
 
-      // Windows: NUNCA catch-up/vaciar-colas masivo al activar Sync (tumba .exe).
-      // Boot: absorber colas legacy SIN reabrir acked + micro-drenaje + pumps.
+      // Windows cuarentena: absorber outbox local SIN Firebase de colección.
+      // Sin micro-drain, sin SafeMode, sin listeners, sin Storage.
       if (windows) {
-        _windowsBootInProgress = true;
         syncStatusLabel = 'Sincronizando…';
-        syncStatusDetail = 'Preparando sync estable…';
-        DataRefreshHub.instance.notifyTodo();
+        syncStatusDetail =
+            'PC en cuarentena (${WindowsSyncPolicy.quarantineAfterLogin.inMinutes} min): sync local primero…';
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
-            await FirebaseSafeMode.marcarInicioLoginFirebase();
             try {
-              await Future<void>.delayed(const Duration(seconds: 3));
+              await Future<void>.delayed(const Duration(seconds: 2));
               await _cargarColasPersistidas();
               await SyncOutbox.instance.reclaimStaleInflight(
                 olderThan: WindowsSyncPolicy.reclaimStaleInflightAfter,
@@ -288,40 +260,24 @@ class FirestoreSyncService {
               await _migrateLegacyColasToOutbox();
               await _volcarColasLegacyAOutboxSeguro();
               await _limpiarColasLegacyPrefs();
-              // Micro-drenaje: pocas ops al arrancar (sin ráfaga).
-              if (_puedeEscribirRemoto) {
-                await _procesarOutboxDrain(
-                  maxBatches: 1,
-                  claimLimit: 2,
-                  entityTypes: const [
-                    'venta',
-                    'remito',
-                    'compra',
-                    'cliente',
-                    'producto',
-                  ],
-                );
-              }
-              final health = await SyncHealthService.instance.snapshot();
-              if (health.dead > 0) {
-                syncStatusLabel = 'Sync con errores';
-                syncStatusDetail = '${health.dead} ops fallidas en outbox';
-              } else if (health.pending > 0 || health.inflight > 0) {
+              // Sin drain Firebase aquí: la cuarentena evita ráfaga al login.
+              final pending = await SyncOutbox.instance.countByStatus(
+                SyncOutboxStatus.pending,
+              );
+              if (pending > 0) {
                 syncStatusLabel = 'Sincronizando…';
                 syncStatusDetail =
-                    '${health.pending} pendientes reales (drenaje suave)';
+                    '$pending en cola (arranque seguro; sube en breve)';
               } else {
                 syncStatusLabel = 'En la nube (modo estable PC)';
                 syncStatusDetail = null;
               }
-              DataRefreshHub.instance.notifyTodo();
             } finally {
-              await FirebaseSafeMode.marcarFinLoginFirebase();
               _windowsBootInProgress = false;
               _iniciarPumpsWindows();
             }
-          }, tag: 'startWindowsLight'),
-          tag: 'startWindowsLight',
+          }, tag: 'startWindowsQuarantine'),
+          tag: 'startWindowsQuarantine',
         );
         return;
       }
@@ -344,6 +300,7 @@ class FirestoreSyncService {
       }
       DataRefreshHub.instance.notifyTodo();
     } catch (e, st) {
+      _windowsBootInProgress = false;
       syncStatusLabel = 'Local';
       syncStatusDetail = '$e';
       SyncHealthService.instance.recordCycle(
@@ -498,13 +455,33 @@ class FirestoreSyncService {
     });
   }
 
-  /// Windows: sin listeners de colecciones; pull suave periódico.
+  /// Windows: pumps recién después de la cuarentena (sin Firebase al login).
   void _iniciarPumpsWindows() {
     _windowsPumpsActivos = true;
-    _iniciarOutboxPump();
     _pullPump?.cancel();
-    // Soft-pull: 1 colección/tick. Arranca 20s después del outbox.
-    Future<void>.delayed(const Duration(seconds: 20), () {
+    final q = WindowsSyncPolicy.quarantineAfterLogin;
+    syncStatusLabel = 'Sincronizando…';
+    syncStatusDetail =
+        'Cuarentena ${q.inMinutes} min: la app queda usable; sync después…';
+
+    // Outbox: tras cuarentena, micro-lotes.
+    Future<void>.delayed(q, () {
+      if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+      _iniciarOutboxPump();
+      // Config texto (sin Storage) una sola vez, ya en cola del throttle.
+      syncInBackground(
+        CloudSyncThrottle.enqueue(
+          _publicarConfigLocalSiHaceFalta,
+          tag: 'publicarConfigPostCuarentena',
+        ),
+        tag: 'publicarConfigPostCuarentena',
+      );
+      syncStatusLabel = 'En la nube (modo estable PC)';
+      syncStatusDetail = null;
+    });
+
+    // Soft-pull: más tarde que el outbox (convergencia lenta, estable).
+    Future<void>.delayed(q + const Duration(minutes: 1), () {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       _pullPump?.cancel();
       _pullPump = Timer.periodic(WindowsSyncPolicy.softPullInterval, (_) {
@@ -1434,7 +1411,10 @@ class FirestoreSyncService {
   Future<void> subirBranding() async {
     if (!_puedeEscribirRemoto) return;
     try {
-      final payload = await BrandingService.instance.prepararPayloadNube();
+      // Windows: solo texto (Storage deshabilitado — evita crash .exe).
+      final payload = PlatformCapabilities.isWindowsDesktop
+          ? BrandingService.instance.toFirestoreMap()
+          : await BrandingService.instance.prepararPayloadNube();
       await _configDoc('branding').set(payload, SetOptions(merge: true));
     } catch (e) {
       debugPrint('Firestore subir branding: $e');

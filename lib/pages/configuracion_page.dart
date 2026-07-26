@@ -11,6 +11,7 @@ import '../core/sync/cloud_sync_throttle.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
 import '../core/sync/sync_background.dart';
+import '../core/sync/windows_sync_policy.dart';
 import '../core/utils/media_path.dart';
 import '../navigation/shell_menu_catalog.dart';
 import '../services/app_log.dart';
@@ -222,32 +223,41 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
               extra = ' Se subieron fotos de $n productos.';
             }
           } catch (_) {}
+          try {
+            await FirestoreSyncService.instance.subirBranding();
+          } catch (_) {}
+          try {
+            final u = AuthService.instance.currentUser;
+            if (u != null) {
+              await FirestoreSyncService.instance.subirUsuario(u);
+            }
+          } catch (_) {}
         }
-        try {
-          await FirestoreSyncService.instance.subirBranding();
-        } catch (_) {}
-        try {
-          final u = AuthService.instance.currentUser;
-          if (u != null) {
-            await FirestoreSyncService.instance.subirUsuario(u);
-          }
-        } catch (_) {}
+        // Windows: no Storage ni usuario/branding al activar (cuarentena).
+        // Permisos (doc chico) sí, pero solo fuera de Windows al instante.
         try {
           await FirestoreSyncService.instance.subirPermisos();
         } catch (_) {}
       }
 
       if (PlatformCapabilities.isWindowsDesktop) {
-        // Dejar respirar al catch-up inicial antes de más escrituras.
+        // Tras cuarentena: permisos/texto sin Storage.
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
-            await Future<void>.delayed(const Duration(seconds: 12));
-            await postConnect();
+            await Future<void>.delayed(
+              WindowsSyncPolicy.quarantineAfterLogin,
+            );
+            try {
+              await FirestoreSyncService.instance.subirPermisos();
+            } catch (_) {}
+            try {
+              await FirestoreSyncService.instance.subirBranding();
+            } catch (_) {}
           }, tag: 'activarNubePost'),
           tag: 'activarNubePost',
         );
         extra =
-            ' Sync en segundo plano (modo estable PC; fotos después, sin apurar)…';
+            ' Modo estable PC: sin Storage; sync de datos tras cuarentena…';
       } else {
         await postConnect();
       }
