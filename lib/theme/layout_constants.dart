@@ -2,6 +2,15 @@ import 'package:flutter/widgets.dart';
 
 const double kDesktopBreakpoint = 800;
 
+/// Tablets/PC: lado corto ≥ 600. En celular landscape el ancho supera 800
+/// pero NO debe pasar al shell desktop (al volver a portrait crasheaba).
+const double kTabletShortestSide = 600;
+
+/// Shell con sidebar (PC/tablet). Celulares siempre layout móvil.
+bool isDesktopShellLayout(Size size) =>
+    size.shortestSide >= kTabletShortestSide &&
+    size.width >= kDesktopBreakpoint;
+
 /// Altura típica del bottom nav del shell móvil.
 const double kMobileBottomNavHeight = 56;
 

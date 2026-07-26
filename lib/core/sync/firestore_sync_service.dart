@@ -439,25 +439,24 @@ class FirestoreSyncService {
 
           syncStatusDetail = '$pending pendientes…';
           if (windows) {
-            // Productos/docs + 1 stock_op safe (sin txn) por ciclo.
-            // Priorizar remitos/ventas: son lo que el APK muestra en Inicio.
+            // Round-robin: docs comerciales → productos → stock_ops.
             final tick = _softPullTickWindows % 3;
             if (tick == 0) {
               await _procesarOutboxDrain(
                 maxBatches: 1,
-                claimLimit: 4,
+                claimLimit: 5,
                 entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
               );
             } else if (tick == 1) {
               await _procesarOutboxDrain(
                 maxBatches: 1,
-                claimLimit: 2,
+                claimLimit: 4,
                 entityTypes: const ['producto', 'proveedor'],
               );
             } else {
               await _procesarOutboxDrain(
                 maxBatches: 1,
-                claimLimit: 1,
+                claimLimit: 2,
                 entityTypes: const ['stock_op'],
               );
             }
@@ -502,61 +501,94 @@ class FirestoreSyncService {
     });
   }
 
-  /// Windows: encola remitos/ventas/compras recientes sin .get() masivo.
+  /// Windows: encola ventas/compras/productos/clientes recientes sin .get() masivo.
+  ///
+  /// Esto es lo que se rompió al “aliviar” el .exe: el stock viajaba por
+  /// stock_ops pero el resto quedaba solo local → APK en $0.
   Future<void> _microCatchupDocsWindows() async {
     try {
       final db = await DatabaseHelper.instance.database;
       final force = !_windowsRecentDocsForced;
       if (force) _windowsRecentDocsForced = true;
-      // Primer ciclo de la sesión: reabrir ACK fantasma de lo reciente.
-      final limit = force ? 50 : 15;
+      // Primer ciclo: reabrir ACK fantasma de lo reciente (todo el negocio).
+      final limitDocs = force ? 60 : 20;
+      final limitProd = force ? 80 : 25;
       final nRemitos = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
         db: db,
         table: 'remitos',
         entityType: 'remito',
-        limit: limit,
+        limit: limitDocs,
         reopenAcked: force,
       );
       final nVentas = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
         db: db,
         table: 'ventas',
         entityType: 'venta',
-        limit: limit,
+        limit: limitDocs,
         reopenAcked: force,
       );
       final nCompras = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
         db: db,
         table: 'compras',
         entityType: 'compra',
-        limit: force ? 20 : 8,
+        limit: force ? 40 : 12,
+        reopenAcked: force,
+      );
+      final nProductos = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
+        db: db,
+        table: 'productos',
+        entityType: 'producto',
+        limit: limitProd,
+        reopenAcked: force,
+      );
+      final nClientes = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
+        db: db,
+        table: 'clientes',
+        entityType: 'cliente',
+        limit: force ? 40 : 12,
+        reopenAcked: force,
+      );
+      final nProveedores =
+          await SyncCatchup.instance.enqueueRecentDocumentCatchup(
+        db: db,
+        table: 'proveedores',
+        entityType: 'proveedor',
+        limit: force ? 30 : 10,
         reopenAcked: force,
       );
       // Catch-up secuencial chico (histórico) sin tumbar el .exe.
       if (!force) {
-        await SyncCatchup.instance.enqueueDocumentCatchup(
-          db: db,
-          table: 'remitos',
-          entityType: 'remito',
-          pageSize: 20,
-          maxPagesPerCycle: 1,
-        );
-        await SyncCatchup.instance.enqueueDocumentCatchup(
-          db: db,
-          table: 'ventas',
-          entityType: 'venta',
-          pageSize: 20,
-          maxPagesPerCycle: 1,
-        );
+        for (final e in const [
+          ('remitos', 'remito'),
+          ('ventas', 'venta'),
+          ('compras', 'compra'),
+          ('productos', 'producto'),
+          ('clientes', 'cliente'),
+        ]) {
+          await SyncCatchup.instance.enqueueDocumentCatchup(
+            db: db,
+            table: e.$1,
+            entityType: e.$2,
+            pageSize: 25,
+            maxPagesPerCycle: 1,
+          );
+        }
       }
-      final total = nRemitos + nVentas + nCompras;
+      final total = nRemitos +
+          nVentas +
+          nCompras +
+          nProductos +
+          nClientes +
+          nProveedores;
       if (total > 0) {
         debugPrint(
-          'Windows catch-up docs: remitos=$nRemitos ventas=$nVentas '
-          'compras=$nCompras force=$force',
+          'Windows catch-up: remitos=$nRemitos ventas=$nVentas '
+          'compras=$nCompras productos=$nProductos clientes=$nClientes '
+          'proveedores=$nProveedores force=$force',
         );
         syncStatusLabel = 'Sincronizando…';
         syncStatusDetail =
-            'Subiendo ventas/remitos al celular ($total en cola)…';
+            'Subiendo datos al celular ($total: ventas/compras/productos…)';
         DataRefreshHub.instance.notifyTodo();
       }
     } catch (e) {
@@ -595,8 +627,8 @@ class FirestoreSyncService {
           // Primero encolar ventas/remitos locales → APK deja de ver $0.
           await _microCatchupDocsWindows();
           await _procesarOutboxDrain(
-            maxBatches: 2,
-            claimLimit: 4,
+            maxBatches: 3,
+            claimLimit: 5,
             entityTypes: const [
               'venta',
               'remito',
