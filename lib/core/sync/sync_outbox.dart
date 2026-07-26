@@ -366,6 +366,112 @@ class SyncOutbox {
     };
   }
 
+  /// Conteo de pendientes/inflight por tipo (para UI: "producto×8, remito×1").
+  Future<Map<String, int>> pendingBreakdown() async {
+    final db = await _db;
+    final rows = await db.rawQuery(
+      '''
+SELECT entity_type AS t, COUNT(*) AS c
+FROM sync_outbox
+WHERE status IN (?, ?)
+GROUP BY entity_type
+ORDER BY c DESC
+''',
+      [SyncOutboxStatus.pending, SyncOutboxStatus.inflight],
+    );
+    final out = <String, int>{};
+    for (final r in rows) {
+      final t = r['t']?.toString() ?? '';
+      if (t.isEmpty) continue;
+      out[t] = (r['c'] as num?)?.toInt() ?? 0;
+    }
+    return out;
+  }
+
+  /// Muestra legible del desglose (máx ~3 tipos).
+  static String formatBreakdown(Map<String, int> breakdown, {int maxTypes = 4}) {
+    if (breakdown.isEmpty) return '';
+    const labels = <String, String>{
+      'producto': 'productos',
+      'venta': 'ventas',
+      'remito': 'remitos',
+      'compra': 'compras',
+      'cliente': 'clientes',
+      'proveedor': 'proveedores',
+      'stock_op': 'stock',
+    };
+    final parts = <String>[];
+    var i = 0;
+    for (final e in breakdown.entries) {
+      if (i >= maxTypes) break;
+      final name = labels[e.key] ?? e.key;
+      parts.add('${e.value} $name');
+      i++;
+    }
+    return parts.join(', ');
+  }
+
+  /// Lista corta de ops pendientes para el detalle del badge.
+  Future<List<Map<String, dynamic>>> listPendingPreview({int limit = 20}) async {
+    final db = await _db;
+    return db.query(
+      'sync_outbox',
+      columns: [
+        'op_id',
+        'entity_type',
+        'entity_local_id',
+        'operation',
+        'status',
+        'attempts',
+        'last_error',
+        'updated_at',
+      ],
+      where: 'status IN (?, ?)',
+      whereArgs: [SyncOutboxStatus.pending, SyncOutboxStatus.inflight],
+      orderBy: 'id ASC',
+      limit: limit,
+    );
+  }
+
+  /// ACK upserts cuya fila local ya no existe (evita cola eterna).
+  Future<int> ackOrphanUpserts() async {
+    final db = await _db;
+    final rows = await db.query(
+      'sync_outbox',
+      columns: ['op_id', 'entity_type', 'entity_local_id'],
+      where: "status IN (?, ?) AND operation = 'upsert' AND entity_local_id IS NOT NULL",
+      whereArgs: [SyncOutboxStatus.pending, SyncOutboxStatus.inflight],
+      limit: 200,
+    );
+    const tableByType = <String, String>{
+      'producto': 'productos',
+      'venta': 'ventas',
+      'remito': 'remitos',
+      'compra': 'compras',
+      'cliente': 'clientes',
+      'proveedor': 'proveedores',
+    };
+    var n = 0;
+    for (final r in rows) {
+      final type = r['entity_type']?.toString() ?? '';
+      final localId = (r['entity_local_id'] as num?)?.toInt();
+      final opId = r['op_id']?.toString() ?? '';
+      final table = tableByType[type];
+      if (table == null || localId == null || opId.isEmpty) continue;
+      final exists = await db.query(
+        table,
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [localId],
+        limit: 1,
+      );
+      if (exists.isNotEmpty) continue;
+      await ack(opId);
+      n++;
+    }
+    return n;
+  }
+
   Future<bool> hasPendingLocalId(String entityType, int localId) async {
     final db = await _db;
     final rows = await db.query(

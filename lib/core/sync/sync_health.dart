@@ -17,6 +17,8 @@ class SyncHealthSnapshot {
     required this.syncCycles,
     required this.acksTotal,
     required this.failsTotal,
+    this.pendingByType = const {},
+    this.pendingPreview = const [],
   });
 
   final int pending;
@@ -32,6 +34,12 @@ class SyncHealthSnapshot {
   final int syncCycles;
   final int acksTotal;
   final int failsTotal;
+  final Map<String, int> pendingByType;
+  final List<Map<String, dynamic>> pendingPreview;
+
+  /// Ej: "8 productos, 3 remitos, 2 stock"
+  String get pendingBreakdownLabel =>
+      SyncOutbox.formatBreakdown(pendingByType);
 
   bool get isCertifiableHealthy =>
       dead == 0 && pending < 500 && (lastError == null || pending == 0);
@@ -50,6 +58,7 @@ class SyncHealthSnapshot {
         'syncCycles': syncCycles,
         'acksTotal': acksTotal,
         'failsTotal': failsTotal,
+        'pendingByType': pendingByType,
         'isCertifiableHealthy': isCertifiableHealthy,
       };
 }
@@ -97,6 +106,8 @@ class SyncHealthService {
 
   Future<SyncHealthSnapshot> snapshot() async {
     final counts = await SyncOutbox.instance.counts();
+    final breakdown = await SyncOutbox.instance.pendingBreakdown();
+    final preview = await SyncOutbox.instance.listPendingPreview(limit: 20);
     final conflicts = await SyncWatermarkStore.instance.conflictsSince(
       DateTime.now().toUtc().subtract(const Duration(hours: 24)),
     );
@@ -114,6 +125,8 @@ class SyncHealthService {
       syncCycles: syncCycles,
       acksTotal: acksTotal,
       failsTotal: failsTotal,
+      pendingByType: breakdown,
+      pendingPreview: preview,
     );
   }
 }
