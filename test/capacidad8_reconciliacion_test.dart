@@ -73,8 +73,9 @@ void main() {
       } catch (_) {}
     });
 
-    test('schema v29 y tablas de integridad', () async {
-      expect(DatabaseHelper.schemaVersion, 29);
+    test('schema actual y tablas de integridad', () async {
+      // v29 introdujo integrity_*; CRM/WhatsApp subieron a 30–32.
+      expect(DatabaseHelper.schemaVersion, greaterThanOrEqualTo(29));
       final db = await DatabaseHelper.instance.database;
       final tables = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table' "
