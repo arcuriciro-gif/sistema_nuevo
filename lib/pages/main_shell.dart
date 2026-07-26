@@ -32,6 +32,7 @@ import 'clientes_page.dart';
 import '../models/chat_conversacion.dart';
 import 'clientes_deudores_page.dart';
 import 'crm_lite_page.dart';
+import 'whatsapp_business_page.dart';
 import 'comparacion_page.dart';
 import 'compras_page.dart';
 import 'comunicaciones_page.dart';
@@ -104,6 +105,8 @@ String _seccionDeTitulo(String title) {
     case 'Reportes':
     case 'Inteligencia Comercial':
       return 'Análisis';
+    case 'WhatsApp Business':
+      return 'Clientes';
     default:
       return 'Administración';
   }
@@ -470,6 +473,12 @@ class _MainShellState extends State<MainShell> {
           title: 'Seguimiento',
           modulo: 'clientes',
           builder: () => const CrmLitePage(),
+        ),
+        _ShellItem(
+          icon: Icons.chat_rounded,
+          title: 'WhatsApp Business',
+          modulo: 'comunicaciones',
+          builder: () => const WhatsappBusinessPage(),
         ),
         _ShellItem(
           icon: Icons.folder_shared_rounded,

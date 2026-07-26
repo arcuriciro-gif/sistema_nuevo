@@ -105,7 +105,7 @@ class DatabaseHelper {
     try {
       final db = await openDatabase(
         path,
-        version: 30,
+        version: 31,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -118,7 +118,7 @@ class DatabaseHelper {
       await _cuarentenaDb(path);
       final db = await openDatabase(
         path,
-        version: 30,
+        version: 31,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -295,6 +295,7 @@ CREATE TABLE comparacion(
     await _crearTablasDominioTransaccional(db);
     await _crearTablasIntegridadV29(db);
     await _crearTablaCrmSeguimientos(db);
+    await _crearTablaWaMensajesLog(db);
     await _migrarSyncCompletoV21(db);
     await _crearIndices(db);
   }
@@ -1071,6 +1072,9 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 30) {
       await _crearTablaCrmSeguimientos(db);
     }
+    if (oldVersion < 31) {
+      await _crearTablaWaMensajesLog(db);
+    }
   }
 
   /// Capacidad 8: alarmas de reconciliación stock / CC.
@@ -1381,6 +1385,27 @@ CREATE TABLE IF NOT EXISTS crm_seguimientos(
     );
   }
 
+  /// Plugin WhatsApp: log local de envíos (sin sync).
+  Future<void> _crearTablaWaMensajesLog(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS wa_mensajes_log(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clienteId INTEGER,
+  telefono TEXT NOT NULL,
+  cuerpo TEXT NOT NULL DEFAULT '',
+  modo TEXT NOT NULL DEFAULT 'deeplink',
+  estado TEXT NOT NULL DEFAULT '',
+  error TEXT DEFAULT '',
+  waMessageId TEXT DEFAULT '',
+  fecha TEXT NOT NULL
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_wa_log_fecha '
+      'ON wa_mensajes_log(fecha)',
+    );
+  }
+
   Future<void> cerrar() async {
     final db = _database;
     if (db != null && db.isOpen) {
@@ -1390,5 +1415,5 @@ CREATE TABLE IF NOT EXISTS crm_seguimientos(
   }
 
   /// Versión de schema declarada por la app (Capacidad 5 / panel técnico).
-  static const int schemaVersion = 30;
+  static const int schemaVersion = 31;
 }

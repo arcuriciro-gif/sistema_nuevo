@@ -354,12 +354,13 @@ class _CrmLitePageState extends State<CrmLitePage>
                         title: 'Seguimiento comercial',
                         subtitle:
                             'Agenda, cobros, reactivación y notas · local',
-                        trailing: TextButton(
+                        trailing: TextButton.icon(
                           onPressed: () async {
                             await showCrmAutomationsSheet(context);
-                            if (mounted) _cargar();
+                            if (mounted) await _cargar();
                           },
-                          child: const Text('Reglas'),
+                          icon: const Icon(Icons.rule, size: 18),
+                          label: const Text('Reglas'),
                         ),
                       ),
                       const SizedBox(height: 10),

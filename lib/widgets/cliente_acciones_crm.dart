@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/cliente.dart';
+import '../plugins/whatsapp/whatsapp_business_service.dart';
 import 'comentarios_internos_sheet.dart';
 
 /// Acciones rápidas de seguimiento comercial (multi-tenant, sin sync).
@@ -20,43 +21,52 @@ class ClienteAccionesCrm extends StatelessWidget {
   final VoidCallback? onHistorial;
   final bool compact;
 
-  static String digitosTelefono(String raw) {
-    final d = raw.replaceAll(RegExp(r'[^\d+]'), '');
-    if (d.startsWith('+')) return d.substring(1);
-    return d.replaceAll(RegExp(r'\D'), '');
-  }
+  static String digitosTelefono(String raw) =>
+      WhatsappBusinessService.instance.normalizarTelefono(raw);
 
-  static String? canalWhatsApp(Cliente c) {
-    final w = digitosTelefono(c.whatsapp);
-    if (w.isNotEmpty) return w;
-    final t = digitosTelefono(c.telefono);
-    return t.isEmpty ? null : t;
-  }
+  static String? canalWhatsApp(Cliente c) =>
+      WhatsappBusinessService.instance.telefonoDeCliente(c);
 
   static Future<void> abrirWhatsApp(
     BuildContext context,
     Cliente cliente, {
     String? mensaje,
   }) async {
-    final digits = canalWhatsApp(cliente);
+    final svc = WhatsappBusinessService.instance;
+    await svc.cargar();
+    final digits = svc.telefonoDeCliente(cliente);
     if (digits == null) {
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Este cliente no tiene WhatsApp ni teléfono')),
+        const SnackBar(
+          content: Text('Este cliente no tiene WhatsApp ni teléfono'),
+        ),
       );
       return;
     }
-    final uri = Uri.parse(
-      mensaje == null || mensaje.trim().isEmpty
-          ? 'https://wa.me/$digits'
-          : 'https://wa.me/$digits?text=${Uri.encodeComponent(mensaje)}',
+    final r = await svc.enviarACliente(
+      cliente: cliente,
+      mensaje: mensaje ?? '',
     );
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!context.mounted) return;
-    if (!ok) {
-      await Clipboard.setData(ClipboardData(text: uri.toString()));
+    if (!r.ok) {
+      if (r.deeplink != null) {
+        await Clipboard.setData(ClipboardData(text: r.deeplink.toString()));
+      }
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo abrir WhatsApp. Link copiado.')),
+        SnackBar(content: Text(r.error ?? 'No se pudo contactar por WhatsApp')),
+      );
+      return;
+    }
+    if (r.modo == WhatsappSendMode.api || r.modo == WhatsappSendMode.template) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'WhatsApp API · enviado'
+            '${r.waMessageId == null || r.waMessageId!.isEmpty ? '' : ' (${r.waMessageId})'}',
+          ),
+        ),
       );
     }
   }
@@ -94,7 +104,7 @@ class ClienteAccionesCrm extends StatelessWidget {
       FilledButton.tonalIcon(
         onPressed: () => llamar(context, cliente),
         icon: const Icon(Icons.phone_rounded, size: 18),
-        label: Text(compact ? 'Llamar' : 'Llamar'),
+        label: const Text('Llamar'),
       ),
       if (id != null)
         FilledButton.tonalIcon(
@@ -105,7 +115,7 @@ class ClienteAccionesCrm extends StatelessWidget {
             titulo: cliente.nombreCompleto,
           ),
           icon: const Icon(Icons.sticky_note_2_outlined, size: 18),
-          label: Text(compact ? 'Notas' : 'Notas'),
+          label: const Text('Notas'),
         ),
       if (onCuentaCorriente != null)
         FilledButton.tonalIcon(
