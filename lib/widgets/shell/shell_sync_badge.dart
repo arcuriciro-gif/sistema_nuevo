@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/config/backend_config_service.dart';
+import '../../core/events/data_refresh_hub.dart';
 import '../../core/firebase/firebase_auth_usuario_service.dart';
 import '../../core/sync/firestore_sync_service.dart';
 import '../../core/sync/sync_health.dart';
@@ -20,11 +23,22 @@ class ShellSyncBadge extends StatefulWidget {
 
 class _ShellSyncBadgeState extends State<ShellSyncBadge> {
   SyncHealthSnapshot? _health;
+  Timer? _poll;
 
   @override
   void initState() {
     super.initState();
+    DataRefreshHub.instance.addListener(_refrescar);
     _refrescar();
+    // Poll suave: el desglose de pendientes cambia con el outbox.
+    _poll = Timer.periodic(const Duration(seconds: 8), (_) => _refrescar());
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    DataRefreshHub.instance.removeListener(_refrescar);
+    super.dispose();
   }
 
   Future<void> _refrescar() async {
@@ -70,11 +84,14 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
     if (lower.contains('sincronizando') ||
         pending > 0 ||
         (_health?.inflight ?? 0) > 0) {
+      final que = _health?.pendingBreakdownLabel ?? '';
       return (
         tone: ShellSyncTone.syncing,
         title: 'Sincronizando',
         subtitle: pending > 0
-            ? '$pending cambios pendientes'
+            ? (que.isEmpty
+                ? '$pending cambios pendientes'
+                : '$pending pendientes: $que')
             : (detail ?? 'Actualizando…'),
       );
     }
@@ -123,10 +140,12 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (ctx) {
         return Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          child: Column(
+          child: SingleChildScrollView(
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -149,6 +168,42 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
               Text('Pendientes: ${h?.pending ?? 0}'),
               Text('En curso: ${h?.inflight ?? 0}'),
               Text('Con error: ${h?.dead ?? 0}'),
+              if ((h?.pendingBreakdownLabel ?? '').isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'De qué son',
+                  style: Theme.of(ctx).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                Text(h!.pendingBreakdownLabel),
+              ],
+              if ((h?.pendingPreview ?? const []).isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  'Detalle (máx. 20)',
+                  style: Theme.of(ctx).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                ...h!.pendingPreview.map((op) {
+                  final type = op['entity_type']?.toString() ?? '?';
+                  final id = op['entity_local_id'];
+                  final attempts = op['attempts'] ?? 0;
+                  final err = (op['last_error']?.toString() ?? '').trim();
+                  final line = id == null
+                      ? '• $type (intentos $attempts)'
+                      : '• $type #$id (intentos $attempts)';
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text(
+                      err.isEmpty ? line : '$line — $err',
+                      style: Theme.of(ctx).textTheme.bodySmall,
+                    ),
+                  );
+                }),
+              ],
               if (h?.lastSyncAt != null)
                 Text('Última sync: ${h!.lastSyncAt}'),
               const SizedBox(height: 8),
@@ -162,7 +217,15 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
                   FirestoreSyncService.instance.syncStatusDetail!,
                   style: Theme.of(ctx).textTheme.bodySmall,
                 ),
+              const SizedBox(height: 6),
+              Text(
+                'Tip: tocá este indicador para ver de qué son los pendientes.',
+                style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(ctx).hintColor,
+                    ),
+              ),
             ],
+          ),
           ),
         );
       },

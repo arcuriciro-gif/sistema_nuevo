@@ -32,8 +32,12 @@ void main() {
 
     test('cuarentena da tiempo al UI antes de Firebase de colección', () {
       expect(
-        WindowsSyncPolicy.quarantineAfterLogin.inMinutes,
-        greaterThanOrEqualTo(2),
+        WindowsSyncPolicy.quarantineAfterLogin.inSeconds,
+        greaterThanOrEqualTo(45),
+      );
+      expect(
+        WindowsSyncPolicy.quarantineAfterLogin.inSeconds,
+        lessThanOrEqualTo(120),
       );
     });
 

@@ -5,7 +5,7 @@ class WindowsSyncPolicy {
   WindowsSyncPolicy._();
 
   /// Tras login: solo absorber outbox local; sin Firebase de colección.
-  static const Duration quarantineAfterLogin = Duration(minutes: 2);
+  static const Duration quarantineAfterLogin = Duration(seconds: 60);
 
   /// Delay entre jobs normales del throttle (outbox/pull).
   static const Duration throttleDelayNormal = Duration(milliseconds: 600);

@@ -259,14 +259,19 @@ class FirestoreSyncService {
               await _migrateLegacyColasToOutbox();
               await _volcarColasLegacyAOutboxSeguro();
               await _limpiarColasLegacyPrefs();
+              // Huérfanos (fila local borrada) no deben quedar eternos.
+              final orphans = await SyncOutbox.instance.ackOrphanUpserts();
+              if (orphans > 0) {
+                debugPrint('Outbox: ACK $orphans upserts huérfanos');
+              }
               // Sin drain Firebase aquí: la cuarentena evita ráfaga al login.
-              final pending = await SyncOutbox.instance.countByStatus(
-                SyncOutboxStatus.pending,
-              );
+              final breakdown = await SyncOutbox.instance.pendingBreakdown();
+              final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
               if (pending > 0) {
+                final que = SyncOutbox.formatBreakdown(breakdown);
                 syncStatusLabel = 'Sincronizando…';
                 syncStatusDetail =
-                    '$pending en cola (arranque seguro; sube en breve)';
+                    '$pending pendientes: $que (suben tras arranque seguro)';
               } else {
                 syncStatusLabel = 'En la nube (modo estable PC)';
                 syncStatusDetail = null;
@@ -443,9 +448,15 @@ class FirestoreSyncService {
             syncStatusDetail = null;
           } else {
             syncStatusLabel = 'Sincronizando…';
-            syncStatusDetail = pending > 0
-                ? '$pending pendientes'
-                : '$leftInflight en curso';
+            if (pending > 0) {
+              final breakdown = await SyncOutbox.instance.pendingBreakdown();
+              final que = SyncOutbox.formatBreakdown(breakdown);
+              syncStatusDetail = que.isEmpty
+                  ? '$pending pendientes'
+                  : '$pending pendientes: $que';
+            } else {
+              syncStatusDetail = '$leftInflight en curso';
+            }
           }
           DataRefreshHub.instance.notifyTodo();
         }, tag: 'outboxPump'),
@@ -461,13 +472,51 @@ class FirestoreSyncService {
     final q = WindowsSyncPolicy.quarantineAfterLogin;
     syncStatusLabel = 'Sincronizando…';
     syncStatusDetail =
-        'Cuarentena ${q.inMinutes} min: la app queda usable; sync después…';
+        'Arranque seguro ${q.inSeconds}s: luego sube la cola…';
+    // Mostrar YA de qué son los pendientes (no solo el número).
+    syncInBackground(() async {
+      final breakdown = await SyncOutbox.instance.pendingBreakdown();
+      final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
+      if (!_windowsPumpsActivos || pending == 0) return;
+      final que = SyncOutbox.formatBreakdown(breakdown);
+      syncStatusDetail = '$pending pendientes: $que';
+      DataRefreshHub.instance.notifyTodo();
+    }(), tag: 'pendingBreakdownBoot');
 
-    // Outbox: tras cuarentena, micro-lotes.
+    // Outbox: tras cuarentena, primer drenaje inmediato + micro-lotes.
     Future<void>.delayed(q, () {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+      syncInBackground(
+        CloudSyncThrottle.enqueue(() async {
+          await SyncOutbox.instance.ackOrphanUpserts();
+          await _procesarOutboxDrain(
+            maxBatches: 1,
+            claimLimit: 2,
+            entityTypes: const [
+              'producto',
+              'venta',
+              'remito',
+              'compra',
+              'cliente',
+              'proveedor',
+              'stock_op',
+            ],
+          );
+          final breakdown = await SyncOutbox.instance.pendingBreakdown();
+          final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
+          if (pending > 0) {
+            syncStatusLabel = 'Sincronizando…';
+            syncStatusDetail =
+                '$pending pendientes: ${SyncOutbox.formatBreakdown(breakdown)}';
+          } else {
+            syncStatusLabel = 'En la nube (modo estable PC)';
+            syncStatusDetail = null;
+          }
+          DataRefreshHub.instance.notifyTodo();
+        }, tag: 'primerDrainPostCuarentena'),
+        tag: 'primerDrainPostCuarentena',
+      );
       _iniciarOutboxPump();
-      // Config texto (sin Storage) una sola vez, ya en cola del throttle.
       syncInBackground(
         CloudSyncThrottle.enqueue(
           _publicarConfigLocalSiHaceFalta,
@@ -475,12 +524,10 @@ class FirestoreSyncService {
         ),
         tag: 'publicarConfigPostCuarentena',
       );
-      syncStatusLabel = 'En la nube (modo estable PC)';
-      syncStatusDetail = null;
     });
 
     // Soft-pull: más tarde que el outbox (convergencia lenta, estable).
-    Future<void>.delayed(q + const Duration(minutes: 1), () {
+    Future<void>.delayed(q + const Duration(seconds: 90), () {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       _pullPump?.cancel();
       _pullPump = Timer.periodic(WindowsSyncPolicy.softPullInterval, (_) {
