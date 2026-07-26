@@ -11,6 +11,7 @@ import '../services/whatsapp_plantillas_service.dart';
 import '../theme/app_tokens.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/cliente_acciones_crm.dart';
+import '../widgets/crm_automations_sheet.dart';
 import '../widgets/crm_nuevo_seguimiento_sheet.dart';
 import '../widgets/erp/erp_kpi_tile.dart';
 import '../widgets/erp/erp_section_header.dart';
@@ -296,6 +297,9 @@ class _CrmLitePageState extends State<CrmLitePage>
                     () => _avisosOn = CrmReminderService.instance.enabled,
                   );
                 }
+              } else if (v == 'auto') {
+                await showCrmAutomationsSheet(context);
+                if (mounted) _cargar();
               } else if (v == 'probar') {
                 await CrmReminderService.instance.revisarYNotificar(forzar: true);
                 if (!mounted) return;
@@ -305,6 +309,10 @@ class _CrmLitePageState extends State<CrmLitePage>
               }
             },
             itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'auto',
+                child: Text('Automatizaciones…'),
+              ),
               CheckedPopupMenuItem(
                 value: 'avisos',
                 checked: _avisosOn,
@@ -342,10 +350,17 @@ class _CrmLitePageState extends State<CrmLitePage>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const ErpSectionHeader(
+                      ErpSectionHeader(
                         title: 'Seguimiento comercial',
                         subtitle:
                             'Agenda, cobros, reactivación y notas · local',
+                        trailing: TextButton(
+                          onPressed: () async {
+                            await showCrmAutomationsSheet(context);
+                            if (mounted) _cargar();
+                          },
+                          child: const Text('Reglas'),
+                        ),
                       ),
                       const SizedBox(height: 10),
                       LayoutBuilder(

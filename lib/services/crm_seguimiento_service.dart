@@ -61,11 +61,11 @@ class CrmSeguimientoService {
         .toSet();
   }
 
-  Future<int> crear(CrmSeguimiento s) async {
+  Future<int> crear(CrmSeguimiento s, {bool silent = false}) async {
     final db = await DatabaseHelper.instance.database;
     final map = s.toMap()..remove('id');
     final id = await db.insert('crm_seguimientos', map);
-    DataRefreshHub.instance.notifyTodo();
+    if (!silent) DataRefreshHub.instance.notifyTodo();
     return id;
   }
 

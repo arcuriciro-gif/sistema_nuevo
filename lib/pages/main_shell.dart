@@ -13,6 +13,7 @@ import '../core/comms/local_notification_service.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/config/platform_capabilities.dart';
 import '../core/sync/sync_background.dart';
+import '../services/crm_automations_service.dart';
 import '../services/crm_reminder_service.dart';
 import '../theme/app_tokens.dart';
 import '../theme/layout_constants.dart';
@@ -204,7 +205,12 @@ class _MainShellState extends State<MainShell> {
       }
       if (mounted) await EmpresaOnboardingDialog.mostrarSiHaceFalta(context);
       if (mounted) await _ofrecerActivarNubeSiHaceFalta();
-      // Recordatorio agenda CRM: notificación local (máx. 1/día).
+      // Automatizaciones CRM (1/día) y luego aviso de agenda.
+      try {
+        await CrmAutomationsService.instance.ejecutar();
+      } catch (e) {
+        debugPrint('CRM automations: $e');
+      }
       try {
         await CrmReminderService.instance.revisarYNotificar();
       } catch (e) {
