@@ -121,6 +121,8 @@ class FirestoreSyncService {
   /// Evita doble start() en Windows (auth + shell reconectan a la vez).
   bool _windowsBootInProgress = false;
   bool _windowsPumpsActivos = false;
+  /// Un empujón de remitos/ventas recientes (reopen ACK fantasma) por sesión.
+  bool _windowsRecentDocsForced = false;
 
   CollectionReference<Map<String, dynamic>> _col(String name) {
     final tenant = BackendConfigService.instance.tenantId;
@@ -405,6 +407,12 @@ class FirestoreSyncService {
                 : const Duration(minutes: 5),
           );
 
+          // Windows: encolar remitos/ventas locales que nunca subieron
+          // (si no, el APK queda en ventas $0 con stock casi OK).
+          if (windows) {
+            await _microCatchupDocsWindows();
+          }
+
           var pending = await SyncOutbox.instance.countByStatus(
             SyncOutboxStatus.pending,
           );
@@ -432,18 +440,19 @@ class FirestoreSyncService {
           syncStatusDetail = '$pending pendientes…';
           if (windows) {
             // Productos/docs + 1 stock_op safe (sin txn) por ciclo.
+            // Priorizar remitos/ventas: son lo que el APK muestra en Inicio.
             final tick = _softPullTickWindows % 3;
             if (tick == 0) {
               await _procesarOutboxDrain(
                 maxBatches: 1,
-                claimLimit: 2,
-                entityTypes: const ['producto', 'proveedor'],
+                claimLimit: 4,
+                entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
               );
             } else if (tick == 1) {
               await _procesarOutboxDrain(
                 maxBatches: 1,
-                claimLimit: 3,
-                entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
+                claimLimit: 2,
+                entityTypes: const ['producto', 'proveedor'],
               );
             } else {
               await _procesarOutboxDrain(
@@ -493,6 +502,68 @@ class FirestoreSyncService {
     });
   }
 
+  /// Windows: encola remitos/ventas/compras recientes sin .get() masivo.
+  Future<void> _microCatchupDocsWindows() async {
+    try {
+      final db = await DatabaseHelper.instance.database;
+      final force = !_windowsRecentDocsForced;
+      if (force) _windowsRecentDocsForced = true;
+      // Primer ciclo de la sesión: reabrir ACK fantasma de lo reciente.
+      final limit = force ? 50 : 15;
+      final nRemitos = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
+        db: db,
+        table: 'remitos',
+        entityType: 'remito',
+        limit: limit,
+        reopenAcked: force,
+      );
+      final nVentas = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
+        db: db,
+        table: 'ventas',
+        entityType: 'venta',
+        limit: limit,
+        reopenAcked: force,
+      );
+      final nCompras = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
+        db: db,
+        table: 'compras',
+        entityType: 'compra',
+        limit: force ? 20 : 8,
+        reopenAcked: force,
+      );
+      // Catch-up secuencial chico (histórico) sin tumbar el .exe.
+      if (!force) {
+        await SyncCatchup.instance.enqueueDocumentCatchup(
+          db: db,
+          table: 'remitos',
+          entityType: 'remito',
+          pageSize: 20,
+          maxPagesPerCycle: 1,
+        );
+        await SyncCatchup.instance.enqueueDocumentCatchup(
+          db: db,
+          table: 'ventas',
+          entityType: 'venta',
+          pageSize: 20,
+          maxPagesPerCycle: 1,
+        );
+      }
+      final total = nRemitos + nVentas + nCompras;
+      if (total > 0) {
+        debugPrint(
+          'Windows catch-up docs: remitos=$nRemitos ventas=$nVentas '
+          'compras=$nCompras force=$force',
+        );
+        syncStatusLabel = 'Sincronizando…';
+        syncStatusDetail =
+            'Subiendo ventas/remitos al celular ($total en cola)…';
+        DataRefreshHub.instance.notifyTodo();
+      }
+    } catch (e) {
+      debugPrint('Windows micro catch-up docs: $e');
+    }
+  }
+
   /// Windows: pumps recién después de la cuarentena (sin Firebase al login).
   void _iniciarPumpsWindows() {
     _windowsPumpsActivos = true;
@@ -521,15 +592,17 @@ class FirestoreSyncService {
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
           await SyncOutbox.instance.ackOrphanUpserts();
+          // Primero encolar ventas/remitos locales → APK deja de ver $0.
+          await _microCatchupDocsWindows();
           await _procesarOutboxDrain(
-            maxBatches: 1,
-            claimLimit: 2,
+            maxBatches: 2,
+            claimLimit: 4,
             entityTypes: const [
-              'producto',
               'venta',
               'remito',
               'compra',
               'cliente',
+              'producto',
               'proveedor',
               'stock_op',
             ],
@@ -666,8 +739,8 @@ class FirestoreSyncService {
           );
           await _aplicarRemitosRemotos(snap);
         case 'stock_ops':
-          // Micro stock_ops: 3 por ciclo máximo.
-          await _pullStockOpsRemotas(maxPages: 1, pageSize: 10, maxApply: 3);
+          // Micro stock_ops: un poco más para cerrar off-by-one PC↔APK.
+          await _pullStockOpsRemotas(maxPages: 1, pageSize: 15, maxApply: 8);
         case 'compras':
           final snap = await _pullPaginaPorDocId(
             _comprasCol,
@@ -910,9 +983,9 @@ class FirestoreSyncService {
       syncInBackground(
         () async {
           try {
-            await _pullStockOpsRemotas(maxPages: 2, pageSize: 40);
+            await _pullStockOpsRemotas(maxPages: 3, pageSize: 50);
             // Red de seguridad: últimas ops por `at` (idempotente por opId).
-            await _pullStockOpsRecientes(limit: 40);
+            await _pullStockOpsRecientes(limit: 80);
           } catch (e) {
             debugPrint('Pull stock_ops mobile: $e');
           }
@@ -1546,6 +1619,7 @@ class FirestoreSyncService {
   Future<void> stop() async {
     _windowsPumpsActivos = false;
     _windowsBootInProgress = false;
+    _windowsRecentDocsForced = false;
     _outboxPump?.cancel();
     _outboxPump = null;
     _pullPump?.cancel();
@@ -3710,7 +3784,11 @@ class FirestoreSyncService {
       _remitosConfirmadosEnNube.addAll(remoteNumeros);
       await _persistirWatermarkRemitos();
 
-      if (hubo) DataRefreshHub.instance.notifyTodo();
+      if (hubo) {
+        // Inicio KPI (ventas día/mes) suma remitos — refrescar al llegar del PC.
+        DataRefreshHub.instance.notifyVentas();
+        DataRefreshHub.instance.notifyTodo();
+      }
       final pendiente = _snapRemitosPendiente;
       _snapRemitosPendiente = null;
       if (pendiente == null) break;

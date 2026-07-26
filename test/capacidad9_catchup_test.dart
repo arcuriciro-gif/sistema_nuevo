@@ -130,5 +130,48 @@ void main() {
       expect(n3, 0);
       expect(await SyncCatchup.instance.loadCursor('remito'), 0);
     });
+
+    test('enqueueRecent prioriza ids altos y puede reabrir acked', () async {
+      final db = await DatabaseHelper.instance.database;
+      for (var i = 0; i < 4; i++) {
+        await db.insert('remitos', {
+          'numero': 'R-REC-${i + 1}',
+          'fecha': DateTime.now().toIso8601String(),
+          'total': 100 * (i + 1),
+          'estado': 'confirmado',
+          'estadoPago': 'pendiente',
+          'totalPagado': 0,
+          'saldoPendiente': 100 * (i + 1),
+        });
+      }
+      await SyncOutbox.instance.enqueueUpsert(
+        entityType: 'remito',
+        localId: 4,
+      );
+      await SyncOutbox.instance.ack('upsert:remito:4');
+
+      final n = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
+        db: db,
+        table: 'remitos',
+        entityType: 'remito',
+        limit: 2,
+        reopenAcked: false,
+      );
+      // ids 4 (acked) y 3 → solo 3
+      expect(n, 1);
+
+      final nForce = await SyncCatchup.instance.enqueueRecentDocumentCatchup(
+        db: db,
+        table: 'remitos',
+        entityType: 'remito',
+        limit: 2,
+        reopenAcked: true,
+      );
+      expect(nForce, 2);
+      expect(
+        await SyncOutbox.instance.countByStatus(SyncOutboxStatus.pending),
+        greaterThanOrEqualTo(2),
+      );
+    });
   });
 }
