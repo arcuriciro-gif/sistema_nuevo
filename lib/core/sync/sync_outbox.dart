@@ -507,6 +507,39 @@ ORDER BY c DESC
     return n;
   }
 
+  /// Cierra stock_ops trabados en reclaim eterno (Windows).
+  /// Los ACK (no dead): el stock local ya se aplicó por ledger; dejan de
+  /// ensuciar el badge. Nuevos stock_op usan camino Windows safe.
+  Future<int> purgeStuckStockOps({
+    int minAttempts = 3,
+    String? onlyLastErrorContains,
+  }) async {
+    final db = await _db;
+    final rows = await db.query(
+      'sync_outbox',
+      columns: ['op_id', 'attempts', 'last_error', 'status'],
+      where: "entity_type = 'stock_op' AND status IN (?, ?)",
+      whereArgs: [SyncOutboxStatus.pending, SyncOutboxStatus.inflight],
+      limit: 300,
+    );
+    var n = 0;
+    for (final r in rows) {
+      final opId = r['op_id']?.toString() ?? '';
+      if (opId.isEmpty) continue;
+      final attempts = (r['attempts'] as num?)?.toInt() ?? 0;
+      if (attempts < minAttempts) continue;
+      final err = r['last_error']?.toString() ?? '';
+      if (onlyLastErrorContains != null &&
+          onlyLastErrorContains.isNotEmpty &&
+          !err.contains(onlyLastErrorContains)) {
+        continue;
+      }
+      await ack(opId);
+      n++;
+    }
+    return n;
+  }
+
   /// ACK stock_ops ya aplicadas localmente (opId en [hechas]).
   Future<int> ackStockOpsYaHechas(Set<String> hechas) async {
     if (hechas.isEmpty) return 0;
