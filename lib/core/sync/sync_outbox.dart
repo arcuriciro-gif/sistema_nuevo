@@ -230,22 +230,56 @@ class SyncOutbox {
   }
 
   /// Inflight viejos → pending (crash / corte de luz).
+  /// Si ya superó [maxAttempts], pasa a `dead` (corta bucles eternos de reclaim).
   Future<int> reclaimStaleInflight({
     Duration olderThan = const Duration(minutes: 5),
   }) async {
     final db = await _db;
     final cutoff =
         DateTime.now().toUtc().subtract(olderThan).toIso8601String();
-    return db.update(
+    final ahora = DateTime.now().toUtc().toIso8601String();
+    final stale = await db.query(
       'sync_outbox',
-      {
-        'status': SyncOutboxStatus.pending,
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-        'last_error': 'reclaimed_stale_inflight',
-      },
-      where: "status = ? AND updated_at < ?",
+      columns: ['op_id', 'attempts'],
+      where: 'status = ? AND updated_at < ?',
       whereArgs: [SyncOutboxStatus.inflight, cutoff],
     );
+    var n = 0;
+    for (final row in stale) {
+      final opId = row['op_id']?.toString() ?? '';
+      if (opId.isEmpty) continue;
+      final attempts = (row['attempts'] as num?)?.toInt() ?? 0;
+      if (attempts >= maxAttempts) {
+        n += await db.update(
+          'sync_outbox',
+          {
+            'status': SyncOutboxStatus.dead,
+            'updated_at': ahora,
+            'last_error': 'reclaimed_stale_inflight_max_attempts',
+            'next_attempt_at': null,
+          },
+          where: 'op_id = ? AND status = ?',
+          whereArgs: [opId, SyncOutboxStatus.inflight],
+        );
+      } else {
+        n += await db.update(
+          'sync_outbox',
+          {
+            'status': SyncOutboxStatus.pending,
+            'updated_at': ahora,
+            'last_error': 'reclaimed_stale_inflight',
+            // Backoff: no reclamar en el mismo segundo.
+            'next_attempt_at': DateTime.now()
+                .toUtc()
+                .add(Duration(seconds: (1 << attempts.clamp(0, 6)).clamp(2, 128)))
+                .toIso8601String(),
+          },
+          where: 'op_id = ? AND status = ?',
+          whereArgs: [opId, SyncOutboxStatus.inflight],
+        );
+      }
+    }
+    return n;
   }
 
   Future<List<Map<String, dynamic>>> claimBatch({
@@ -439,7 +473,8 @@ ORDER BY c DESC
     final rows = await db.query(
       'sync_outbox',
       columns: ['op_id', 'entity_type', 'entity_local_id'],
-      where: "status IN (?, ?) AND operation = 'upsert' AND entity_local_id IS NOT NULL",
+      where:
+          "status IN (?, ?) AND operation = 'upsert' AND entity_local_id IS NOT NULL",
       whereArgs: [SyncOutboxStatus.pending, SyncOutboxStatus.inflight],
       limit: 200,
     );
@@ -468,6 +503,43 @@ ORDER BY c DESC
       if (exists.isNotEmpty) continue;
       await ack(opId);
       n++;
+    }
+    return n;
+  }
+
+  /// ACK stock_ops ya aplicadas localmente (opId en [hechas]).
+  Future<int> ackStockOpsYaHechas(Set<String> hechas) async {
+    if (hechas.isEmpty) return 0;
+    final db = await _db;
+    final rows = await db.query(
+      'sync_outbox',
+      columns: ['op_id', 'entity_remote_id', 'payload'],
+      where: "status IN (?, ?) AND entity_type = 'stock_op'",
+      whereArgs: [SyncOutboxStatus.pending, SyncOutboxStatus.inflight],
+      limit: 200,
+    );
+    var n = 0;
+    for (final r in rows) {
+      final opId = r['op_id']?.toString() ?? '';
+      if (opId.isEmpty) continue;
+      var stockOpId = r['entity_remote_id']?.toString() ?? '';
+      if (stockOpId.isEmpty) {
+        final payload = r['payload']?.toString();
+        if (payload != null && payload.isNotEmpty) {
+          try {
+            final m = jsonDecode(payload);
+            if (m is Map) stockOpId = m['opId']?.toString() ?? '';
+          } catch (_) {}
+        }
+      }
+      // op_id outbox = "stock_op:$opId"
+      final bare = opId.startsWith('stock_op:')
+          ? opId.substring('stock_op:'.length)
+          : opId;
+      if (hechas.contains(stockOpId) || hechas.contains(bare)) {
+        await ack(opId);
+        n++;
+      }
     }
     return n;
   }

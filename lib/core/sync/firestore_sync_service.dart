@@ -247,7 +247,7 @@ class FirestoreSyncService {
       if (windows) {
         syncStatusLabel = 'Sincronizando…';
         syncStatusDetail =
-            'PC en cuarentena (${WindowsSyncPolicy.quarantineAfterLogin.inMinutes} min): sync local primero…';
+            'Arranque seguro ${WindowsSyncPolicy.quarantineAfterLogin.inSeconds}s…';
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
             try {
@@ -261,8 +261,12 @@ class FirestoreSyncService {
               await _limpiarColasLegacyPrefs();
               // Huérfanos (fila local borrada) no deben quedar eternos.
               final orphans = await SyncOutbox.instance.ackOrphanUpserts();
-              if (orphans > 0) {
-                debugPrint('Outbox: ACK $orphans upserts huérfanos');
+              final stockDone = await SyncOutbox.instance
+                  .ackStockOpsYaHechas(_stockOpsHechas);
+              if (orphans > 0 || stockDone > 0) {
+                debugPrint(
+                  'Outbox: ACK $orphans huérfanos, $stockDone stock ya hechos',
+                );
               }
               // Sin drain Firebase aquí: la cuarentena evita ráfaga al login.
               final breakdown = await SyncOutbox.instance.pendingBreakdown();
@@ -369,7 +373,12 @@ class FirestoreSyncService {
       if (!_puedeEscribirRemoto) return;
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
+          // Limpieza barata antes de Firebase: huérfanos + stock ya hecho.
+          await SyncOutbox.instance.ackOrphanUpserts();
+          await SyncOutbox.instance.ackStockOpsYaHechas(_stockOpsHechas);
+
           // Tras un crash quedan ops "inflight" huérfanas: recuperarlas.
+          // Si ya pasaron maxAttempts → dead (corta loop reclaim).
           await SyncOutbox.instance.reclaimStaleInflight(
             olderThan: windows
                 ? WindowsSyncPolicy.reclaimStaleInflightAfter
@@ -1189,11 +1198,12 @@ class FirestoreSyncService {
   Future<void> _ejecutarStockOpOutbox(Map<String, dynamic> op) async {
     final payloadRaw = op['payload']?.toString();
     if (payloadRaw == null || payloadRaw.isEmpty) {
-      throw StateError('stock_op sin payload');
+      // Basura en cola: ACK (no tiene sentido reintentar).
+      return;
     }
     final payload = jsonDecode(payloadRaw);
     if (payload is! Map) {
-      throw StateError('stock_op payload inválido');
+      return;
     }
     final map = Map<String, dynamic>.from(payload);
     final opId =
@@ -1201,12 +1211,31 @@ class FirestoreSyncService {
     final codigo = map['codigo']?.toString() ?? '';
     final delta = (map['delta'] as num?)?.toInt() ?? 0;
     if (opId.isEmpty || codigo.isEmpty || delta == 0) {
-      throw StateError('stock_op incompleto');
+      return;
     }
-    if (_stockOpsHechas.contains(opId)) return;
-    await _remote.ajustarStock(codigo: codigo, delta: delta, opId: opId);
-    _stockOpsHechas.add(opId);
-    await _persistirStockOpsHechas();
+
+    final windows = PlatformCapabilities.isWindowsDesktop;
+    try {
+      // Siempre intentar remoto: stock_ops/{opId} es idempotente.
+      // (Antes se salteaba si estaba en hechas → ACK sin subir a la nube.)
+      final future = _remote.ajustarStock(
+        codigo: codigo,
+        delta: delta,
+        opId: opId,
+      );
+      if (windows) {
+        // Evita hang eterno de txn Firestore en .exe → reclaim loop.
+        await future.timeout(const Duration(seconds: 12));
+      } else {
+        await future;
+      }
+      if (!_stockOpsHechas.contains(opId)) {
+        _stockOpsHechas.add(opId);
+        await _persistirStockOpsHechas();
+      }
+    } on TimeoutException {
+      throw StateError('stock_op timeout Windows ($opId)');
+    }
   }
 
   Future<void> _aplicarTombstoneRemoto(String entityType, String remoteId) async {
@@ -2156,12 +2185,13 @@ class FirestoreSyncService {
     if (codigo.isEmpty) return;
 
     final token = '$idOp|$codigo|$delta';
-    // Marcar como originada localmente ANTES del upload: al pull no reaplicar.
+    // Capacidad 7: stock ops viven en outbox SQLite.
+    // Marca hechas para que el PULL inbound no reaplique; el outbox igual
+    // sube (ajustarStock remoto es idempotente por opId).
     if (!_stockOpsHechas.contains(idOp)) {
       _stockOpsHechas.add(idOp);
       await _persistirStockOpsHechas();
     }
-    // Capacidad 7: stock ops viven en outbox SQLite (no solo prefs).
     await SyncOutbox.instance.enqueueStockOp(
       opId: idOp,
       codigo: codigo,
@@ -2499,9 +2529,7 @@ class FirestoreSyncService {
         limit: 1,
       );
       if (rows.isEmpty) {
-        if (desdeOutbox) {
-          throw StateError('Compra local $compraId no existe');
-        }
+        // Huérfana: ACK vía caller (no reintentar eterno).
         return;
       }
       final compra = rows.first;
@@ -2594,9 +2622,7 @@ class FirestoreSyncService {
         WHERE v.id = ?
       ''', [ventaId]);
       if (rows.isEmpty) {
-        if (desdeOutbox) {
-          throw StateError('Venta local $ventaId no existe');
-        }
+        // Huérfana: ACK vía caller.
         return;
       }
       final venta = Venta.fromMap(rows.first);
@@ -2798,9 +2824,7 @@ class FirestoreSyncService {
         WHERE r.id = ?
       ''', [remitoId]);
       if (rows.isEmpty) {
-        if (desdeOutbox) {
-          throw StateError('Remito local $remitoId no existe');
-        }
+        // Huérfana: ACK vía caller.
         return;
       }
       final remito = rows.first;
