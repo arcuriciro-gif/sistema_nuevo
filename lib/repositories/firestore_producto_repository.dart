@@ -69,6 +69,56 @@ class FirestoreProductoRepository implements ProductoRepository {
         .toList();
   }
 
+  /// Catálogo paginado por id de documento (Windows: sin techo alfabético).
+  Future<({List<Producto> items, String? lastDocId, bool done})>
+      obtenerPaginaPorDocId({
+    String? afterDocId,
+    int limit = 120,
+  }) async {
+    Query<Map<String, dynamic>> q =
+        _collection.orderBy(FieldPath.documentId).limit(limit);
+    if (afterDocId != null && afterDocId.isNotEmpty) {
+      q = q.startAfter([afterDocId]);
+    }
+    final snap = await q.get();
+    final items = snap.docs
+        .map((doc) => Producto.fromFirestore(doc.data(), docId: doc.id))
+        .toList();
+    final lastDocId = snap.docs.isEmpty ? afterDocId : snap.docs.last.id;
+    return (
+      items: items,
+      lastDocId: lastDocId,
+      done: snap.docs.length < limit,
+    );
+  }
+
+  /// Cambios recientes de stock/metadata (orden por actualizadoEn).
+  Future<({List<Producto> items, String? lastTs, bool done})>
+      obtenerActualizadosDesde({
+    String? afterTs,
+    int limit = 100,
+  }) async {
+    Query<Map<String, dynamic>> q =
+        _collection.orderBy('actualizadoEn').limit(limit);
+    if (afterTs != null && afterTs.isNotEmpty) {
+      q = q.startAfter([afterTs]);
+    }
+    final snap = await q.get();
+    final items = snap.docs
+        .map((doc) => Producto.fromFirestore(doc.data(), docId: doc.id))
+        .toList();
+    String? lastTs = afterTs;
+    for (final p in items) {
+      final ts = p.actualizadoEn?.trim();
+      if (ts != null && ts.isNotEmpty) lastTs = ts;
+    }
+    return (
+      items: items,
+      lastTs: lastTs,
+      done: snap.docs.length < limit,
+    );
+  }
+
   @override
   Future<Producto?> buscarPorCodigo(String codigo) async {
     final direct = await _collection.doc(codigo).get();

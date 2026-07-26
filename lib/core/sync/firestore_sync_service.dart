@@ -337,7 +337,7 @@ class FirestoreSyncService {
   void _iniciarOutboxPump() {
     _outboxPump?.cancel();
     final windows = PlatformCapabilities.isWindowsDesktop;
-    final intervalo = windows ? const Duration(seconds: 55) : const Duration(seconds: 40);
+    final intervalo = windows ? const Duration(seconds: 45) : const Duration(seconds: 40);
     _outboxPump = Timer.periodic(intervalo, (_) {
       if (!_puedeEscribirRemoto) return;
       syncInBackground(
@@ -347,18 +347,25 @@ class FirestoreSyncService {
           );
           if (pending == 0) return;
           syncStatusDetail = '$pending pendientes…';
-          // Primero documentos (ventas/remitos), después productos suave.
+          // Primero documentos, luego stock (crítico), después productos.
           await _procesarOutboxDrain(
             maxBatches: windows ? 3 : 10,
             entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
           );
           if (windows) {
-            await Future<void>.delayed(const Duration(milliseconds: 600));
+            await Future<void>.delayed(const Duration(milliseconds: 500));
           }
           await _procesarOutboxDrain(
-            maxBatches: windows ? 1 : 8,
+            maxBatches: windows ? 3 : 6,
+            entityTypes: const ['stock_op'],
+          );
+          if (windows) {
+            await Future<void>.delayed(const Duration(milliseconds: 500));
+          }
+          await _procesarOutboxDrain(
+            maxBatches: windows ? 1 : 6,
             entityTypes: windows
-                ? const ['stock_op', 'producto', 'proveedor']
+                ? const ['producto', 'proveedor']
                 : null,
           );
           final left = await SyncOutbox.instance.countByStatus(
@@ -384,7 +391,7 @@ class FirestoreSyncService {
   void _iniciarPumpsWindows() {
     _iniciarOutboxPump();
     _pullPump?.cancel();
-    _pullPump = Timer.periodic(const Duration(seconds: 50), (_) {
+    _pullPump = Timer.periodic(const Duration(seconds: 40), (_) {
       if (!_puedeEscribirRemoto) return;
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
@@ -395,7 +402,10 @@ class FirestoreSyncService {
     });
   }
 
-  /// Baja solo lo crítico (ventas/remitos/clientes) con pausas.
+  static const _wmProductosDoc = 'pull_productos_doc';
+  static const _wmProductosTs = 'pull_productos_ts';
+
+  /// Baja docs + stock/productos paginado (sin listeners pesados).
   Future<void> _pullSuaveWindows() async {
     try {
       final clientes = await _clientesCol.get();
@@ -403,19 +413,100 @@ class FirestoreSyncService {
     } catch (e) {
       debugPrint('Pull suave clientes: $e');
     }
-    await Future<void>.delayed(const Duration(milliseconds: 400));
+    await Future<void>.delayed(const Duration(milliseconds: 350));
     try {
       final ventas = await _ventasCol.get();
       await _aplicarVentasRemotas(ventas);
     } catch (e) {
       debugPrint('Pull suave ventas: $e');
     }
-    await Future<void>.delayed(const Duration(milliseconds: 400));
+    await Future<void>.delayed(const Duration(milliseconds: 350));
     try {
       final remitos = await _remitosCol.get();
       await _aplicarRemitosRemotos(remitos);
     } catch (e) {
       debugPrint('Pull suave remitos: $e');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    // Stock/productos: incremental + avance de catálogo (evita stock desfasado).
+    try {
+      await _pullProductosIncrementalWindows(maxPages: 2, pageSize: 100);
+    } catch (e) {
+      debugPrint('Pull suave productos incremental: $e');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    try {
+      await _pullProductosCatalogoWindows(maxPages: 2, pageSize: 120);
+    } catch (e) {
+      debugPrint('Pull suave productos catálogo: $e');
+    }
+  }
+
+  /// Productos tocados recientemente (incluye stock vía increments).
+  Future<void> _pullProductosIncrementalWindows({
+    int maxPages = 2,
+    int pageSize = 100,
+  }) async {
+    final meta = await SyncWatermarkStore.instance.loadMap(_wmProductosTs);
+    var afterTs = meta['afterTs']?.toString();
+    for (var i = 0; i < maxPages; i++) {
+      final page = await _remote.obtenerActualizadosDesde(
+        afterTs: afterTs,
+        limit: pageSize,
+      );
+      if (page.items.isEmpty) break;
+      await _aplicarProductosRemotos(page.items);
+      if (page.lastTs != null && page.lastTs!.isNotEmpty) {
+        afterTs = page.lastTs;
+        await SyncWatermarkStore.instance.saveMap(_wmProductosTs, {
+          'afterTs': afterTs,
+        });
+      }
+      if (page.done) break;
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+  }
+
+  /// Barrido completo del catálogo por documentId (sin techo 800 A-Z).
+  Future<void> _pullProductosCatalogoWindows({
+    int maxPages = 2,
+    int pageSize = 120,
+  }) async {
+    final meta = await SyncWatermarkStore.instance.loadMap(_wmProductosDoc);
+    var afterId = meta['afterDocId']?.toString();
+    final completed = meta['completed'] == true;
+    // Si ya barrió todo, reinicia cada tanto para no quedar congelado.
+    if (completed) {
+      final lastDone = DateTime.tryParse(meta['completedAt']?.toString() ?? '');
+      final stale = lastDone == null ||
+          DateTime.now().toUtc().difference(lastDone) >
+              const Duration(minutes: 30);
+      if (!stale) return;
+      afterId = null;
+    }
+    for (var i = 0; i < maxPages; i++) {
+      final page = await _remote.obtenerPaginaPorDocId(
+        afterDocId: afterId,
+        limit: pageSize,
+      );
+      if (page.items.isEmpty) {
+        await SyncWatermarkStore.instance.saveMap(_wmProductosDoc, {
+          'afterDocId': afterId,
+          'completed': true,
+          'completedAt': DateTime.now().toUtc().toIso8601String(),
+        });
+        break;
+      }
+      await _aplicarProductosRemotos(page.items);
+      afterId = page.lastDocId;
+      await SyncWatermarkStore.instance.saveMap(_wmProductosDoc, {
+        'afterDocId': afterId,
+        'completed': page.done,
+        if (page.done)
+          'completedAt': DateTime.now().toUtc().toIso8601String(),
+      });
+      if (page.done) break;
+      await Future<void>.delayed(const Duration(milliseconds: 300));
     }
   }
 
@@ -447,10 +538,15 @@ class FirestoreSyncService {
     }
     await pausa();
     try {
-      final productos = await _remote.obtenerTodos(
-        limit: windows ? 800 : 10000,
-      );
-      await _aplicarProductosRemotos(productos);
+      if (windows) {
+        // Sin techo A-Z: primeras páginas ahora; el resto en pull suave.
+        await _pullProductosCatalogoWindows(maxPages: 4, pageSize: 150);
+        await pausa();
+        await _pullProductosIncrementalWindows(maxPages: 2, pageSize: 100);
+      } else {
+        final productos = await _remote.obtenerTodos(limit: 10000);
+        await _aplicarProductosRemotos(productos);
+      }
     } catch (e) {
       debugPrint('Pull inicial productos: $e');
     }

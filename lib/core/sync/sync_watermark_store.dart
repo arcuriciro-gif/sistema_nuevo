@@ -43,6 +43,40 @@ class SyncWatermarkStore {
     );
   }
 
+  /// Meta libre (cursores de pull, etc.) en la misma tabla.
+  Future<Map<String, dynamic>> loadMap(String key) async {
+    final db = await DatabaseHelper.instance.database;
+    final rows = await db.query(
+      'sync_watermarks',
+      where: 'collection = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (rows.isEmpty) return {};
+    final raw = rows.first['confirmed_ids']?.toString() ?? '{}';
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {}
+    return {};
+  }
+
+  Future<void> saveMap(String key, Map<String, dynamic> map) async {
+    final db = await DatabaseHelper.instance.database;
+    final ahora = DateTime.now().toUtc().toIso8601String();
+    await db.insert(
+      'sync_watermarks',
+      {
+        'collection': key,
+        'confirmed_ids': jsonEncode(map),
+        'updated_at': ahora,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
   Future<void> recordConflict({
     required String entityType,
     required String entityId,
