@@ -26,7 +26,7 @@ class DataRefreshHub extends ChangeNotifier {
     if (PlatformCapabilities.isWindowsDesktop) {
       _pending = true;
       _debounce?.cancel();
-      _debounce = Timer(const Duration(milliseconds: 1500), () {
+      _debounce = Timer(const Duration(milliseconds: 2500), () {
         if (!_pending) return;
         _pending = false;
         notifyListeners();

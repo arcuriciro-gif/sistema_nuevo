@@ -1,15 +1,23 @@
-/// Política de sync en Windows desktop: rápido en lo interactivo,
-/// gradual en lo masivo (protege el .exe).
+/// Política de sync en Windows desktop: estable, sin fantasma, ritmo razonable.
 class WindowsSyncPolicy {
   WindowsSyncPolicy._();
 
   /// Delay entre jobs normales del throttle (outbox/pull).
-  static const Duration throttleDelayNormal = Duration(milliseconds: 800);
+  static const Duration throttleDelayNormal = Duration(milliseconds: 500);
 
   /// Delay corto para acción de usuario (1 producto / listas).
-  static const Duration throttleDelayInteractive = Duration(milliseconds: 120);
+  static const Duration throttleDelayInteractive = Duration(milliseconds: 80);
 
-  /// Lanes del soft-pull: productos ~50% de los ticks; el resto round-robin.
+  /// Outbox pump: frecuente pero con micro-lotes (estable ≠ lento).
+  static const Duration outboxPumpInterval = Duration(seconds: 45);
+
+  /// Soft-pull: una colección por tick.
+  static const Duration softPullInterval = Duration(seconds: 90);
+
+  /// Reclaim inflight huérfanos tras crash (no demasiado agresivo).
+  static const Duration reclaimStaleInflightAfter = Duration(minutes: 3);
+
+  /// Lanes del soft-pull (no-productos).
   static const List<String> softPullOtherLanes = [
     'clientes',
     'ventas',
@@ -19,12 +27,13 @@ class WindowsSyncPolicy {
     'proveedores',
   ];
 
-  /// Devuelve el lane a ejecutar para el tick [n] (0-based).
+  /// ~33% productos, resto round-robin (menos presión Firebase que 50%).
   static String softPullLane(int n) {
-    if (n % 2 == 0) {
-      return (n ~/ 2) % 2 == 0 ? 'productos_inc' : 'productos_cat';
+    if (n % 3 == 0) {
+      return (n ~/ 3) % 2 == 0 ? 'productos_inc' : 'productos_cat';
     }
-    return softPullOtherLanes[(n ~/ 2) % softPullOtherLanes.length];
+    final otherIdx = ((n ~/ 3) * 2 + ((n % 3) - 1)) % softPullOtherLanes.length;
+    return softPullOtherLanes[otherIdx];
   }
 
   /// En Windows el masivo (análisis de lista) solo encola outbox.

@@ -67,11 +67,16 @@ class SyncOutbox {
   Future<Database> get _db async => DatabaseHelper.instance.database;
 
   /// Encola upsert. Idempotente por opId estable.
+  ///
+  /// [reopenAcked]: `true` (default) ante edición real del usuario.
+  /// `false` al absorber colas legacy / catch-up — no reabre lo ya sincronizado
+  /// (evita "N pendientes" fantasma al login en Windows).
   Future<void> enqueueUpsert({
     required String entityType,
     required int localId,
     String? remoteId,
     Map<String, dynamic>? payload,
+    bool reopenAcked = true,
   }) async {
     final opId = 'upsert:$entityType:$localId';
     await _upsertPending(
@@ -83,6 +88,7 @@ class SyncOutbox {
         entityRemoteId: remoteId,
         payloadJson: payload == null ? null : jsonEncode(payload),
       ),
+      reopenAcked: reopenAcked,
     );
   }
 
@@ -154,7 +160,10 @@ class SyncOutbox {
     return rows.isNotEmpty;
   }
 
-  Future<void> _upsertPending(SyncOutboxOp op) async {
+  Future<void> _upsertPending(
+    SyncOutboxOp op, {
+    bool reopenAcked = true,
+  }) async {
     final db = await _db;
     final existing = await db.query(
       'sync_outbox',
@@ -168,9 +177,26 @@ class SyncOutbox {
       return;
     }
     final status = existing.first['status']?.toString() ?? '';
-    if (status == SyncOutboxStatus.acked ||
-        status == SyncOutboxStatus.dead) {
-      // Reabrir acked (re-edit) o dead (catch-up / reintento).
+    if (status == SyncOutboxStatus.acked) {
+      if (!reopenAcked) return;
+      await db.update(
+        'sync_outbox',
+        {
+          'status': SyncOutboxStatus.pending,
+          'attempts': 0,
+          'last_error': null,
+          'updated_at': ahora,
+          'next_attempt_at': null,
+          'payload': op.payloadJson,
+          'entity_remote_id': op.entityRemoteId,
+        },
+        where: 'op_id = ?',
+        whereArgs: [op.opId],
+      );
+      return;
+    }
+    if (status == SyncOutboxStatus.dead) {
+      // Dead siempre se puede reintentar (catch-up / migración).
       await db.update(
         'sync_outbox',
         {
@@ -290,6 +316,12 @@ class SyncOutbox {
       limit: 1,
     );
     if (rows.isEmpty) return;
+    final status = rows.first['status']?.toString() ?? '';
+    // No pisar un ACK concurrente (interactive vs pump).
+    if (status != SyncOutboxStatus.pending &&
+        status != SyncOutboxStatus.inflight) {
+      return;
+    }
     final attempts = (rows.first['attempts'] as num?)?.toInt() ?? 1;
     final dead = attempts >= maxAttempts;
     final backoffSec = (1 << (attempts.clamp(0, 6))).clamp(2, 128);
@@ -307,8 +339,12 @@ class SyncOutbox {
         'updated_at': DateTime.now().toUtc().toIso8601String(),
         'next_attempt_at': dead ? null : next,
       },
-      where: 'op_id = ?',
-      whereArgs: [opId],
+      where: 'op_id = ? AND status IN (?, ?)',
+      whereArgs: [
+        opId,
+        SyncOutboxStatus.pending,
+        SyncOutboxStatus.inflight,
+      ],
     );
   }
 
@@ -370,12 +406,17 @@ class SyncOutbox {
   }
 
   /// Migra colas legacy de SharedPreferences (IDs) al outbox.
+  /// No reabre `acked` (evita pendientes fantasma al reabrir la app).
   Future<void> migrateLegacyIdSet({
     required String entityType,
     required Iterable<int> ids,
   }) async {
     for (final id in ids) {
-      await enqueueUpsert(entityType: entityType, localId: id);
+      await enqueueUpsert(
+        entityType: entityType,
+        localId: id,
+        reopenAcked: false,
+      );
     }
   }
 }
