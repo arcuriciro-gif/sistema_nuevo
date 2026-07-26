@@ -638,15 +638,46 @@ class CompraService {
     DateTime hasta,
   ) async {
     final db = await dbHelper.database;
+    final fin = DateTime(hasta.year, hasta.month, hasta.day, 23, 59, 59);
     return db.rawQuery(
       '''
       SELECT c.*, p.nombre AS proveedorNombreActual
       FROM compras c
       LEFT JOIN proveedores p ON p.id = c.proveedorId
-      WHERE datetime(c.fecha) >= datetime(?) AND datetime(c.fecha) <= datetime(?)
-      ORDER BY datetime(c.fecha) DESC
+      WHERE (c.estado IS NULL OR c.estado != 'anulada')
+        AND datetime(c.fecha) >= datetime(?)
+        AND datetime(c.fecha) <= datetime(?)
+      ORDER BY datetime(c.fecha) DESC, datetime(c.fechaCreacion) DESC
       ''',
-      [desde.toIso8601String(), hasta.toIso8601String()],
+      [desde.toIso8601String(), fin.toIso8601String()],
     );
+  }
+
+  Future<double> totalComprasPorPeriodo(DateTime desde, DateTime hasta) async {
+    final db = await dbHelper.database;
+    final fin = DateTime(hasta.year, hasta.month, hasta.day, 23, 59, 59);
+    final r = await db.rawQuery(
+      '''
+      SELECT SUM(total) total FROM compras
+      WHERE (estado IS NULL OR estado != 'anulada')
+        AND datetime(fecha) >= datetime(?)
+        AND datetime(fecha) <= datetime(?)
+      ''',
+      [desde.toIso8601String(), fin.toIso8601String()],
+    );
+    return (r.first['total'] as num?)?.toDouble() ?? 0;
+  }
+
+  Future<List<Map<String, dynamic>>> comprasPorMes({int meses = 6}) async {
+    final db = await dbHelper.database;
+    final safeMeses = meses < 1 ? 1 : meses;
+    return db.rawQuery('''
+      SELECT strftime('%Y-%m', fecha) AS mes, SUM(total) AS total
+      FROM compras
+      WHERE (estado IS NULL OR estado != 'anulada')
+        AND fecha >= date('now', ?)
+      GROUP BY strftime('%Y-%m', fecha)
+      ORDER BY mes ASC
+    ''', ['-$safeMeses months']);
   }
 }
