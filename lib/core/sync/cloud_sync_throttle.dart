@@ -20,8 +20,8 @@ class CloudSyncThrottle {
     _cola = _cola.then((_) async {
       try {
         if (PlatformCapabilities.isWindowsDesktop) {
-          // Respiro entre escrituras nativas.
-          await Future<void>.delayed(const Duration(milliseconds: 350));
+          // Respiro entre escrituras nativas (más holgado = menos crash .exe).
+          await Future<void>.delayed(const Duration(milliseconds: 550));
         }
         await job();
       } catch (e, st) {
