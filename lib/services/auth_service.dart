@@ -449,7 +449,8 @@ class AuthService {
   }
 
   /// Conecta Firebase Auth + sync si la nube ya está habilitada.
-  /// Windows: no await del arranque de sync (listeners/catch-up tumbaban el .exe).
+  /// Nunca await del catch-up completo: en APK la huella quedaba colgada
+  /// y en Windows el .exe se caía. La sync corre en background.
   Future<void> _arrancarSyncTrasAuth() async {
     if (PlatformCapabilities.isWindowsDesktop) {
       syncInBackground(
@@ -461,7 +462,10 @@ class AuthService {
       );
       return;
     }
-    await FirestoreSyncService.instance.start();
+    syncInBackground(
+      FirestoreSyncService.instance.start(),
+      tag: 'authStartSync',
+    );
   }
 
   Future<({bool ok, String mensaje})> conectarFirebaseDespuesDelLogin() async {
@@ -993,6 +997,7 @@ class AuthService {
     if (BackendConfigService.instance.firebaseEnabled) {
       final uidActual = FirebaseAuthUsuarioService.instance.uidActual;
       if (uidActual != null) {
+        // Background: no bloquear UI de login (antes await catch-up = colgado).
         try {
           await _arrancarSyncTrasAuth();
         } catch (e) {

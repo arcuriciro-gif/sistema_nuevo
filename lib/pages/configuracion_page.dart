@@ -1268,12 +1268,52 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          Text(
+                            'Diseño del menú (no cambia la sincronización)',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          SegmentedButton<UiModoMenu>(
+                            segments: const [
+                              ButtonSegment(
+                                value: UiModoMenu.basico,
+                                label: Text('Básico'),
+                                icon: Icon(Icons.view_compact_rounded, size: 18),
+                              ),
+                              ButtonSegment(
+                                value: UiModoMenu.completo,
+                                label: Text('Completo'),
+                                icon: Icon(Icons.view_sidebar_rounded, size: 18),
+                              ),
+                            ],
+                            selected: {
+                              SidebarPreferenciasService.instance.modo,
+                            },
+                            onSelectionChanged: (s) async {
+                              await SidebarPreferenciasService.instance
+                                  .aplicarModo(s.first);
+                              if (!mounted) return;
+                              setState(() {});
+                            },
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            SidebarPreferenciasService.instance.modo ==
+                                    UiModoMenu.basico
+                                ? 'Básico: ventas, productos, stock y clientes.'
+                                : 'Completo: todos los módulos (compras, remitos, reportes…).',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
                           Align(
                             alignment: Alignment.centerRight,
                             child: TextButton(
                               onPressed: () async {
                                 await SidebarPreferenciasService.instance
-                                    .mostrarTodos();
+                                    .aplicarModo(UiModoMenu.completo);
                                 if (!mounted) return;
                                 setState(() {});
                               },
@@ -1281,7 +1321,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                             ),
                           ),
                           Text(
-                            'Marcá qué módulos ver. El panel queda abierto para elegir varios.',
+                            'O marcá módulo por módulo. El panel queda abierto para elegir varios.',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: colorScheme.onSurfaceVariant,
                             ),

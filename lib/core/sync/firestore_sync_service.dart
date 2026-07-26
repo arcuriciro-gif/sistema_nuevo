@@ -558,8 +558,25 @@ class FirestoreSyncService {
       );
     });
 
+    // Primer tirón de productos/config (precios APK→PC) sin esperar 2+ min.
+    Future<void>.delayed(q + const Duration(seconds: 25), () {
+      if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+      syncInBackground(
+        CloudSyncThrottle.enqueue(() async {
+          try {
+            await _pullProductosIncrementalWindows(maxPages: 2, pageSize: 25);
+            await _pullConfigWindowsLane('listas');
+            await _pullConfigWindowsLane('branding_text');
+          } catch (e) {
+            debugPrint('Primer pull productos/config Windows: $e');
+          }
+        }, tag: 'primerPullProductosWindows'),
+        tag: 'primerPullProductosWindows',
+      );
+    });
+
     // Soft-pull: más tarde que el outbox (convergencia lenta, estable).
-    Future<void>.delayed(q + const Duration(seconds: 90), () {
+    Future<void>.delayed(q + const Duration(seconds: 45), () {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       _pullPump?.cancel();
       _pullPump = Timer.periodic(WindowsSyncPolicy.softPullInterval, (_) {
@@ -665,9 +682,32 @@ class FirestoreSyncService {
             pageSize: page,
           );
           await _aplicarProveedoresRemotos(snap);
+        case 'listas':
+        case 'categorias':
+        case 'permisos':
+        case 'branding_text':
+          await _pullConfigWindowsLane(lane);
       }
     } catch (e) {
       debugPrint('Pull suave Windows tick=$tick lane=$lane: $e');
+    }
+  }
+
+  /// Config de nube → PC (get único, sin listeners ni descarga de logo).
+  Future<void> _pullConfigWindowsLane(String lane) async {
+    switch (lane) {
+      case 'listas':
+        final snap = await _configDoc('listas_precios').get();
+        await _aplicarListasPreciosRemotas(snap);
+      case 'categorias':
+        final snap = await _configDoc('categorias').get();
+        await _aplicarCategoriasRemotas(snap);
+      case 'permisos':
+        final snap = await _configDoc('permisos').get();
+        await _aplicarPermisosRemotos(snap);
+      case 'branding_text':
+        final snap = await _configDoc('branding').get();
+        await _aplicarBrandingRemoto(snap);
     }
   }
 

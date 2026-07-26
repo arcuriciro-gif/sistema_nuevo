@@ -22,7 +22,7 @@ class WindowsSyncPolicy {
   /// Reclaim inflight huérfanos tras crash.
   static const Duration reclaimStaleInflightAfter = Duration(minutes: 3);
 
-  /// Lanes del soft-pull (no-productos).
+  /// Lanes del soft-pull (no-productos). Incluye config texto (sin Storage).
   static const List<String> softPullOtherLanes = [
     'clientes',
     'ventas',
@@ -30,6 +30,10 @@ class WindowsSyncPolicy {
     'stock_ops',
     'compras',
     'proveedores',
+    'listas',
+    'categorias',
+    'permisos',
+    'branding_text',
   ];
 
   /// ~33% productos, resto round-robin.

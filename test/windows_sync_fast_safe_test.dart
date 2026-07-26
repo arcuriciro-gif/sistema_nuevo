@@ -56,5 +56,19 @@ void main() {
       expect(WindowsSyncPolicy.softPullLane(0), 'productos_inc');
       expect(WindowsSyncPolicy.softPullLane(3), 'productos_cat');
     });
+
+    test('soft pull incluye config (listas/permisos/branding texto)', () {
+      expect(
+        WindowsSyncPolicy.softPullOtherLanes,
+        containsAll([
+          'listas',
+          'categorias',
+          'permisos',
+          'branding_text',
+          'compras',
+          'stock_ops',
+        ]),
+      );
+    });
   });
 }

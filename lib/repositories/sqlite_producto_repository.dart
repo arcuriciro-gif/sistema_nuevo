@@ -114,9 +114,9 @@ class SqliteProductoRepository implements ProductoRepository {
     // R4/R7: metadata nunca escribe stock absoluto.
     // La proyección solo cambia vía InventoryLedgerService (stock = stock + Δ).
     final map = producto.toMap()..remove('stock');
-    map['actualizadoEn'] = producto.actualizadoEn?.isNotEmpty == true
-        ? producto.actualizadoEn
-        : DateTime.now().toUtc().toIso8601String();
+    // Siempre bump: si no, un stock_op remoto deja actualizadoEn más nuevo
+    // y LWW bloquea la subida de precios/costos editados en este equipo.
+    map['actualizadoEn'] = DateTime.now().toUtc().toIso8601String();
     return db.update(
       'productos',
       map,
