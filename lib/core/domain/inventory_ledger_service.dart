@@ -208,6 +208,58 @@ class InventoryLedgerService {
     required int productoId,
     required String codigo,
     required int delta,
+    bool notify = true,
+  }) async {
+    if (delta == 0 || opId.isEmpty) return false;
+    final db = await DatabaseHelper.instance.database;
+    final applied = await db.transaction((txn) async {
+      return _applyRemoteStockOpInTxn(
+        txn,
+        opId: opId,
+        productoId: productoId,
+        codigo: codigo,
+        delta: delta,
+      );
+    });
+    if (applied && notify) {
+      DataRefreshHub.instance.notifyStock();
+      DataRefreshHub.instance.notifyProductos();
+    }
+    return applied;
+  }
+
+  /// Aplica varios stock_ops en una sola TX (Windows: evita ráfagas que tumban el .exe).
+  Future<int> applyRemoteStockOpsBatch(
+    List<({String opId, int productoId, String codigo, int delta})> ops,
+  ) async {
+    if (ops.isEmpty) return 0;
+    final db = await DatabaseHelper.instance.database;
+    var applied = 0;
+    await db.transaction((txn) async {
+      for (final op in ops) {
+        final ok = await _applyRemoteStockOpInTxn(
+          txn,
+          opId: op.opId,
+          productoId: op.productoId,
+          codigo: op.codigo,
+          delta: op.delta,
+        );
+        if (ok) applied++;
+      }
+    });
+    if (applied > 0) {
+      DataRefreshHub.instance.notifyStock();
+      DataRefreshHub.instance.notifyProductos();
+    }
+    return applied;
+  }
+
+  Future<bool> _applyRemoteStockOpInTxn(
+    DatabaseExecutor txn, {
+    required String opId,
+    required int productoId,
+    required String codigo,
+    required int delta,
   }) async {
     if (delta == 0 || opId.isEmpty) return false;
     final tipo = delta > 0 ? 'entrada' : 'salida';
@@ -231,20 +283,12 @@ class InventoryLedgerService {
         ],
       },
     );
-    final db = await DatabaseHelper.instance.database;
-    final applied = await db.transaction((txn) async {
-      return applyInTxn(
-        txn,
-        event,
-        sign: delta > 0 ? 1 : -1,
-        movimientoTipo: tipo,
-      );
-    });
-    if (applied) {
-      DataRefreshHub.instance.notifyStock();
-      DataRefreshHub.instance.notifyProductos();
-    }
-    return applied;
+    return applyInTxn(
+      txn,
+      event,
+      sign: delta > 0 ? 1 : -1,
+      movimientoTipo: tipo,
+    );
   }
 
   /// Reverso local de stock de un documento (p. ej. tombstone remoto).
@@ -311,6 +355,7 @@ class InventoryLedgerService {
         final windows = PlatformCapabilities.isWindowsDesktop;
         for (final line in lines) {
           final delta = sign * line.cantidad.abs();
+          // Windows: solo encolar; el outbox pump drena (flush inmediato tumba .exe).
           await FirestoreSyncService.instance.ajustarStockEnNube(
             productoId: line.productoId,
             delta: delta,
@@ -327,10 +372,8 @@ class InventoryLedgerService {
             );
           }
         }
-        if (windows) {
-          await Future<void>.delayed(const Duration(seconds: 18));
-          await FirestoreSyncService.instance.flushStockOpsPendientes();
-        }
+        // Windows: NO dormir 18s en el throttle ni flush agresivo acá.
+        // El pump periódico de outbox ya drena stock_ops con límites seguros.
       }, tag: 'InventoryLedger cloud'),
       tag: 'InventoryLedger cloud',
     );
