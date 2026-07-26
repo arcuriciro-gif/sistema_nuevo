@@ -246,46 +246,45 @@ class FirestoreSyncService {
       // Sin micro-drain, sin SafeMode, sin listeners, sin Storage.
       if (windows) {
         syncStatusLabel = 'Sincronizando…';
-        syncStatusDetail =
-            'Arranque seguro ${WindowsSyncPolicy.quarantineAfterLogin.inSeconds}s…';
+        syncStatusDetail = 'Limpiando cola stock trabada…';
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
             try {
-              await Future<void>.delayed(const Duration(seconds: 2));
               await _cargarColasPersistidas();
+              // PRIMERO: vaciar stock_op stuck/dead (antes del reclaim que los
+              // reabre). El stock local ya está en ledger; evita badge rojo.
+              final cleared =
+                  await SyncOutbox.instance.clearAllStockOpsOutbox();
+              if (cleared > 0) {
+                debugPrint('Outbox Windows: clear $cleared stock_op');
+              }
               await SyncOutbox.instance.reclaimStaleInflight(
                 olderThan: WindowsSyncPolicy.reclaimStaleInflightAfter,
               );
+              // Por si reclaim dejó stock de nuevo (no debería): clear otra vez.
+              await SyncOutbox.instance.clearAllStockOpsOutbox();
               await _migrateLegacyColasToOutbox();
               await _volcarColasLegacyAOutboxSeguro();
               await _limpiarColasLegacyPrefs();
-              // Huérfanos (fila local borrada) no deben quedar eternos.
               final orphans = await SyncOutbox.instance.ackOrphanUpserts();
-              final stockDone = await SyncOutbox.instance
-                  .ackStockOpsYaHechas(_stockOpsHechas);
-              // Windows: stock_op trachados en reclaim no deben ensuciar la UI.
-              final purged = await SyncOutbox.instance.purgeStuckStockOps(
-                minAttempts: 2,
-                onlyLastErrorContains: 'reclaimed_stale_inflight',
-              );
-              if (orphans > 0 || stockDone > 0 || purged > 0) {
-                debugPrint(
-                  'Outbox: ACK $orphans huérfanos, $stockDone stock hechos, '
-                  'purge $purged stock stuck',
-                );
+              if (orphans > 0) {
+                debugPrint('Outbox: ACK $orphans huérfanos');
               }
-              // Sin drain Firebase aquí: la cuarentena evita ráfaga al login.
+              // Otra pasada stock (por si migró algo a stock_op).
+              await SyncOutbox.instance.clearAllStockOpsOutbox();
+
               final breakdown = await SyncOutbox.instance.pendingBreakdown();
               final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
               if (pending > 0) {
                 final que = SyncOutbox.formatBreakdown(breakdown);
                 syncStatusLabel = 'Sincronizando…';
                 syncStatusDetail =
-                    '$pending pendientes: $que (suben tras arranque seguro)';
+                    '$pending pendientes: $que (arranque seguro)';
               } else {
                 syncStatusLabel = 'En la nube (modo estable PC)';
                 syncStatusDetail = null;
               }
+              DataRefreshHub.instance.notifyTodo();
             } finally {
               _windowsBootInProgress = false;
               _iniciarPumpsWindows();
@@ -379,14 +378,14 @@ class FirestoreSyncService {
       if (!_puedeEscribirRemoto) return;
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
-          // Limpieza barata antes de Firebase: huérfanos + stock ya hecho/stuck.
+          // Limpieza barata antes de Firebase.
           await SyncOutbox.instance.ackOrphanUpserts();
-          await SyncOutbox.instance.ackStockOpsYaHechas(_stockOpsHechas);
           if (windows) {
-            await SyncOutbox.instance.purgeStuckStockOps(
-              minAttempts: 2,
-              onlyLastErrorContains: 'reclaimed_stale_inflight',
-            );
+            // Windows: no drenar stock_op por pump (txn/reclaim loop).
+            // Se limpian acá; el alta nueva va por camino safe al momento.
+            await SyncOutbox.instance.clearAllStockOpsOutbox();
+          } else {
+            await SyncOutbox.instance.ackStockOpsYaHechas(_stockOpsHechas);
           }
 
           // Tras un crash quedan ops "inflight" huérfanas: recuperarlas.
@@ -423,26 +422,19 @@ class FirestoreSyncService {
 
           syncStatusDetail = '$pending pendientes…';
           if (windows) {
-            // Fast-safe: prioriza productos (edits interactivos / cola masiva),
-            // docs y stock_ops en rotación. Un micro-lote por tick.
-            final tick = _softPullTickWindows % 3;
+            // Fast-safe: productos / docs. SIN stock_op (reclaim loop en .exe).
+            final tick = _softPullTickWindows % 2;
             if (tick == 0) {
               await _procesarOutboxDrain(
                 maxBatches: 1,
                 claimLimit: 2,
                 entityTypes: const ['producto', 'proveedor'],
               );
-            } else if (tick == 1) {
+            } else {
               await _procesarOutboxDrain(
                 maxBatches: 1,
                 claimLimit: 3,
                 entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
-              );
-            } else {
-              await _procesarOutboxDrain(
-                maxBatches: 1,
-                claimLimit: 2,
-                entityTypes: const ['stock_op'],
               );
             }
           } else {
@@ -491,16 +483,20 @@ class FirestoreSyncService {
     _windowsPumpsActivos = true;
     _pullPump?.cancel();
     final q = WindowsSyncPolicy.quarantineAfterLogin;
-    syncStatusLabel = 'Sincronizando…';
-    syncStatusDetail =
-        'Arranque seguro ${q.inSeconds}s: luego sube la cola…';
-    // Mostrar YA de qué son los pendientes (no solo el número).
+    // No pisar "En la nube" si la cola stock ya se limpió.
     syncInBackground(() async {
       final breakdown = await SyncOutbox.instance.pendingBreakdown();
       final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
-      if (!_windowsPumpsActivos || pending == 0) return;
-      final que = SyncOutbox.formatBreakdown(breakdown);
-      syncStatusDetail = '$pending pendientes: $que';
+      if (!_windowsPumpsActivos) return;
+      if (pending == 0) {
+        syncStatusLabel = 'En la nube (modo estable PC)';
+        syncStatusDetail = null;
+      } else {
+        syncStatusLabel = 'Sincronizando…';
+        syncStatusDetail =
+            '$pending pendientes: ${SyncOutbox.formatBreakdown(breakdown)} '
+            '(arranque ${q.inSeconds}s)';
+      }
       DataRefreshHub.instance.notifyTodo();
     }(), tag: 'pendingBreakdownBoot');
 
@@ -510,6 +506,7 @@ class FirestoreSyncService {
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
           await SyncOutbox.instance.ackOrphanUpserts();
+          await SyncOutbox.instance.clearAllStockOpsOutbox();
           await _procesarOutboxDrain(
             maxBatches: 1,
             claimLimit: 2,
@@ -520,7 +517,6 @@ class FirestoreSyncService {
               'compra',
               'cliente',
               'proveedor',
-              'stock_op',
             ],
           );
           final breakdown = await SyncOutbox.instance.pendingBreakdown();
@@ -2197,8 +2193,7 @@ class FirestoreSyncService {
 
     final token = '$idOp|$codigo|$delta';
     // Capacidad 7: stock ops viven en outbox SQLite.
-    // Marca hechas para que el PULL inbound no reaplique; el outbox igual
-    // sube (ajustarStock remoto es idempotente por opId).
+    // Marca hechas para que el PULL inbound no reaplique.
     if (!_stockOpsHechas.contains(idOp)) {
       _stockOpsHechas.add(idOp);
       await _persistirStockOpsHechas();
@@ -2212,6 +2207,27 @@ class FirestoreSyncService {
       _colaStockOps.add(token);
       await _persistirColaStockOps();
     }
+
+    // Windows: un disparo safe (sin txn) y ACK. No dejar cola reclaim.
+    if (PlatformCapabilities.isWindowsDesktop) {
+      syncInBackground(
+        CloudSyncThrottle.enqueue(() async {
+          try {
+            await _remote
+                .ajustarStock(codigo: codigo, delta: delta, opId: idOp)
+                .timeout(const Duration(seconds: 20));
+          } catch (e) {
+            debugPrint('Windows stock_op one-shot: $e');
+          }
+          await SyncOutbox.instance.ack('stock_op:$idOp');
+          _colaStockOps.remove(token);
+          await _persistirColaStockOps();
+        }, tag: 'stockOpWinSafe', interactive: true),
+        tag: 'stockOpWinSafe',
+      );
+      return;
+    }
+
     if (flushImmediately) {
       await _flushColaStockOps();
     }

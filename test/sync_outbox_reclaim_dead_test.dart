@@ -94,6 +94,47 @@ void main() {
       );
     });
 
+    test('clearAllStockOpsOutbox limpia pending/inflight/dead', () async {
+      await SyncOutbox.instance.enqueueStockOp(
+        opId: 'a',
+        codigo: 'A',
+        delta: 1,
+      );
+      await SyncOutbox.instance.enqueueStockOp(
+        opId: 'b',
+        codigo: 'B',
+        delta: -1,
+      );
+      await SyncOutbox.instance.ack('stock_op:a');
+      // Forzar dead en b vía fail max
+      final db = await DatabaseHelper.instance.database;
+      await db.update(
+        'sync_outbox',
+        {
+          'status': SyncOutboxStatus.dead,
+          'attempts': 99,
+        },
+        where: 'op_id = ?',
+        whereArgs: ['stock_op:b'],
+      );
+      await SyncOutbox.instance.enqueueStockOp(
+        opId: 'c',
+        codigo: 'C',
+        delta: 2,
+      );
+
+      final n = await SyncOutbox.instance.clearAllStockOpsOutbox();
+      expect(n, greaterThanOrEqualTo(2));
+      expect(
+        await SyncOutbox.instance.countByStatus(SyncOutboxStatus.pending),
+        0,
+      );
+      expect(
+        await SyncOutbox.instance.countByStatus(SyncOutboxStatus.dead),
+        0,
+      );
+    });
+
     test('purgeStuckStockOps ACK reclaim eternos', () async {
       await SyncOutbox.instance.enqueueStockOp(
         opId: 'op-stuck',

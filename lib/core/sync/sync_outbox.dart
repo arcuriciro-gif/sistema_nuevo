@@ -540,6 +540,31 @@ ORDER BY c DESC
     return n;
   }
 
+  /// Windows boot: limpia TODA la cola stock_op (pending/inflight/dead).
+  /// Evita badge rojo eterno por reclaim; el stock local ya está en ledger.
+  Future<int> clearAllStockOpsOutbox() async {
+    final db = await _db;
+    final rows = await db.query(
+      'sync_outbox',
+      columns: ['op_id'],
+      where: "entity_type = 'stock_op' AND status IN (?, ?, ?)",
+      whereArgs: [
+        SyncOutboxStatus.pending,
+        SyncOutboxStatus.inflight,
+        SyncOutboxStatus.dead,
+      ],
+      limit: 500,
+    );
+    var n = 0;
+    for (final r in rows) {
+      final opId = r['op_id']?.toString() ?? '';
+      if (opId.isEmpty) continue;
+      await ack(opId);
+      n++;
+    }
+    return n;
+  }
+
   /// ACK stock_ops ya aplicadas localmente (opId en [hechas]).
   Future<int> ackStockOpsYaHechas(Set<String> hechas) async {
     if (hechas.isEmpty) return 0;

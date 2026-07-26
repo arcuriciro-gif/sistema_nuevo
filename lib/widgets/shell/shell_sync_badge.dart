@@ -74,16 +74,9 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
       );
     }
     final lower = label.toLowerCase();
-    if (dead > 0 || lower.contains('error')) {
-      return (
-        tone: ShellSyncTone.error,
-        title: 'Error de sync',
-        subtitle: detail ?? '$dead ops con error',
-      );
-    }
-    if (lower.contains('sincronizando') ||
-        pending > 0 ||
-        (_health?.inflight ?? 0) > 0) {
+    final inflight = _health?.inflight ?? 0;
+    // Pendientes reales primero (no pintar "Error" por dead históricos de stock).
+    if (lower.contains('sincronizando') || pending > 0 || inflight > 0) {
       final que = _health?.pendingBreakdownLabel ?? '';
       return (
         tone: ShellSyncTone.syncing,
@@ -93,6 +86,13 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
                 ? '$pending cambios pendientes'
                 : '$pending pendientes: $que')
             : (detail ?? 'Actualizando…'),
+      );
+    }
+    if (dead > 0 || lower.contains('error')) {
+      return (
+        tone: ShellSyncTone.error,
+        title: 'Error de sync',
+        subtitle: detail ?? '$dead ops con error',
       );
     }
     final lastTxt = last == null
