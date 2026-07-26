@@ -211,14 +211,18 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     }
     var extra = '';
     if (r.ok) {
-      // Windows: no encadenar más escrituras Firebase en el botón Sync.
+      // Windows: no encadenar Storage/fotos ni más Firebase en el botón Sync
+      // (solapaba el catch-up y cerraba el .exe).
       Future<void> postConnect() async {
-        try {
-          final n = await ProductoService().sincronizarFotosLocalesPendientes();
-          if (n > 0) {
-            extra = ' Se subieron fotos de $n productos.';
-          }
-        } catch (_) {}
+        if (!PlatformCapabilities.isWindowsDesktop) {
+          try {
+            final n =
+                await ProductoService().sincronizarFotosLocalesPendientes();
+            if (n > 0) {
+              extra = ' Se subieron fotos de $n productos.';
+            }
+          } catch (_) {}
+        }
         try {
           await FirestoreSyncService.instance.subirBranding();
         } catch (_) {}
@@ -234,11 +238,16 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       }
 
       if (PlatformCapabilities.isWindowsDesktop) {
+        // Dejar respirar al catch-up inicial antes de más escrituras.
         syncInBackground(
-          CloudSyncThrottle.enqueue(postConnect, tag: 'activarNubePost'),
+          CloudSyncThrottle.enqueue(() async {
+            await Future<void>.delayed(const Duration(seconds: 12));
+            await postConnect();
+          }, tag: 'activarNubePost'),
           tag: 'activarNubePost',
         );
-        extra = ' Sync en segundo plano…';
+        extra =
+            ' Sync en segundo plano (modo estable PC; fotos después, sin apurar)…';
       } else {
         await postConnect();
       }

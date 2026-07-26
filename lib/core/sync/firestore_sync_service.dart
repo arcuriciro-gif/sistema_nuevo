@@ -13,6 +13,7 @@ import '../config/platform_capabilities.dart';
 import '../events/data_refresh_hub.dart';
 import '../firebase/firebase_auth_usuario_service.dart';
 import '../firebase/firebase_bootstrap.dart';
+import '../firebase/firebase_safe_mode.dart';
 import '../utils/media_path.dart';
 import 'media_sync_service.dart';
 import 'cloud_sync_throttle.dart';
@@ -162,16 +163,19 @@ class FirestoreSyncService {
 
       // Config chica siempre (docs únicos). En Windows NO listeners de
       // colecciones grandes: el snapshot completo tumbaba el .exe.
+      // Además en Windows TODO snapshot de config va por throttle (si no,
+      // 4 listeners disparan Firebase a la vez al activar Sync).
+      void winSnap(String tag, Future<void> Function() job) {
+        syncInBackground(
+          CloudSyncThrottle.enqueue(job, tag: tag),
+          tag: tag,
+        );
+      }
+
       _usuariosSub = _usuariosRemote.watchTodos().listen(
         (lista) {
           if (windows) {
-            syncInBackground(
-              CloudSyncThrottle.enqueue(
-                () => _aplicarUsuariosRemotos(lista),
-                tag: 'usuariosSnap',
-              ),
-              tag: 'usuariosSnap',
-            );
+            winSnap('usuariosSnap', () => _aplicarUsuariosRemotos(lista));
           } else {
             unawaited(_aplicarUsuariosRemotos(lista));
           }
@@ -179,19 +183,46 @@ class FirestoreSyncService {
         onError: (Object error) => debugPrint('Sync usuarios: $error'),
       );
       _brandingSub = _configDoc('branding').snapshots().listen(
-        _aplicarBrandingRemoto,
+        (snap) {
+          if (windows) {
+            winSnap('brandingSnap', () async => _aplicarBrandingRemoto(snap));
+          } else {
+            _aplicarBrandingRemoto(snap);
+          }
+        },
         onError: (Object error) => debugPrint('Sync branding: $error'),
       );
       _permisosSub = _configDoc('permisos').snapshots().listen(
-        _aplicarPermisosRemotos,
+        (snap) {
+          if (windows) {
+            winSnap('permisosSnap', () async => _aplicarPermisosRemotos(snap));
+          } else {
+            _aplicarPermisosRemotos(snap);
+          }
+        },
         onError: (Object error) => debugPrint('Sync permisos: $error'),
       );
       _listasSub = _configDoc('listas_precios').snapshots().listen(
-        _aplicarListasPreciosRemotas,
+        (snap) {
+          if (windows) {
+            winSnap('listasSnap', () async => _aplicarListasPreciosRemotas(snap));
+          } else {
+            _aplicarListasPreciosRemotas(snap);
+          }
+        },
         onError: (Object error) => debugPrint('Sync listas: $error'),
       );
       _categoriasSub = _configDoc('categorias').snapshots().listen(
-        _aplicarCategoriasRemotas,
+        (snap) {
+          if (windows) {
+            winSnap(
+              'categoriasSnap',
+              () async => _aplicarCategoriasRemotas(snap),
+            );
+          } else {
+            _aplicarCategoriasRemotas(snap);
+          }
+        },
         onError: (Object error) => debugPrint('Sync categorias: $error'),
       );
 
@@ -229,7 +260,17 @@ class FirestoreSyncService {
       }
 
       // Empuja branding/permisos locales la primera vez si la nube no tiene.
-      unawaited(_publicarConfigLocalSiHaceFalta());
+      if (windows) {
+        syncInBackground(
+          CloudSyncThrottle.enqueue(
+            _publicarConfigLocalSiHaceFalta,
+            tag: 'publicarConfig',
+          ),
+          tag: 'publicarConfig',
+        );
+      } else {
+        unawaited(_publicarConfigLocalSiHaceFalta());
+      }
 
       // Windows: pull + upload masivo NO en el hilo de UI (cerraba el .exe).
       if (windows) {
@@ -237,25 +278,33 @@ class FirestoreSyncService {
         syncStatusDetail =
             'Modo estable PC. Sync en segundo plano (sin listeners pesados)…';
         DataRefreshHub.instance.notifyTodo();
-        _iniciarPumpsWindows();
+        // Pumps DESPUÉS del primer catch-up (si no, solapan .get() masivos).
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
-            await Future<void>.delayed(const Duration(seconds: 2));
-            await _pullInicialCatchUp();
-            await Future<void>.delayed(const Duration(milliseconds: 800));
-            await _vaciarColasYSubirPendientes();
-            final health = await SyncHealthService.instance.snapshot();
-            if (health.dead > 0) {
-              syncStatusLabel = 'Sync con errores';
-              syncStatusDetail = '${health.dead} ops fallidas en outbox';
-            } else if (health.pending > 0 || health.inflight > 0) {
-              syncStatusLabel = 'Sincronizando…';
-              syncStatusDetail = '${health.pending} pendientes';
-            } else {
-              syncStatusLabel = 'En la nube (modo estable PC)';
-              syncStatusDetail = null;
+            // Si el .exe muere acá, el próximo boot entra en modo seguro.
+            await FirebaseSafeMode.marcarInicioLoginFirebase();
+            try {
+              await Future<void>.delayed(const Duration(seconds: 3));
+              await _pullInicialCatchUp();
+              await Future<void>.delayed(const Duration(seconds: 1));
+              await _vaciarColasYSubirPendientes();
+              final health = await SyncHealthService.instance.snapshot();
+              if (health.dead > 0) {
+                syncStatusLabel = 'Sync con errores';
+                syncStatusDetail = '${health.dead} ops fallidas en outbox';
+              } else if (health.pending > 0 || health.inflight > 0) {
+                syncStatusLabel = 'Sincronizando…';
+                syncStatusDetail = '${health.pending} pendientes';
+              } else {
+                syncStatusLabel = 'En la nube (modo estable PC)';
+                syncStatusDetail = null;
+              }
+              DataRefreshHub.instance.notifyTodo();
+            } finally {
+              await FirebaseSafeMode.marcarFinLoginFirebase();
+              // Recién ahora el pull periódico / outbox pump.
+              _iniciarPumpsWindows();
             }
-            DataRefreshHub.instance.notifyTodo();
           }, tag: 'startCatchupWindows'),
           tag: 'startCatchupWindows',
         );
@@ -391,7 +440,8 @@ class FirestoreSyncService {
   void _iniciarPumpsWindows() {
     _iniciarOutboxPump();
     _pullPump?.cancel();
-    _pullPump = Timer.periodic(const Duration(seconds: 40), (_) {
+    // Más espaciado: menos ráfagas Firebase nativas.
+    _pullPump = Timer.periodic(const Duration(seconds: 75), (_) {
       if (!_puedeEscribirRemoto) return;
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
@@ -407,36 +457,38 @@ class FirestoreSyncService {
 
   /// Baja docs + stock/productos paginado (sin listeners pesados).
   Future<void> _pullSuaveWindows() async {
+    Future<void> pausa() =>
+        Future<void>.delayed(const Duration(milliseconds: 700));
     try {
       final clientes = await _clientesCol.get();
       await _aplicarClientesRemotos(clientes);
     } catch (e) {
       debugPrint('Pull suave clientes: $e');
     }
-    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await pausa();
     try {
       final ventas = await _ventasCol.get();
       await _aplicarVentasRemotas(ventas);
     } catch (e) {
       debugPrint('Pull suave ventas: $e');
     }
-    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await pausa();
     try {
       final remitos = await _remitosCol.get();
       await _aplicarRemitosRemotos(remitos);
     } catch (e) {
       debugPrint('Pull suave remitos: $e');
     }
-    await Future<void>.delayed(const Duration(milliseconds: 350));
-    // Stock/productos: incremental + avance de catálogo (evita stock desfasado).
+    await pausa();
+    // Stock/productos: poco a poco (páginas chicas = menos riesgo de crash).
     try {
-      await _pullProductosIncrementalWindows(maxPages: 2, pageSize: 100);
+      await _pullProductosIncrementalWindows(maxPages: 1, pageSize: 60);
     } catch (e) {
       debugPrint('Pull suave productos incremental: $e');
     }
-    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await pausa();
     try {
-      await _pullProductosCatalogoWindows(maxPages: 2, pageSize: 120);
+      await _pullProductosCatalogoWindows(maxPages: 1, pageSize: 60);
     } catch (e) {
       debugPrint('Pull suave productos catálogo: $e');
     }
@@ -519,7 +571,7 @@ class FirestoreSyncService {
     final windows = PlatformCapabilities.isWindowsDesktop;
     Future<void> pausa() async {
       if (windows) {
-        await Future<void>.delayed(const Duration(milliseconds: 350));
+        await Future<void>.delayed(const Duration(milliseconds: 800));
       }
     }
 
@@ -539,10 +591,11 @@ class FirestoreSyncService {
     await pausa();
     try {
       if (windows) {
-        // Sin techo A-Z: primeras páginas ahora; el resto en pull suave.
-        await _pullProductosCatalogoWindows(maxPages: 4, pageSize: 150);
+        // Catch-up liviano: el resto lo completa el pull suave periódico.
+        // Páginas grandes + Storage concurrente tumbaban el .exe al Sync.
+        await _pullProductosIncrementalWindows(maxPages: 1, pageSize: 50);
         await pausa();
-        await _pullProductosIncrementalWindows(maxPages: 2, pageSize: 100);
+        await _pullProductosCatalogoWindows(maxPages: 1, pageSize: 50);
       } else {
         final productos = await _remote.obtenerTodos(limit: 10000);
         await _aplicarProductosRemotos(productos);
