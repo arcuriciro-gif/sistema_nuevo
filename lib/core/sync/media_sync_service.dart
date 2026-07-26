@@ -9,9 +9,11 @@ import 'package:uuid/uuid.dart';
 
 import '../../firebase_options.dart';
 import '../config/backend_config_service.dart';
+import '../config/platform_capabilities.dart';
 import '../firebase/firebase_auth_usuario_service.dart';
 import '../firebase/firebase_bootstrap.dart';
 import '../utils/media_path.dart';
+import 'windows_sync_policy.dart';
 
 /// Sube fotos/archivos locales a Firebase Storage y devuelve URLs públicas.
 class MediaSyncService {
@@ -186,6 +188,14 @@ class MediaSyncService {
     String contentType = 'application/octet-stream',
   }) async {
     lastError = null;
+    // Windows: Storage (putData/putFile) tumba el .exe. Fotos/PDF quedan locales;
+    // Android u otro dispositivo suben media.
+    if (WindowsSyncPolicy.disableRemoteMediaAndChatListeners(
+      isWindowsDesktop: PlatformCapabilities.isWindowsDesktop,
+    )) {
+      lastError = 'Storage deshabilitado en Windows (estabilidad del .exe).';
+      return null;
+    }
     if (!_ok) {
       lastError =
           'Nube no lista (Firebase/auth). Activá sync e iniciá sesión de nuevo.';
