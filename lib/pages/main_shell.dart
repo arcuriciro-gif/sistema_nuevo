@@ -1454,17 +1454,19 @@ class _TopBar extends StatelessWidget {
             onTap: onSearch,
             child: Container(
               height: 36,
-              width: 240,
+              width: 260,
               decoration: BoxDecoration(
                 color: AppTokens.inkSoft,
-                borderRadius: BorderRadius.circular(AppTokens.radiusSm),
-                border: Border.all(color: _kSidebarHeaderBorder),
+                borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+                border: Border.all(
+                  color: AppTokens.brandOrange.withValues(alpha: 0.45),
+                ),
               ),
               child: Row(
                 children: [
                   const SizedBox(width: 10),
                   Icon(Icons.search_rounded,
-                      color: _kSidebarInactiveIcon, size: 17),
+                      color: AppTokens.brandOrange, size: 17),
                   const SizedBox(width: 8),
                   Text(
                     'Buscar en todo…  Ctrl+K',

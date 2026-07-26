@@ -224,10 +224,12 @@ class _ComunicacionesPageState extends State<ComunicacionesPage> {
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
             child: TextField(
               onChanged: (v) => setState(() => _busqueda = v),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: 'Buscar conversaciones...',
-                prefixIcon: Icon(Icons.search_rounded),
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.search_rounded),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 isDense: true,
               ),
             ),
@@ -255,7 +257,12 @@ class _ComunicacionesPageState extends State<ComunicacionesPage> {
                     ),
                   )
                 : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 88),
+                    padding: EdgeInsets.fromLTRB(
+                      12,
+                      4,
+                      12,
+                      88 + MediaQuery.viewPaddingOf(context).bottom,
+                    ),
                     itemCount: lista.length,
                     separatorBuilder: (_, index) => const Divider(height: 1),
                     itemBuilder: (context, i) {
