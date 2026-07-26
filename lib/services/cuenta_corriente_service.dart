@@ -1,7 +1,10 @@
+import '../core/config/device_identity.dart';
 import '../core/config/platform_capabilities.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
+import '../core/domain/inventory_ledger_service.dart';
+import '../core/domain/money_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/cloud_sync_throttle.dart';
@@ -56,6 +59,38 @@ class CuentaCorrienteService {
   static String estadoDesdeMontos(double total, double pagado) =>
       Venta.calcularEstadoPago(total, pagado);
 
+  /// Bloquea operación a CC si el saldo resultante supera [Cliente.limiteCuenta].
+  /// `limiteCuenta <= 0` = sin tope.
+  Future<void> assertDentroLimiteCuenta({
+    required int? clienteId,
+    required double saldoAdicional,
+  }) async {
+    if (clienteId == null) return;
+    if (saldoAdicional <= 0.009) return;
+    final db = await _db.database;
+    final rows = await db.query(
+      'clientes',
+      columns: ['saldo', 'limiteCuenta', 'nombre'],
+      where: 'id = ?',
+      whereArgs: [clienteId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final limite = (rows.first['limiteCuenta'] as num?)?.toDouble() ?? 0;
+    if (limite <= 0.009) return;
+    final saldoActual = (rows.first['saldo'] as num?)?.toDouble() ?? 0;
+    final proyectado = saldoActual + saldoAdicional;
+    if (proyectado > limite + 0.009) {
+      final nombre = rows.first['nombre']?.toString() ?? 'Cliente';
+      throw StateError(
+        '$nombre supera el límite de cuenta '
+        '(\$${limite.toStringAsFixed(2)}). '
+        'Saldo actual \$${saldoActual.toStringAsFixed(2)} + '
+        'esta operación \$${saldoAdicional.toStringAsFixed(2)}.',
+      );
+    }
+  }
+
   Future<int> crearVentaConPago({
     required Venta venta,
     required List<VentaItem> items,
@@ -63,6 +98,7 @@ class CuentaCorrienteService {
     String medioPago = 'efectivo',
     String observacionesPago = '',
   }) async {
+    DomainBootstrap.ensureInitialized();
     AuthorizationService.instance.require(
       AuthModules.remitos,
       AuthzAction.crear,
@@ -77,12 +113,40 @@ class CuentaCorrienteService {
           Duration(days: BrandingService.instance.diasVencimiento),
         );
 
+    await assertDentroLimiteCuenta(
+      clienteId: venta.clienteId,
+      saldoAdicional: saldo,
+    );
+
+    // Factura / nota de entrega: misma política de stock que remito.
+    final preLines = <InventoryLine>[];
+    if (venta.mueveStock) {
+      for (final item in items) {
+        if (item.cantidad == 0) continue;
+        preLines.add(InventoryLine(
+          productoId: item.productoId,
+          cantidad: item.cantidad,
+        ));
+      }
+      if (preLines.isNotEmpty) {
+        await InventoryLedgerService.instance.assertPuedeAplicar(
+          lines: preLines,
+          sign: -1,
+        );
+      }
+    }
+
     final ventaMap = venta.toMap()
       ..remove('id')
       ..['totalPagado'] = abonado
       ..['saldoPendiente'] = saldo
       ..['estadoPago'] = estadoPago
       ..['fechaVencimiento'] = vencimiento.toIso8601String();
+
+    final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+    final tag = await DeviceIdentity.shortTag();
+    final linesJson = preLines.map((l) => l.toJson()).toList();
+    DomainEvent? invEvent;
 
     final ventaId = await db.transaction((txn) async {
       final id = await txn.insert('ventas', ventaMap);
@@ -116,52 +180,97 @@ class CuentaCorrienteService {
           'observaciones': observacionesPago,
         });
       }
-      return id;
-    });
 
-    if (venta.clienteId != null) {
-      await recalcularSaldoCliente(venta.clienteId!);
-      DomainBootstrap.ensureInitialized();
-      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
-      // Cargo el total; el abono inicial resta vía PAGO_REGISTRADO (neto = saldo).
-      if (venta.total > 0.009) {
-        await DomainEventBus.instance.publish(
-          DomainEvent(
-            eventId: 'money:venta_cc:$ventaId',
+      // C2: inventario + money en la misma TX que la venta.
+      if (venta.mueveStock && linesJson.isNotEmpty) {
+        invEvent = DomainEvent(
+          eventId: 'inv:entrega:venta:$id',
+          type: DomainEventType.mercaderiaEntregada,
+          aggregateType: 'venta',
+          aggregateId: '$id',
+          createdBy: user,
+          deviceId: tag,
+          payload: {
+            'documentType': 'venta',
+            'documentId': '$id',
+            'documentNumero': venta.numero,
+            'motivo': 'Entrega por ${venta.tipo} ${venta.numero}',
+            'lines': linesJson,
+          },
+        );
+        await InventoryLedgerService.instance.applyInTxn(
+          txn,
+          invEvent!,
+          sign: -1,
+          movimientoTipo: 'salida',
+        );
+      }
+
+      if (venta.clienteId != null && venta.total > 0.009) {
+        await MoneyLedgerService.instance.appendInTxn(
+          txn,
+          event: DomainEvent(
+            eventId: 'money:venta_cc:$id',
             type: DomainEventType.ventaCargadaCc,
             aggregateType: 'venta',
-            aggregateId: '$ventaId',
+            aggregateId: '$id',
             createdBy: user,
             payload: {
               'clienteId': venta.clienteId,
-              'ventaId': ventaId,
+              'ventaId': id,
               'total': venta.total,
               'saldo': saldo,
               'motivo': 'Venta ${venta.numero} a cuenta',
             },
           ),
+          accountType: 'cliente_cc',
+          accountId: '${venta.clienteId}',
+          delta: venta.total.abs(),
+          reason: 'Venta ${venta.numero} a cuenta',
+          documentType: 'venta',
+          documentId: '$id',
         );
       }
-      if (abonado > 0.009) {
-        await DomainEventBus.instance.publish(
-          DomainEvent(
-            eventId: 'money:pago_inicial:$ventaId',
+      if (venta.clienteId != null && abonado > 0.009) {
+        await MoneyLedgerService.instance.appendInTxn(
+          txn,
+          event: DomainEvent(
+            eventId: 'money:pago_inicial:$id',
             type: DomainEventType.pagoRegistrado,
             aggregateType: 'venta',
-            aggregateId: '$ventaId',
+            aggregateId: '$id',
             createdBy: user,
             payload: {
               'clienteId': venta.clienteId,
-              'ventaId': ventaId,
-              'pagoId': 'inicial_$ventaId',
+              'ventaId': id,
+              'pagoId': 'inicial_$id',
               'monto': abonado,
               'motivo': 'Pago inicial venta ${venta.numero}',
             },
           ),
+          accountType: 'cliente_cc',
+          accountId: '${venta.clienteId}',
+          delta: -abonado.abs(),
+          reason: 'Pago inicial venta ${venta.numero}',
+          documentType: 'pago',
+          documentId: 'inicial_$id',
         );
       }
+
+      return id;
+    });
+
+    if (invEvent != null) {
+      InventoryLedgerService.instance
+          .enqueueCloudAfterApply(invEvent!, sign: -1);
+      await DomainEventBus.instance.publish(invEvent!);
+    }
+
+    if (venta.clienteId != null) {
+      await recalcularSaldoCliente(venta.clienteId!);
     }
     DataRefreshHub.instance.notifyVentas();
+    DataRefreshHub.instance.notifyStock();
     return ventaId;
   }
 

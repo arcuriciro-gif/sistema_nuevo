@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -120,12 +121,15 @@ class AuthService {
       await policy.ensureRecoveryCode();
     }
 
-    if (local == null || !local.activo || local.password != _hash(password)) {
+    if (local == null ||
+        !local.activo ||
+        !verifyPassword(password, local.password)) {
       auth.lastLoginError =
           'Usuario o contraseña incorrectos. Primera vez: admin / admin123.';
       return null;
     }
 
+    local = await auth._upgradePasswordHashIfNeeded(local, password, sqlite);
     auth.currentUser = local.copyWith(ultimoAcceso: DateTime.now());
     auth._ultimaPasswordIngresada = password;
     await sqlite.actualizar(auth.currentUser!);
@@ -146,11 +150,50 @@ class AuthService {
 
   bool get isLoggedIn => currentUser != null;
 
+  static const _kdfPrefix = 'v2\$';
+
   static String hashPassword(String password) => _hash(password);
 
-  static String _hash(String password) {
-    final bytes = utf8.encode(password);
-    return sha256.convert(bytes).toString();
+  /// SHA-256 legado (sin salt) — solo verificación / bootstrap admin123.
+  static String _legacyHash(String password) =>
+      sha256.convert(utf8.encode(password)).toString();
+
+  static String _newSalt() {
+    final r = Random.secure();
+    final bytes = List<int>.generate(16, (_) => r.nextInt(256));
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  /// Hash con salt + iteraciones (migrable desde SHA-256 plano).
+  static String _hash(String password, {String? salt}) {
+    final s = salt ?? _newSalt();
+    var dig = sha256.convert(utf8.encode('$password|$s'));
+    for (var i = 1; i < 12000; i++) {
+      dig = sha256.convert(dig.bytes);
+    }
+    return '$_kdfPrefix$s\$${dig.toString()}';
+  }
+
+  static bool verifyPassword(String password, String stored) {
+    if (stored.startsWith(_kdfPrefix)) {
+      final rest = stored.substring(_kdfPrefix.length);
+      final idx = rest.indexOf(r'$');
+      if (idx <= 0) return false;
+      final salt = rest.substring(0, idx);
+      return _hash(password, salt: salt) == stored;
+    }
+    return _legacyHash(password) == stored;
+  }
+
+  Future<Usuario> _upgradePasswordHashIfNeeded(
+    Usuario user,
+    String password,
+    SqliteUsuarioRepository sqlite,
+  ) async {
+    if (user.password.startsWith(_kdfPrefix)) return user;
+    final upgraded = user.copyWith(password: _hash(password));
+    await sqlite.actualizar(upgraded);
+    return upgraded;
   }
 
   bool esAdministrador() => RolUtil.esAdministrador(currentUser?.rol);
@@ -201,7 +244,7 @@ class AuthService {
       }
       if (localUser == null ||
           !localUser.activo ||
-          localUser.password != _hash(password)) {
+          !verifyPassword(password, localUser.password)) {
         final db = await DatabaseHelper.instance.database;
         const hashAdmin123 = AdminAccessPolicy.hashAdmin123;
         final ahora = DateTime.now();
@@ -330,7 +373,7 @@ class AuthService {
     }
 
     // Usuario local: validar hash y entrar sin tocar Firebase todavía.
-    if (localUser.password != _hash(password)) {
+    if (!verifyPassword(password, localUser.password)) {
       // Si la clave local no coincide, probar Firebase (clave del mail).
       if (puedeFirebase) {
         try {
@@ -374,10 +417,10 @@ class AuthService {
   ) async {
     await appendAppLog('LOGIN finalizar local ${usuario.usuario}');
     _asegurarHookSync();
-    var sesion = usuario;
+    var sesion = await _upgradePasswordHashIfNeeded(usuario, password, sqlite);
     // Clave inicial: siempre obligar cambio.
     if (password == 'admin123' &&
-        usuario.usuario.toLowerCase() == 'admin') {
+        sesion.usuario.toLowerCase() == 'admin') {
       sesion = sesion.copyWith(debeCambiarPassword: true);
       await AdminAccessPolicy.instance.ensureRecoveryCode();
     }
@@ -953,8 +996,8 @@ class AuthService {
       throw StateError('No hay sesión activa.');
     }
 
-    final hashActual = _hash(passwordActual);
-    if (usuario.password != hashActual && _ultimaPasswordIngresada != passwordActual) {
+    if (!verifyPassword(passwordActual, usuario.password) &&
+        _ultimaPasswordIngresada != passwordActual) {
       throw StateError('La contraseña actual no es correcta.');
     }
 
@@ -1065,7 +1108,7 @@ class AuthService {
       if (passwordActual == null || passwordActual.isEmpty) {
         throw StateError('Ingresá tu contraseña actual para cambiar el usuario.');
       }
-      final hashOk = actual.password == _hash(passwordActual) ||
+      final hashOk = verifyPassword(passwordActual, actual.password) ||
           _ultimaPasswordIngresada == passwordActual;
       if (!hashOk) {
         throw StateError('La contraseña actual no es correcta.');

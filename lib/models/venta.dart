@@ -1,3 +1,5 @@
+import '../core/domain/inventory_delivery_policy.dart';
+
 class Venta {
   int? id;
   /// 'factura_a' | 'factura_b' | 'factura_c' | 'presupuesto' | 'nota_entrega' | 'comprobante_interno' | 'remito'
@@ -176,4 +178,8 @@ class Venta {
 
   bool get esFactura =>
       tipo == 'factura_a' || tipo == 'factura_b' || tipo == 'factura_c';
+
+  /// Política Opción B: remito/nota entregan; factura solo documenta.
+  /// Fuente única: [InventoryDeliveryPolicy].
+  bool get mueveStock => InventoryDeliveryPolicy.ventaMueveStock(tipo);
 }

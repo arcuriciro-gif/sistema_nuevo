@@ -33,11 +33,19 @@ service firebase.storage {
       return request.resource.contentType.matches('image/.*|application/pdf');
     }
 
-    match /tenants/{tenantId}/{allPaths=**} {
-      allow read: if isMember(tenantId);
+    function safeSize() {
+      return request.resource.size < 15 * 1024 * 1024;
+    }
+
+    match /tenants/{tenantId}/{folder}/{allPaths=**} {
+      allow read: if isMember(tenantId)
+        && folder in ['productos', 'clientes', 'documentos', 'usuarios',
+                      'chats', 'pdfs', 'misc'];
       allow write: if canWrite(tenantId)
-                   && request.resource.size < 15 * 1024 * 1024
-                   && safeContentType();
+        && folder in ['productos', 'clientes', 'documentos', 'usuarios',
+                      'chats', 'pdfs', 'misc']
+        && safeSize()
+        && safeContentType();
     }
   }
 }

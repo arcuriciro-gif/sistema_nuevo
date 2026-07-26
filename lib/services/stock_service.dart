@@ -4,6 +4,7 @@ import '../core/config/device_identity.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
+import '../core/domain/inventory_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../database/database_helper.dart';
@@ -28,6 +29,7 @@ class StockService {
     );
   }
 
+  /// Único camino público para ajustes manuales: siempre via ledger in-TX.
   Future<int> registrarMovimiento(MovimientoStock movimiento) async {
     AuthorizationService.instance.require(
       AuthModules.stock,
@@ -35,40 +37,58 @@ class StockService {
       operacion: 'ajustar stock',
     );
     DomainBootstrap.ensureInitialized();
+    if (movimiento.cantidad == 0) {
+      throw ArgumentError('La cantidad del movimiento no puede ser 0.');
+    }
+    final tipo = movimiento.tipo == 'salida' ? 'salida' : 'entrada';
     final user = movimiento.usuario.isNotEmpty
         ? movimiento.usuario
         : (AuthService.instance.currentUser?.usuario ?? 'sistema');
     final tag = await DeviceIdentity.shortTag();
     final eventId =
         'inv:ajuste:${DateTime.now().toUtc().microsecondsSinceEpoch}:${movimiento.productoId}';
+    final sign = tipo == 'salida' ? -1 : 1;
 
-    await DomainEventBus.instance.publish(
-      DomainEvent(
-        eventId: eventId,
-        type: DomainEventType.ajusteInventario,
-        aggregateType: 'producto',
-        aggregateId: '${movimiento.productoId}',
-        createdBy: user,
-        deviceId: tag,
-        payload: {
-          'tipo': movimiento.tipo,
-          'motivo': movimiento.motivo,
-          'documentType': 'ajuste',
-          'documentId': eventId,
-          'lines': [
-            InventoryLine(
-              productoId: movimiento.productoId,
-              cantidad: movimiento.cantidad,
-            ).toJson(),
-          ],
-        },
-      ),
+    final event = DomainEvent(
+      eventId: eventId,
+      type: DomainEventType.ajusteInventario,
+      aggregateType: 'producto',
+      aggregateId: '${movimiento.productoId}',
+      createdBy: user,
+      deviceId: tag,
+      payload: {
+        'tipo': tipo,
+        'motivo': movimiento.motivo,
+        'documentType': 'ajuste',
+        'documentId': eventId,
+        'lines': [
+          InventoryLine(
+            productoId: movimiento.productoId,
+            cantidad: movimiento.cantidad.abs(),
+          ).toJson(),
+        ],
+      },
     );
+
+    final db = await dbHelper.database;
+    final applied = await db.transaction((txn) async {
+      return InventoryLedgerService.instance.applyInTxn(
+        txn,
+        event,
+        sign: sign,
+        movimientoTipo: tipo,
+      );
+    });
+
+    if (applied) {
+      InventoryLedgerService.instance.enqueueCloudAfterApply(event, sign: sign);
+      await DomainEventBus.instance.publish(event);
+    }
 
     await AuthService.instance.registrarCambio(
       'AJUSTE_STOCK',
       'inventory_ledger',
-      'Movimiento ${movimiento.tipo} de ${movimiento.cantidad} unidades (producto ${movimiento.productoId})',
+      'Movimiento $tipo de ${movimiento.cantidad.abs()} unidades (producto ${movimiento.productoId})',
       valorNuevo: jsonEncode({'eventId': eventId}),
     );
 

@@ -11,6 +11,7 @@ import '../models/venta.dart';
 import '../models/venta_item.dart';
 import '../core/security/authorization_service.dart';
 import '../core/utils/busqueda_texto.dart';
+import '../core/utils/cuit.dart';
 import '../services/afip_service.dart';
 import '../services/branding_service.dart';
 import '../services/cliente_service.dart';
@@ -203,12 +204,22 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
   double get _baseImponible => _subtotal - _descuento;
 
   double get _iva {
-    // Factura A: IVA 21% sobre base imponible (discriminado)
-    // Factura B y C: sin IVA discriminado (ya incluido en precio)
-    return widget.tipo == 'factura_a' ? _baseImponible * 0.21 : 0;
+    // Factura B/C: IVA incluido en precio (no discriminar).
+    if (widget.tipo != 'factura_a') return 0;
+    // Factura A: si los precios ya incluyen IVA, desagregar; si no, sumar 21%.
+    if (AfipConfigService.instance.preciosIncluyenIva) {
+      return _baseImponible - (_baseImponible / 1.21);
+    }
+    return _baseImponible * 0.21;
   }
 
-  double get _total => _baseImponible + _iva;
+  double get _total {
+    if (widget.tipo == 'factura_a' &&
+        AfipConfigService.instance.preciosIncluyenIva) {
+      return _baseImponible;
+    }
+    return _baseImponible + _iva;
+  }
 
   double get _montoAbonado {
     final v = double.tryParse(_abonadoCtrl.text.replaceAll(',', '.')) ?? 0;
@@ -236,6 +247,7 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
 
   // ── Guardar ────────────────────────────────────────────────────────────────
   Future<void> _finalizar() async {
+    if (_finalizando) return;
     if (_carrito.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('El carrito está vacío')),
@@ -248,15 +260,14 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
       );
       return;
     }
-    if (widget.tipo == 'factura_a' &&
-        (_clienteSeleccionado == null ||
-            _clienteSeleccionado!.cuit.isEmpty)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Factura A requiere cliente con CUIT cargado'),
-        ),
-      );
-      return;
+    if (widget.tipo == 'factura_a') {
+      final errCuit = Cuit.mensajeError(_clienteSeleccionado?.cuit);
+      if (errCuit != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Factura A: $errCuit')),
+        );
+        return;
+      }
     }
     setState(() => _finalizando = true);
     try {
@@ -287,6 +298,20 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
           total: _total,
           clienteCuit: _clienteSeleccionado?.cuit,
         );
+        // AFIP activado: no confirmar sin CAE real.
+        if (AfipConfigService.instance.enabled &&
+            (!afip.ok || (afip.cae == null || afip.cae!.trim().isEmpty))) {
+          if (mounted) {
+            setState(() => _finalizando = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(afip.mensaje),
+                duration: const Duration(seconds: 6),
+              ),
+            );
+          }
+          return;
+        }
         venta = Venta(
           tipo: venta.tipo,
           numero: venta.numero,

@@ -15,6 +15,7 @@ class AfipConfigService {
   static const _keyCuitEmisor = 'afipCuitEmisor';
   static const _keyCertPath = 'afipCertPath';
   static const _keyKeyPath = 'afipKeyPath';
+  static const _keyPreciosIncluyenIva = 'afipPreciosIncluyenIva';
 
   bool enabled = false;
   /// 'homo' | 'prod'
@@ -23,6 +24,8 @@ class AfipConfigService {
   String cuitEmisor = '';
   String certPath = '';
   String keyPath = '';
+  /// Si true, en Factura A los precios de lista ya traen IVA.
+  bool preciosIncluyenIva = false;
 
   Future<void> cargar() async {
     final prefs = await SharedPreferences.getInstance();
@@ -32,6 +35,7 @@ class AfipConfigService {
     cuitEmisor = prefs.getString(_keyCuitEmisor) ?? '';
     certPath = prefs.getString(_keyCertPath) ?? '';
     keyPath = prefs.getString(_keyKeyPath) ?? '';
+    preciosIncluyenIva = prefs.getBool(_keyPreciosIncluyenIva) ?? false;
   }
 
   Future<void> guardar({
@@ -41,6 +45,7 @@ class AfipConfigService {
     required String cuitEmisor,
     String? certPath,
     String? keyPath,
+    bool? preciosIncluyenIva,
   }) async {
     AuthorizationService.instance.requireAdmin(operacion: 'configurar AFIP');
     final prefs = await SharedPreferences.getInstance();
@@ -50,6 +55,10 @@ class AfipConfigService {
     await prefs.setString(_keyCuitEmisor, cuitEmisor);
     await prefs.setString(_keyCertPath, certPath ?? this.certPath);
     await prefs.setString(_keyKeyPath, keyPath ?? this.keyPath);
+    if (preciosIncluyenIva != null) {
+      await prefs.setBool(_keyPreciosIncluyenIva, preciosIncluyenIva);
+      this.preciosIncluyenIva = preciosIncluyenIva;
+    }
     this.enabled = enabled;
     this.ambiente = ambiente;
     this.puntoVenta = puntoVenta;
@@ -106,16 +115,19 @@ class AfipService {
         estado: 'pendiente_config',
         mensaje:
             'AFIP activado pero faltan CUIT emisor o certificados. '
-            'La factura se guardó como pendiente de autorización.',
+            'No se puede confirmar la factura fiscal hasta completar la config.',
       );
     }
     // Placeholder: integración real WSAA/WSFE pendiente.
+    // Mientras tanto NO autorizamos (ok:false sin CAE) — la UI debe bloquear.
     return AfipAutorizacionResultado(
       ok: false,
       estado: 'pendiente_afip',
       mensaje:
-          'Módulo AFIP preparado (PV ${cfg.puntoVenta}, ${cfg.ambiente}). '
-          'La autorización electrónica se habilitará con los certificados.',
+          'AFIP está activado pero la autorización electrónica aún no está '
+          'conectada (faltan certificados WSAA/WSFE). '
+          'Desactivá AFIP en Configuración para emitir documentos internos, '
+          'o completá la integración antes de facturar.',
     );
   }
 }

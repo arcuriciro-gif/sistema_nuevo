@@ -7,7 +7,9 @@ import '../core/config/device_identity.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
+import '../core/domain/inventory_delivery_policy.dart';
 import '../core/domain/inventory_ledger_service.dart';
+import '../core/domain/money_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
@@ -70,6 +72,23 @@ class RemitoService {
     final clienteIdInt =
         remito.clienteId != null ? int.tryParse(remito.clienteId!) : null;
 
+    await CuentaCorrienteService().assertDentroLimiteCuenta(
+      clienteId: clienteIdInt,
+      saldoAdicional: saldoPendiente,
+    );
+
+    final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+    final tag = await DeviceIdentity.shortTag();
+    final linesJson = <Map<String, dynamic>>[];
+    for (final item in items) {
+      if (item.cantidad == 0) continue;
+      linesJson.add(InventoryLine(
+        productoId: item.productoId,
+        cantidad: item.cantidad,
+      ).toJson());
+    }
+
+    DomainEvent? invEvent;
     final remitoId = await db.transaction((txn) async {
       final id = await txn.insert(
         'remitos',
@@ -113,7 +132,6 @@ class RemitoService {
           'costoUnitario': costoUnitario,
           'ganancia': ganancia,
         });
-        // Capacidad 3: el documento NO mueve stock.
       }
 
       if (totalPagado > 0.009) {
@@ -130,80 +148,93 @@ class RemitoService {
         });
       }
 
-      return id;
-    });
-
-    // Política: remito confirmado ⇒ evento MERCADERIA_ENTREGADA.
-    final lines = <Map<String, dynamic>>[];
-    for (final item in items) {
-      if (item.cantidad == 0) continue;
-      lines.add(InventoryLine(
-        productoId: item.productoId,
-        cantidad: item.cantidad,
-      ).toJson());
-    }
-    if (lines.isNotEmpty) {
-      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
-      final tag = await DeviceIdentity.shortTag();
-      await DomainEventBus.instance.publish(
-        DomainEvent(
-          eventId: 'inv:entrega:remito:$remitoId',
+      // C2: stock + money ledger en la MISMA TX que el documento.
+      if (linesJson.isNotEmpty) {
+        invEvent = DomainEvent(
+          eventId: 'inv:entrega:remito:$id',
           type: DomainEventType.mercaderiaEntregada,
           aggregateType: 'remito',
-          aggregateId: '$remitoId',
+          aggregateId: '$id',
           createdBy: user,
           deviceId: tag,
           payload: {
             'documentType': 'remito',
-            'documentId': '$remitoId',
+            'documentId': '$id',
             'documentNumero': remito.numero,
             'motivo': 'Entrega por remito ${remito.numero}',
-            'lines': lines,
+            'lines': linesJson,
           },
-        ),
-      );
-    }
+        );
+        await InventoryLedgerService.instance.applyInTxn(
+          txn,
+          invEvent!,
+          sign: -1,
+          movimientoTipo: 'salida',
+        );
+      }
 
-    // Offline: remito ya está en SQLite; la nube va por outbox sin bloquear UI.
-    FirestoreSyncService.instance.programarSubidaRemito(remitoId);
-    if (clienteIdInt != null) {
-      await CuentaCorrienteService().recalcularSaldoCliente(clienteIdInt);
-      // Capacidad 6: remito cobrable → money ledger (además del stock).
-      if (remito.total > 0.009) {
-        final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
-        await DomainEventBus.instance.publish(
-          DomainEvent(
-            eventId: 'money:remito_cc:$remitoId',
+      if (clienteIdInt != null && remito.total > 0.009) {
+        await MoneyLedgerService.instance.appendInTxn(
+          txn,
+          event: DomainEvent(
+            eventId: 'money:remito_cc:$id',
             type: DomainEventType.remitoCargadoCc,
             aggregateType: 'remito',
-            aggregateId: '$remitoId',
+            aggregateId: '$id',
             createdBy: user,
             payload: {
               'clienteId': clienteIdInt,
-              'remitoId': remitoId,
+              'remitoId': id,
               'total': remito.total,
               'motivo': 'Remito ${remito.numero} a cuenta',
             },
           ),
+          accountType: 'cliente_cc',
+          accountId: '$clienteIdInt',
+          delta: remito.total.abs(),
+          reason: 'Remito ${remito.numero} a cuenta',
+          documentType: 'remito',
+          documentId: '$id',
         );
         if (totalPagado > 0.009) {
-          await DomainEventBus.instance.publish(
-            DomainEvent(
-              eventId: 'money:remito_cobrado_inicial:$remitoId',
+          await MoneyLedgerService.instance.appendInTxn(
+            txn,
+            event: DomainEvent(
+              eventId: 'money:remito_cobrado_inicial:$id',
               type: DomainEventType.remitoCobrado,
               aggregateType: 'remito',
-              aggregateId: '$remitoId',
+              aggregateId: '$id',
               createdBy: user,
               payload: {
                 'clienteId': clienteIdInt,
-                'remitoId': remitoId,
+                'remitoId': id,
                 'total': totalPagado,
                 'motivo': 'Pago inicial remito ${remito.numero}',
               },
             ),
+            accountType: 'cliente_cc',
+            accountId: '$clienteIdInt',
+            delta: -totalPagado.abs(),
+            reason: 'Pago inicial remito ${remito.numero}',
+            documentType: 'remito',
+            documentId: '$id',
           );
         }
       }
+
+      return id;
+    });
+
+    if (invEvent != null) {
+      InventoryLedgerService.instance
+          .enqueueCloudAfterApply(invEvent!, sign: -1);
+      // Bus: handlers hacen skip idempotente (ya aplicado en TX).
+      await DomainEventBus.instance.publish(invEvent!);
+    }
+
+    FirestoreSyncService.instance.programarSubidaRemito(remitoId);
+    if (clienteIdInt != null) {
+      await CuentaCorrienteService().recalcularSaldoCliente(clienteIdInt);
     }
     DataRefreshHub.instance.notifyTodo();
     return remitoId;
@@ -344,9 +375,10 @@ class RemitoService {
           );
         }
       } else if (anterior == 'cobrado' && nuevo == 'pendiente') {
+        final rev = DateTime.now().toUtc().microsecondsSinceEpoch;
         await DomainEventBus.instance.publish(
           DomainEvent(
-            eventId: 'money:remito_cobro_rev:$id',
+            eventId: 'money:remito_cobro_rev:$id:$rev',
             type: DomainEventType.remitoCobroRevertido,
             aggregateType: 'remito',
             aggregateId: '$id',
@@ -369,6 +401,15 @@ class RemitoService {
     DataRefreshHub.instance.notifyTodo();
   }
 
+  Future<int> _ledgerNetRemito(DatabaseExecutor txn, int remitoId) async {
+    final r = await txn.rawQuery(
+      "SELECT COALESCE(SUM(delta), 0) s FROM inventory_ledger "
+      "WHERE document_type = 'remito' AND document_id = ?",
+      ['$remitoId'],
+    );
+    return (r.first['s'] as num?)?.toInt() ?? 0;
+  }
+
   Future<void> anular(int id, {bool syncAfter = true}) async {
     DomainBootstrap.ensureInitialized();
     AuthorizationService.instance.require(
@@ -380,9 +421,11 @@ class RemitoService {
 
     String? numero;
     int? clienteId;
-    double total = 0;
     double saldoPendiente = 0;
-    final lines = <Map<String, dynamic>>[];
+    DomainEvent? invRevEvent;
+    final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+    final tag = await DeviceIdentity.shortTag();
+    final rev = DateTime.now().toUtc().microsecondsSinceEpoch;
 
     await db.transaction((txn) async {
       final remitos = await txn.query(
@@ -402,7 +445,7 @@ class RemitoService {
       }
       numero = remito['numero']?.toString();
       clienteId = (remito['clienteId'] as num?)?.toInt();
-      total = (remito['total'] as num?)?.toDouble() ?? 0;
+      final total = (remito['total'] as num?)?.toDouble() ?? 0;
       final pagado = (remito['totalPagado'] as num?)?.toDouble() ?? 0;
       final saldoRaw = (remito['saldoPendiente'] as num?)?.toDouble();
       saldoPendiente = saldoRaw ??
@@ -414,6 +457,139 @@ class RemitoService {
         whereArgs: [id],
       );
 
+      final lines = <Map<String, dynamic>>[];
+      for (final item in items) {
+        final productoId = (item['productoId'] as num?)?.toInt();
+        if (productoId == null) continue;
+        final cantidad = (item['cantidad'] as num?)?.toInt() ?? 0;
+        if (cantidad == 0) continue;
+        lines.add(InventoryLine(
+          productoId: productoId,
+          cantidad: cantidad,
+        ).toJson());
+      }
+
+      final net = await _ledgerNetRemito(txn, id);
+      final debeRevertir = lines.isNotEmpty && net < 0;
+
+      await txn.update(
+        'remitos',
+        {'estado': 'anulado'},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+
+      if (debeRevertir) {
+        invRevEvent = DomainEvent(
+          eventId: InventoryDeliveryPolicy.eventIdEntregaRevRemito(id, rev: rev),
+          type: DomainEventType.mercaderiaEntregaRevertida,
+          aggregateType: 'remito',
+          aggregateId: '$id',
+          createdBy: user,
+          deviceId: tag,
+          payload: {
+            'documentType': 'remito',
+            'documentId': '$id',
+            'documentNumero': numero,
+            'motivo': 'Reverso entrega remito ${numero ?? id}',
+            'lines': lines,
+          },
+        );
+        await InventoryLedgerService.instance.applyInTxn(
+          txn,
+          invRevEvent!,
+          sign: 1,
+          movimientoTipo: 'entrada',
+        );
+      }
+
+      if (clienteId != null && saldoPendiente > 0.009) {
+        await MoneyLedgerService.instance.appendInTxn(
+          txn,
+          event: DomainEvent(
+            eventId: 'money:remito_cc_rev:$id:$rev',
+            type: DomainEventType.remitoCcRevertido,
+            aggregateType: 'remito',
+            aggregateId: '$id',
+            createdBy: user,
+            payload: {
+              'clienteId': clienteId,
+              'remitoId': id,
+              'total': saldoPendiente,
+              'motivo': 'Remito ${numero ?? id} anulado (saldo pendiente)',
+            },
+          ),
+          accountType: 'cliente_cc',
+          accountId: '$clienteId',
+          delta: -saldoPendiente.abs(),
+          reason: 'Remito ${numero ?? id} anulado (saldo pendiente)',
+          documentType: 'remito',
+          documentId: '$id',
+        );
+      }
+    });
+
+    if (invRevEvent != null) {
+      InventoryLedgerService.instance
+          .enqueueCloudAfterApply(invRevEvent!, sign: 1);
+      await DomainEventBus.instance.publish(invRevEvent!);
+    }
+
+    if (clienteId != null) {
+      await CuentaCorrienteService().recalcularSaldoCliente(clienteId!);
+    }
+    // Al eliminar, no subir a la nube: evita carrera upsert + tombstone (crash Windows).
+    if (syncAfter) {
+      FirestoreSyncService.instance.programarSubidaRemito(id);
+    }
+    DataRefreshHub.instance.notifyTodo();
+  }
+
+  /// Restaura un remito anulado: re-entrega stock + reabre CC vía ledger.
+  Future<void> restaurar(int id, {bool syncAfter = true}) async {
+    DomainBootstrap.ensureInitialized();
+    AuthorizationService.instance.require(
+      'remitos',
+      AuthzAction.anular,
+      operacion: 'restaurar remito',
+    );
+    final db = await dbHelper.database;
+    final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+    final tag = await DeviceIdentity.shortTag();
+    final rev = DateTime.now().toUtc().microsecondsSinceEpoch;
+
+    int? clienteId;
+    DomainEvent? invEvent;
+
+    await db.transaction((txn) async {
+      final remitos = await txn.query(
+        'remitos',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (remitos.isEmpty) {
+        throw StateError('Remito no encontrado');
+      }
+      final remito = remitos.first;
+      if (remito['estado'] != 'anulado') {
+        throw StateError('Solo se pueden restaurar remitos anulados');
+      }
+      final numero = remito['numero']?.toString() ?? '';
+      clienteId = (remito['clienteId'] as num?)?.toInt();
+      final total = (remito['total'] as num?)?.toDouble() ?? 0;
+      final pagado = (remito['totalPagado'] as num?)?.toDouble() ?? 0;
+      final saldo = (total - pagado).clamp(0, total).toDouble();
+      final estadoPago = saldo <= 0.009
+          ? 'cobrado'
+          : (pagado > 0.009 ? 'parcial' : 'pendiente');
+
+      final items = await txn.query(
+        'remito_items',
+        where: 'remitoId = ?',
+        whereArgs: [id],
+      );
+      final lines = <Map<String, dynamic>>[];
       for (final item in items) {
         final productoId = (item['productoId'] as num?)?.toInt();
         if (productoId == null) continue;
@@ -427,19 +603,20 @@ class RemitoService {
 
       await txn.update(
         'remitos',
-        {'estado': 'anulado'},
+        {
+          'estado': 'confirmado',
+          'saldoPendiente': saldo,
+          'estadoPago': estadoPago,
+        },
         where: 'id = ?',
         whereArgs: [id],
       );
-    });
 
-    if (lines.isNotEmpty) {
-      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
-      final tag = await DeviceIdentity.shortTag();
-      await DomainEventBus.instance.publish(
-        DomainEvent(
-          eventId: 'inv:entrega_rev:remito:$id',
-          type: DomainEventType.mercaderiaEntregaRevertida,
+      if (lines.isNotEmpty) {
+        invEvent = DomainEvent(
+          eventId:
+              InventoryDeliveryPolicy.eventIdEntregaRestoreRemito(id, rev: rev),
+          type: DomainEventType.mercaderiaEntregada,
           aggregateType: 'remito',
           aggregateId: '$id',
           createdBy: user,
@@ -448,36 +625,52 @@ class RemitoService {
             'documentType': 'remito',
             'documentId': '$id',
             'documentNumero': numero,
-            'motivo': 'Reverso entrega remito ${numero ?? id}',
+            'motivo': 'Restauración entrega remito $numero',
             'lines': lines,
           },
-        ),
-      );
-    }
+        );
+        await InventoryLedgerService.instance.applyInTxn(
+          txn,
+          invEvent!,
+          sign: -1,
+          movimientoTipo: 'salida',
+        );
+      }
 
-    if (clienteId != null && saldoPendiente > 0.009) {
-      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
-      await DomainEventBus.instance.publish(
-        DomainEvent(
-          eventId: 'money:remito_cc_rev:$id',
-          type: DomainEventType.remitoCcRevertido,
-          aggregateType: 'remito',
-          aggregateId: '$id',
-          createdBy: user,
-          payload: {
-            'clienteId': clienteId,
-            'remitoId': id,
-            'total': saldoPendiente,
-            'motivo': 'Remito ${numero ?? id} anulado (saldo pendiente)',
-          },
-        ),
-      );
+      if (clienteId != null && saldo > 0.009) {
+        await MoneyLedgerService.instance.appendInTxn(
+          txn,
+          event: DomainEvent(
+            eventId: 'money:remito_cc:restore:$id:$rev',
+            type: DomainEventType.remitoCargadoCc,
+            aggregateType: 'remito',
+            aggregateId: '$id',
+            createdBy: user,
+            payload: {
+              'clienteId': clienteId,
+              'remitoId': id,
+              'total': saldo,
+              'motivo': 'Restauración remito $numero a cuenta',
+            },
+          ),
+          accountType: 'cliente_cc',
+          accountId: '$clienteId',
+          delta: saldo.abs(),
+          reason: 'Restauración remito $numero a cuenta',
+          documentType: 'remito',
+          documentId: '$id',
+        );
+      }
+    });
+
+    if (invEvent != null) {
+      InventoryLedgerService.instance.enqueueCloudAfterApply(invEvent!, sign: -1);
+      await DomainEventBus.instance.publish(invEvent!);
     }
 
     if (clienteId != null) {
       await CuentaCorrienteService().recalcularSaldoCliente(clienteId!);
     }
-    // Al eliminar, no subir a la nube: evita carrera upsert + tombstone (crash Windows).
     if (syncAfter) {
       FirestoreSyncService.instance.programarSubidaRemito(id);
     }

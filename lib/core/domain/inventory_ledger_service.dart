@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:sqflite/sqflite.dart';
 
 import '../../database/database_helper.dart';
 import '../../models/movimiento_stock.dart';
@@ -55,13 +56,24 @@ class InventoryLedgerService {
     await _applyInventory(e, sign: sign, movimientoTipo: tipo);
   }
 
-  Future<void> _applyInventory(
+  List<InventoryLine> _linesFrom(DomainEvent event) {
+    final rawLines = (event.payload['lines'] as List?) ?? const [];
+    return rawLines
+        .whereType<Map>()
+        .map((m) => InventoryLine.fromJson(Map<String, dynamic>.from(m)))
+        .where((l) => l.cantidad != 0)
+        .toList();
+  }
+
+  /// Aplica entrega/recepción dentro de una TX comercial ya abierta (C2).
+  /// Retorna `true` si escribió ledger; `false` si era idempotente.
+  Future<bool> applyInTxn(
+    DatabaseExecutor txn,
     DomainEvent event, {
     required int sign,
     required String movimientoTipo,
   }) async {
-    final db = await DatabaseHelper.instance.database;
-    final existing = await db.query(
+    final existing = await txn.query(
       'domain_events',
       columns: ['event_id'],
       where: 'event_id = ?',
@@ -70,18 +82,55 @@ class InventoryLedgerService {
     );
     if (existing.isNotEmpty) {
       debugPrint('InventoryLedger: skip idempotent ${event.eventId}');
-      return;
+      return false;
     }
 
-    final rawLines = (event.payload['lines'] as List?) ?? const [];
-    final lines = rawLines
-        .whereType<Map>()
-        .map((m) => InventoryLine.fromJson(Map<String, dynamic>.from(m)))
-        .where((l) => l.cantidad != 0)
-        .toList();
-    if (lines.isEmpty) return;
+    final rawLines = _linesFrom(event);
+    if (rawLines.isEmpty) return false;
 
-    await assertPuedeAplicar(lines: lines, sign: sign);
+    // Agregar líneas duplicadas del mismo producto (evita choque UNIQUE event_id).
+    final aggregated = <int, int>{};
+    for (final line in rawLines) {
+      if (line.cantidad < 0) {
+        throw ArgumentError(
+          'Cantidad negativa inválida en ledger (producto ${line.productoId}).',
+        );
+      }
+      aggregated.update(
+        line.productoId,
+        (prev) => prev + line.cantidad.abs(),
+        ifAbsent: () => line.cantidad.abs(),
+      );
+    }
+    final lines = aggregated.entries
+        .map((e) => InventoryLine(productoId: e.key, cantidad: e.value))
+        .toList();
+
+    // Validación de política dentro de la misma TX (stock actual).
+    for (final line in lines) {
+      final prod = await txn.query(
+        'productos',
+        columns: ['stock', 'codigo'],
+        where: 'id = ?',
+        whereArgs: [line.productoId],
+        limit: 1,
+      );
+      if (prod.isEmpty) {
+        throw StateError(
+          'Producto ${line.productoId} inexistente: no se puede mover stock.',
+        );
+      }
+      final stockBefore = (prod.first['stock'] as num?)?.toInt() ?? 0;
+      final stockAfter = stockBefore + sign * line.cantidad.abs();
+      if (!await IntegrityPolicy.instance.permiteStockResultante(stockAfter)) {
+        final codigo = prod.first['codigo']?.toString() ?? '${line.productoId}';
+        throw StateError(
+          'Stock insuficiente para $codigo '
+          '(hay $stockBefore, se necesitan ${line.cantidad.abs()}). '
+          'Activá "Permitir stock negativo" en Configuración si corresponde.',
+        );
+      }
+    }
 
     final docType = event.payload['documentType']?.toString();
     final docId = event.payload['documentId']?.toString();
@@ -90,63 +139,173 @@ class InventoryLedgerService {
         AuthService.instance.currentUser?.usuario ??
         'sistema';
 
-    await db.transaction((txn) async {
-      await txn.insert('domain_events', event.toRow());
-      for (final line in lines) {
-        final prod = await txn.query(
-          'productos',
-          columns: ['stock', 'codigo'],
-          where: 'id = ?',
-          whereArgs: [line.productoId],
-          limit: 1,
+    await txn.insert('domain_events', event.toRow());
+    for (final line in lines) {
+      final prod = await txn.query(
+        'productos',
+        columns: ['stock', 'codigo'],
+        where: 'id = ?',
+        whereArgs: [line.productoId],
+        limit: 1,
+      );
+      if (prod.isEmpty) {
+        throw StateError(
+          'Producto ${line.productoId} inexistente durante applyInTxn.',
         );
-        final stockBefore =
-            (prod.isNotEmpty ? prod.first['stock'] as num? : 0)?.toInt() ?? 0;
-        final codigo = line.productoCodigo ??
-            (prod.isNotEmpty ? prod.first['codigo']?.toString() : null);
-        final delta = sign * line.cantidad.abs();
-        final stockAfter = stockBefore + delta;
-
-        await txn.rawUpdate(
-          'UPDATE productos SET stock = stock + ?, actualizadoEn = ? WHERE id = ?',
-          [delta, DateTime.now().toUtc().toIso8601String(), line.productoId],
-        );
-
-        final lineEventId = '${event.eventId}:${line.productoId}';
-        await txn.insert('inventory_ledger', {
-          'event_id': lineEventId,
-          'parent_event_id': event.eventId,
-          'product_id': line.productoId,
-          'product_codigo': codigo,
-          'delta': delta,
-          'reason': motivo,
-          'document_type': docType,
-          'document_id': docId,
-          'stock_before': stockBefore,
-          'stock_after': stockAfter,
-          'created_at': event.createdAt.toIso8601String(),
-        });
-
-        // Compat UI kardex legado.
-        await txn.insert('movimientos_stock', {
-          ...MovimientoStock(
-            productoId: line.productoId,
-            tipo: movimientoTipo,
-            cantidad: line.cantidad.abs(),
-            fecha: event.createdAt.toLocal(),
-            remitoId: docType == 'remito' ? docId : null,
-            motivo: motivo,
-            usuario: usuario,
-            stockAnterior: stockBefore,
-            stockNuevo: stockAfter,
-          ).toMap()
-            ..remove('id'),
-        });
       }
-    });
+      final stockBefore = (prod.first['stock'] as num?)?.toInt() ?? 0;
+      final codigo = line.productoCodigo ?? prod.first['codigo']?.toString();
+      final delta = sign * line.cantidad.abs();
+      final stockAfter = stockBefore + delta;
 
-    // Sync nube: en Windows solo encolar (sin flush ni subir productos ya).
-    // Las ráfagas Firebase cerraban el .exe tras compras/remitos.
+      final updated = await txn.rawUpdate(
+        'UPDATE productos SET stock = stock + ?, actualizadoEn = ? WHERE id = ?',
+        [delta, DateTime.now().toUtc().toIso8601String(), line.productoId],
+      );
+      if (updated != 1) {
+        throw StateError(
+          'No se pudo proyectar stock del producto ${line.productoId}.',
+        );
+      }
+
+      final lineEventId = '${event.eventId}:${line.productoId}';
+      await txn.insert('inventory_ledger', {
+        'event_id': lineEventId,
+        'parent_event_id': event.eventId,
+        'product_id': line.productoId,
+        'product_codigo': codigo,
+        'delta': delta,
+        'reason': motivo,
+        'document_type': docType,
+        'document_id': docId,
+        'stock_before': stockBefore,
+        'stock_after': stockAfter,
+        'created_at': event.createdAt.toIso8601String(),
+      });
+
+      await txn.insert('movimientos_stock', {
+        ...MovimientoStock(
+          productoId: line.productoId,
+          tipo: movimientoTipo,
+          cantidad: line.cantidad.abs(),
+          fecha: event.createdAt.toLocal(),
+          remitoId: docType == 'remito' ? docId : null,
+          motivo: motivo,
+          usuario: usuario,
+          stockAnterior: stockBefore,
+          stockNuevo: stockAfter,
+        ).toMap()
+          ..remove('id'),
+      });
+    }
+    return true;
+  }
+
+  /// Aplica un stock_op remoto al ledger local (sin re-subir a la nube).
+  /// Idempotente por [opId] (= event_id).
+  Future<bool> applyRemoteStockOp({
+    required String opId,
+    required int productoId,
+    required String codigo,
+    required int delta,
+  }) async {
+    if (delta == 0 || opId.isEmpty) return false;
+    final tipo = delta > 0 ? 'entrada' : 'salida';
+    final event = DomainEvent(
+      eventId: opId,
+      type: DomainEventType.ajusteInventario,
+      aggregateType: 'producto',
+      aggregateId: '$productoId',
+      createdBy: 'sync',
+      payload: {
+        'tipo': tipo,
+        'motivo': 'Sync stock_op $opId',
+        'documentType': 'stock_op',
+        'documentId': opId,
+        'lines': [
+          InventoryLine(
+            productoId: productoId,
+            cantidad: delta.abs(),
+            productoCodigo: codigo,
+          ).toJson(),
+        ],
+      },
+    );
+    final db = await DatabaseHelper.instance.database;
+    final applied = await db.transaction((txn) async {
+      return applyInTxn(
+        txn,
+        event,
+        sign: delta > 0 ? 1 : -1,
+        movimientoTipo: tipo,
+      );
+    });
+    if (applied) {
+      DataRefreshHub.instance.notifyStock();
+      DataRefreshHub.instance.notifyProductos();
+    }
+    return applied;
+  }
+
+  /// Reverso local de stock de un documento (p. ej. tombstone remoto).
+  /// No encola cloud — los deltas remotos llegan por stock_ops.
+  Future<bool> reverseDocumentLocally({
+    required String documentType,
+    required String documentId,
+    required String eventId,
+    required List<InventoryLine> lines,
+    required int sign,
+    required String movimientoTipo,
+    String motivo = 'Reverso local por sync',
+  }) async {
+    if (lines.isEmpty) return false;
+    final event = DomainEvent(
+      eventId: eventId,
+      type: sign > 0
+          ? DomainEventType.mercaderiaEntregaRevertida
+          : DomainEventType.mercaderiaRecepcionRevertida,
+      aggregateType: documentType,
+      aggregateId: documentId,
+      createdBy: 'sync',
+      payload: {
+        'documentType': documentType,
+        'documentId': documentId,
+        'motivo': motivo,
+        'lines': lines.map((l) => l.toJson()).toList(),
+      },
+    );
+    final db = await DatabaseHelper.instance.database;
+    final applied = await db.transaction((txn) async {
+      return applyInTxn(
+        txn,
+        event,
+        sign: sign,
+        movimientoTipo: movimientoTipo,
+      );
+    });
+    if (applied) {
+      DataRefreshHub.instance.notifyStock();
+    }
+    return applied;
+  }
+
+  Future<int> ledgerNetForDocument({
+    required String documentType,
+    required String documentId,
+  }) async {
+    final db = await DatabaseHelper.instance.database;
+    final r = await db.rawQuery(
+      'SELECT COALESCE(SUM(delta), 0) s FROM inventory_ledger '
+      'WHERE document_type = ? AND document_id = ?',
+      [documentType, documentId],
+    );
+    return (r.first['s'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Encola sync nube tras commit de TX comercial (no bloquear UI).
+  void enqueueCloudAfterApply(DomainEvent event, {required int sign}) {
+    final lines = _linesFrom(event);
+    if (lines.isEmpty) return;
     syncInBackground(
       CloudSyncThrottle.enqueue(() async {
         final windows = PlatformCapabilities.isWindowsDesktop;
@@ -169,16 +328,33 @@ class InventoryLedgerService {
           }
         }
         if (windows) {
-          // Flush mucho más tarde: no solapar con subirRemito/PDF (crash .exe).
           await Future<void>.delayed(const Duration(seconds: 18));
           await FirestoreSyncService.instance.flushStockOpsPendientes();
         }
       }, tag: 'InventoryLedger cloud'),
       tag: 'InventoryLedger cloud',
     );
-
     DataRefreshHub.instance.notifyStock();
     DataRefreshHub.instance.notifyProductos();
+  }
+
+  Future<void> _applyInventory(
+    DomainEvent event, {
+    required int sign,
+    required String movimientoTipo,
+  }) async {
+    final db = await DatabaseHelper.instance.database;
+    final applied = await db.transaction((txn) async {
+      return applyInTxn(
+        txn,
+        event,
+        sign: sign,
+        movimientoTipo: movimientoTipo,
+      );
+    });
+    if (applied) {
+      enqueueCloudAfterApply(event, sign: sign);
+    }
   }
 
   /// Reconstruye stock de un producto desde el ledger (certificación).
@@ -211,7 +387,6 @@ class InventoryLedgerService {
       limit: 1,
     );
     if (first.isEmpty) {
-      // Sin ledger: no hay invariante C3 que validar.
       return true;
     }
     final base = (first.first['stock_before'] as num?)?.toInt() ?? 0;

@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/security/secure_local_store.dart';
+
 /// Configuración local del plugin WhatsApp Business (por dispositivo/tenant UI).
 /// No forma parte del core de dominio ni del sync.
 class WhatsappBusinessConfig {
@@ -64,7 +66,8 @@ class WhatsappBusinessConfig {
     final p = await SharedPreferences.getInstance();
     enabled = p.getBool(_kEnabled) ?? false;
     preferApi = p.getBool(_kPreferApi) ?? true;
-    accessToken = p.getString(_kToken) ?? '';
+    // Token ofuscado (migra plaintext legacy).
+    accessToken = await SecureLocalStore.instance.loadMigrating(_kToken);
     phoneNumberId = p.getString(_kPhoneNumberId) ?? '';
     wabaId = p.getString(_kWabaId) ?? '';
     apiVersion = p.getString(_kApiVersion) ?? 'v21.0';
@@ -106,7 +109,7 @@ class WhatsappBusinessConfig {
     }
     if (accessToken != null) {
       this.accessToken = accessToken.trim();
-      await p.setString(_kToken, this.accessToken);
+      await SecureLocalStore.instance.saveEncrypted(_kToken, this.accessToken);
     }
     if (phoneNumberId != null) {
       this.phoneNumberId = phoneNumberId.trim();

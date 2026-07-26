@@ -146,6 +146,18 @@ service cloud.firestore {
         allow write: if isTenantAdmin(tenantId);
       }
 
+      // stock_ops: create/update idempotente; delete prohibido.
+      match /stock_ops/{opId} {
+        allow read: if isMember(tenantId);
+        allow create: if canWriteOps(tenantId)
+          && request.resource.data.keys().hasAll(['codigo', 'delta', 'status', 'at'])
+          && request.resource.data.status in ['claimed', 'applied', 'pending_apply'];
+        allow update: if canWriteOps(tenantId)
+          && resource.data.status in ['claimed', 'pending_apply']
+          && request.resource.data.status in ['applied', 'pending_apply', 'claimed'];
+        allow delete: if false;
+      }
+
       match /{collection}/{docId} {
         allow read: if isMember(tenantId)
           && collection in [
@@ -157,10 +169,9 @@ service cloud.firestore {
             'compras',
             'documentos',
             'chats',
-            'notificaciones',
-            'stock_ops'
+            'notificaciones'
           ];
-        allow write: if canWriteOps(tenantId)
+        allow create, update: if canWriteOps(tenantId)
           && collection in [
             'productos',
             'clientes',
@@ -170,8 +181,18 @@ service cloud.firestore {
             'compras',
             'documentos',
             'chats',
-            'notificaciones',
-            'stock_ops'
+            'notificaciones'
+          ];
+        // Deletes / tombstones duros: solo admin (empleados usan soft-delete).
+        allow delete: if isTenantAdmin(tenantId)
+          && collection in [
+            'productos',
+            'clientes',
+            'proveedores',
+            'ventas',
+            'remitos',
+            'compras',
+            'documentos'
           ];
       }
 
