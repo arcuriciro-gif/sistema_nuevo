@@ -12,6 +12,7 @@ import '../core/events/data_refresh_hub.dart';
 import '../core/comms/local_notification_service.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/config/platform_capabilities.dart';
+import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/sync/sync_background.dart';
 import '../services/crm_automations_service.dart';
 import '../services/crm_reminder_service.dart';
@@ -208,6 +209,14 @@ class _MainShellState extends State<MainShell> {
       }
       if (mounted) await EmpresaOnboardingDialog.mostrarSiHaceFalta(context);
       if (mounted) await _ofrecerActivarNubeSiHaceFalta();
+      // Windows: CRM puede pegar red/notif al login — deferir un poco.
+      final crmDelay = PlatformCapabilities.isWindowsDesktop
+          ? const Duration(seconds: 8)
+          : Duration.zero;
+      if (crmDelay > Duration.zero) {
+        await Future<void>.delayed(crmDelay);
+      }
+      if (!mounted) return;
       // Automatizaciones CRM (1/día) y luego aviso de agenda.
       try {
         await CrmAutomationsService.instance.ejecutar();
@@ -262,9 +271,15 @@ class _MainShellState extends State<MainShell> {
       return;
     }
     if (BackendConfigService.instance.firebaseEnabled) {
-      // Ya activa: forzar un reconnect por si quedó a medias.
-      // Windows: no bloquear el arranque de la UI con el catch-up de sync.
+      // Ya activa. Windows: si Auth ya OK (login_page lo hizo), NO reconectar
+      // (doble connect = Auth OK ×2 y crash del .exe).
       if (PlatformCapabilities.isWindowsDesktop) {
+        final yaAuth =
+            FirebaseAuthUsuarioService.instance.uidActual != null;
+        if (yaAuth) {
+          debugPrint('Shell Windows: nube ya autenticada, skip reconnect');
+          return;
+        }
         syncInBackground(
           AuthService.instance.conectarFirebaseDespuesDelLogin().then((_) {}),
           tag: 'reconnectNubeWindows',

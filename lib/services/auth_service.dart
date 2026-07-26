@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -19,6 +20,7 @@ import '../core/sync/cloud_sync_throttle.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/sync_background.dart';
 import '../core/sync/media_sync_service.dart';
+import '../core/sync/windows_sync_policy.dart';
 import '../core/utils/media_path.dart';
 import '../database/database_helper.dart';
 import '../models/usuario.dart';
@@ -40,6 +42,8 @@ class AuthService {
   String? _ultimaPasswordIngresada;
   String? lastLoginError;
   bool _hookSyncRegistrado = false;
+  /// Evita login_page + MainShell llamando connect a la vez (Auth OK ×2 → crash).
+  Future<({bool ok, String mensaje})>? _conectarInFlight;
 
   void _asegurarHookSync() {
     if (_hookSyncRegistrado) return;
@@ -465,7 +469,21 @@ class AuthService {
       await appendAppLog('POST-LOGIN nube desactivada (opt-in pendiente)');
       return (ok: false, mensaje: 'Nube desactivada.');
     }
-    return _conectarFirebaseInterno();
+    // Single-flight: login_page y MainShell disparan connect al mismo tiempo.
+    final inflight = _conectarInFlight;
+    if (inflight != null) {
+      await appendAppLog('POST-LOGIN connect ya en curso (reuso)');
+      return inflight;
+    }
+    final run = _conectarFirebaseInterno();
+    _conectarInFlight = run;
+    try {
+      return await run;
+    } finally {
+      if (identical(_conectarInFlight, run)) {
+        _conectarInFlight = null;
+      }
+    }
   }
 
   /// Opt-in del usuario desde Configuración.
@@ -586,25 +604,66 @@ class AuthService {
 
       final uidActual = firebase.uidActual;
       if (uidActual != null) {
-        try {
-          await FirestoreUsuarioRepository().actualizar(currentUser!);
-        } catch (e) {
-          debugPrint('Firestore usuario post-login: $e');
-        }
-        try {
-          await TenantMembershipService.instance.asegurarMembresia(
-            rol: currentUser!.rol,
-            email: currentUser!.email,
-            usuario: currentUser!.usuario,
-          );
-        } catch (e) {
-          debugPrint('Membership post-login: $e');
-        }
-        try {
-          await _arrancarSyncTrasAuth();
-          await appendAppLog('Firebase Auth OK uid=$uidActual');
-        } catch (e) {
-          debugPrint('Sync start post-login: $e');
+        final windows = PlatformCapabilities.isWindowsDesktop;
+        if (windows) {
+          // Windows: NO Firestore writes acá (usuario/membership).
+          // Eso + sync al mismo tiempo tumbaba el .exe. Solo Auth + sync light.
+          await appendAppLog('Firebase Auth OK uid=$uidActual (windows light)');
+          try {
+            await _arrancarSyncTrasAuth();
+            await appendAppLog('SYNC start encolado (windows)');
+          } catch (e) {
+            await appendAppLog('Sync start post-login: $e');
+          }
+          // Usuario/membership después de la cuarentena, serializado.
+          final userSnap = currentUser;
+          if (userSnap != null) {
+            syncInBackground(
+              CloudSyncThrottle.enqueue(() async {
+                await Future<void>.delayed(
+                  WindowsSyncPolicy.quarantineAfterLogin,
+                );
+                try {
+                  await FirestoreUsuarioRepository().actualizar(userSnap);
+                  await appendAppLog('POST-Q usuario nube OK');
+                } catch (e) {
+                  await appendAppLog('POST-Q usuario nube: $e');
+                }
+                try {
+                  await TenantMembershipService.instance.asegurarMembresia(
+                    rol: userSnap.rol,
+                    email: userSnap.email,
+                    usuario: userSnap.usuario,
+                  );
+                  await appendAppLog('POST-Q membership OK');
+                } catch (e) {
+                  await appendAppLog('POST-Q membership: $e');
+                }
+              }, tag: 'postAuthWritesWindows'),
+              tag: 'postAuthWritesWindows',
+            );
+          }
+        } else {
+          try {
+            await FirestoreUsuarioRepository().actualizar(currentUser!);
+          } catch (e) {
+            debugPrint('Firestore usuario post-login: $e');
+          }
+          try {
+            await TenantMembershipService.instance.asegurarMembresia(
+              rol: currentUser!.rol,
+              email: currentUser!.email,
+              usuario: currentUser!.usuario,
+            );
+          } catch (e) {
+            debugPrint('Membership post-login: $e');
+          }
+          try {
+            await _arrancarSyncTrasAuth();
+            await appendAppLog('Firebase Auth OK uid=$uidActual');
+          } catch (e) {
+            debugPrint('Sync start post-login: $e');
+          }
         }
         await FirebaseSafeMode.marcarFinLoginFirebase();
         return (
