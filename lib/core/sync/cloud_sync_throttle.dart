@@ -21,7 +21,7 @@ class CloudSyncThrottle {
       try {
         if (PlatformCapabilities.isWindowsDesktop) {
           // Respiro entre escrituras nativas (más holgado = menos crash .exe).
-          await Future<void>.delayed(const Duration(milliseconds: 550));
+          await Future<void>.delayed(const Duration(milliseconds: 800));
         }
         await job();
       } catch (e, st) {
