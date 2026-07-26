@@ -391,10 +391,37 @@ class FirestoreSyncService {
       if (!_puedeEscribirRemoto) return;
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
-          final pending = await SyncOutbox.instance.countByStatus(
+          // Tras un crash quedan ops "inflight" huérfanas: recuperarlas.
+          await SyncOutbox.instance.reclaimStaleInflight(
+            olderThan: windows
+                ? const Duration(seconds: 90)
+                : const Duration(minutes: 5),
+          );
+
+          var pending = await SyncOutbox.instance.countByStatus(
             SyncOutboxStatus.pending,
           );
-          if (pending == 0) return;
+          final inflight = await SyncOutbox.instance.countByStatus(
+            SyncOutboxStatus.inflight,
+          );
+
+          if (pending == 0 && inflight == 0) {
+            syncStatusLabel = windows
+                ? 'En la nube (modo estable PC)'
+                : 'En la nube';
+            syncStatusDetail = null;
+            DataRefreshHub.instance.notifyTodo();
+            return;
+          }
+
+          if (pending == 0 && inflight > 0) {
+            // Aún en vuelo o trabadas recientes: no spamear drain.
+            syncStatusLabel = 'Sincronizando…';
+            syncStatusDetail = '$inflight en curso';
+            DataRefreshHub.instance.notifyTodo();
+            return;
+          }
+
           syncStatusDetail = '$pending pendientes…';
           // Primero documentos, luego stock (crítico), después productos.
           await _procesarOutboxDrain(
@@ -417,17 +444,22 @@ class FirestoreSyncService {
                 ? const ['producto', 'proveedor']
                 : null,
           );
-          final left = await SyncOutbox.instance.countByStatus(
+          pending = await SyncOutbox.instance.countByStatus(
             SyncOutboxStatus.pending,
           );
-          if (left == 0) {
+          final leftInflight = await SyncOutbox.instance.countByStatus(
+            SyncOutboxStatus.inflight,
+          );
+          if (pending == 0 && leftInflight == 0) {
             syncStatusLabel = windows
                 ? 'En la nube (modo estable PC)'
                 : 'En la nube';
             syncStatusDetail = null;
           } else {
             syncStatusLabel = 'Sincronizando…';
-            syncStatusDetail = '$left pendientes';
+            syncStatusDetail = pending > 0
+                ? '$pending pendientes'
+                : '$leftInflight en curso';
           }
           DataRefreshHub.instance.notifyTodo();
         }, tag: 'outboxPump'),
