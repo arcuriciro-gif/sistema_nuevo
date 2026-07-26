@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../core/config/device_identity.dart';
+import '../core/config/platform_capabilities.dart';
 import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
@@ -8,6 +9,7 @@ import '../core/domain/inventory_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/events/producto_side_effects.dart';
 import '../core/security/authorization_service.dart';
+import '../core/sync/cloud_sync_throttle.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
 import '../core/sync/sync_background.dart';
@@ -113,6 +115,23 @@ class ProductoService {
     bool incluirStockAbsoluto = false,
   }) {
     if (id == null) return;
+    // Windows fast-safe: 1 producto via throttle (serializado, delay corto).
+    // Evita ráfagas concurrentes que tumban el .exe, pero sube al toque.
+    if (PlatformCapabilities.isWindowsDesktop) {
+      syncInBackground(
+        CloudSyncThrottle.enqueue(
+          () => FirestoreSyncService.instance.subirProductoPorId(
+            id,
+            incluirStockAbsoluto: incluirStockAbsoluto,
+            forzar: incluirStockAbsoluto,
+          ),
+          tag: 'subirProductoInteractivo',
+          interactive: true,
+        ),
+        tag: 'subirProducto',
+      );
+      return;
+    }
     // Si no hay sesión de nube, entra en cola persistente; si hay, re-empuja.
     syncInBackground(
       FirestoreSyncService.instance.subirProductoPorId(

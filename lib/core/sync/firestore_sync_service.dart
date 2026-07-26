@@ -26,6 +26,7 @@ import 'sync_health.dart';
 import 'sync_outbox.dart';
 import 'sync_tombstone.dart';
 import 'sync_watermark_store.dart';
+import 'windows_sync_policy.dart';
 import '../../database/database_helper.dart';
 import '../../models/cliente.dart';
 import '../../models/documento_cliente.dart';
@@ -261,7 +262,7 @@ class FirestoreSyncService {
       if (windows) {
         syncStatusLabel = 'Sincronizando…';
         syncStatusDetail =
-            'Modo estable PC. Sync gradual (sin ráfagas al iniciar)…';
+            'PC estable: 1 producto/lista al toque; masivo gradual…';
         DataRefreshHub.instance.notifyTodo();
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
@@ -442,25 +443,26 @@ class FirestoreSyncService {
 
           syncStatusDetail = '$pending pendientes…';
           if (windows) {
-            // Ultra-light: un solo micro-lote por tick (máx 3 ops).
+            // Fast-safe: prioriza productos (edits interactivos / cola masiva),
+            // docs y stock_ops en rotación. Un micro-lote por tick.
             final tick = _softPullTickWindows % 3;
             if (tick == 0) {
+              await _procesarOutboxDrain(
+                maxBatches: 1,
+                claimLimit: 2,
+                entityTypes: const ['producto', 'proveedor'],
+              );
+            } else if (tick == 1) {
               await _procesarOutboxDrain(
                 maxBatches: 1,
                 claimLimit: 3,
                 entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
               );
-            } else if (tick == 1) {
+            } else {
               await _procesarOutboxDrain(
                 maxBatches: 1,
                 claimLimit: 2,
                 entityTypes: const ['stock_op'],
-              );
-            } else {
-              await _procesarOutboxDrain(
-                maxBatches: 1,
-                claimLimit: 1,
-                entityTypes: const ['producto', 'proveedor'],
               );
             }
           } else {
@@ -554,49 +556,51 @@ class FirestoreSyncService {
 
   int _softPullTickWindows = 0;
 
-  /// Una sola colección por tick (round-robin). Evita ráfagas que tumban el .exe.
+  /// Una sola colección por tick. Fast-safe: productos ~50% (otros devices
+  /// ven cambios de precio/catálogo antes); resto round-robin.
   Future<void> _pullSuaveWindows() async {
     const page = 15;
-    final tick = _softPullTickWindows % 8;
+    final tick = _softPullTickWindows;
     _softPullTickWindows++;
+    final lane = WindowsSyncPolicy.softPullLane(tick);
     try {
-      switch (tick) {
-        case 0:
+      switch (lane) {
+        case 'productos_inc':
+          await _pullProductosIncrementalWindows(maxPages: 1, pageSize: page);
+        case 'productos_cat':
+          await _pullProductosCatalogoWindows(maxPages: 1, pageSize: page);
+        case 'clientes':
           final snap = await _pullPaginaPorDocId(
             _clientesCol,
             watermarkKey: _wmClientesDoc,
             pageSize: page,
           );
           await _aplicarClientesRemotos(snap);
-        case 1:
+        case 'ventas':
           final snap = await _pullPaginaPorDocId(
             _ventasCol,
             watermarkKey: _wmVentasDoc,
             pageSize: page,
           );
           await _aplicarVentasRemotas(snap);
-        case 2:
+        case 'remitos':
           final snap = await _pullPaginaPorDocId(
             _remitosCol,
             watermarkKey: _wmRemitosDoc,
             pageSize: page,
           );
           await _aplicarRemitosRemotos(snap);
-        case 3:
-          await _pullProductosIncrementalWindows(maxPages: 1, pageSize: page);
-        case 4:
-          await _pullProductosCatalogoWindows(maxPages: 1, pageSize: page);
-        case 5:
+        case 'stock_ops':
           // Micro stock_ops: 3 por ciclo máximo.
           await _pullStockOpsRemotas(maxPages: 1, pageSize: 10, maxApply: 3);
-        case 6:
+        case 'compras':
           final snap = await _pullPaginaPorDocId(
             _comprasCol,
             watermarkKey: 'pull_compras_doc',
             pageSize: page,
           );
           await _aplicarComprasRemotas(snap);
-        case 7:
+        case 'proveedores':
           final snap = await _pullPaginaPorDocId(
             _proveedoresCol,
             watermarkKey: 'pull_proveedores_doc',
@@ -605,7 +609,7 @@ class FirestoreSyncService {
           await _aplicarProveedoresRemotos(snap);
       }
     } catch (e) {
-      debugPrint('Pull suave Windows tick=$tick: $e');
+      debugPrint('Pull suave Windows tick=$tick lane=$lane: $e');
     }
   }
 

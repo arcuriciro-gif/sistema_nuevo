@@ -1,5 +1,7 @@
+import '../core/config/platform_capabilities.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
+import '../core/sync/cloud_sync_throttle.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
@@ -9,8 +11,20 @@ class ListaPrecioService {
   final DatabaseHelper dbHelper = DatabaseHelper.instance;
 
   /// Local primero; la nube va en segundo plano (modo avión / corte de red).
+  /// Windows: via throttle interactivo (al toque, sin ráfaga).
   void _syncNube() {
     DataRefreshHub.instance.notifyTodo();
+    if (PlatformCapabilities.isWindowsDesktop) {
+      syncInBackground(
+        CloudSyncThrottle.enqueue(
+          () => FirestoreSyncService.instance.subirListasPrecios(),
+          tag: 'subirListasInteractivo',
+          interactive: true,
+        ),
+        tag: 'subirListas',
+      );
+      return;
+    }
     syncInBackground(
       FirestoreSyncService.instance.subirListasPrecios(),
       tag: 'subirListas',
