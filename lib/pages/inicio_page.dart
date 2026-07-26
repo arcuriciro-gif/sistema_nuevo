@@ -9,8 +9,10 @@ import '../services/compra_service.dart';
 import '../services/cuenta_corriente_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
-import '../theme/app_tokens.dart';
 import '../theme/module_app_bar.dart';
+import '../widgets/erp/erp_kpi_tile.dart';
+import '../widgets/erp/erp_quick_action_bar.dart';
+import '../widgets/erp/erp_section_header.dart';
 import '../widgets/shell/shell_sync_badge.dart';
 
 /// Centro de Operaciones: info útil para empezar el día (sin gráficos grandes).
@@ -201,15 +203,42 @@ class _InicioPageState extends State<InicioPage> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  _accionesRapidas(cs),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Hoy',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ErpQuickActionBar(
+                    actions: [
+                      ErpQuickAction(
+                        label: 'Nueva venta',
+                        icon: Icons.point_of_sale_rounded,
+                        onTap: () => _go('Venta Rápida'),
+                      ),
+                      ErpQuickAction(
+                        label: 'Producto',
+                        icon: Icons.add_box_outlined,
+                        onTap: () => _go('Productos'),
+                      ),
+                      ErpQuickAction(
+                        label: 'Cliente',
+                        icon: Icons.person_add_alt_1_rounded,
+                        onTap: () => _go('Clientes'),
+                      ),
+                      ErpQuickAction(
+                        label: 'Compra',
+                        icon: Icons.shopping_cart_rounded,
+                        onTap: () => _go('Compras'),
+                      ),
+                      ErpQuickAction(
+                        label: 'Buscar',
+                        icon: Icons.search_rounded,
+                        onTap: widget.onBuscar,
+                      ),
+                      ErpQuickAction(
+                        label: 'Escanear',
+                        icon: Icons.qr_code_scanner_rounded,
+                        onTap: widget.onEscanear,
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 16),
+                  const ErpSectionHeader(title: 'Hoy'),
                   const SizedBox(height: 8),
                   LayoutBuilder(
                     builder: (context, c) {
@@ -226,47 +255,47 @@ class _InicioPageState extends State<InicioPage> {
                         crossAxisSpacing: 10,
                         childAspectRatio: 1.55,
                         children: [
-                          _kpi(
-                            'Ventas del día',
-                            _money(_ventasDia),
-                            Icons.payments_rounded,
-                            cs.primary,
+                          ErpKpiTile(
+                            title: 'Ventas del día',
+                            value: _money(_ventasDia),
+                            icon: Icons.payments_rounded,
+                            accent: cs.primary,
                             onTap: () => _go('Ventas / Facturas'),
                           ),
-                          _kpi(
-                            'Ganancia estimada',
-                            _money(_gananciaDia),
-                            Icons.trending_up_rounded,
-                            Colors.green.shade700,
+                          ErpKpiTile(
+                            title: 'Ganancia estimada',
+                            value: _money(_gananciaDia),
+                            icon: Icons.trending_up_rounded,
+                            accent: Colors.green.shade700,
                             onTap: () => _go('Dashboard'),
                           ),
-                          _kpi(
-                            'Ventas del mes',
-                            _money(_ventasMes),
-                            Icons.calendar_month_rounded,
-                            cs.secondary,
+                          ErpKpiTile(
+                            title: 'Ventas del mes',
+                            value: _money(_ventasMes),
+                            icon: Icons.calendar_month_rounded,
+                            accent: cs.secondary,
                             onTap: () => _go('Dashboard'),
                           ),
-                          _kpi(
-                            'Clientes con deuda',
-                            '$_clientesDeuda',
-                            Icons.account_balance_wallet_rounded,
-                            Colors.red.shade700,
+                          ErpKpiTile(
+                            title: 'Clientes con deuda',
+                            value: '$_clientesDeuda',
+                            icon: Icons.account_balance_wallet_rounded,
+                            accent: Colors.red.shade700,
                             subtitle: _money(_deudaTotal),
                             onTap: () => _go('Cuenta corriente'),
                           ),
-                          _kpi(
-                            'Sin stock',
-                            '$_sinStock',
-                            Icons.inventory_2_outlined,
-                            Colors.orange.shade800,
+                          ErpKpiTile(
+                            title: 'Sin stock',
+                            value: '$_sinStock',
+                            icon: Icons.inventory_2_outlined,
+                            accent: Colors.orange.shade800,
                             onTap: () => _go('Stock'),
                           ),
-                          _kpi(
-                            'Productos críticos',
-                            '$_criticos',
-                            Icons.warning_amber_rounded,
-                            Colors.deepOrange,
+                          ErpKpiTile(
+                            title: 'Productos críticos',
+                            value: '$_criticos',
+                            icon: Icons.warning_amber_rounded,
+                            accent: Colors.deepOrange,
                             onTap: () => _go('Productos'),
                           ),
                         ],
@@ -274,13 +303,7 @@ class _InicioPageState extends State<InicioPage> {
                     },
                   ),
                   const SizedBox(height: 20),
-                  Text(
-                    'Últimos movimientos',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w700),
-                  ),
+                  const ErpSectionHeader(title: 'Últimos movimientos'),
                   const SizedBox(height: 8),
                   if (_ultimosDocs.isEmpty)
                     Text(
@@ -306,13 +329,7 @@ class _InicioPageState extends State<InicioPage> {
                       ),
                     ),
                   const SizedBox(height: 16),
-                  Text(
-                    'Centro de actividad',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w700),
-                  ),
+                  const ErpSectionHeader(title: 'Centro de actividad'),
                   const SizedBox(height: 8),
                   ..._actividad.take(12).map((a) {
                     final icon = switch (a['tipo']) {
@@ -342,116 +359,4 @@ class _InicioPageState extends State<InicioPage> {
     );
   }
 
-  Widget _accionesRapidas(ColorScheme cs) {
-    final acciones = <({String label, IconData icon, VoidCallback? onTap})>[
-      (
-        label: 'Nueva venta',
-        icon: Icons.point_of_sale_rounded,
-        onTap: () => _go('Venta Rápida'),
-      ),
-      (
-        label: 'Producto',
-        icon: Icons.add_box_outlined,
-        onTap: () => _go('Productos'),
-      ),
-      (
-        label: 'Cliente',
-        icon: Icons.person_add_alt_1_rounded,
-        onTap: () => _go('Clientes'),
-      ),
-      (
-        label: 'Compra',
-        icon: Icons.shopping_cart_rounded,
-        onTap: () => _go('Compras'),
-      ),
-      (
-        label: 'Buscar',
-        icon: Icons.search_rounded,
-        onTap: widget.onBuscar,
-      ),
-      (
-        label: 'Escanear',
-        icon: Icons.qr_code_scanner_rounded,
-        onTap: widget.onEscanear,
-      ),
-    ];
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (final a in acciones)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: FilledButton.tonalIcon(
-                onPressed: a.onTap,
-                icon: Icon(a.icon, size: 18),
-                label: Text(a.label),
-                style: FilledButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _kpi(
-    String title,
-    String value,
-    IconData icon,
-    Color accent, {
-    String? subtitle,
-    VoidCallback? onTap,
-  }) {
-    return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(
-            alpha: 0.55,
-          ),
-      borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(icon, size: 18, color: accent),
-                  const Spacer(),
-                ],
-              ),
-              const Spacer(),
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-              if (subtitle != null)
-                Text(
-                  subtitle,
-                  style: TextStyle(fontSize: 11, color: accent),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }

@@ -185,7 +185,7 @@ class _ClientesPageState extends State<ClientesPage> {
                 hintText: "Buscar cliente...",
                 prefixIcon: const Icon(Icons.search),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12),
               ),

@@ -165,6 +165,7 @@ class _MainShellState extends State<MainShell> {
   /// cuando se oculta otro ítem del menú.
   String? _selectedPreferenciaId;
   bool _recordatorioMostrado = false;
+  final GlobalKey<ScaffoldState> _mobileScaffoldKey = GlobalKey<ScaffoldState>();
 
   void _onBrandingChanged() {
     if (mounted) setState(() {});
@@ -356,7 +357,7 @@ class _MainShellState extends State<MainShell> {
           icon: Icons.query_stats_rounded,
           title: 'Dashboard',
           modulo: 'dashboard',
-          builder: () => const DashboardPage(),
+          builder: () => DashboardPage(onIrA: _irAModulo),
         ),
         _ShellItem(
           icon: Icons.delete_outline_rounded,
@@ -883,14 +884,15 @@ class _MainShellState extends State<MainShell> {
         embedded: true,
         goHome: _irAInicio,
         child: Scaffold(
+          key: _mobileScaffoldKey,
           appBar: AppBar(
             leading: IconButton(
-              tooltip: 'Inicio',
-              icon: const Icon(Icons.home_rounded),
-              onPressed: _irAInicio,
+              tooltip: 'Menú',
+              icon: const Icon(Icons.menu_rounded),
+              onPressed: () => _mobileScaffoldKey.currentState?.openDrawer(),
             ),
             title: Text(
-              current?.title ?? 'EL TATA Manager',
+              current?.title ?? 'Manager',
               style: TextStyle(
                 color: cs.onSurface,
                 fontWeight: FontWeight.w700,
@@ -898,6 +900,11 @@ class _MainShellState extends State<MainShell> {
             ),
             centerTitle: true,
             actions: [
+              IconButton(
+                tooltip: 'Inicio',
+                icon: const Icon(Icons.home_rounded),
+                onPressed: _irAInicio,
+              ),
               const Padding(
                 padding: EdgeInsets.only(right: 4),
                 child: Center(child: ShellSyncBadge(compact: true)),

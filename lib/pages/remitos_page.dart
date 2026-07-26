@@ -467,6 +467,9 @@ class _RemitosPageState extends State<RemitosPage> {
                         ),
                       )
                     : ListView.builder(
+                        padding: EdgeInsets.only(
+                          bottom: MediaQuery.viewPaddingOf(context).bottom + 88,
+                        ),
                         itemCount: remitos.length,
                         itemBuilder: (context, i) {
                           final remito = remitos[i];

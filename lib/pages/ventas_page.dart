@@ -19,7 +19,7 @@ class VentasPage extends StatefulWidget {
 
   const VentasPage({
     super.key,
-    this.titulo = 'Ventas',
+    this.titulo = 'Ventas / Facturas',
     this.tipos,
   });
 

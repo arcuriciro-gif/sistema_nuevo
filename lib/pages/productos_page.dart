@@ -331,7 +331,9 @@ class _ProductosPageState extends State<ProductosPage> {
                           title: 'Productos',
                           value: '$_totalProductos',
                           icon: Icons.inventory_2_rounded,
-                          color: const Color(0xFF8B5CF6),
+                          color: AppVisuals.primaryAccent(
+                            Theme.of(context).colorScheme,
+                          ),
                           selected: !_soloConStock &&
                               !_soloSinStock &&
                               !_ordenarPorValorStock,
@@ -349,7 +351,9 @@ class _ProductosPageState extends State<ProductosPage> {
                           title: 'Con stock',
                           value: '$_conStock',
                           icon: Icons.layers_rounded,
-                          color: const Color(0xFF22C55E),
+                          color: AppVisuals.success(
+                            Theme.of(context).colorScheme,
+                          ),
                           selected: _soloConStock && !_ordenarPorValorStock,
                           onTap: () {
                             if (_soloConStock && !_ordenarPorValorStock) {
@@ -413,7 +417,7 @@ class _ProductosPageState extends State<ProductosPage> {
                     child: Material(
                       color: (_soloSinStock || _soloStockBajo
                               ? dangerColor
-                              : const Color(0xFF3B82F6))
+                              : AppVisuals.info(Theme.of(context).colorScheme))
                           .withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(10),
                       child: ListTile(
@@ -426,7 +430,7 @@ class _ProductosPageState extends State<ProductosPage> {
                                   : Icons.layers_rounded),
                           color: _soloSinStock || _soloStockBajo
                               ? dangerColor
-                              : const Color(0xFF3B82F6),
+                              : AppVisuals.info(Theme.of(context).colorScheme),
                         ),
                         title: Text(
                           _soloSinStock
@@ -439,7 +443,9 @@ class _ProductosPageState extends State<ProductosPage> {
                           style: TextStyle(
                             color: _soloSinStock || _soloStockBajo
                                 ? dangerColor
-                                : const Color(0xFF3B82F6),
+                                : AppVisuals.info(
+                                    Theme.of(context).colorScheme,
+                                  ),
                             fontWeight: FontWeight.w600,
                           ),
                         ),
