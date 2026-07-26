@@ -12,13 +12,13 @@ import '../core/events/data_refresh_hub.dart';
 import '../core/comms/local_notification_service.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/config/platform_capabilities.dart';
-import '../core/firebase/firebase_auth_usuario_service.dart';
-import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/sync_background.dart';
+import '../theme/app_tokens.dart';
 import '../theme/layout_constants.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/media_avatar.dart';
 import '../widgets/empresa_onboarding_dialog.dart';
+import '../widgets/shell/shell_sync_badge.dart';
 import 'archivo_pdfs_page.dart';
 import 'auditoria_page.dart';
 import 'backup_page.dart';
@@ -58,14 +58,78 @@ import 'ventas_page.dart';
 import 'venta_rapida_page.dart';
 import '../core/utils/media_path.dart';
 
-// ── Barra lateral oscura; el acento seleccionado sigue el color de Config ─────
-const Color _kSidebarBg = Color(0xFF000000);
-const Color _kSidebarBorder = Color(0xFF1A1A1A);
-const Color _kSidebarHeaderBorder = Color(0xFF2A2A2A);
-const Color _kSidebarInactiveIcon = Color(0xFF9CA3AF);
-const Color _kSidebarInactiveText = Color(0xFFD1D5DB);
-const Color _kSidebarUserBg = Color(0xFF141414);
-const Color _kSidebarSubtext = Color(0xFF6B7280);
+// Shell chrome (naranja/blanco/negro). El acento seleccionado sigue Config.
+Color get _kSidebarBg => AppTokens.ink;
+Color get _kSidebarBorder => AppTokens.line;
+Color get _kSidebarHeaderBorder => AppTokens.line;
+Color get _kSidebarInactiveIcon => AppTokens.mute;
+Color get _kSidebarInactiveText => const Color(0xFFE5E7EB);
+Color get _kSidebarUserBg => AppTokens.inkSoft;
+Color get _kSidebarSubtext => AppTokens.muteSoft;
+
+/// Agrupa módulos solo visualmente (mismos preferenciaId).
+String _seccionDeTitulo(String title) {
+  switch (title) {
+    case 'Inicio':
+      return 'Inicio';
+    case 'Venta Rápida':
+    case 'Ventas / Facturas':
+    case 'Presupuestos':
+    case 'Entregas (sin factura)':
+    case 'Tickets internos':
+    case 'Remitos':
+    case 'Compras':
+      return 'Operaciones';
+    case 'Productos':
+    case 'Papelera':
+    case 'Categorías':
+    case 'Stock':
+    case 'Importaciones':
+    case 'Importar Productos':
+    case 'Etiquetas':
+    case 'Listas de Precios':
+    case 'Comparador de listas':
+      return 'Inventario';
+    case 'Clientes':
+    case 'Archivo PDF':
+    case 'Cuenta corriente':
+    case 'Proveedores':
+    case 'Comunicaciones':
+      return 'Clientes';
+    case 'Dashboard':
+    case 'Reportes':
+    case 'Inteligencia Comercial':
+      return 'Análisis';
+    default:
+      return 'Administración';
+  }
+}
+
+const _kOrdenSecciones = [
+  'Inicio',
+  'Operaciones',
+  'Inventario',
+  'Clientes',
+  'Análisis',
+  'Administración',
+];
+
+IconData _iconoSeccion(String sec) {
+  switch (sec) {
+    case 'Inicio':
+      return Icons.home_rounded;
+    case 'Operaciones':
+      return Icons.point_of_sale_rounded;
+    case 'Inventario':
+      return Icons.inventory_2_rounded;
+    case 'Clientes':
+      return Icons.groups_rounded;
+    case 'Análisis':
+      return Icons.insights_rounded;
+    default:
+      return Icons.settings_rounded;
+  }
+}
 
 class _ShellItem {
   final IconData icon;
@@ -258,7 +322,13 @@ class _MainShellState extends State<MainShell> {
           icon: Icons.home_rounded,
           title: 'Inicio',
           modulo: 'dashboard',
-          builder: () => const InicioPage(),
+          builder: () => InicioPage(
+            onIrA: _irAModulo,
+            onBuscar: () => _abrirBusqueda(
+              desktop: MediaQuery.sizeOf(context).width >= kDesktopBreakpoint,
+            ),
+            onEscanear: _abrirScanner,
+          ),
           quickAccess: true,
         ),
         _ShellItem(
@@ -790,8 +860,11 @@ class _MainShellState extends State<MainShell> {
     final items = _visibleItems;
     final index = _safeIndex(items);
     final current = items.isNotEmpty ? items[index] : null;
-    final quickItems = items.where((item) => item.quickAccess).take(4).toList();
+    final quickItems = items.where((item) => item.quickAccess).take(5).toList();
     final cs = Theme.of(context).colorScheme;
+    final bottomIndex = quickItems.indexWhere(
+      (e) => e.preferenciaId == current?.preferenciaId,
+    );
 
     return PopScope(
       canPop: false,
@@ -825,6 +898,10 @@ class _MainShellState extends State<MainShell> {
             ),
             centerTitle: true,
             actions: [
+              const Padding(
+                padding: EdgeInsets.only(right: 4),
+                child: Center(child: ShellSyncBadge(compact: true)),
+              ),
               IconButton(
                 onPressed: () => _abrirBusqueda(desktop: false),
                 icon: const Icon(Icons.search_rounded),
@@ -915,12 +992,11 @@ class _MainShellState extends State<MainShell> {
                   top: false,
                   child: BottomNavigationBar(
                     backgroundColor: cs.surfaceContainerLow,
-                    selectedItemColor: cs.primary,
+                    selectedItemColor:
+                        bottomIndex < 0 ? cs.onSurfaceVariant : cs.primary,
                     unselectedItemColor: cs.onSurfaceVariant,
                     type: BottomNavigationBarType.fixed,
-                    currentIndex: quickItems.contains(current)
-                        ? quickItems.indexOf(current!)
-                        : 0,
+                    currentIndex: bottomIndex < 0 ? 0 : bottomIndex,
                     onTap: (i) => _select(items.indexOf(quickItems[i])),
                     items: quickItems
                         .map(
@@ -954,8 +1030,8 @@ class _Sidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 230,
-      decoration: const BoxDecoration(
+      width: AppTokens.sidebarWidth,
+      decoration: BoxDecoration(
         color: _kSidebarBg,
         border: Border(right: BorderSide(color: _kSidebarBorder)),
       ),
@@ -969,7 +1045,7 @@ class _Sidebar extends StatelessWidget {
   }
 }
 
-class _SidebarContent extends StatelessWidget {
+class _SidebarContent extends StatefulWidget {
   final int selectedIndex;
   final List<_ShellItem> items;
   final ValueChanged<int> onTap;
@@ -983,21 +1059,37 @@ class _SidebarContent extends StatelessWidget {
   });
 
   @override
+  State<_SidebarContent> createState() => _SidebarContentState();
+}
+
+class _SidebarContentState extends State<_SidebarContent> {
+  final Set<String> _colapsadas = {};
+
+  @override
   Widget build(BuildContext context) {
+    final items = widget.items;
+    final selectedIndex = widget.selectedIndex;
+    final onTap = widget.onTap;
+    final onLogout = widget.onLogout;
     final branding = BrandingService.instance;
     final logoPath = branding.imagenUiPath;
     final cs = Theme.of(context).colorScheme;
     final selectedBg = cs.primary;
     final selectedFg = cs.onPrimary;
 
+    final agrupado = <String, List<({_ShellItem item, int index})>>{};
+    for (var i = 0; i < items.length; i++) {
+      final sec = _seccionDeTitulo(items[i].title);
+      agrupado.putIfAbsent(sec, () => []).add((item: items[i], index: i));
+    }
+
     return SafeArea(
       child: Column(
         children: [
-          // ── Encabezado (logo + nombre del negocio) ────────────────────────────
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
-            decoration: const BoxDecoration(
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
+            decoration: BoxDecoration(
               border: Border(bottom: BorderSide(color: _kSidebarHeaderBorder)),
             ),
             child: Column(
@@ -1009,10 +1101,10 @@ class _SidebarContent extends StatelessWidget {
                   path: branding.logoUiPath.isNotEmpty
                       ? branding.logoUiPath
                       : logoPath,
-                  radius: 30,
+                  radius: 28,
                   fallbackLetter:
                       branding.nombre.isNotEmpty ? branding.nombre[0] : 'T',
-                  backgroundColor: const Color(0xFF1A1A1A),
+                  backgroundColor: AppTokens.inkSoft,
                   foregroundColor: Colors.white70,
                 ),
                 const SizedBox(height: 8),
@@ -1020,7 +1112,7 @@ class _SidebarContent extends StatelessWidget {
                   branding.nombre,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w700,
                     fontSize: 14,
                   ),
                   textAlign: TextAlign.center,
@@ -1029,57 +1121,95 @@ class _SidebarContent extends StatelessWidget {
                 if (branding.slogan.isNotEmpty)
                   Text(
                     branding.slogan,
-                    style:
-                        const TextStyle(color: _kSidebarSubtext, fontSize: 11),
+                    style: TextStyle(color: _kSidebarSubtext, fontSize: 11),
                     textAlign: TextAlign.center,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
+                const SizedBox(height: 10),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: ShellSyncBadge(compact: true),
+                ),
               ],
             ),
           ),
-          // ── Ítems de navegación ───────────────────────────────────────────────
           Expanded(
-            child: ListView.builder(
+            child: ListView(
               key: const PageStorageKey<String>('shell_sidebar_nav'),
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-              itemCount: items.length,
-              itemBuilder: (context, index) {
-                final item = items[index];
-                final selected = selectedIndex == index;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Material(
-                    color: selected ? selectedBg : Colors.transparent,
-                    borderRadius: BorderRadius.circular(8),
-                    child: ListTile(
-                      dense: true,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      leading: Icon(
-                        item.icon,
-                        color: selected
-                            ? selectedFg
-                            : _kSidebarInactiveIcon,
-                        size: 20,
-                      ),
-                      title: Text(
-                        item.title,
-                        style: TextStyle(
-                          color: selected
-                              ? selectedFg
-                              : _kSidebarInactiveText,
-                          fontWeight:
-                              selected ? FontWeight.w700 : FontWeight.normal,
-                          fontSize: 14,
+              children: [
+                for (final sec in _kOrdenSecciones)
+                  if (agrupado.containsKey(sec)) ...[
+                    if (sec == 'Inicio')
+                      ...agrupado[sec]!.map((e) {
+                        final selected = selectedIndex == e.index;
+                        return _navTile(
+                          item: e.item,
+                          selected: selected,
+                          selectedBg: selectedBg,
+                          selectedFg: selectedFg,
+                          onTap: () => onTap(e.index),
+                        );
+                      })
+                    else ...[
+                      InkWell(
+                        onTap: () {
+                          setState(() {
+                            if (_colapsadas.contains(sec)) {
+                              _colapsadas.remove(sec);
+                            } else {
+                              _colapsadas.add(sec);
+                            }
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(6),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(10, 12, 8, 4),
+                          child: Row(
+                            children: [
+                              Icon(
+                                _iconoSeccion(sec),
+                                size: 14,
+                                color: _kSidebarSubtext,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  sec.toUpperCase(),
+                                  style: TextStyle(
+                                    color: _kSidebarSubtext,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+                              ),
+                              Icon(
+                                _colapsadas.contains(sec)
+                                    ? Icons.chevron_right_rounded
+                                    : Icons.expand_more_rounded,
+                                size: 16,
+                                color: _kSidebarSubtext,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      onTap: () => onTap(index),
-                    ),
-                  ),
-                );
-              },
+                      if (!_colapsadas.contains(sec))
+                        ...agrupado[sec]!.map((e) {
+                          final selected = selectedIndex == e.index;
+                          return _navTile(
+                            item: e.item,
+                            selected: selected,
+                            selectedBg: selectedBg,
+                            selectedFg: selectedFg,
+                            onTap: () => onTap(e.index),
+                          );
+                        }),
+                    ],
+                  ],
+              ],
             ),
           ),
           // ── Usuario logueado ──────────────────────────────────────────────────
@@ -1141,7 +1271,7 @@ class _SidebarContent extends StatelessWidget {
                         Text(
                           AuthService.instance.currentUser?.rol ??
                               'Editar perfil',
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: _kSidebarSubtext,
                             fontSize: 11,
                           ),
@@ -1151,7 +1281,7 @@ class _SidebarContent extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.logout_rounded,
                       color: _kSidebarInactiveIcon,
                       size: 20,
@@ -1169,8 +1299,44 @@ class _SidebarContent extends StatelessWidget {
       ),
     );
   }
-}
 
+  Widget _navTile({
+    required _ShellItem item,
+    required bool selected,
+    required Color selectedBg,
+    required Color selectedFg,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Material(
+        color: selected ? selectedBg : Colors.transparent,
+        borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+        child: ListTile(
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+          ),
+          leading: Icon(
+            item.icon,
+            color: selected ? selectedFg : _kSidebarInactiveIcon,
+            size: 20,
+          ),
+          title: Text(
+            item.title,
+            style: TextStyle(
+              color: selected ? selectedFg : _kSidebarInactiveText,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              fontSize: 13,
+            ),
+          ),
+          onTap: onTap,
+        ),
+      ),
+    );
+  }
+}
 
 class _SidebarVacia extends StatelessWidget {
   final VoidCallback onAbrirConfig;
@@ -1228,13 +1394,11 @@ class _TopBar extends StatelessWidget {
     final userInitial = userName.substring(0, 1).toUpperCase();
 
     return Container(
-      height: 56,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: const BoxDecoration(
+      height: AppTokens.topBarHeight,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
         color: _kSidebarBg,
-        border: Border(
-          bottom: BorderSide(color: _kSidebarBorder),
-        ),
+        border: Border(bottom: BorderSide(color: _kSidebarBorder)),
       ),
       child: Row(
         children: [
@@ -1249,97 +1413,54 @@ class _TopBar extends StatelessWidget {
             radius: 16,
             fallbackLetter:
                 branding.nombre.isNotEmpty ? branding.nombre[0] : 'T',
-            backgroundColor: const Color(0xFF2A2A2A),
+            backgroundColor: AppTokens.inkSoft,
             foregroundColor: Colors.white70,
           ),
           const SizedBox(width: 10),
-          Text(
-            branding.nombre,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 15,
+          Flexible(
+            child: Text(
+              branding.nombre,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 15,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
+          const SizedBox(width: 12),
+          const ShellSyncBadge(),
           const Spacer(),
-          // Estado de sync real (nube = Firebase + sesión Auth).
-          Builder(
-            builder: (context) {
-              final nubeOn = BackendConfigService.instance.firebaseEnabled;
-              // Nunca tocar FirebaseAuth si la app no está lista (crash .exe).
-              final conAuth = nubeOn &&
-                  FirebaseAuthUsuarioService.instance.disponible &&
-                  FirebaseAuthUsuarioService.instance.uidActual != null;
-              final label = !nubeOn
-                  ? 'Solo local'
-                  : (conAuth
-                      ? FirestoreSyncService.instance.syncStatusLabel
-                      : 'Sin sesión nube');
-              final ok = nubeOn && conAuth;
-              return Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A1A1A),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: _kSidebarHeaderBorder),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      ok
-                          ? Icons.cloud_done_outlined
-                          : Icons.cloud_off_outlined,
-                      size: 14,
-                      color: ok
-                          ? const Color(0xFF4ADE80)
-                          : _kSidebarSubtext,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      label,
-                      style: const TextStyle(
-                        color: _kSidebarInactiveText,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
           IconButton(
             tooltip: 'Configuración',
             onPressed: onSettings,
-            icon: const Icon(Icons.settings_rounded, color: _kSidebarInactiveIcon),
+            icon: Icon(Icons.settings_rounded, color: _kSidebarInactiveIcon),
           ),
-          const SizedBox(width: 4),
           GestureDetector(
             onTap: onSearch,
             child: Container(
-              height: 34,
-              width: 220,
+              height: 36,
+              width: 240,
               decoration: BoxDecoration(
-                color: const Color(0xFF1A1A1A),
-                borderRadius: BorderRadius.circular(8),
+                color: AppTokens.inkSoft,
+                borderRadius: BorderRadius.circular(AppTokens.radiusSm),
                 border: Border.all(color: _kSidebarHeaderBorder),
               ),
-              child: const Row(
+              child: Row(
                 children: [
-                  SizedBox(width: 10),
+                  const SizedBox(width: 10),
                   Icon(Icons.search_rounded,
                       color: _kSidebarInactiveIcon, size: 17),
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   Text(
-                    'Buscar productos...',
-                    style: TextStyle(color: _kSidebarSubtext, fontSize: 13),
+                    'Buscar en todo…  Ctrl+K',
+                    style: TextStyle(color: _kSidebarSubtext, fontSize: 12),
                   ),
                 ],
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           IconButton(
             icon: Badge(
               isLabelVisible: ComunicacionesService.instance.badgeTotal > 0,
@@ -1355,7 +1476,6 @@ class _TopBar extends StatelessWidget {
               );
             },
           ),
-          const SizedBox(width: 4),
           InkWell(
             onTap: () {
               Navigator.of(context).push(
@@ -1365,7 +1485,7 @@ class _TopBar extends StatelessWidget {
             borderRadius: BorderRadius.circular(20),
             child: CircleAvatar(
               radius: 16,
-              backgroundColor: const Color(0xFF2A2A2A),
+              backgroundColor: AppTokens.inkSoft,
               backgroundImage: imageProviderDesdePath(
                 AuthService.instance.currentUser?.foto,
               ),
@@ -1381,11 +1501,10 @@ class _TopBar extends StatelessWidget {
                   : null,
             ),
           ),
-          const SizedBox(width: 4),
           IconButton(
             tooltip: 'Cerrar sesión',
             onPressed: onLogout,
-            icon: const Icon(Icons.logout_rounded, color: _kSidebarInactiveIcon),
+            icon: Icon(Icons.logout_rounded, color: _kSidebarInactiveIcon),
           ),
         ],
       ),

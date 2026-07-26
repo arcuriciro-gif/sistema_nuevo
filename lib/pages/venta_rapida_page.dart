@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../core/events/data_refresh_hub.dart';
 import '../core/utils/busqueda_texto.dart';
+import '../models/cliente.dart';
 import '../models/pago.dart';
 import '../models/producto.dart';
 import '../models/remito.dart';
@@ -14,6 +15,7 @@ import '../services/documento_cliente_service.dart';
 import '../services/pdf_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
+import '../theme/app_tokens.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/cobrar_dialog.dart';
 import 'scanner_page.dart';
@@ -50,7 +52,10 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
   final TextEditingController _busquedaCtrl = TextEditingController();
 
   List<Producto> _resultados = [];
+  List<Producto> _catalogoRapido = [];
   final List<_ItemCarrito> _carrito = [];
+  Cliente? _cliente;
+  String _medioPago = 'efectivo';
   bool _buscando = false;
   bool _finalizando = false;
 
@@ -58,11 +63,30 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
   void initState() {
     super.initState();
     DataRefreshHub.instance.addListener(_onDatosActualizados);
+    _prepararPos();
+  }
+
+  Future<void> _prepararPos() async {
+    final mostrador = await _clienteSvc.obtenerOCrearMostrador();
+    final todos = await _prodSvc.obtenerTodos();
+    final rapidos = [
+      ...todos.where((p) => p.favorito),
+      ...todos.where((p) => !p.favorito),
+    ].take(40).toList();
+    if (!mounted) return;
+    setState(() {
+      _cliente ??= mostrador;
+      _catalogoRapido = rapidos;
+    });
   }
 
   void _onDatosActualizados() {
-    if (!mounted || _busquedaCtrl.text.trim().isEmpty) return;
-    _buscar(_busquedaCtrl.text);
+    if (!mounted) return;
+    if (_busquedaCtrl.text.trim().isNotEmpty) {
+      _buscar(_busquedaCtrl.text);
+    } else {
+      _prepararPos();
+    }
   }
 
   @override
@@ -70,6 +94,74 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
     DataRefreshHub.instance.removeListener(_onDatosActualizados);
     _busquedaCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _elegirCliente() async {
+    final clientes = await _clienteSvc.obtenerTodos();
+    if (!mounted) return;
+    final elegido = await showModalBottomSheet<Cliente>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) {
+        var filtro = '';
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            final filtrados = clientes
+                .where(
+                  (c) => BusquedaTexto.coincide(filtro, [
+                    c.nombre,
+                    c.apellido,
+                    c.cuit,
+                    c.telefono,
+                  ]),
+                )
+                .take(40)
+                .toList();
+            return SizedBox(
+              height: MediaQuery.of(ctx).size.height * 0.7,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: TextField(
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        hintText: 'Buscar cliente…',
+                        prefixIcon: Icon(Icons.search_rounded),
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      onChanged: (v) => setLocal(() => filtro = v),
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: filtrados.length,
+                      itemBuilder: (_, i) {
+                        final c = filtrados[i];
+                        final nombre = c.apellido.isEmpty
+                            ? c.nombre
+                            : '${c.nombre} ${c.apellido}';
+                        return ListTile(
+                          leading: const Icon(Icons.person_rounded),
+                          title: Text(nombre),
+                          subtitle: Text(c.telefono.isEmpty ? c.cuit : c.telefono),
+                          onTap: () => Navigator.pop(ctx, c),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (elegido != null && mounted) {
+      setState(() => _cliente = elegido);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -201,7 +293,7 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
     if (_carrito.isEmpty) return;
 
     final abonadoCtrl = TextEditingController(text: _total.toStringAsFixed(2));
-    var medioPago = 'efectivo';
+    var medioPago = _medioPago;
 
     final confirmar = await showDialog<({bool ok, double abonado, String medio})>(
       context: context,
@@ -336,7 +428,8 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
     setState(() => _finalizando = true);
 
     try {
-      final mostrador = await _clienteSvc.obtenerOCrearMostrador();
+      final cliente =
+          _cliente ?? await _clienteSvc.obtenerOCrearMostrador();
       final numero = await _remitoSvc.generarNumero();
       final abonado = confirmar.abonado.clamp(0, _total).toDouble();
       final saldo = (_total - abonado).clamp(0, _total).toDouble();
@@ -346,7 +439,7 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
         numero: numero,
         fecha: DateTime.now(),
         tipo: 'salida',
-        clienteId: mostrador.id?.toString(),
+        clienteId: cliente.id?.toString(),
         estado: 'confirmado',
         estadoPago: estadoPago,
         totalPagado: abonado,
@@ -406,7 +499,7 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
           final bytes = await pdfSvc.generateRemitoPdf(
             remitoMap,
             itemsPdf,
-            mostrador.nombre,
+            cliente.nombre,
           );
           if (bytes.isEmpty) return;
           final archivo = await pdfSvc.guardarPdf(bytes, 'remito_$numero.pdf');
@@ -414,9 +507,9 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
             archivo: archivo,
             tipo: 'remito',
             numero: numero,
-            clienteNombre: mostrador.nombre,
-            clienteId: mostrador.id,
-            clienteSyncId: mostrador.syncId,
+            clienteNombre: cliente.nombre,
+            clienteId: cliente.id,
+            clienteSyncId: cliente.syncId,
           );
         } catch (_) {}
       }());
@@ -469,7 +562,7 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
           final bytes = await pdfSvc.generateRemitoPdf(
             remitoMap,
             itemsPdf,
-            mostrador.nombre,
+            cliente.nombre,
           );
           if (bytes.isNotEmpty) {
             final archivo =
@@ -514,10 +607,14 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
   // ---------------------------------------------------------------------------
   // Build
   // ---------------------------------------------------------------------------
+  String get _clienteLabel {
+    final c = _cliente;
+    if (c == null) return 'Mostrador';
+    return c.apellido.isEmpty ? c.nombre : '${c.nombre} ${c.apellido}';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
       appBar: buildModuleAppBar(
         context,
@@ -536,286 +633,422 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
             ),
         ],
       ),
-      body: Column(
-        children: [
-          // --- Barra de búsqueda ---
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: TextField(
-              controller: _busquedaCtrl,
-              autofocus: false,
-              decoration: InputDecoration(
-                hintText: 'Código, barras, descripción o marca...',
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 960;
+          if (wide) {
+            return Row(
+              children: [
+                Expanded(flex: 55, child: _panelProductos(context)),
+                VerticalDivider(
+                  width: 1,
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+                Expanded(flex: 45, child: _panelCobro(context)),
+              ],
+            );
+          }
+          return Column(
+            children: [
+              Expanded(flex: _carrito.isEmpty ? 1 : 3, child: _panelProductos(context)),
+              if (_carrito.isNotEmpty) ...[
+                const Divider(height: 1),
+                Expanded(
+                  flex: 2,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+                    itemCount: _carrito.length,
+                    itemBuilder: (_, i) => _itemCarritoTile(context, i),
+                  ),
+                ),
+                SafeArea(
+                  top: false,
+                  child: _barraTotalCompacta(context),
+                ),
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _panelProductos(BuildContext context) {
+    final theme = Theme.of(context);
+    final lista =
+        _resultados.isNotEmpty ? _resultados : _catalogoRapido;
+    final buscandoAlgo = _busquedaCtrl.text.trim().isNotEmpty;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+          child: TextField(
+            controller: _busquedaCtrl,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: 'Buscar o escanear producto…',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: 'Escanear',
+                    icon: const Icon(Icons.qr_code_scanner_rounded),
+                    onPressed: _escanear,
+                  ),
+                  if (_busquedaCtrl.text.isNotEmpty)
                     IconButton(
-                      tooltip: 'Escanear código',
-                      icon: const Icon(Icons.qr_code_scanner_rounded),
-                      onPressed: _escanear,
+                      icon: const Icon(Icons.clear_rounded),
+                      onPressed: () {
+                        _busquedaCtrl.clear();
+                        setState(() => _resultados = []);
+                      },
                     ),
-                    if (_busquedaCtrl.text.isNotEmpty)
-                      IconButton(
-                        icon: const Icon(Icons.clear_rounded),
-                        onPressed: () {
-                          _busquedaCtrl.clear();
-                          setState(() => _resultados = []);
-                        },
+                ],
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+              ),
+            ),
+            onChanged: _buscar,
+            onSubmitted: _buscar,
+          ),
+        ),
+        if (_buscando) const LinearProgressIndicator(minHeight: 2),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              buscandoAlgo ? 'Resultados' : 'Productos rápidos',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: lista.isEmpty
+              ? Center(
+                  child: Text(
+                    buscandoAlgo
+                        ? 'Sin productos para esa búsqueda'
+                        : 'Escribí o escaneá para empezar',
+                    style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
+                  itemCount: lista.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (_, i) {
+                    final p = lista[i];
+                    return ListTile(
+                      leading: CircleAvatar(
+                        radius: 18,
+                        backgroundColor: theme.colorScheme.primaryContainer,
+                        child: Text(
+                          p.descripcion.isNotEmpty
+                              ? p.descripcion[0].toUpperCase()
+                              : '?',
+                          style: TextStyle(
+                            color: theme.colorScheme.onPrimaryContainer,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
+                      title: Text(
+                        p.descripcion,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        '${p.codigo} · Stock ${p.stock}'
+                        '${p.marca.isNotEmpty ? ' · ${p.marca}' : ''}',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      trailing: Text(
+                        '\$${p.precio.toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                      onTap: () => _agregarAlCarrito(p),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _panelCobro(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+          child: Material(
+            color: cs.surfaceContainerHighest.withValues(alpha: 0.55),
+            borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+            child: InkWell(
+              onTap: _elegirCliente,
+              borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Row(
+                  children: [
+                    Icon(Icons.person_rounded, color: cs.primary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Cliente',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                          Text(
+                            _clienteLabel,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.expand_more_rounded),
                   ],
                 ),
               ),
-              onChanged: _buscar,
             ),
           ),
-
-          // --- Resultados de búsqueda ---
-          if (_buscando)
-            const LinearProgressIndicator()
-          else if (_resultados.isNotEmpty)
-            Container(
-              constraints: const BoxConstraints(maxHeight: 220),
-              margin: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: _resultados.length,
-                separatorBuilder: (_, _) => const Divider(height: 1),
-                itemBuilder: (_, i) {
-                  final p = _resultados[i];
-                  return ListTile(
-                    dense: true,
-                    leading: CircleAvatar(
-                      radius: 18,
-                      child: Text(
-                        p.descripcion.isNotEmpty
-                            ? p.descripcion[0].toUpperCase()
-                            : '?',
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                    ),
-                    title: Text(p.descripcion,
-                        overflow: TextOverflow.ellipsis),
-                    subtitle: Text(
-                      '${p.codigo} · ${p.marca} · Stock: ${p.stock}',
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                    trailing: Text(
-                      '\$${p.precio.toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                    onTap: () => _agregarAlCarrito(p),
-                  );
-                },
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Carrito',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
               ),
             ),
-
-          const SizedBox(height: 8),
-
-          // --- Carrito ---
-          Expanded(
-            child: _carrito.isEmpty
-                ? Center(
+          ),
+        ),
+        Expanded(
+          child: _carrito.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.shopping_cart_outlined,
+                        size: 56,
+                        color: cs.onSurface.withValues(alpha: .28),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Agregá productos desde la izquierda',
+                        style: TextStyle(color: cs.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                  itemCount: _carrito.length,
+                  itemBuilder: (_, i) => _itemCarritoTile(context, i),
+                ),
+        ),
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerLowest,
+            border: Border(top: BorderSide(color: cs.outlineVariant)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DropdownButtonFormField<String>(
+                initialValue: _medioPago,
+                decoration: const InputDecoration(
+                  labelText: 'Método de pago',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                items: Pago.mediosPago
+                    .map(
+                      (m) => DropdownMenuItem(
+                        value: m,
+                        child: Text(Pago.labelMedio(m)),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) {
+                  if (v != null) setState(() => _medioPago = v);
+                },
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
                     child: Column(
-                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(
-                          Icons.shopping_cart_outlined,
-                          size: 64,
-                          color: theme.colorScheme.onSurface.withValues(alpha: .3),
-                        ),
-                        const SizedBox(height: 12),
+                        Text('Total', style: theme.textTheme.labelMedium),
                         Text(
-                          'El carrito está vacío',
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: theme.colorScheme.onSurface.withValues(alpha: .5),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Buscá un producto para agregar',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface.withValues(alpha: .4),
+                          '\$${_total.toStringAsFixed(2)}',
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: cs.primary,
                           ),
                         ),
                       ],
                     ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: _carrito.length,
-                    itemBuilder: (_, i) {
-                      final item = _carrito[i];
-                      return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                          child: Row(
-                            children: [
-                              // Info producto
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      item.producto.descripcion,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    Text(
-                                      item.producto.codigo,
-                                      style: theme.textTheme.labelSmall,
-                                    ),
-                                    GestureDetector(
-                                      onTap: () => _editarPrecio(i),
-                                      child: Row(
-                                        children: [
-                                          Text(
-                                            '\$${item.precioUnitario.toStringAsFixed(2)}',
-                                            style: TextStyle(
-                                              color: theme.colorScheme.primary,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Icon(
-                                            Icons.edit_rounded,
-                                            size: 12,
-                                            color: theme.colorScheme.primary
-                                                .withValues(alpha: .6),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              // Controles cantidad
-                              Row(
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.remove_rounded,
-                                        size: 18),
-                                    onPressed: () =>
-                                        _cambiarCantidad(i, -1),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(
-                                        minWidth: 32, minHeight: 32),
-                                  ),
-                                  Container(
-                                    width: 36,
-                                    alignment: Alignment.center,
-                                    child: Text(
-                                      '${item.cantidad}',
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.add_rounded,
-                                        size: 18),
-                                    onPressed: () =>
-                                        _cambiarCantidad(i, 1),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(
-                                        minWidth: 32, minHeight: 32),
-                                  ),
-                                ],
-                              ),
-                              // Subtotal
-                              SizedBox(
-                                width: 80,
-                                child: Text(
-                                  '\$${item.subtotal.toStringAsFixed(2)}',
-                                  textAlign: TextAlign.right,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                              // Eliminar
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline_rounded,
-                                    size: 18),
-                                onPressed: () => _eliminarItem(i),
-                                color: theme.colorScheme.error
-                                    .withValues(alpha: .7),
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(
-                                    minWidth: 32, minHeight: 32),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
                   ),
-          ),
-
-          // --- Total y botón finalizar ---
-          if (_carrito.isNotEmpty)
-            SafeArea(
-              top: false,
-              maintainBottomViewPadding: true,
-              child: Container(
-              padding: EdgeInsets.fromLTRB(
-                16,
-                16,
-                16,
-                16 + MediaQuery.viewPaddingOf(context).bottom,
-              ),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerLowest,
-                border: Border(
-                  top: BorderSide(
-                    color: theme.colorScheme.outlineVariant,
-                  ),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Total',
-                        style: theme.textTheme.labelMedium,
-                      ),
-                      Text(
-                        '\$${_total.toStringAsFixed(2)}',
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
                   _finalizando
-                      ? const CircularProgressIndicator()
+                      ? const SizedBox(
+                          width: 36,
+                          height: 36,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : FilledButton.icon(
-                          onPressed: _finalizarVenta,
+                          onPressed: _carrito.isEmpty ? null : _finalizarVenta,
                           icon: const Icon(Icons.point_of_sale_rounded),
-                          label: const Text('Finalizar venta'),
+                          label: const Text('Finalizar'),
                           style: FilledButton.styleFrom(
-                            minimumSize: const Size(160, 48),
+                            minimumSize: const Size(150, 48),
                           ),
                         ),
                 ],
               ),
-            ),
-            ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _barraTotalCompacta(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        16,
+        12,
+        16,
+        12 + MediaQuery.viewPaddingOf(context).bottom,
+      ),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        border: Border(
+          top: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            leading: const Icon(Icons.person_rounded),
+            title: Text(_clienteLabel, overflow: TextOverflow.ellipsis),
+            trailing: const Icon(Icons.edit_rounded, size: 18),
+            onTap: _elegirCliente,
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '\$${_total.toStringAsFixed(2)}',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+              _finalizando
+                  ? const CircularProgressIndicator()
+                  : FilledButton.icon(
+                      onPressed: _finalizarVenta,
+                      icon: const Icon(Icons.point_of_sale_rounded),
+                      label: const Text('Finalizar'),
+                    ),
+            ],
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _itemCarritoTile(BuildContext context, int i) {
+    final theme = Theme.of(context);
+    final item = _carrito[i];
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      elevation: 0,
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.producto.descripcion,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  GestureDetector(
+                    onTap: () => _editarPrecio(i),
+                    child: Text(
+                      '\$${item.precioUnitario.toStringAsFixed(2)} · editar',
+                      style: TextStyle(
+                        color: theme.colorScheme.primary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.remove_rounded, size: 18),
+              onPressed: () => _cambiarCantidad(i, -1),
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+            Text(
+              '${item.cantidad}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            IconButton(
+              icon: const Icon(Icons.add_rounded, size: 18),
+              onPressed: () => _cambiarCantidad(i, 1),
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+            SizedBox(
+              width: 72,
+              child: Text(
+                '\$${item.subtotal.toStringAsFixed(2)}',
+                textAlign: TextAlign.right,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline_rounded, size: 18),
+              onPressed: () => _eliminarItem(i),
+              color: theme.colorScheme.error.withValues(alpha: .7),
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+          ],
+        ),
       ),
     );
   }

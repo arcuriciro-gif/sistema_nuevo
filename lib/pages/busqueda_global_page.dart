@@ -22,6 +22,7 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
   final Map<String, List<Map<String, dynamic>>> _resultados = {
     'Productos': [],
     'Clientes': [],
+    'Ventas': [],
     'Proveedores': [],
     'Remitos': [],
     'Compras': [],
@@ -112,6 +113,20 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
       ''',
       likeArgs(),
     );
+    final ventas = await db.rawQuery(
+      '''
+      SELECT v.*, c.nombre AS clienteNombre, c.apellido AS clienteApellido
+      FROM ventas v
+      LEFT JOIN clientes c ON c.id = v.clienteId
+      WHERE ${likeClause('v.numero')}
+         OR ${likeClause('c.nombre')}
+         OR ${likeClause('c.apellido')}
+         OR ${likeClause('v.tipo')}
+      ORDER BY datetime(COALESCE(v.fechaCreacion, v.fecha)) DESC
+      LIMIT 10
+      ''',
+      [...likeArgs(), ...likeArgs(), ...likeArgs(), ...likeArgs()],
+    );
     final remitos = await db.rawQuery(
       '''
       SELECT r.*, c.nombre AS clienteNombre
@@ -137,6 +152,7 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
     setState(() {
       _resultados['Productos'] = productos;
       _resultados['Clientes'] = clientes;
+      _resultados['Ventas'] = ventas;
       _resultados['Proveedores'] = proveedores;
       _resultados['Remitos'] = remitos;
       _resultados['Compras'] = compras;
@@ -164,6 +180,8 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
           ? (item['nombre'] ?? 'Cliente').toString()
           : '${item['nombre']} ${item['apellido']}',
       'Proveedores' => (item['nombre'] ?? 'Proveedor').toString(),
+      'Ventas' =>
+        '${(item['tipo'] ?? 'Venta').toString().toUpperCase()} ${item['numero'] ?? ''}',
       'Remitos' => 'Remito ${item['numero'] ?? ''}',
       'Compras' => 'Compra ${item['numero'] ?? ''}',
       _ => categoria,
@@ -209,7 +227,8 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
               onChanged: _onChanged,
               autofocus: true,
               decoration: InputDecoration(
-                hintText: 'Buscar productos, clientes, proveedores, remitos o compras...',
+                hintText:
+                    'Buscar productos, clientes, ventas, remitos, compras, proveedores...',
                 prefixIcon: const Icon(Icons.search_rounded),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -251,6 +270,8 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
                                         'Clientes' => item['nombreCompleto']?.toString() ??
                                             '${item['nombre'] ?? ''} ${item['apellido'] ?? ''}'.trim(),
                                         'Proveedores' => item['nombre']?.toString() ?? '',
+                                        'Ventas' =>
+                                          '${item['tipo'] ?? 'venta'} ${item['numero'] ?? ''}',
                                         _ => item['numero']?.toString() ?? '',
                                       },
                                     ),
@@ -262,6 +283,8 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
                                           'CUIT: ${item['cuit'] ?? '-'} • Tel: ${item['telefono'] ?? '-'}',
                                         'Proveedores' =>
                                           'Tel: ${item['telefono'] ?? '-'} • Email: ${item['email'] ?? '-'}',
+                                        'Ventas' =>
+                                          'Cliente: ${'${item['clienteNombre'] ?? ''} ${item['clienteApellido'] ?? ''}'.trim().isEmpty ? 'Sin cliente' : '${item['clienteNombre'] ?? ''} ${item['clienteApellido'] ?? ''}'.trim()} • Total: \$${((item['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
                                         'Remitos' =>
                                           'Cliente: ${item['clienteNombre'] ?? 'Sin cliente'} • Total: \$${((item['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
                                         _ =>
