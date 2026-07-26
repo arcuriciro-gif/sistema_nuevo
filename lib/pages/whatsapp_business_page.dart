@@ -3,13 +3,15 @@ import 'package:flutter/services.dart';
 
 import '../plugins/whatsapp/whatsapp_business_config.dart';
 import '../plugins/whatsapp/whatsapp_business_service.dart';
+import '../plugins/whatsapp/whatsapp_catalog_service.dart';
 import '../plugins/whatsapp/whatsapp_message_log.dart';
+import '../services/producto_service.dart';
 import '../services/whatsapp_plantillas_service.dart';
 import '../theme/app_tokens.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/erp/erp_section_header.dart';
 
-/// Configuración del plugin WhatsApp Business (Cloud API + deeplink).
+/// Configuración del plugin WhatsApp Business (Cloud API + deeplink + catálogo).
 class WhatsappBusinessPage extends StatefulWidget {
   const WhatsappBusinessPage({super.key});
 
@@ -20,21 +22,29 @@ class WhatsappBusinessPage extends StatefulWidget {
 class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
   final _cfg = WhatsappBusinessConfig.instance;
   final _svc = WhatsappBusinessService.instance;
+  final _cat = WhatsappCatalogService.instance;
   final _tpl = WhatsappPlantillasService.instance;
+  final _productos = ProductoService();
 
   final _tokenCtrl = TextEditingController();
   final _phoneIdCtrl = TextEditingController();
   final _wabaCtrl = TextEditingController();
   final _versionCtrl = TextEditingController();
   final _countryCtrl = TextEditingController();
+  final _catalogIdCtrl = TextEditingController();
+  final _currencyCtrl = TextEditingController(text: 'ARS');
+  final _urlTplCtrl = TextEditingController();
   final _testPhoneCtrl = TextEditingController();
   final _testMsgCtrl = TextEditingController();
   final _tplNameCtrl = TextEditingController();
   final _tplLangCtrl = TextEditingController(text: 'es_AR');
 
   List<WhatsappMessageLog> _log = [];
+  List<Map<String, dynamic>> _catLog = [];
   bool _cargando = true;
+  bool _syncingCatalog = false;
   String? _status;
+  String? _catalogStatus;
 
   @override
   void initState() {
@@ -49,6 +59,9 @@ class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
     _wabaCtrl.dispose();
     _versionCtrl.dispose();
     _countryCtrl.dispose();
+    _catalogIdCtrl.dispose();
+    _currencyCtrl.dispose();
+    _urlTplCtrl.dispose();
     _testPhoneCtrl.dispose();
     _testMsgCtrl.dispose();
     _tplNameCtrl.dispose();
@@ -60,6 +73,7 @@ class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
     await _cfg.cargar();
     await _tpl.cargar();
     final log = await _svc.listarLog();
+    final catLog = await _cat.listarEstadoLocal();
     if (!mounted) return;
     setState(() {
       _tokenCtrl.text = _cfg.accessToken;
@@ -67,12 +81,16 @@ class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
       _wabaCtrl.text = _cfg.wabaId;
       _versionCtrl.text = _cfg.apiVersion;
       _countryCtrl.text = _cfg.defaultCountryCode;
+      _catalogIdCtrl.text = _cfg.catalogId;
+      _currencyCtrl.text = _cfg.catalogCurrency;
+      _urlTplCtrl.text = _cfg.catalogProductUrlTemplate;
       _testMsgCtrl.text = _tpl.render(
         _tpl.general,
         nombre: 'Cliente',
         empresa: 'Tu comercio',
       );
       _log = log;
+      _catLog = catLog;
       _cargando = false;
     });
   }
@@ -84,6 +102,9 @@ class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
       wabaId: _wabaCtrl.text,
       apiVersion: _versionCtrl.text,
       defaultCountryCode: _countryCtrl.text,
+      catalogId: _catalogIdCtrl.text,
+      catalogCurrency: _currencyCtrl.text,
+      catalogProductUrlTemplate: _urlTplCtrl.text,
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -94,9 +115,85 @@ class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
 
   Future<void> _probarConexion() async {
     await _guardar();
+    if (!mounted) return;
     final r = await _svc.probarConexion();
     if (!mounted) return;
     setState(() => _status = r);
+  }
+
+  Future<void> _probarCatalogo() async {
+    await _guardar();
+    if (!mounted) return;
+    final r = await _cat.probarCatalogo();
+    if (!mounted) return;
+    setState(() => _catalogStatus = r);
+  }
+
+  Future<void> _activarVisibilidad() async {
+    await _guardar();
+    if (!mounted) return;
+    final r = await _cat.activarVisibilidadCatalogo(visible: true);
+    if (!mounted) return;
+    setState(() => _catalogStatus = r);
+  }
+
+  Future<void> _syncFavoritos() async {
+    await _guardar();
+    if (!mounted) return;
+    setState(() => _syncingCatalog = true);
+    try {
+      final favs = await _productos.obtenerFavoritos();
+      final r = await _cat.sincronizarLista(favs);
+      if (!mounted) return;
+      setState(() {
+        _catalogStatus =
+            'Favoritos · ok ${r.ok} · error ${r.error} · omitidos ${r.skipped}'
+            '${r.lastError == null ? '' : '\n${r.lastError}'}';
+      });
+      await _cargar();
+    } finally {
+      if (mounted) setState(() => _syncingCatalog = false);
+    }
+  }
+
+  Future<void> _syncTodos() async {
+    await _guardar();
+    if (!mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sincronizar catálogo'),
+        content: const Text(
+          'Se subirán hasta 500 productos con foto en la nube y precio > 0. '
+          'Meta puede demorar en mostrarlos en WhatsApp.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sincronizar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _syncingCatalog = true);
+    try {
+      final todos = await _productos.obtenerTodos();
+      final r = await _cat.sincronizarLista(todos, maxItems: 500);
+      if (!mounted) return;
+      setState(() {
+        _catalogStatus =
+            'Catálogo · ok ${r.ok} · error ${r.error} · omitidos ${r.skipped}'
+            '${r.lastError == null ? '' : '\n${r.lastError}'}';
+      });
+      await _cargar();
+    } finally {
+      if (mounted) setState(() => _syncingCatalog = false);
+    }
   }
 
   Future<void> _enviarPrueba({bool deeplink = false}) async {
@@ -293,6 +390,147 @@ class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
+                ],
+                const SizedBox(height: 24),
+                const ErpSectionHeader(
+                  title: 'Catálogo de productos',
+                  subtitle:
+                      'Sube nombre, precio y foto (URL https) a Meta Commerce. '
+                      'Límite práctico: 500 ítems por WABA.',
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _catalogIdCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Catalog ID (Commerce Manager)',
+                    border: OutlineInputBorder(),
+                    helperText: 'Vinculá el catálogo al WABA en WhatsApp Manager',
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _currencyCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Moneda',
+                          border: OutlineInputBorder(),
+                          helperText: 'ISO · ej. ARS',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Auto al guardar'),
+                        subtitle: const Text('Editar artículo → Meta'),
+                        value: _cfg.catalogAutoSync,
+                        onChanged: _cfg.enabled
+                            ? (v) async {
+                                await _cfg.guardar(catalogAutoSync: v);
+                                setState(() {});
+                              }
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _urlTplCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'URL producto (opcional)',
+                    hintText: 'https://tuweb.com/p/{codigo}',
+                    border: OutlineInputBorder(),
+                    helperText:
+                        'Si vacío: usa sitio web del branding o el catálogo Meta',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _syncingCatalog ? null : _probarCatalogo,
+                      icon: const Icon(Icons.storefront_rounded),
+                      label: const Text('Probar catálogo'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _syncingCatalog ? null : _activarVisibilidad,
+                      icon: const Icon(Icons.visibility_rounded),
+                      label: const Text('Mostrar en chat'),
+                    ),
+                    FilledButton.tonalIcon(
+                      onPressed: _syncingCatalog ? null : _syncFavoritos,
+                      icon: _syncingCatalog
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.star_rounded),
+                      label: const Text('Sync favoritos'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: _syncingCatalog ? null : _syncTodos,
+                      icon: const Icon(Icons.cloud_upload_rounded),
+                      label: const Text('Sync catálogo (máx 500)'),
+                    ),
+                  ],
+                ),
+                if (_catalogStatus != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _catalogStatus!,
+                    style: TextStyle(
+                      color: _catalogStatus!.startsWith('OK') ||
+                              _catalogStatus!.contains('ok ')
+                          ? AppTokens.success
+                          : cs.error,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                if (_catLog.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Últimos syncs locales',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
+                  ..._catLog.take(12).map((e) {
+                    final estado = '${e['estado'] ?? ''}';
+                    final ok = estado == 'ok';
+                    return ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        ok ? Icons.check_circle_rounded : Icons.error_outline,
+                        color: ok ? AppTokens.success : AppTokens.danger,
+                        size: 20,
+                      ),
+                      title: Text(
+                        '${e['codigo']} · ${e['titulo'] ?? ''}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        '${e['currency'] ?? ''} '
+                        '${(e['precio'] as num?)?.toStringAsFixed(2) ?? ''} · '
+                        '$estado'
+                        '${'${e['error'] ?? ''}'.isEmpty ? '' : ' · ${e['error']}'}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  }),
                 ],
                 const SizedBox(height: 24),
                 const ErpSectionHeader(

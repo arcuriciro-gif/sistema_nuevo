@@ -13,6 +13,10 @@ class WhatsappBusinessConfig {
   static const _kWabaId = 'wa_biz_waba_id';
   static const _kApiVersion = 'wa_biz_api_version';
   static const _kDefaultCountry = 'wa_biz_default_country';
+  static const _kCatalogId = 'wa_biz_catalog_id';
+  static const _kCatalogAutoSync = 'wa_biz_catalog_auto_sync';
+  static const _kCatalogCurrency = 'wa_biz_catalog_currency';
+  static const _kCatalogUrlTpl = 'wa_biz_catalog_url_tpl';
 
   bool enabled = false;
   bool preferApi = true;
@@ -23,11 +27,25 @@ class WhatsappBusinessConfig {
   /// Prefijo país sin + (ej. 54 Argentina) si el número local no lo trae.
   String defaultCountryCode = '54';
 
+  /// Meta Commerce Catalog ID (vinculado al WABA).
+  String catalogId = '';
+  /// Si true, al guardar un producto se intenta subir al catálogo.
+  bool catalogAutoSync = false;
+  /// ISO 4217 (ARS, USD, …).
+  String catalogCurrency = 'ARS';
+  /// Plantilla URL producto: puede incluir {codigo} y {id}.
+  String catalogProductUrlTemplate = '';
+
   bool get listoParaApi =>
       enabled &&
       preferApi &&
       accessToken.trim().isNotEmpty &&
       phoneNumberId.trim().isNotEmpty;
+
+  bool get listoParaCatalogo =>
+      enabled &&
+      accessToken.trim().isNotEmpty &&
+      catalogId.trim().isNotEmpty;
 
   Future<void> cargar() async {
     final p = await SharedPreferences.getInstance();
@@ -38,6 +56,10 @@ class WhatsappBusinessConfig {
     wabaId = p.getString(_kWabaId) ?? '';
     apiVersion = p.getString(_kApiVersion) ?? 'v21.0';
     defaultCountryCode = p.getString(_kDefaultCountry) ?? '54';
+    catalogId = p.getString(_kCatalogId) ?? '';
+    catalogAutoSync = p.getBool(_kCatalogAutoSync) ?? false;
+    catalogCurrency = p.getString(_kCatalogCurrency) ?? 'ARS';
+    catalogProductUrlTemplate = p.getString(_kCatalogUrlTpl) ?? '';
   }
 
   Future<void> guardar({
@@ -48,6 +70,10 @@ class WhatsappBusinessConfig {
     String? wabaId,
     String? apiVersion,
     String? defaultCountryCode,
+    String? catalogId,
+    bool? catalogAutoSync,
+    String? catalogCurrency,
+    String? catalogProductUrlTemplate,
   }) async {
     final p = await SharedPreferences.getInstance();
     if (enabled != null) {
@@ -78,6 +104,23 @@ class WhatsappBusinessConfig {
       this.defaultCountryCode =
           defaultCountryCode.replaceAll(RegExp(r'\D'), '');
       await p.setString(_kDefaultCountry, this.defaultCountryCode);
+    }
+    if (catalogId != null) {
+      this.catalogId = catalogId.trim();
+      await p.setString(_kCatalogId, this.catalogId);
+    }
+    if (catalogAutoSync != null) {
+      this.catalogAutoSync = catalogAutoSync;
+      await p.setBool(_kCatalogAutoSync, catalogAutoSync);
+    }
+    if (catalogCurrency != null) {
+      final c = catalogCurrency.trim().toUpperCase();
+      this.catalogCurrency = c.isEmpty ? 'ARS' : c;
+      await p.setString(_kCatalogCurrency, this.catalogCurrency);
+    }
+    if (catalogProductUrlTemplate != null) {
+      this.catalogProductUrlTemplate = catalogProductUrlTemplate.trim();
+      await p.setString(_kCatalogUrlTpl, this.catalogProductUrlTemplate);
     }
   }
 }

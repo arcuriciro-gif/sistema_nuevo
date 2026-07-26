@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/events/producto_side_effects.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
@@ -138,6 +139,7 @@ class ProductoService {
     // Alta: el stock inicial tiene que ir a la nube.
     _asegurarSyncProducto(id, incluirStockAbsoluto: true);
     DataRefreshHub.instance.notifyProductos();
+    ProductoSideEffects.scheduleAfterSave(guardado, op: 'upsert');
 
     return id;
   }
@@ -292,6 +294,7 @@ class ProductoService {
           incluirStockAbsoluto: stockCambio,
         );
         DataRefreshHub.instance.notifyProductos();
+        ProductoSideEffects.scheduleAfterSave(actualizado, op: 'upsert');
         return result;
       }
     }
@@ -305,6 +308,7 @@ class ProductoService {
     );
     _asegurarSyncProducto(conFotos.id, incluirStockAbsoluto: true);
     DataRefreshHub.instance.notifyProductos();
+    ProductoSideEffects.scheduleAfterSave(conFotos, op: 'upsert');
     return result;
   }
 
@@ -339,6 +343,12 @@ class ProductoService {
     }
     _asegurarSyncProducto(id);
     DataRefreshHub.instance.notifyProductos();
+    if (producto != null) {
+      ProductoSideEffects.scheduleAfterSave(
+        producto.copyWith(deletedAt: DateTime.now().toIso8601String()),
+        op: 'delete',
+      );
+    }
 
     return result;
   }
@@ -383,6 +393,7 @@ class ProductoService {
       valorNuevo: _snapshot(restaurado),
     );
     DataRefreshHub.instance.notifyProductos();
+    ProductoSideEffects.scheduleAfterSave(restaurado, op: 'upsert');
   }
 
   Future<void> eliminarDefinitivo(int id) async {
@@ -412,6 +423,7 @@ class ProductoService {
       valorAnterior: _snapshot(producto),
     );
     DataRefreshHub.instance.notifyProductos();
+    ProductoSideEffects.scheduleAfterSave(producto, op: 'delete');
   }
 
   Future<List<Map<String, dynamic>>> historialCambios(int productoId) async {

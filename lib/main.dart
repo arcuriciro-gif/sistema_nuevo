@@ -15,9 +15,11 @@ import 'core/comms/local_notification_service.dart';
 import 'core/config/backend_config_service.dart';
 import 'core/config/platform_capabilities.dart';
 import 'core/domain/domain_bootstrap.dart';
+import 'core/events/producto_side_effects.dart';
 import 'core/firebase/firebase_bootstrap.dart';
 import 'core/firebase/firebase_safe_mode.dart';
 import 'core/integrity/integrity_policy.dart';
+import 'plugins/whatsapp/whatsapp_catalog_service.dart';
 import 'theme/theme_provider.dart';
 
 void main() async {
@@ -83,6 +85,11 @@ void main() async {
     } catch (e, st) {
       await appendAppLog('Permisos cargar: $e\n$st');
     }
+
+    // Plugins: hooks post-producto (WhatsApp Catalog, etc.).
+    ProductoSideEffects.registerAfterSave(
+      WhatsappCatalogService.instance.onProductoSideEffect,
+    );
 
     await appendAppLog('BOOT runApp');
     runApp(const ElTataApp());
