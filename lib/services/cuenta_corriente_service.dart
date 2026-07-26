@@ -4,6 +4,7 @@ import '../core/domain/domain_bootstrap.dart';
 import '../core/domain/domain_event.dart';
 import '../core/domain/event_bus.dart';
 import '../core/domain/inventory_ledger_service.dart';
+import '../core/domain/money_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/cloud_sync_throttle.dart';
@@ -142,6 +143,11 @@ class CuentaCorrienteService {
       ..['estadoPago'] = estadoPago
       ..['fechaVencimiento'] = vencimiento.toIso8601String();
 
+    final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
+    final tag = await DeviceIdentity.shortTag();
+    final linesJson = preLines.map((l) => l.toJson()).toList();
+    DomainEvent? invEvent;
+
     final ventaId = await db.transaction((txn) async {
       final id = await txn.insert('ventas', ventaMap);
       for (final item in items) {
@@ -174,72 +180,94 @@ class CuentaCorrienteService {
           'observaciones': observacionesPago,
         });
       }
-      return id;
-    });
 
-    if (venta.mueveStock && preLines.isNotEmpty) {
-      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
-      final tag = await DeviceIdentity.shortTag();
-      final lines = preLines.map((l) => l.toJson()).toList();
-      await DomainEventBus.instance.publish(
-        DomainEvent(
-          eventId: 'inv:entrega:venta:$ventaId',
+      // C2: inventario + money en la misma TX que la venta.
+      if (venta.mueveStock && linesJson.isNotEmpty) {
+        invEvent = DomainEvent(
+          eventId: 'inv:entrega:venta:$id',
           type: DomainEventType.mercaderiaEntregada,
           aggregateType: 'venta',
-          aggregateId: '$ventaId',
+          aggregateId: '$id',
           createdBy: user,
           deviceId: tag,
           payload: {
             'documentType': 'venta',
-            'documentId': '$ventaId',
+            'documentId': '$id',
             'documentNumero': venta.numero,
             'motivo': 'Entrega por ${venta.tipo} ${venta.numero}',
-            'lines': lines,
+            'lines': linesJson,
           },
-        ),
-      );
-    }
+        );
+        await InventoryLedgerService.instance.applyInTxn(
+          txn,
+          invEvent!,
+          sign: -1,
+          movimientoTipo: 'salida',
+        );
+      }
 
-    if (venta.clienteId != null) {
-      await recalcularSaldoCliente(venta.clienteId!);
-      final user = AuthService.instance.currentUser?.usuario ?? 'sistema';
-      // Cargo el total; el abono inicial resta vía PAGO_REGISTRADO (neto = saldo).
-      if (venta.total > 0.009) {
-        await DomainEventBus.instance.publish(
-          DomainEvent(
-            eventId: 'money:venta_cc:$ventaId',
+      if (venta.clienteId != null && venta.total > 0.009) {
+        await MoneyLedgerService.instance.appendInTxn(
+          txn,
+          event: DomainEvent(
+            eventId: 'money:venta_cc:$id',
             type: DomainEventType.ventaCargadaCc,
             aggregateType: 'venta',
-            aggregateId: '$ventaId',
+            aggregateId: '$id',
             createdBy: user,
             payload: {
               'clienteId': venta.clienteId,
-              'ventaId': ventaId,
+              'ventaId': id,
               'total': venta.total,
               'saldo': saldo,
               'motivo': 'Venta ${venta.numero} a cuenta',
             },
           ),
+          accountType: 'cliente_cc',
+          accountId: '${venta.clienteId}',
+          delta: venta.total.abs(),
+          reason: 'Venta ${venta.numero} a cuenta',
+          documentType: 'venta',
+          documentId: '$id',
         );
       }
-      if (abonado > 0.009) {
-        await DomainEventBus.instance.publish(
-          DomainEvent(
-            eventId: 'money:pago_inicial:$ventaId',
+      if (venta.clienteId != null && abonado > 0.009) {
+        await MoneyLedgerService.instance.appendInTxn(
+          txn,
+          event: DomainEvent(
+            eventId: 'money:pago_inicial:$id',
             type: DomainEventType.pagoRegistrado,
             aggregateType: 'venta',
-            aggregateId: '$ventaId',
+            aggregateId: '$id',
             createdBy: user,
             payload: {
               'clienteId': venta.clienteId,
-              'ventaId': ventaId,
-              'pagoId': 'inicial_$ventaId',
+              'ventaId': id,
+              'pagoId': 'inicial_$id',
               'monto': abonado,
               'motivo': 'Pago inicial venta ${venta.numero}',
             },
           ),
+          accountType: 'cliente_cc',
+          accountId: '${venta.clienteId}',
+          delta: -abonado.abs(),
+          reason: 'Pago inicial venta ${venta.numero}',
+          documentType: 'pago',
+          documentId: 'inicial_$id',
         );
       }
+
+      return id;
+    });
+
+    if (invEvent != null) {
+      InventoryLedgerService.instance
+          .enqueueCloudAfterApply(invEvent!, sign: -1);
+      await DomainEventBus.instance.publish(invEvent!);
+    }
+
+    if (venta.clienteId != null) {
+      await recalcularSaldoCliente(venta.clienteId!);
     }
     DataRefreshHub.instance.notifyVentas();
     DataRefreshHub.instance.notifyStock();

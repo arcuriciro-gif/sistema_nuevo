@@ -487,26 +487,69 @@ class FirestoreSyncService {
   static const _wmProductosDoc = 'pull_productos_doc';
   static const _wmProductosTs = 'pull_productos_ts';
 
+  static const _wmClientesDoc = 'pull_clientes_doc';
+  static const _wmVentasDoc = 'pull_ventas_doc';
+  static const _wmRemitosDoc = 'pull_remitos_doc';
+
+  /// Una página por colección (sin `.get()` completo — A2).
+  Future<QuerySnapshot<Map<String, dynamic>>> _pullPaginaPorDocId(
+    CollectionReference<Map<String, dynamic>> col, {
+    required String watermarkKey,
+    int pageSize = 80,
+  }) async {
+    final meta = await SyncWatermarkStore.instance.loadMap(watermarkKey);
+    var afterId = meta['afterDocId']?.toString();
+    Query<Map<String, dynamic>> q =
+        col.orderBy(FieldPath.documentId).limit(pageSize);
+    if (afterId != null && afterId.isNotEmpty) {
+      q = q.startAfter([afterId]);
+    }
+    final snap = await q.get();
+    if (snap.docs.isNotEmpty) {
+      await SyncWatermarkStore.instance.saveMap(watermarkKey, {
+        'afterDocId': snap.docs.last.id,
+        if (snap.docs.length < pageSize)
+          'completedAt': DateTime.now().toUtc().toIso8601String(),
+      });
+    } else if (afterId != null) {
+      // Fin de barrido: reinicia cursor para la próxima ronda.
+      await SyncWatermarkStore.instance.saveMap(watermarkKey, {
+        'afterDocId': '',
+        'completedAt': DateTime.now().toUtc().toIso8601String(),
+      });
+    }
+    return snap;
+  }
+
   /// Baja docs + stock/productos paginado (sin listeners pesados).
   Future<void> _pullSuaveWindows() async {
     Future<void> pausa() =>
         Future<void>.delayed(const Duration(milliseconds: 700));
     try {
-      final clientes = await _clientesCol.get();
+      final clientes = await _pullPaginaPorDocId(
+        _clientesCol,
+        watermarkKey: _wmClientesDoc,
+      );
       await _aplicarClientesRemotos(clientes);
     } catch (e) {
       debugPrint('Pull suave clientes: $e');
     }
     await pausa();
     try {
-      final ventas = await _ventasCol.get();
+      final ventas = await _pullPaginaPorDocId(
+        _ventasCol,
+        watermarkKey: _wmVentasDoc,
+      );
       await _aplicarVentasRemotas(ventas);
     } catch (e) {
       debugPrint('Pull suave ventas: $e');
     }
     await pausa();
     try {
-      final remitos = await _remitosCol.get();
+      final remitos = await _pullPaginaPorDocId(
+        _remitosCol,
+        watermarkKey: _wmRemitosDoc,
+      );
       await _aplicarRemitosRemotos(remitos);
     } catch (e) {
       debugPrint('Pull suave remitos: $e');

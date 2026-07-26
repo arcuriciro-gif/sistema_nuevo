@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:sqflite/sqflite.dart';
 
 import '../../database/database_helper.dart';
 import '../events/data_refresh_hub.dart';
@@ -161,6 +162,53 @@ class MoneyLedgerService {
     );
   }
 
+  /// Append dentro de TX comercial (C2). Retorna false si idempotente.
+  Future<bool> appendInTxn(
+    DatabaseExecutor txn, {
+    required DomainEvent event,
+    required String accountType,
+    required String accountId,
+    required double delta,
+    required String reason,
+    String? documentType,
+    String? documentId,
+  }) async {
+    final existing = await txn.query(
+      'domain_events',
+      columns: ['event_id'],
+      where: 'event_id = ?',
+      whereArgs: [event.eventId],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
+      debugPrint('MoneyLedger: skip idempotent ${event.eventId}');
+      return false;
+    }
+
+    final r = await txn.rawQuery(
+      'SELECT COALESCE(SUM(delta), 0) s FROM money_ledger '
+      'WHERE account_type = ? AND account_id = ?',
+      [accountType, accountId],
+    );
+    final prev = (r.first['s'] as num?)?.toDouble() ?? 0;
+    final after = prev + delta;
+
+    await txn.insert('domain_events', event.toRow());
+    await txn.insert('money_ledger', {
+      'event_id': event.eventId,
+      'account_type': accountType,
+      'account_id': accountId,
+      'delta': delta,
+      'currency': 'ARS',
+      'reason': reason,
+      'document_type': documentType,
+      'document_id': documentId,
+      'balance_after': after,
+      'created_at': event.createdAt.toIso8601String(),
+    });
+    return true;
+  }
+
   Future<void> _append({
     required DomainEvent event,
     required String accountType,
@@ -171,37 +219,21 @@ class MoneyLedgerService {
     String? documentId,
   }) async {
     final db = await DatabaseHelper.instance.database;
-    final existing = await db.query(
-      'domain_events',
-      columns: ['event_id'],
-      where: 'event_id = ?',
-      whereArgs: [event.eventId],
-      limit: 1,
-    );
-    if (existing.isNotEmpty) {
-      debugPrint('MoneyLedger: skip idempotent ${event.eventId}');
-      return;
-    }
-
-    final prev = await reconstruirSaldo(accountType, accountId);
-    final after = prev + delta;
-
-    await db.transaction((txn) async {
-      await txn.insert('domain_events', event.toRow());
-      await txn.insert('money_ledger', {
-        'event_id': event.eventId,
-        'account_type': accountType,
-        'account_id': accountId,
-        'delta': delta,
-        'currency': 'ARS',
-        'reason': reason,
-        'document_type': documentType,
-        'document_id': documentId,
-        'balance_after': after,
-        'created_at': event.createdAt.toIso8601String(),
-      });
+    final applied = await db.transaction((txn) async {
+      return appendInTxn(
+        txn,
+        event: event,
+        accountType: accountType,
+        accountId: accountId,
+        delta: delta,
+        reason: reason,
+        documentType: documentType,
+        documentId: documentId,
+      );
     });
-    DataRefreshHub.instance.notifyTodo();
+    if (applied) {
+      DataRefreshHub.instance.notifyTodo();
+    }
   }
 
   Future<double> reconstruirSaldo(String accountType, String accountId) async {
