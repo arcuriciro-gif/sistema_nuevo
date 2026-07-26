@@ -438,7 +438,7 @@ class _ComprasPageState extends State<ComprasPage> {
                 hintText: 'Buscar compra o proveedor...',
                 prefixIcon: const Icon(Icons.search),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12),
               ),
@@ -455,6 +455,10 @@ class _ComprasPageState extends State<ComprasPage> {
                         ),
                       )
                     : ListView.builder(
+                        padding: EdgeInsets.only(
+                          bottom:
+                              80 + MediaQuery.viewPaddingOf(context).bottom,
+                        ),
                         itemCount: compras.length,
                         itemBuilder: (context, i) {
                           final compra = compras[i];

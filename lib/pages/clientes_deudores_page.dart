@@ -63,7 +63,7 @@ class _ClientesDeudoresPageState extends State<ClientesDeudoresPage> {
     return Scaffold(
       appBar: buildModuleAppBar(
         context,
-        title: 'Clientes con deuda',
+        title: 'Cuenta corriente',
         actions: [
           IconButton(
             tooltip: 'Actualizar',
@@ -107,11 +107,12 @@ class _ClientesDeudoresPageState extends State<ClientesDeudoresPage> {
                   child: _deudores.isEmpty
                       ? const Center(child: Text('No hay clientes con deuda'))
                       : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                           itemCount: _deudores.length,
                           itemBuilder: (_, i) {
                             final d = _deudores[i];
                             return Card(
+                              margin: const EdgeInsets.symmetric(vertical: 4),
                               child: ListTile(
                                 title: Text(
                                   d.nombre,

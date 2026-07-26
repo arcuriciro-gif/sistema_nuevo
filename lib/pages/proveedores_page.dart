@@ -110,126 +110,128 @@ class _ProveedoresPageState extends State<ProveedoresPage> {
               },
             )
           : null,
-      body: cargando
-          ? const Center(
-              child: CircularProgressIndicator(),
-            )
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: TextField(
-                    controller: buscarController,
-                    onChanged: buscar,
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search),
-                      hintText: "Buscar proveedor...",
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: TextField(
+              controller: buscarController,
+              onChanged: buscar,
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: 'Buscar proveedor...',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                Expanded(
-                  child: filtrados.isEmpty
-                      ? const Center(
-                          child: Text("No hay proveedores registrados"),
-                        )
-                      : ListView.builder(
-                          itemCount: filtrados.length,
-                          itemBuilder: (context, index) {
-                            final p = filtrados[index];
-
-                            return Card(
-                              margin: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 5,
-                              ),
-                              child: ListTile(
-                                leading: CircleAvatar(
-                                  radius: 36,
-                                  backgroundColor: colorScheme.primaryContainer,
-                                  child: Icon(
-                                    Icons.local_shipping_rounded,
-                                    size: 28,
-                                    color: colorScheme.primary,
-                                  ),
-                                ),
-                                title: Text(
-                                  p.nombre,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                subtitle: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    Text("Teléfono: ${p.telefono}"),
-                                    Text("Email: ${p.email}"),
-                                    Text(
-                                      "Estado: ${p.activo ? "Activo" : "Inactivo"}",
-                                      style: TextStyle(
-                                        color: p.activo
-                                            ? AppVisuals.success(colorScheme)
-                                            : AppVisuals.danger(colorScheme),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      tooltip: 'Comentarios internos',
-                                      icon: const Icon(
-                                        Icons.chat_bubble_outline_rounded,
-                                      ),
-                                      onPressed: () => showComentariosInternos(
-                                        context,
-                                        entidadTipo: 'proveedor',
-                                        entidadId: '${p.id}',
-                                        titulo: p.nombre,
-                                      ),
-                                    ),
-                                    PopupMenuButton(
-                                      itemBuilder: (context) => [
-                                        const PopupMenuItem(
-                                          value: 1,
-                                          child: Text("Editar"),
-                                        ),
-                                        const PopupMenuItem(
-                                          value: 2,
-                                          child: Text("Eliminar"),
-                                        ),
-                                      ],
-                                      onSelected: (value) async {
-                                        if (value == 1) {
-                                          await Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (_) =>
-                                                  ProveedorFormPage(
-                                                proveedor: p,
-                                              ),
-                                            ),
-                                          );
-
-                                          cargarProveedores();
-                                        }
-
-                                        if (value == 2) {
-                                          eliminar(p);
-                                        }
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                ),
-              ],
+              ),
             ),
+          ),
+          Expanded(
+            child: cargando
+                ? const Center(child: CircularProgressIndicator())
+                : filtrados.isEmpty
+                    ? const Center(
+                        child: Text('No hay proveedores registrados'),
+                      )
+                    : ListView.builder(
+                        padding: EdgeInsets.only(
+                          bottom:
+                              80 + MediaQuery.viewPaddingOf(context).bottom,
+                        ),
+                        itemCount: filtrados.length,
+                        itemBuilder: (context, index) {
+                          final p = filtrados[index];
+
+                          return Card(
+                            margin: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                radius: 36,
+                                backgroundColor: colorScheme.primaryContainer,
+                                child: Icon(
+                                  Icons.local_shipping_rounded,
+                                  size: 28,
+                                  color: colorScheme.primary,
+                                ),
+                              ),
+                              title: Text(
+                                p.nombre,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Teléfono: ${p.telefono}'),
+                                  Text('Email: ${p.email}'),
+                                  Text(
+                                    'Estado: ${p.activo ? "Activo" : "Inactivo"}',
+                                    style: TextStyle(
+                                      color: p.activo
+                                          ? AppVisuals.success(colorScheme)
+                                          : AppVisuals.danger(colorScheme),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Comentarios internos',
+                                    icon: const Icon(
+                                      Icons.chat_bubble_outline_rounded,
+                                    ),
+                                    onPressed: () => showComentariosInternos(
+                                      context,
+                                      entidadTipo: 'proveedor',
+                                      entidadId: '${p.id}',
+                                      titulo: p.nombre,
+                                    ),
+                                  ),
+                                  PopupMenuButton(
+                                    itemBuilder: (context) => [
+                                      const PopupMenuItem(
+                                        value: 1,
+                                        child: Text('Editar'),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 2,
+                                        child: Text('Eliminar'),
+                                      ),
+                                    ],
+                                    onSelected: (value) async {
+                                      if (value == 1) {
+                                        await Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => ProveedorFormPage(
+                                              proveedor: p,
+                                            ),
+                                          ),
+                                        );
+
+                                        cargarProveedores();
+                                      }
+
+                                      if (value == 2) {
+                                        eliminar(p);
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+        ],
+      ),
     );
   }
 }

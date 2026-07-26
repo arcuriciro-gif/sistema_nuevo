@@ -17,3 +17,9 @@ EdgeInsets pageScrollPadding(BuildContext context, {double extraBottom = 32}) {
   final bottom = MediaQuery.viewPaddingOf(context).bottom;
   return EdgeInsets.fromLTRB(16, 16, 16, 16 + bottom + extraBottom);
 }
+
+/// Padding inferior de listas con FAB (evita tapas el último ítem).
+EdgeInsets listFabPadding(BuildContext context) {
+  final bottom = MediaQuery.viewPaddingOf(context).bottom;
+  return EdgeInsets.only(bottom: kFabClearance + bottom);
+}

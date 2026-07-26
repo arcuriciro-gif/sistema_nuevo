@@ -656,19 +656,26 @@ class _MainShellState extends State<MainShell> {
     if (idx >= 0) _select(idx);
   }
 
+  Widget _paginaBusqueda({String? consultaInicial}) {
+    return BusquedaGlobalPage(
+      consultaInicial: consultaInicial,
+      onIrAModulo: _irAModulo,
+    );
+  }
+
   Future<void> _abrirBusqueda({required bool desktop}) async {
     if (desktop) {
       await showDialog<void>(
         context: context,
         builder: (ctx) => Dialog.fullscreen(
           backgroundColor: Theme.of(ctx).colorScheme.surface,
-          child: const BusquedaGlobalPage(),
+          child: _paginaBusqueda(),
         ),
       );
     } else {
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const BusquedaGlobalPage()),
+        MaterialPageRoute(builder: (_) => _paginaBusqueda()),
       );
     }
   }
@@ -684,7 +691,7 @@ class _MainShellState extends State<MainShell> {
       context: context,
       builder: (ctx) => Dialog.fullscreen(
         backgroundColor: Theme.of(ctx).colorScheme.surface,
-        child: BusquedaGlobalPage(consultaInicial: codigo.trim()),
+        child: _paginaBusqueda(consultaInicial: codigo.trim()),
       ),
     );
   }

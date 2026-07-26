@@ -338,6 +338,12 @@ class _InicioPageState extends State<InicioPage> {
                       'sync' => Icons.sync_rounded,
                       _ => Icons.point_of_sale_outlined,
                     };
+                    final destino = switch (a['tipo']) {
+                      'compra' => 'Compras',
+                      'remito' => 'Remitos',
+                      'venta' => 'Ventas / Facturas',
+                      _ => null,
+                    };
                     return Card(
                       margin: const EdgeInsets.only(bottom: 6),
                       elevation: 0,
@@ -350,6 +356,7 @@ class _InicioPageState extends State<InicioPage> {
                         trailing: a['monto'] == null
                             ? null
                             : Text(_money((a['monto'] as num?) ?? 0)),
+                        onTap: destino == null ? null : () => _go(destino),
                       ),
                     );
                   }),

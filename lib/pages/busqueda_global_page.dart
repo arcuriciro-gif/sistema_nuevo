@@ -11,7 +11,15 @@ import 'kardex_page.dart';
 class BusquedaGlobalPage extends StatefulWidget {
   final String? consultaInicial;
 
-  const BusquedaGlobalPage({super.key, this.consultaInicial});
+  /// Si se provee, al tocar un resultado (excepto Productos→Kardex)
+  /// navega al módulo del shell en lugar del diálogo crudo.
+  final void Function(String moduloShell)? onIrAModulo;
+
+  const BusquedaGlobalPage({
+    super.key,
+    this.consultaInicial,
+    this.onIrAModulo,
+  });
 
   @override
   State<BusquedaGlobalPage> createState() => _BusquedaGlobalPageState();
@@ -165,13 +173,38 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
     _debounce = Timer(const Duration(milliseconds: 150), () => _buscar(value));
   }
 
-  Future<void> _abrirResultado(String categoria, Map<String, dynamic> item) async {
+  String? _moduloShell(String categoria) {
+    return switch (categoria) {
+      'Clientes' => 'Clientes',
+      'Ventas' => 'Ventas / Facturas',
+      'Proveedores' => 'Proveedores',
+      'Remitos' => 'Remitos',
+      'Compras' => 'Compras',
+      'Productos' => 'Productos',
+      _ => null,
+    };
+  }
+
+  Future<void> _abrirResultado(
+    String categoria,
+    Map<String, dynamic> item,
+  ) async {
     if (categoria == 'Productos') {
       final producto = Producto.fromMap(item);
       await Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => KardexPage(producto: producto)),
       );
+      return;
+    }
+
+    final go = widget.onIrAModulo;
+    final modulo = _moduloShell(categoria);
+    if (go != null && modulo != null) {
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      go(modulo);
       return;
     }
 
@@ -196,11 +229,16 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: item.entries
-                .where((entry) => entry.value != null && entry.value.toString().isNotEmpty)
-                .map((entry) => Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text('${entry.key}: ${entry.value}'),
-                    ))
+                .where(
+                  (entry) =>
+                      entry.value != null && entry.value.toString().isNotEmpty,
+                )
+                .map(
+                  (entry) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text('${entry.key}: ${entry.value}'),
+                  ),
+                )
                 .toList(),
           ),
         ),
@@ -266,10 +304,14 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
                                     contentPadding: EdgeInsets.zero,
                                     title: Text(
                                       switch (entry.key) {
-                                        'Productos' => item['descripcion']?.toString() ?? '',
-                                        'Clientes' => item['nombreCompleto']?.toString() ??
-                                            '${item['nombre'] ?? ''} ${item['apellido'] ?? ''}'.trim(),
-                                        'Proveedores' => item['nombre']?.toString() ?? '',
+                                        'Productos' =>
+                                          item['descripcion']?.toString() ?? '',
+                                        'Clientes' =>
+                                          item['nombreCompleto']?.toString() ??
+                                              '${item['nombre'] ?? ''} ${item['apellido'] ?? ''}'
+                                                  .trim(),
+                                        'Proveedores' =>
+                                          item['nombre']?.toString() ?? '',
                                         'Ventas' =>
                                           '${item['tipo'] ?? 'venta'} ${item['numero'] ?? ''}',
                                         _ => item['numero']?.toString() ?? '',
@@ -291,8 +333,14 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
                                           'Proveedor: ${item['proveedorNombre'] ?? 'Sin proveedor'} • Total: \$${((item['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
                                       },
                                     ),
-                                    trailing: const Icon(Icons.open_in_new_rounded),
-                                    onTap: () => _abrirResultado(entry.key, item),
+                                    trailing: Icon(
+                                      widget.onIrAModulo != null &&
+                                              entry.key != 'Productos'
+                                          ? Icons.arrow_forward_rounded
+                                          : Icons.open_in_new_rounded,
+                                    ),
+                                    onTap: () =>
+                                        _abrirResultado(entry.key, item),
                                   ),
                                 ),
                             ],
