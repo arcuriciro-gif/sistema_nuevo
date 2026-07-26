@@ -17,6 +17,13 @@ class WhatsappBusinessConfig {
   static const _kCatalogAutoSync = 'wa_biz_catalog_auto_sync';
   static const _kCatalogCurrency = 'wa_biz_catalog_currency';
   static const _kCatalogUrlTpl = 'wa_biz_catalog_url_tpl';
+  static const _kCatalogPriceMode = 'wa_biz_catalog_price_mode';
+  static const _kCatalogPriceList = 'wa_biz_catalog_price_list';
+
+  /// Publica y actualiza el precio en Meta al sincronizar.
+  static const priceModeSync = 'sync';
+  /// No actualiza el precio en WhatsApp (queda congelado); avisa “consultá precio”.
+  static const priceModeHide = 'hide';
 
   bool enabled = false;
   bool preferApi = true;
@@ -35,6 +42,12 @@ class WhatsappBusinessConfig {
   String catalogCurrency = 'ARS';
   /// Plantilla URL producto: puede incluir {codigo} y {id}.
   String catalogProductUrlTemplate = '';
+  /// [priceModeSync] o [priceModeHide].
+  String catalogPriceMode = priceModeSync;
+  /// Clave de lista: `1` / `2` / `3` o id de lista dinámica.
+  String catalogPriceListKey = '1';
+
+  bool get catalogSyncPrice => catalogPriceMode != priceModeHide;
 
   bool get listoParaApi =>
       enabled &&
@@ -60,6 +73,11 @@ class WhatsappBusinessConfig {
     catalogAutoSync = p.getBool(_kCatalogAutoSync) ?? false;
     catalogCurrency = p.getString(_kCatalogCurrency) ?? 'ARS';
     catalogProductUrlTemplate = p.getString(_kCatalogUrlTpl) ?? '';
+    final mode = p.getString(_kCatalogPriceMode) ?? priceModeSync;
+    catalogPriceMode =
+        mode == priceModeHide ? priceModeHide : priceModeSync;
+    catalogPriceListKey = p.getString(_kCatalogPriceList) ?? '1';
+    if (catalogPriceListKey.trim().isEmpty) catalogPriceListKey = '1';
   }
 
   Future<void> guardar({
@@ -74,6 +92,8 @@ class WhatsappBusinessConfig {
     bool? catalogAutoSync,
     String? catalogCurrency,
     String? catalogProductUrlTemplate,
+    String? catalogPriceMode,
+    String? catalogPriceListKey,
   }) async {
     final p = await SharedPreferences.getInstance();
     if (enabled != null) {
@@ -121,6 +141,17 @@ class WhatsappBusinessConfig {
     if (catalogProductUrlTemplate != null) {
       this.catalogProductUrlTemplate = catalogProductUrlTemplate.trim();
       await p.setString(_kCatalogUrlTpl, this.catalogProductUrlTemplate);
+    }
+    if (catalogPriceMode != null) {
+      this.catalogPriceMode = catalogPriceMode == priceModeHide
+          ? priceModeHide
+          : priceModeSync;
+      await p.setString(_kCatalogPriceMode, this.catalogPriceMode);
+    }
+    if (catalogPriceListKey != null) {
+      final k = catalogPriceListKey.trim();
+      this.catalogPriceListKey = k.isEmpty ? '1' : k;
+      await p.setString(_kCatalogPriceList, this.catalogPriceListKey);
     }
   }
 }

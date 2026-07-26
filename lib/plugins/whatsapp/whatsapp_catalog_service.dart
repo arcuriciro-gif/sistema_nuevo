@@ -69,8 +69,9 @@ class WhatsappCatalogService {
     return t.length > 200 ? t.substring(0, 200) : t;
   }
 
-  String _descripcion(Producto p) {
+  String _descripcion(Producto p, {required bool ocultarPrecio}) {
     final parts = <String>[
+      if (ocultarPrecio) 'Precio: consultá el valor actual por chat.',
       if (p.observaciones.trim().isNotEmpty) p.observaciones.trim(),
       if (p.marca.trim().isNotEmpty) 'Marca: ${p.marca.trim()}',
       if (p.categoria.trim().isNotEmpty) 'Categoría: ${p.categoria.trim()}',
@@ -87,6 +88,18 @@ class WhatsappCatalogService {
     final b = BrandingService.instance.nombre.trim();
     if (b.isNotEmpty) return b;
     return 'Catalogo';
+  }
+
+  /// Precio según lista configurada (`1`/`2`/`3` o id de lista).
+  double precioDeLista(Producto p) {
+    final key = config.catalogPriceListKey.trim();
+    if (key == '2') return p.precio2;
+    if (key == '3') return p.precio3;
+    if (key == '1' || key.isEmpty) return p.precio;
+    final fromMap = p.preciosListas[key];
+    if (fromMap != null && fromMap > 0) return fromMap;
+    // Fallback razonable a Lista 1.
+    return p.precio;
   }
 
   /// Precio Meta: enteros en centavos (599 = 5.99).
@@ -131,6 +144,17 @@ class WhatsappCatalogService {
     return foto;
   }
 
+  Future<Map<String, dynamic>?> _localRow(String codigo) async {
+    final db = await DatabaseHelper.instance.database;
+    final rows = await db.query(
+      'wa_catalog_items',
+      where: 'codigo = ?',
+      whereArgs: [codigo],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
   Future<WhatsappCatalogSyncResult> sincronizarProducto(Producto producto) async {
     await config.cargar();
     if (!config.listoParaCatalogo) {
@@ -145,20 +169,45 @@ class WhatsappCatalogService {
       final err = producto.fotoPrincipal.trim().isEmpty
           ? 'Sin foto'
           : 'La foto debe estar en la nube (URL https) para Meta';
-      await _upsertLocal(
-        producto,
-        estado: 'error',
-        error: err,
-      );
+      await _upsertLocal(producto, estado: 'error', error: err);
       return WhatsappCatalogSyncResult(ok: false, error: err);
     }
-    final cents = _precioCents(producto.precio);
+
+    final ocultar = !config.catalogSyncPrice;
+    final precioLista = precioDeLista(producto);
+    final local = await _localRow(producto.codigo);
+    final yaEnMeta = local != null &&
+        (local['estado'] == 'ok' ||
+            (local['metaProductId']?.toString().isNotEmpty ?? false));
+
+    // Modo ocultar: no pisa el precio en Meta; solo nombre/foto/stock.
+    if (ocultar && yaEnMeta) {
+      return _updateSinPrecio(producto, imageUrl: image);
+    }
+
+    final cents = _precioCents(precioLista);
     if (cents <= 0) {
-      const err = 'Precio debe ser mayor a 0';
+      const err = 'Precio de la lista elegida debe ser mayor a 0';
       await _upsertLocal(producto, estado: 'error', error: err);
       return const WhatsappCatalogSyncResult(ok: false, error: err);
     }
 
+    return _upsertConPrecio(
+      producto,
+      imageUrl: image,
+      precio: precioLista,
+      cents: cents,
+      ocultarPrecio: ocultar,
+    );
+  }
+
+  Future<WhatsappCatalogSyncResult> _upsertConPrecio(
+    Producto producto, {
+    required String imageUrl,
+    required double precio,
+    required int cents,
+    required bool ocultarPrecio,
+  }) async {
     final url = Uri.parse(
       'https://graph.facebook.com/${config.apiVersion}/'
       '${config.catalogId}/products',
@@ -167,12 +216,12 @@ class WhatsappCatalogService {
       'access_token': config.accessToken,
       'retailer_id': producto.codigo,
       'name': _titulo(producto),
-      'description': _descripcion(producto),
+      'description': _descripcion(producto, ocultarPrecio: ocultarPrecio),
       'availability': _availability(producto),
       'condition': 'new',
       'price': cents,
       'currency': config.catalogCurrency,
-      'image_url': image,
+      'image_url': imageUrl,
       'url': _productUrl(producto),
       'brand': _brand(producto),
       'allow_upsert': true,
@@ -197,6 +246,7 @@ class WhatsappCatalogService {
           estado: 'ok',
           metaProductId: metaId,
           error: '',
+          precioSync: precio,
         );
         return WhatsappCatalogSyncResult(ok: true, metaProductId: metaId);
       }
@@ -208,6 +258,62 @@ class WhatsappCatalogService {
     } catch (e) {
       debugPrint('WA catalog sync: $e');
       await _upsertLocal(producto, estado: 'error', error: '$e');
+      return WhatsappCatalogSyncResult(ok: false, error: '$e');
+    }
+  }
+
+  /// Actualiza ficha sin tocar el precio (modo “no mostrar / congelar”).
+  Future<WhatsappCatalogSyncResult> _updateSinPrecio(
+    Producto producto, {
+    required String imageUrl,
+  }) async {
+    final url = Uri.parse(
+      'https://graph.facebook.com/${config.apiVersion}/'
+      '${config.catalogId}/items_batch',
+    );
+    try {
+      final res = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Bearer ${config.accessToken}',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'item_type': 'PRODUCT_ITEM',
+          'requests': [
+            {
+              'method': 'UPDATE',
+              'data': {
+                'id': producto.codigo,
+                'title': _titulo(producto),
+                'description':
+                    _descripcion(producto, ocultarPrecio: true),
+                'availability': _availability(producto),
+                'condition': 'new',
+                'image_link': imageUrl,
+                'link': _productUrl(producto),
+                'brand': _brand(producto),
+                if (producto.categoria.trim().isNotEmpty)
+                  'product_type': producto.categoria.trim(),
+              },
+            },
+          ],
+        }),
+      );
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        await _upsertLocal(
+          producto,
+          estado: 'ok',
+          error: '',
+          keepPrecio: true,
+        );
+        return const WhatsappCatalogSyncResult(ok: true);
+      }
+      final err = 'HTTP ${res.statusCode}: ${res.body}';
+      await _upsertLocal(producto, estado: 'error', error: err, keepPrecio: true);
+      return WhatsappCatalogSyncResult(ok: false, error: err);
+    } catch (e) {
+      await _upsertLocal(producto, estado: 'error', error: '$e', keepPrecio: true);
       return WhatsappCatalogSyncResult(ok: false, error: '$e');
     }
   }
@@ -371,6 +477,8 @@ class WhatsappCatalogService {
     required String estado,
     String? metaProductId,
     String error = '',
+    double? precioSync,
+    bool keepPrecio = false,
   }) async {
     try {
       final db = await DatabaseHelper.instance.database;
@@ -381,6 +489,12 @@ class WhatsappCatalogService {
         whereArgs: [producto.codigo],
         limit: 1,
       );
+      final prevPrecio = existing.isNotEmpty
+          ? (existing.first['precio'] as num?)?.toDouble()
+          : null;
+      final precio = keepPrecio
+          ? (prevPrecio ?? precioDeLista(producto))
+          : (precioSync ?? precioDeLista(producto));
       final row = <String, dynamic>{
         'productoId': producto.id,
         'codigo': producto.codigo,
@@ -390,7 +504,7 @@ class WhatsappCatalogService {
                 ? (existing.first['metaProductId'] ?? '')
                 : ''),
         'titulo': _titulo(producto),
-        'precio': producto.precio,
+        'precio': precio,
         'currency': config.catalogCurrency,
         'imageUrl': _imageUrl(producto) ?? '',
         'estado': estado,

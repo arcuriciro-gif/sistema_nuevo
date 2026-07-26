@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/lista_precio.dart';
 import '../plugins/whatsapp/whatsapp_business_config.dart';
 import '../plugins/whatsapp/whatsapp_business_service.dart';
 import '../plugins/whatsapp/whatsapp_catalog_service.dart';
 import '../plugins/whatsapp/whatsapp_message_log.dart';
+import '../services/lista_precio_service.dart';
 import '../services/producto_service.dart';
 import '../services/whatsapp_plantillas_service.dart';
 import '../theme/app_tokens.dart';
@@ -25,6 +27,7 @@ class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
   final _cat = WhatsappCatalogService.instance;
   final _tpl = WhatsappPlantillasService.instance;
   final _productos = ProductoService();
+  final _listasSvc = ListaPrecioService();
 
   final _tokenCtrl = TextEditingController();
   final _phoneIdCtrl = TextEditingController();
@@ -41,6 +44,7 @@ class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
 
   List<WhatsappMessageLog> _log = [];
   List<Map<String, dynamic>> _catLog = [];
+  List<ListaPrecio> _listas = [];
   bool _cargando = true;
   bool _syncingCatalog = false;
   String? _status;
@@ -74,6 +78,10 @@ class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
     await _tpl.cargar();
     final log = await _svc.listarLog();
     final catLog = await _cat.listarEstadoLocal();
+    List<ListaPrecio> listas = [];
+    try {
+      listas = await _listasSvc.obtenerActivas();
+    } catch (_) {}
     if (!mounted) return;
     setState(() {
       _tokenCtrl.text = _cfg.accessToken;
@@ -91,8 +99,36 @@ class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
       );
       _log = log;
       _catLog = catLog;
+      _listas = listas;
       _cargando = false;
     });
+  }
+
+  List<DropdownMenuItem<String>> get _priceListItems {
+    final items = <DropdownMenuItem<String>>[
+      const DropdownMenuItem(value: '1', child: Text('Lista 1')),
+      const DropdownMenuItem(value: '2', child: Text('Lista 2')),
+      const DropdownMenuItem(value: '3', child: Text('Lista 3')),
+    ];
+    for (final l in _listas) {
+      if (l.id == null) continue;
+      final key = '${l.id}';
+      if (key == '1' || key == '2' || key == '3') continue;
+      items.add(
+        DropdownMenuItem(
+          value: key,
+          child: Text(l.nombre.trim().isEmpty ? 'Lista $key' : l.nombre),
+        ),
+      );
+    }
+    return items;
+  }
+
+  String get _priceListKeySafe {
+    final key = _cfg.catalogPriceListKey;
+    final values = _priceListItems.map((e) => e.value).whereType<String>();
+    if (values.contains(key)) return key;
+    return '1';
   }
 
   Future<void> _guardar() async {
@@ -105,6 +141,8 @@ class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
       catalogId: _catalogIdCtrl.text,
       catalogCurrency: _currencyCtrl.text,
       catalogProductUrlTemplate: _urlTplCtrl.text,
+      catalogPriceMode: _cfg.catalogPriceMode,
+      catalogPriceListKey: _cfg.catalogPriceListKey,
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -395,7 +433,7 @@ class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
                 const ErpSectionHeader(
                   title: 'Catálogo de productos',
                   subtitle:
-                      'Sube nombre, precio y foto (URL https) a Meta Commerce. '
+                      'Sube nombre, foto y (opcional) precio a Meta Commerce. '
                       'Límite práctico: 500 ítems por WABA.',
                 ),
                 const SizedBox(height: 10),
@@ -426,7 +464,11 @@ class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
                       child: SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Auto al guardar'),
-                        subtitle: const Text('Editar artículo → Meta'),
+                        subtitle: Text(
+                          _cfg.catalogSyncPrice
+                              ? 'Nombre, foto y precio → Meta'
+                              : 'Nombre y foto → Meta (precio congelado)',
+                        ),
                         value: _cfg.catalogAutoSync,
                         onChanged: _cfg.enabled
                             ? (v) async {
@@ -437,6 +479,64 @@ class _WhatsappBusinessPageState extends State<WhatsappBusinessPage> {
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Precio en WhatsApp',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                      value: WhatsappBusinessConfig.priceModeSync,
+                      label: Text('Actualizar'),
+                      icon: Icon(Icons.sync_rounded, size: 18),
+                    ),
+                    ButtonSegment(
+                      value: WhatsappBusinessConfig.priceModeHide,
+                      label: Text('No actualizar'),
+                      icon: Icon(Icons.visibility_off_outlined, size: 18),
+                    ),
+                  ],
+                  selected: {_cfg.catalogPriceMode},
+                  onSelectionChanged: (s) async {
+                    if (!_cfg.enabled) return;
+                    await _cfg.guardar(catalogPriceMode: s.first);
+                    setState(() {});
+                  },
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _cfg.catalogSyncPrice
+                      ? 'Si cambiás el precio en la app (y Auto está on), '
+                          'también se actualiza en WhatsApp.'
+                      : 'Meta exige un precio técnico la primera vez; después '
+                          'no lo pisamos. En la ficha dice “consultá por chat”.',
+                  style: TextStyle(
+                    color: cs.onSurfaceVariant,
+                    fontSize: 12.5,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: _priceListKeySafe,
+                  decoration: const InputDecoration(
+                    labelText: 'Lista de precios a publicar',
+                    border: OutlineInputBorder(),
+                    helperText:
+                        'Solo aplica si elegiste “Actualizar”. Lista 1/2/3 o personalizada.',
+                  ),
+                  items: _priceListItems,
+                  onChanged: _cfg.enabled && _cfg.catalogSyncPrice
+                      ? (v) async {
+                          if (v == null) return;
+                          await _cfg.guardar(catalogPriceListKey: v);
+                          setState(() {});
+                        }
+                      : null,
                 ),
                 const SizedBox(height: 8),
                 TextField(
