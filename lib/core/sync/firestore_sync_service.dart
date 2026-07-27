@@ -30,10 +30,12 @@ import 'sync_health.dart';
 import 'sync_outbox.dart';
 import 'sync_tombstone.dart';
 import 'stock_ops_pull_policy.dart';
+import 'stock_ops_pull_hold_store.dart';
 import 'stock_ops_watermark.dart';
 import 'stock_ops_applied_store.dart';
 import 'sync_watermark_store.dart';
 import 'windows_sync_policy.dart';
+import '../integrity/legacy_ledger_migration.dart';
 import '../../services/cuenta_corriente_service.dart';
 import '../../database/database_helper.dart';
 import '../../models/cliente.dart';
@@ -281,11 +283,27 @@ class FirestoreSyncService {
                 proveCloudApplied: (remoteOpId) =>
                     _remote.stockOpCloudApplied(remoteOpId),
               );
-              final deadAck = await SyncOutbox.instance.ackDeadStockOps();
-              if (purged > 0 || deadAck > 0) {
+              final recovered = await SyncOutbox.instance.recoverDeadStockOps(
+                proveCloudApplied: (remoteOpId) =>
+                    _remote.stockOpCloudApplied(remoteOpId),
+              );
+              if (purged > 0 ||
+                  recovered.acked +
+                          recovered.requeued +
+                          recovered.forceRequeued >
+                      0) {
                 debugPrint(
-                  'Outbox Windows: purge reclaim=$purged deadAck=$deadAck',
+                  'Outbox Windows: purge=$purged '
+                  'deadAck=${recovered.acked} '
+                  'deadReq=${recovered.requeued} '
+                  'poisonForce=${recovered.forceRequeued}',
                 );
+              }
+              // Histórico sin ledger → seed idempotente (G4).
+              try {
+                await LegacyLedgerMigration.instance.seedMissing(limit: 300);
+              } catch (e) {
+                debugPrint('LegacyLedgerMigration boot: $e');
               }
               await SyncOutbox.instance.reclaimStaleInflight(
                 olderThan: WindowsSyncPolicy.reclaimStaleInflightAfter,
@@ -1197,6 +1215,7 @@ class FirestoreSyncService {
                 maxApply: budget.maxApply,
               );
             }
+            await _sweepStockOpsHolds(limit: 8);
           });
         case 'compras':
           final snap = await _pullPaginaPorDocId(
@@ -1474,6 +1493,8 @@ class FirestoreSyncService {
         int skippedMissingProduct,
         int skippedPendingApply,
         bool truncatedByMaxApply,
+        List<({String opId, String reason, String? codigo, int? delta, String? at})>
+            holds,
       })> _aplicarStockOpsItems(
     List<Map<String, dynamic>> items, {
     int? maxApply,
@@ -1488,6 +1509,13 @@ class FirestoreSyncService {
       String? documentType,
       String? documentId,
     })>[];
+    final holds = <({
+      String opId,
+      String reason,
+      String? codigo,
+      int? delta,
+      String? at,
+    })>[];
     var consideredValid = 0;
     var skippedMissingProduct = 0;
     var skippedPendingApply = 0;
@@ -1501,21 +1529,38 @@ class FirestoreSyncService {
       final codigo = op['codigo']?.toString().trim() ?? '';
       final delta = (op['delta'] as num?)?.toInt() ?? 0;
       final status = op['status']?.toString() ?? '';
+      final at = op['at']?.toString();
       if (opId.isEmpty || codigo.isEmpty || delta == 0) continue;
       if (status == 'pending_apply' || status == 'claimed') {
         skippedPendingApply++;
+        holds.add((
+          opId: opId,
+          reason: StockOpsPullHoldStore.reasonPendingApply,
+          codigo: codigo,
+          delta: delta,
+          at: at,
+        ));
         continue;
       }
       consideredValid++;
       // Dedupe durable (local-origin o remote ya aplicado).
       if (_stockOpsHechas.contains(opId) ||
           await StockOpsAppliedStore.instance.contains(opId)) {
+        // Ya aplicada: si estaba en holds, liberar.
+        await StockOpsPullHoldStore.instance.remove(opId);
         continue;
       }
 
       final local = await _cache.buscarPorCodigo(codigo);
       if (local?.id == null) {
         skippedMissingProduct++;
+        holds.add((
+          opId: opId,
+          reason: StockOpsPullHoldStore.reasonMissingProduct,
+          codigo: codigo,
+          delta: delta,
+          at: at,
+        ));
         continue;
       }
 
@@ -1540,12 +1585,14 @@ class FirestoreSyncService {
         skippedMissingProduct: skippedMissingProduct,
         skippedPendingApply: skippedPendingApply,
         truncatedByMaxApply: truncatedByMaxApply,
+        holds: holds,
       );
     }
     final n =
         await InventoryLedgerService.instance.applyRemoteStockOpsBatch(batch);
     for (final op in batch) {
       _stockOpsHechas.add(op.opId);
+      await StockOpsPullHoldStore.instance.remove(op.opId);
     }
     if (n > 0) {
       debugPrint('stock_ops inbound: $n aplicadas');
@@ -1559,6 +1606,7 @@ class FirestoreSyncService {
       skippedMissingProduct: skippedMissingProduct,
       skippedPendingApply: skippedPendingApply,
       truncatedByMaxApply: truncatedByMaxApply,
+      holds: holds,
     );
   }
 
@@ -1636,18 +1684,35 @@ class FirestoreSyncService {
       }
       appliedTotal += result.applied;
 
-      // C4: no avanzar si hay ops no aplicadas (producto/pending/truncate).
+      // Anti-HOL: persistir blockers en hold-set y avanzar watermark.
+      for (final h in result.holds) {
+        await StockOpsPullHoldStore.instance.upsert(
+          opId: h.opId,
+          reason: h.reason,
+          codigo: h.codigo,
+          delta: h.delta,
+          at: h.at,
+        );
+      }
+      final blockers =
+          result.skippedMissingProduct + result.skippedPendingApply;
+      final parked = blockers > 0 &&
+          result.holds.length >= blockers &&
+          !result.truncatedByMaxApply;
+
       if (!shouldAdvanceStockOpsWatermark(
         consideredValid: result.consideredValid,
         skippedMissingProduct: result.skippedMissingProduct,
         skippedPendingApply: result.skippedPendingApply,
         truncatedByMaxApply: result.truncatedByMaxApply,
+        blockersParkedInHolds: parked,
       )) {
         debugPrint(
           'stock_ops watermark: hold '
           '(missingProduct=${result.skippedMissingProduct} '
           'pendingApply=${result.skippedPendingApply} '
-          'truncated=${result.truncatedByMaxApply})',
+          'truncated=${result.truncatedByMaxApply} '
+          'parked=$parked holds=${result.holds.length})',
         );
         break;
       }
@@ -1666,6 +1731,65 @@ class FirestoreSyncService {
         await Future<void>.delayed(const Duration(milliseconds: 400));
       }
     }
+
+    // Sweeper de holds (no bloquea watermark).
+    await _sweepStockOpsHolds(limit: PlatformCapabilities.isWindowsDesktop ? 8 : 25);
+  }
+
+  /// Reintenta ops estacionadas en hold-set (pending_apply / missing product).
+  Future<int> _sweepStockOpsHolds({int limit = 25}) async {
+    final due = await StockOpsPullHoldStore.instance.listDue(limit: limit);
+    if (due.isEmpty) return 0;
+    try {
+      await _remote.reconcilizarStockOpsPendientes(limit: limit);
+    } catch (_) {}
+
+    final items = <Map<String, dynamic>>[];
+    for (final h in due) {
+      final opId = h['op_id']?.toString() ?? '';
+      final codigo = h['codigo']?.toString() ?? '';
+      final delta = (h['delta'] as num?)?.toInt() ?? 0;
+      if (opId.isEmpty || codigo.isEmpty || delta == 0) continue;
+      try {
+        final applied = await _remote.stockOpCloudApplied(opId);
+        if (!applied) {
+          // Sigue pending en nube: renovar hold.
+          await StockOpsPullHoldStore.instance.upsert(
+            opId: opId,
+            reason: h['reason']?.toString() ??
+                StockOpsPullHoldStore.reasonPendingApply,
+            codigo: codigo,
+            delta: delta,
+            at: h['op_at']?.toString(),
+          );
+          continue;
+        }
+        items.add({
+          'opId': opId,
+          'codigo': codigo,
+          'delta': delta,
+          'status': 'applied',
+          'at': h['op_at']?.toString(),
+        });
+      } catch (e) {
+        debugPrint('sweep hold $opId: $e');
+      }
+    }
+    if (items.isEmpty) return 0;
+    final result = await _aplicarStockOpsItems(items, maxApply: limit);
+    for (final h in result.holds) {
+      await StockOpsPullHoldStore.instance.upsert(
+        opId: h.opId,
+        reason: h.reason,
+        codigo: h.codigo,
+        delta: h.delta,
+        at: h.at,
+      );
+    }
+    if (result.applied > 0) {
+      debugPrint('stock_ops holds sweep: ${result.applied} aplicadas');
+    }
+    return result.applied;
   }
 
   /// Antes de hard-delete por tombstone: reverso local si el ledger neto ≠ 0.

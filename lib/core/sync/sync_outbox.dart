@@ -776,6 +776,136 @@ GROUP BY l
     return n;
   }
 
+  /// Lista dead stock_ops (panel / cert / recover).
+  Future<List<Map<String, dynamic>>> listDeadStockOps({int limit = 100}) async {
+    final db = await _db;
+    return db.query(
+      'sync_outbox',
+      columns: [
+        'op_id',
+        'entity_remote_id',
+        'payload',
+        'attempts',
+        'last_error',
+        'updated_at',
+        'status',
+      ],
+      where: "entity_type = 'stock_op' AND status = ?",
+      whereArgs: [SyncOutboxStatus.dead],
+      orderBy: 'updated_at ASC',
+      limit: limit,
+    );
+  }
+
+  /// Reabre poison (`attempts >= maxAttempts`) de forma **explícita**.
+  /// Resetea attempts a `maxAttempts - grace` para dar nuevas chances acotadas.
+  Future<int> forceRequeuePoisonStockOps({
+    int limit = 30,
+    int graceAttempts = 3,
+  }) async {
+    final db = await _db;
+    final rows = await db.query(
+      'sync_outbox',
+      columns: ['op_id', 'attempts'],
+      where: "entity_type = 'stock_op' AND status = ?",
+      whereArgs: [SyncOutboxStatus.dead],
+      limit: limit,
+    );
+    var n = 0;
+    final ahora = DateTime.now().toUtc().toIso8601String();
+    final resetTo = (maxAttempts - graceAttempts).clamp(0, maxAttempts - 1);
+    for (final r in rows) {
+      final opId = r['op_id']?.toString() ?? '';
+      if (opId.isEmpty) continue;
+      final attempts = (r['attempts'] as num?)?.toInt() ?? 0;
+      if (attempts < maxAttempts) continue; // no poison
+      n += await db.update(
+        'sync_outbox',
+        {
+          'status': SyncOutboxStatus.pending,
+          'attempts': resetTo,
+          'last_error': 'force_requeue_poison',
+          'updated_at': ahora,
+          'next_attempt_at': DateTime.now()
+              .toUtc()
+              .add(const Duration(seconds: 20))
+              .toIso8601String(),
+        },
+        where: 'op_id = ?',
+        whereArgs: [opId],
+      );
+    }
+    return n;
+  }
+
+  /// Recuperación completa de dead stock_ops:
+  /// - cloud already applied → ACK
+  /// - recoverable (attempts < max) → requeue
+  /// - poison → force requeue (grace)
+  Future<({int acked, int requeued, int forceRequeued})> recoverDeadStockOps({
+    required Future<bool> Function(String remoteOpId) proveCloudApplied,
+    int limit = 50,
+  }) async {
+    final rows = await listDeadStockOps(limit: limit);
+    var acked = 0;
+    var requeued = 0;
+    var forceRequeued = 0;
+    final ahora = DateTime.now().toUtc().toIso8601String();
+    final db = await _db;
+    for (final r in rows) {
+      final opId = r['op_id']?.toString() ?? '';
+      if (opId.isEmpty) continue;
+      final remoteOpId = r['entity_remote_id']?.toString() ??
+          opId.replaceFirst('stock_op:', '');
+      var proven = false;
+      try {
+        proven = await proveCloudApplied(remoteOpId);
+      } catch (_) {
+        proven = false;
+      }
+      if (proven) {
+        await ack(opId);
+        acked++;
+        continue;
+      }
+      final attempts = (r['attempts'] as num?)?.toInt() ?? maxAttempts;
+      if (attempts < maxAttempts) {
+        requeued += await db.update(
+          'sync_outbox',
+          {
+            'status': SyncOutboxStatus.pending,
+            'last_error': 'recovered_from_dead',
+            'updated_at': ahora,
+            'next_attempt_at': DateTime.now()
+                .toUtc()
+                .add(const Duration(seconds: 30))
+                .toIso8601String(),
+          },
+          where: 'op_id = ?',
+          whereArgs: [opId],
+        );
+      } else {
+        final resetTo = (maxAttempts - 3).clamp(0, maxAttempts - 1);
+        forceRequeued += await db.update(
+          'sync_outbox',
+          {
+            'status': SyncOutboxStatus.pending,
+            'attempts': resetTo,
+            'last_error': 'force_requeue_poison_recover',
+            'updated_at': ahora,
+            'next_attempt_at': DateTime.now()
+                .toUtc()
+                .add(const Duration(seconds: 20))
+                .toIso8601String(),
+          },
+          where: 'op_id = ?',
+          whereArgs: [opId],
+        );
+      }
+    }
+    return (acked: acked, requeued: requeued, forceRequeued: forceRequeued);
+  }
+
   /// @Deprecated: preferir [purgeStuckStockOps] / [ackDeadStockOps].
   ///
   /// G3: **no-op**. ACK ciego de stock_ops perdía ops sin `status=applied`

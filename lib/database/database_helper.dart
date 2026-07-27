@@ -298,6 +298,7 @@ CREATE TABLE comparacion(
     await _crearTablaWaMensajesLog(db);
     await _crearTablaWaCatalogItems(db);
     await _migrarStockOpsAppliedV37(db);
+    await _migrarStockOpsPullHoldsV38(db);
     await _migrarSyncCompletoV21(db);
     await _crearIndices(db);
   }
@@ -1096,6 +1097,9 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 37) {
       await _migrarStockOpsAppliedV37(db);
     }
+    if (oldVersion < 38) {
+      await _migrarStockOpsPullHoldsV38(db);
+    }
   }
 
   /// Auditoría forense 1.4.5: dedupe durable de stock_ops (reemplaza prefs).
@@ -1112,6 +1116,27 @@ CREATE TABLE IF NOT EXISTS stock_ops_applied(
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_stock_ops_applied_origin '
       'ON stock_ops_applied(origin, applied_at)',
+    );
+  }
+
+  /// Certificación: hold-set anti-HOL para watermark de stock_ops.
+  Future<void> _migrarStockOpsPullHoldsV38(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS stock_ops_pull_holds(
+  op_id TEXT PRIMARY KEY NOT NULL,
+  reason TEXT NOT NULL,
+  codigo TEXT,
+  delta INTEGER,
+  op_at TEXT,
+  first_seen_at TEXT NOT NULL,
+  retry_after TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_stock_ops_pull_holds_retry '
+      'ON stock_ops_pull_holds(retry_after, first_seen_at)',
     );
   }
 
@@ -1672,5 +1697,5 @@ CREATE TABLE IF NOT EXISTS wa_catalog_items(
   }
 
   /// Versión de schema declarada por la app (Capacidad 5 / panel técnico).
-  static const int schemaVersion = 37;
+  static const int schemaVersion = 38;
 }

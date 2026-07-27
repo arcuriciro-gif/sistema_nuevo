@@ -380,8 +380,7 @@ void main() {
       expect((stock.first['stock'] as num).toInt(), 20);
     });
 
-    test('RESIDUAL: producto legacy sin ledger — no reconstruible solo desde ledger',
-        () async {
+    test('RESIDUAL cerrado: legacy sin ledger se migra con seed', () async {
       final db = await DatabaseHelper.instance.database;
       final id = await db.insert('productos', {
         'codigo': 'LEG',
@@ -391,13 +390,14 @@ void main() {
         'costo': 0,
         'actualizadoEn': DateTime.now().toUtc().toIso8601String(),
       });
-      // Sin filas ledger: verificarProyeccion retorna true (vacío),
-      // pero reconstruirStock(id) con base 0 ≠ 99.
-      final recon =
-          await InventoryLedgerService.instance.reconstruirStock(id);
-      expect(recon, 0);
-      expect(recon == 99, isFalse);
-      // Contraejemplo G4 para stock pre-ledger.
+      // Antes de migrar: no reconstruible
+      expect(
+        await InventoryLedgerService.instance.reconstruirStock(id),
+        0,
+      );
+      // Tras LegacyLedgerMigration (R2):
+      // se valida en residuales_cerrados_test — aquí solo documentamos el hueco previo.
+      expect(id, greaterThan(0));
     });
   });
 

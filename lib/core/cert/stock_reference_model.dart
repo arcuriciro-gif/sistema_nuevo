@@ -334,18 +334,21 @@ class StockReferenceModel {
     if (!s.online) {
       return s.copyWith(lastError: 'offline');
     }
-    final opId = preferredOpId ??
-        (s.outboxPending.isEmpty ? null : s.outboxPending.first);
-    if (opId == null) return s;
+    String? opId = preferredOpId;
+    if (opId == null) {
+      for (final id in s.outboxPending) {
+        if (s.cloudStatus[id] != RefCloudStatus.applied) {
+          opId = id;
+          break;
+        }
+      }
+    }
+    if (opId == null) return s; // nada pendiente de upload (solo ACK)
     final delta = s.cloudDelta[opId];
     if (delta == null || delta == 0) {
       return s.copyWith(lastError: 'upload sin delta $opId');
     }
-    final codigo = opId.contains('_')
-        ? opId.substring(opId.indexOf('_') + 1)
-        : opId;
-    // Heurística: opId = eventId_codigo; codigo puede tener '_'.
-    // En el modelo usamos el código del seed que matchee el sufijo.
+
     String? cod;
     for (final c in s.stock.keys) {
       if (opId.endsWith('_$c')) {
@@ -353,11 +356,13 @@ class StockReferenceModel {
         break;
       }
     }
-    cod ??= codigo;
+    cod ??= opId.contains('_')
+        ? opId.substring(opId.indexOf('_') + 1)
+        : opId;
 
     final status = s.cloudStatus[opId] ?? RefCloudStatus.missing;
     if (status == RefCloudStatus.applied) {
-      return s; // ya applied — idempotente
+      return s;
     }
     if (s.cloudIncrementApplied[opId] == true) {
       final st = Map<String, RefCloudStatus>.from(s.cloudStatus)
@@ -365,13 +370,10 @@ class StockReferenceModel {
       return s.copyWith(cloudStatus: st, clearError: true);
     }
 
-    // Claim
     final claims = Map<String, String>.from(s.cloudClaim)..[opId] = writerId;
     final stMap = Map<String, RefCloudStatus>.from(s.cloudStatus)
       ..[opId] = RefCloudStatus.claimed;
 
-    // Solo el dueño del claim (último writer) incrementa — simulamos
-    // que este writer gana si claims[opId]==writerId (siempre tras su write).
     if (claims[opId] != writerId) {
       return s.copyWith(
         cloudClaim: claims,
