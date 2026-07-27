@@ -4,10 +4,10 @@ import '../sync_outbox.dart';
 import '../scheduler/sync_scheduler.dart';
 import 'sync_flight_recorder.dart';
 import 'sync_observability_hub.dart';
-import 'sync_report_pdf.dart';
 import 'sync_sla_monitor.dart';
 
 /// Benchmark local (outbox/scheduler). No sustituye hop Firebase real.
+/// PDF se genera aparte (`sync_report_pdf`) para no cargar `package:pdf` en el shell.
 class SyncBenchmarkReport {
   SyncBenchmarkReport(this.data);
   final Map<String, dynamic> data;
@@ -27,23 +27,25 @@ class SyncBenchmarkReport {
     }
     return b.toString();
   }
-
-  Future<void> writePdf(String path) =>
-      SyncReportPdf.writeBenchmarkPdf(path: path, report: data);
 }
 
 class SyncBenchmarkRunner {
   SyncBenchmarkRunner._();
   static final SyncBenchmarkRunner instance = SyncBenchmarkRunner._();
 
-  Future<SyncBenchmarkReport> run({bool includeHeavy = false}) async {
+  Future<SyncBenchmarkReport> run({
+    bool includeHeavy = false,
+    bool includeVentas1000 = true,
+  }) async {
     final scenarios = <String, Map<String, dynamic>>{};
     scenarios['ventas_100'] = await _benchVentas(100);
-    scenarios['ventas_1000'] = await _benchVentas(1000);
+    if (includeVentas1000) {
+      scenarios['ventas_1000'] = await _benchVentas(1000);
+    }
     if (includeHeavy) {
       scenarios['productos_10000_claim'] = await _benchProductosClaim(10000);
     } else {
-      scenarios['productos_2000_claim'] = await _benchProductosClaim(2000);
+      scenarios['productos_500_claim'] = await _benchProductosClaim(500);
     }
     scenarios['sla_snapshot'] = Map<String, dynamic>.from(
       SyncSlaMonitor.instance.snapshot(),
@@ -60,7 +62,8 @@ class SyncBenchmarkRunner {
       'note':
           'LAB: mide enqueue+claim+ack local. Hop Firestore/otro dispositivo requiere piloto.',
       'scenarios': scenarios,
-      'dashboard': await SyncObservabilityHub.instance.dashboardSnapshot(),
+      'dashboard':
+          await SyncObservabilityHub.instance.dashboardSnapshot(light: true),
     });
   }
 

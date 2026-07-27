@@ -1604,13 +1604,17 @@ class FirestoreSyncService {
         }
       }
 
-      // Circuit breaker: no martillar Firestore si está abierto.
+      // Circuit breaker abierto: reencolar resto y salir (evitar storm).
       if (!SyncCircuitBreaker.instance.allowRequest()) {
-        await SyncOutbox.instance.requeueImmediate(
-          opId,
-          reason: 'circuit_open',
-        );
-        continue;
+        for (var j = i; j < batch.length; j++) {
+          final restId = batch[j]['op_id']?.toString() ?? '';
+          if (restId.isEmpty) continue;
+          await SyncOutbox.instance.requeueImmediate(
+            restId,
+            reason: 'circuit_open',
+          );
+        }
+        break;
       }
 
       final lockOk = EntityLockRegistry.instance.tryAcquire(
@@ -1625,15 +1629,19 @@ class FirestoreSyncService {
       final sw = Stopwatch()..start();
       var error = false;
       try {
-        SyncObservabilityHub.instance.onSendStart(opId);
+        try {
+          SyncObservabilityHub.instance.onSendStart(opId);
+        } catch (_) {}
         await _ejecutarOutboxOp(op);
         await SyncOutbox.instance.ack(opId);
         SyncHealthService.instance.recordAck();
-        SyncObservabilityHub.instance.onSendDone(
-          opId,
-          latencyMs: sw.elapsedMilliseconds,
-          error: false,
-        );
+        try {
+          SyncObservabilityHub.instance.onSendDone(
+            opId,
+            latencyMs: sw.elapsedMilliseconds,
+            error: false,
+          );
+        } catch (_) {}
         _syncMemoryColaTrasAck(op);
         final waitCb = SyncCircuitBreaker.instance.extraWaitMs;
         final totalYield = yieldMs + waitCb;
@@ -1644,11 +1652,13 @@ class FirestoreSyncService {
         error = true;
         await SyncOutbox.instance.fail(opId, e);
         SyncHealthService.instance.recordFail();
-        SyncObservabilityHub.instance.onSendDone(
-          opId,
-          latencyMs: sw.elapsedMilliseconds,
-          error: true,
-        );
+        try {
+          SyncObservabilityHub.instance.onSendDone(
+            opId,
+            latencyMs: sw.elapsedMilliseconds,
+            error: true,
+          );
+        } catch (_) {}
         debugPrint('Outbox fail $opId: $e');
       } finally {
         EntityLockRegistry.instance.release(entityType, localId);
