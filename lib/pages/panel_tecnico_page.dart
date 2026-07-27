@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -24,7 +26,7 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
   IntegrityScanReport? _integrity;
   Map<String, dynamic>? _dash;
   String? _error;
-  bool _loading = true;
+  bool _loading = false;
   bool _scanning = false;
   bool _busy = false;
   String? _diagText;
@@ -32,7 +34,13 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
   @override
   void initState() {
     super.initState();
-    _cargar();
+    // IndexedStack monta Panel técnico al login admin — diferir carga pesada
+    // para no tumbar el APK en dispositivos con poca RAM.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(milliseconds: 1500), () {
+        if (mounted) _cargar();
+      });
+    });
   }
 
   Future<void> _cargar() async {
@@ -44,10 +52,16 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
       if (!AuthorizationService.instance.esAdministrador) {
         throw StateError('Solo el administrador puede ver el panel técnico');
       }
+      // Carga liviana primero (IndexedStack monta esta página al login admin).
       final snap = await TechnicalHealthService.instance.snapshot();
       await IntegrityPolicy.instance.ensureLoaded();
       final last = await IntegrityReconcileService.instance.lastReport();
-      final dash = await SyncObservabilityHub.instance.dashboardSnapshot();
+      Map<String, dynamic>? dash;
+      try {
+        dash = await SyncObservabilityHub.instance.dashboardSnapshot(light: true);
+      } catch (_) {
+        dash = null;
+      }
       if (!mounted) return;
       setState(() {
         _snap = snap;
@@ -55,6 +69,8 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
         _dash = dash;
         _loading = false;
       });
+      // Histórico completo en segundo plano (no bloquea UI ni login).
+      unawaited(_cargarDashFull());
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -62,6 +78,16 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _cargarDashFull() async {
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      if (!mounted) return;
+      final dash = await SyncObservabilityHub.instance.dashboardSnapshot();
+      if (!mounted) return;
+      setState(() => _dash = dash);
+    } catch (_) {}
   }
 
   Future<void> _diagnosticar() async {
@@ -163,7 +189,14 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
               ? const Center(child: CircularProgressIndicator())
               : _error != null
                   ? Center(child: Text(_error!))
-                  : _buildBody(_snap!),
+                  : _snap == null
+                      ? const Center(
+                          child: Text(
+                            'Panel técnico listo.\nTocá actualizar si no carga solo.',
+                            textAlign: TextAlign.center,
+                          ),
+                        )
+                      : _buildBody(_snap!),
     );
   }
 

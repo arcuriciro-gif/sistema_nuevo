@@ -37,8 +37,10 @@ class SyncCertificationRunner {
     } catch (_) {}
 
     final diag = await SyncDiagnosticService.instance.diagnose();
-    final bench =
-        await SyncBenchmarkRunner.instance.run(includeHeavy: heavyBenchmark);
+    final bench = await SyncBenchmarkRunner.instance.run(
+      includeHeavy: heavyBenchmark,
+      includeVentas1000: heavyBenchmark,
+    );
     final stress =
         await SyncStressRunner.instance.run(duration: stressDuration);
     final dash = await SyncObservabilityHub.instance.dashboardSnapshot();
