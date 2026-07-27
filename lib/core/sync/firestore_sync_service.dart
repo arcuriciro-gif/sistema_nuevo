@@ -19,6 +19,7 @@ import '../firebase/firebase_bootstrap.dart';
 import '../utils/media_path.dart';
 import 'media_sync_service.dart';
 import 'cloud_sync_throttle.dart';
+import 'scheduler/entity_lock_registry.dart';
 import 'scheduler/sync_priority.dart';
 import 'scheduler/sync_scheduler.dart';
 import 'scheduler/sync_scheduler_metrics.dart';
@@ -475,6 +476,9 @@ class FirestoreSyncService {
       if (!_puedeEscribirRemoto) return;
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
+          // Sync Engine 2.0: auto-heal + restore adaptive/turbo.
+          await SyncScheduler.instance.ensureRestored();
+          await SyncScheduler.instance.runAutoHeal();
           // Limpieza barata antes de Firebase.
           await SyncOutbox.instance.ackOrphanUpserts();
           await SyncOutbox.instance.ackStockOpsYaHechas(_stockOpsHechas);
@@ -1530,7 +1534,7 @@ class FirestoreSyncService {
     await _ejecutarClaimedOps(batch);
   }
 
-  /// Scheduler: varios ticks crítico-primero por ciclo de pump.
+  /// Scheduler 2.0: ticks con Turbo + preemption mid-batch.
   Future<void> _procesarSchedulerTicks({required bool windows}) async {
     final ticks = windows ? 3 : 8;
     for (var i = 0; i < ticks; i++) {
@@ -1541,42 +1545,98 @@ class FirestoreSyncService {
         isWindows: windows,
       );
       if (claimed.isEmpty) break;
-      await _ejecutarClaimedOps(claimed, yieldMs: windows ? 80 : 0);
+      final turbo = SyncScheduler.instance.turbo.active;
+      final yieldMs = windows
+          ? (turbo ? 40 : 80)
+          : (turbo ? 0 : 20);
+      final preempted = await _ejecutarClaimedOps(
+        claimed,
+        yieldMs: yieldMs,
+        allowPreempt: true,
+      );
+      if (preempted) {
+        // Inmediatamente drenar L1 sin esperar próximo tick.
+        final bd2 = await SyncOutbox.instance.pendingBreakdown();
+        final crit = await SyncScheduler.instance.claimForTick(
+          breakdown: bd2,
+          isWindows: windows,
+        );
+        if (crit.isNotEmpty) {
+          await _ejecutarClaimedOps(crit, yieldMs: windows ? 50 : 0);
+        }
+      }
       if (windows && i + 1 < ticks) {
         await Future<void>.delayed(const Duration(milliseconds: 200));
       }
     }
   }
 
-  Future<void> _ejecutarClaimedOps(
+  /// Ejecuta ops con entity-lock y preemption si aparece L1 durante fondo.
+  /// Retorna true si preemptó.
+  Future<bool> _ejecutarClaimedOps(
     List<Map<String, dynamic>> batch, {
     int yieldMs = 0,
+    bool allowPreempt = false,
   }) async {
-    for (final op in batch) {
+    var preempted = false;
+    for (var i = 0; i < batch.length; i++) {
+      final op = batch[i];
       final opId = op['op_id']?.toString() ?? '';
       if (opId.isEmpty) continue;
       final entityType = op['entity_type']?.toString() ?? '';
-      final critical = SyncPriority.isCriticalEntity(entityType);
+      final localId = op['entity_local_id']?.toString() ??
+          op['entity_remote_id']?.toString();
+      final isBg = !SyncPriority.isCriticalEntity(entityType);
+
+      // Preemption: si estamos en fondo y llegó venta/stock, abortar lote.
+      if (allowPreempt && isBg && i > 0) {
+        if (await SyncScheduler.instance.shouldPreempt()) {
+          preempted = true;
+          // Reencolar resto del lote (evita quedar inflight minutos).
+          for (var j = i; j < batch.length; j++) {
+            final restId = batch[j]['op_id']?.toString() ?? '';
+            if (restId.isEmpty) continue;
+            await SyncOutbox.instance.requeueImmediate(restId, reason: 'preempted_for_critical');
+          }
+          break;
+        }
+      }
+
+      final lockOk = EntityLockRegistry.instance.tryAcquire(
+        entityType,
+        localId,
+      );
+      if (!lockOk) {
+        await SyncOutbox.instance.fail(opId, 'entity_locked');
+        continue;
+      }
+
       final sw = Stopwatch()..start();
+      var error = false;
       try {
         await _ejecutarOutboxOp(op);
         await SyncOutbox.instance.ack(opId);
         SyncHealthService.instance.recordAck();
-        SyncSchedulerMetrics.instance.recordSuccess(
-          critical: critical,
-          latencyMs: sw.elapsedMilliseconds,
-        );
         _syncMemoryColaTrasAck(op);
         if (yieldMs > 0) {
           await Future<void>.delayed(Duration(milliseconds: yieldMs));
         }
       } catch (e) {
+        error = true;
         await SyncOutbox.instance.fail(opId, e);
         SyncHealthService.instance.recordFail();
-        SyncSchedulerMetrics.instance.recordFail(critical: critical);
         debugPrint('Outbox fail $opId: $e');
+      } finally {
+        EntityLockRegistry.instance.release(entityType, localId);
+        await SyncScheduler.instance.recordOpResult(
+          entityType: entityType,
+          latencyMs: sw.elapsedMilliseconds,
+          error: error,
+          firestoreOk: _puedeEscribirRemoto,
+        );
       }
     }
+    return preempted;
   }
 
   /// Drena varios batches por ciclo (Capacidad 9). Prioridad siempre on.

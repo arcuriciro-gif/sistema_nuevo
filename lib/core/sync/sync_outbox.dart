@@ -452,6 +452,37 @@ class SyncOutbox {
     );
   }
 
+  /// Reencola inmediato sin backoff (preemption Turbo → L1).
+  /// Decrementa attempts para no castigar ops interrumpidas.
+  Future<void> requeueImmediate(String opId, {String reason = 'preempted'}) async {
+    final db = await _db;
+    final rows = await db.query(
+      'sync_outbox',
+      columns: ['attempts'],
+      where: 'op_id = ?',
+      whereArgs: [opId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final attempts = (rows.first['attempts'] as num?)?.toInt() ?? 1;
+    await db.update(
+      'sync_outbox',
+      {
+        'status': SyncOutboxStatus.pending,
+        'attempts': (attempts - 1).clamp(0, maxAttempts),
+        'last_error': reason,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+        'next_attempt_at': null,
+      },
+      where: 'op_id = ? AND status IN (?, ?)',
+      whereArgs: [
+        opId,
+        SyncOutboxStatus.pending,
+        SyncOutboxStatus.inflight,
+      ],
+    );
+  }
+
   Future<int> countByStatus(String status) async {
     final db = await _db;
     final r = await db.rawQuery(
@@ -506,11 +537,13 @@ GROUP BY l
     );
     final out = <String, int>{
       SyncLane.critical.wireName: 0,
+      SyncLane.high.wireName: 0,
+      SyncLane.normal.wireName: 0,
       SyncLane.background.wireName: 0,
     };
     for (final r in rows) {
       final l = r['l']?.toString() ?? SyncLane.background.wireName;
-      out[l] = (r['c'] as num?)?.toInt() ?? 0;
+      out[l] = (out[l] ?? 0) + ((r['c'] as num?)?.toInt() ?? 0);
     }
     return out;
   }

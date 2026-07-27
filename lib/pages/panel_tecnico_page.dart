@@ -140,9 +140,14 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
         ]),
         _section('Sincronización', [
           _row('Salud certificable', sync.isCertifiableHealthy ? 'OK' : 'ATENCIÓN'),
+          _row('Indicador', sync.healthColor.toUpperCase()),
           _row('Pending / Inflight / Dead',
               '${sync.pending} / ${sync.inflight} / ${sync.dead}'),
-          _row('Cola crítica / fondo',
+          _row('L1 crítico / L2 alto',
+              '${sync.pendingL1} / ${sync.pendingL2}'),
+          _row('L3 normal / L4 background',
+              '${sync.pendingL3} / ${sync.pendingL4}'),
+          _row('Cola crítica / fondo (compat)',
               '${sync.pendingCritical} / ${sync.pendingBackground}'),
           _row('Conflictos 24h', '${sync.conflicts24h}'),
           _row('Ciclos / ACK / Fail',
@@ -165,6 +170,42 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
           _row('Puede escribir', sync.canWrite ? 'sí' : 'no'),
           _row('Último error', sync.lastError ?? '—'),
         ]),
+        _section('Sync Engine 2.0', [
+          _row('Modo', '${sync.engine['mode'] ?? '—'}'),
+          _row(
+            'Turbo',
+            ((sync.engine['turbo'] as Map?)?['turboActive'] == true)
+                ? 'ACTIVO'
+                : 'off',
+          ),
+          _row(
+            'Preemptions',
+            '${(sync.engine['turbo'] as Map?)?['preemptionCount'] ?? 0}',
+          ),
+          _row(
+            'Batch L1 / fondo (adaptativo)',
+            '${(sync.engine['adaptive'] as Map?)?['batchL1'] ?? '—'} / '
+            '${(sync.engine['adaptive'] as Map?)?['batchBackground'] ?? '—'}',
+          ),
+          _row(
+            'EMA latencia',
+            sync.engine['adaptive'] == null ||
+                    (sync.engine['adaptive'] as Map)['emaLatencyMs'] == null
+                ? '—'
+                : '${((sync.engine['adaptive'] as Map)['emaLatencyMs'] as num).toStringAsFixed(0)} ms',
+          ),
+          _row(
+            'Auto-heals',
+            '${(sync.engine['healer'] as Map?)?['healsRun'] ?? 0}',
+          ),
+          _row(
+            'Último heal',
+            (sync.engine['healer'] as Map?)?['lastHealDetail']?.toString() ??
+                '—',
+          ),
+          _row('Locks entidad', '${sync.engine['locksHeld'] ?? 0}'),
+          _row('Muestras 24h', '${sync.history24h.length}'),
+        ]),
         _section('Scheduler (métricas)', [
           _row(
             'Procesados crítico / fondo',
@@ -177,6 +218,8 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
             '${sync.scheduler['backgroundFails'] ?? 0}',
           ),
           _row('Coalesced ops', '${sync.scheduler['coalescedOps'] ?? 0}'),
+          _row('Turbo ticks / preempts',
+              '${sync.scheduler['turboTicks'] ?? 0} / ${sync.scheduler['preemptCount'] ?? 0}'),
           _row(
             'Latencia avg crítico',
             sync.scheduler['avgCriticalLatencyMs'] == null

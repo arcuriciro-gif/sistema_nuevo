@@ -1,9 +1,11 @@
+import 'scheduler/sync_metrics_history_store.dart';
 import 'scheduler/sync_priority.dart';
+import 'scheduler/sync_scheduler.dart';
 import 'scheduler/sync_scheduler_metrics.dart';
 import 'sync_outbox.dart';
 import 'sync_watermark_store.dart';
 
-/// Snapshot de salud de sincronización (Capacidad 2 + Scheduler v2).
+/// Snapshot de salud Sync Engine 2.0.
 class SyncHealthSnapshot {
   SyncHealthSnapshot({
     required this.pending,
@@ -23,8 +25,15 @@ class SyncHealthSnapshot {
     this.pendingPreview = const [],
     this.pendingCritical = 0,
     this.pendingBackground = 0,
+    this.pendingL1 = 0,
+    this.pendingL2 = 0,
+    this.pendingL3 = 0,
+    this.pendingL4 = 0,
     this.scheduler = const {},
+    this.engine = const {},
     this.avgSyncMs,
+    this.healthColor = 'verde',
+    this.history24h = const [],
   });
 
   final int pending;
@@ -44,15 +53,24 @@ class SyncHealthSnapshot {
   final List<Map<String, dynamic>> pendingPreview;
   final int pendingCritical;
   final int pendingBackground;
+  final int pendingL1;
+  final int pendingL2;
+  final int pendingL3;
+  final int pendingL4;
   final Map<String, dynamic> scheduler;
+  final Map<String, dynamic> engine;
   final double? avgSyncMs;
+  final String healthColor;
+  final List<SyncMetricsSample> history24h;
 
-  /// Ej: "8 productos, 3 remitos, 2 stock"
   String get pendingBreakdownLabel =>
       SyncOutbox.formatBreakdown(pendingByType);
 
   bool get isCertifiableHealthy =>
-      dead == 0 && pending < 500 && (lastError == null || pending == 0);
+      dead == 0 &&
+      pendingL1 == 0 &&
+      pending < 500 &&
+      (lastError == null || pending == 0);
 
   Map<String, dynamic> toJson() => {
         'pending': pending,
@@ -71,13 +89,18 @@ class SyncHealthSnapshot {
         'pendingByType': pendingByType,
         'pendingCritical': pendingCritical,
         'pendingBackground': pendingBackground,
+        'pendingL1': pendingL1,
+        'pendingL2': pendingL2,
+        'pendingL3': pendingL3,
+        'pendingL4': pendingL4,
         'scheduler': scheduler,
+        'engine': engine,
         'avgSyncMs': avgSyncMs,
+        'healthColor': healthColor,
         'isCertifiableHealthy': isCertifiableHealthy,
       };
 }
 
-/// Métricas y health check de sync.
 class SyncHealthService {
   SyncHealthService._();
   static final SyncHealthService instance = SyncHealthService._();
@@ -126,18 +149,32 @@ class SyncHealthService {
     final conflicts = await SyncWatermarkStore.instance.conflictsSince(
       DateTime.now().toUtc().subtract(const Duration(hours: 24)),
     );
-    var pendingCritical = byLane[SyncLane.critical.wireName] ?? 0;
-    var pendingBackground = byLane[SyncLane.background.wireName] ?? 0;
-    // Fallback si filas pre-migración no tienen lane.
+    final levels = SyncScheduler.countLevels(breakdown);
+    var pendingCritical =
+        (byLane[SyncLane.critical.wireName] ?? 0) +
+        (byLane[SyncLane.high.wireName] ?? 0);
+    var pendingBackground =
+        (byLane[SyncLane.normal.wireName] ?? 0) +
+        (byLane[SyncLane.background.wireName] ?? 0);
     if (pendingCritical + pendingBackground == 0 && breakdown.isNotEmpty) {
-      for (final e in breakdown.entries) {
-        if (SyncPriority.isCriticalEntity(e.key)) {
-          pendingCritical += e.value;
-        } else {
-          pendingBackground += e.value;
-        }
-      }
+      pendingCritical = levels.l1 + levels.l2;
+      pendingBackground = levels.l3 + levels.l4;
     }
+
+    List<SyncMetricsSample> history = const [];
+    try {
+      history = await SyncMetricsHistoryStore.instance.last24h(limit: 48);
+    } catch (_) {}
+
+    final engine = SyncScheduler.instance.engineSnapshot();
+    final avgLat = SyncSchedulerMetrics.instance.avgCriticalLatencyMs ?? 0;
+    String color = 'verde';
+    if (!firebaseReady || levels.l1 > 20 || failsTotal > acksTotal) {
+      color = 'rojo';
+    } else if (levels.l1 > 0 || avgLat > 1500 || levels.l2 > 15) {
+      color = 'amarillo';
+    }
+
     return SyncHealthSnapshot(
       pending: counts[SyncOutboxStatus.pending] ?? 0,
       inflight: counts[SyncOutboxStatus.inflight] ?? 0,
@@ -156,8 +193,15 @@ class SyncHealthService {
       pendingPreview: preview,
       pendingCritical: pendingCritical,
       pendingBackground: pendingBackground,
+      pendingL1: levels.l1,
+      pendingL2: levels.l2,
+      pendingL3: levels.l3,
+      pendingL4: levels.l4,
       scheduler: SyncSchedulerMetrics.instance.snapshot(),
+      engine: engine,
       avgSyncMs: avgSyncMs,
+      healthColor: color,
+      history24h: history,
     );
   }
 }

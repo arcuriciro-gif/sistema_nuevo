@@ -1,4 +1,4 @@
-/// Métricas del scheduler (antes/después observables).
+/// Métricas del scheduler / Sync Engine 2.0.
 class SyncSchedulerMetrics {
   SyncSchedulerMetrics._();
   static final SyncSchedulerMetrics instance = SyncSchedulerMetrics._();
@@ -10,6 +10,8 @@ class SyncSchedulerMetrics {
   int coalescedOps = 0;
   int criticalTicks = 0;
   int backgroundTicks = 0;
+  int turboTicks = 0;
+  int preemptCount = 0;
 
   final List<int> _criticalLatenciesMs = [];
   final List<int> _backgroundLatenciesMs = [];
@@ -58,6 +60,12 @@ class SyncSchedulerMetrics {
     }
   }
 
+  void recordTurbo(bool active) {
+    if (active) turboTicks++;
+  }
+
+  void recordPreempt() => preemptCount++;
+
   double? get avgCriticalLatencyMs => _avg(_criticalLatenciesMs);
   double? get avgBackgroundLatencyMs => _avg(_backgroundLatenciesMs);
   int? get maxCriticalLatencyMs => _max(_criticalLatenciesMs);
@@ -65,7 +73,6 @@ class SyncSchedulerMetrics {
 
   double? opsPerMinuteCritical() {
     if (lastCriticalAt == null || criticalProcessed == 0) return null;
-    // Aprox sobre ventana de muestras.
     final n = _criticalLatenciesMs.length;
     if (n < 2) return criticalProcessed.toDouble();
     final sumMs = _criticalLatenciesMs.fold<int>(0, (a, b) => a + b);
@@ -81,6 +88,8 @@ class SyncSchedulerMetrics {
         'coalescedOps': coalescedOps,
         'criticalTicks': criticalTicks,
         'backgroundTicks': backgroundTicks,
+        'turboTicks': turboTicks,
+        'preemptCount': preemptCount,
         'avgCriticalLatencyMs': avgCriticalLatencyMs,
         'avgBackgroundLatencyMs': avgBackgroundLatencyMs,
         'maxCriticalLatencyMs': maxCriticalLatencyMs,
@@ -99,6 +108,8 @@ class SyncSchedulerMetrics {
     coalescedOps = 0;
     criticalTicks = 0;
     backgroundTicks = 0;
+    turboTicks = 0;
+    preemptCount = 0;
     _criticalLatenciesMs.clear();
     _backgroundLatenciesMs.clear();
     lastCriticalAt = null;

@@ -6,7 +6,7 @@ import '../config/platform_capabilities.dart';
 import 'windows_sync_policy.dart';
 import 'scheduler/sync_priority.dart';
 
-/// Throttle de dos carriles: crítico NUNCA espera detrás de import/masivos.
+/// Throttle multi-carril: L1 nunca espera detrás de import/masivos.
 class CloudSyncThrottle {
   CloudSyncThrottle._();
 
@@ -14,7 +14,6 @@ class CloudSyncThrottle {
   static Future<void> _colaFondo = Future<void>.value();
 
   /// @Deprecated — usar [enqueueCritical] / [enqueueBackground].
-  /// Se mantiene: jobs sin lane van a crítico si [interactive], si no a fondo.
   static Future<void> enqueue(
     Future<void> Function() job, {
     String tag = 'cloud',
@@ -30,22 +29,22 @@ class CloudSyncThrottle {
     Future<void> Function() job, {
     String tag = 'critical',
   }) {
-    return _enqueue(
-      lane: SyncLane.critical,
-      job: job,
-      tag: tag,
-    );
+    return _enqueue(lane: SyncLane.critical, job: job, tag: tag);
+  }
+
+  static Future<void> enqueueHigh(
+    Future<void> Function() job, {
+    String tag = 'high',
+  }) {
+    // L2 comparte carril crítico (no espera detrás de import).
+    return _enqueue(lane: SyncLane.critical, job: job, tag: tag);
   }
 
   static Future<void> enqueueBackground(
     Future<void> Function() job, {
     String tag = 'background',
   }) {
-    return _enqueue(
-      lane: SyncLane.background,
-      job: job,
-      tag: tag,
-    );
+    return _enqueue(lane: SyncLane.background, job: job, tag: tag);
   }
 
   static Future<void> _enqueue({
@@ -53,13 +52,15 @@ class CloudSyncThrottle {
     required Future<void> Function() job,
     required String tag,
   }) {
+    final isCrit =
+        lane == SyncLane.critical || lane == SyncLane.high;
     final done = Completer<void>();
-    final chain = lane == SyncLane.critical ? _colaCritica : _colaFondo;
+    final chain = isCrit ? _colaCritica : _colaFondo;
     final next = chain.then((_) async {
       try {
         if (PlatformCapabilities.isWindowsDesktop) {
           await Future<void>.delayed(
-            lane == SyncLane.critical
+            isCrit
                 ? WindowsSyncPolicy.throttleDelayInteractive
                 : WindowsSyncPolicy.throttleDelayNormal,
           );
@@ -71,7 +72,7 @@ class CloudSyncThrottle {
         if (!done.isCompleted) done.complete();
       }
     });
-    if (lane == SyncLane.critical) {
+    if (isCrit) {
       _colaCritica = next;
     } else {
       _colaFondo = next;
@@ -79,7 +80,6 @@ class CloudSyncThrottle {
     return done.future;
   }
 
-  /// Tests: reinicia colas.
   static void resetForTests() {
     _colaCritica = Future<void>.value();
     _colaFondo = Future<void>.value();
