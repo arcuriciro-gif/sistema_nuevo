@@ -44,8 +44,37 @@ class WindowsSyncPolicy {
     'branding_text',
   ];
 
-  /// ~33% productos, resto round-robin.
-  static String softPullLane(int n) {
+  /// Con cola de upload chica, el PC puede bajar stock_ops del APK
+  /// (si no, quedan stocks distintos: campo 1127/1339/superbota39).
+  static bool prioritizeStockOpsPull({required int pendingProductos}) =>
+      pendingProductos <= 5;
+
+  /// Presupuesto de pull stock_ops en Windows (ráfagas controladas).
+  static ({int maxPages, int pageSize, int maxApply, int recentLimit})
+      stockOpsPullBudget({required int pendingProductos}) {
+    if (prioritizeStockOpsPull(pendingProductos: pendingProductos)) {
+      return (maxPages: 2, pageSize: 30, maxApply: 24, recentLimit: 50);
+    }
+    if (pendingProductos <= 50) {
+      return (maxPages: 1, pageSize: 15, maxApply: 8, recentLimit: 0);
+    }
+    // Subiendo catálogo: casi no tocar stock_ops (evita tumbar .exe).
+    return (maxPages: 1, pageSize: 10, maxApply: 4, recentLimit: 0);
+  }
+
+  /// Soft-pull lane. Con [prioritizeStockOps] ≈50% stock_ops (convergencia).
+  /// Sin eso: ~33% productos, resto round-robin (incluye stock_ops liviano).
+  static String softPullLane(int n, {bool prioritizeStockOps = false}) {
+    if (prioritizeStockOps) {
+      if (n.isEven) return 'stock_ops';
+      if (n % 4 == 1) {
+        return (n ~/ 4).isEven ? 'productos_inc' : 'productos_cat';
+      }
+      final others = softPullOtherLanes
+          .where((l) => l != 'stock_ops')
+          .toList(growable: false);
+      return others[(n ~/ 2) % others.length];
+    }
     if (n % 3 == 0) {
       return (n ~/ 3) % 2 == 0 ? 'productos_inc' : 'productos_cat';
     }
