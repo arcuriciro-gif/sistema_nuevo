@@ -1,7 +1,9 @@
+import 'scheduler/sync_priority.dart';
+import 'scheduler/sync_scheduler_metrics.dart';
 import 'sync_outbox.dart';
 import 'sync_watermark_store.dart';
 
-/// Snapshot de salud de sincronización (Capacidad 2).
+/// Snapshot de salud de sincronización (Capacidad 2 + Scheduler v2).
 class SyncHealthSnapshot {
   SyncHealthSnapshot({
     required this.pending,
@@ -19,6 +21,10 @@ class SyncHealthSnapshot {
     required this.failsTotal,
     this.pendingByType = const {},
     this.pendingPreview = const [],
+    this.pendingCritical = 0,
+    this.pendingBackground = 0,
+    this.scheduler = const {},
+    this.avgSyncMs,
   });
 
   final int pending;
@@ -36,6 +42,10 @@ class SyncHealthSnapshot {
   final int failsTotal;
   final Map<String, int> pendingByType;
   final List<Map<String, dynamic>> pendingPreview;
+  final int pendingCritical;
+  final int pendingBackground;
+  final Map<String, dynamic> scheduler;
+  final double? avgSyncMs;
 
   /// Ej: "8 productos, 3 remitos, 2 stock"
   String get pendingBreakdownLabel =>
@@ -59,6 +69,10 @@ class SyncHealthSnapshot {
         'acksTotal': acksTotal,
         'failsTotal': failsTotal,
         'pendingByType': pendingByType,
+        'pendingCritical': pendingCritical,
+        'pendingBackground': pendingBackground,
+        'scheduler': scheduler,
+        'avgSyncMs': avgSyncMs,
         'isCertifiableHealthy': isCertifiableHealthy,
       };
 }
@@ -108,9 +122,22 @@ class SyncHealthService {
     final counts = await SyncOutbox.instance.counts();
     final breakdown = await SyncOutbox.instance.pendingBreakdown();
     final preview = await SyncOutbox.instance.listPendingPreview(limit: 20);
+    final byLane = await SyncOutbox.instance.pendingByLane();
     final conflicts = await SyncWatermarkStore.instance.conflictsSince(
       DateTime.now().toUtc().subtract(const Duration(hours: 24)),
     );
+    var pendingCritical = byLane[SyncLane.critical.wireName] ?? 0;
+    var pendingBackground = byLane[SyncLane.background.wireName] ?? 0;
+    // Fallback si filas pre-migración no tienen lane.
+    if (pendingCritical + pendingBackground == 0 && breakdown.isNotEmpty) {
+      for (final e in breakdown.entries) {
+        if (SyncPriority.isCriticalEntity(e.key)) {
+          pendingCritical += e.value;
+        } else {
+          pendingBackground += e.value;
+        }
+      }
+    }
     return SyncHealthSnapshot(
       pending: counts[SyncOutboxStatus.pending] ?? 0,
       inflight: counts[SyncOutboxStatus.inflight] ?? 0,
@@ -127,6 +154,10 @@ class SyncHealthService {
       failsTotal: failsTotal,
       pendingByType: breakdown,
       pendingPreview: preview,
+      pendingCritical: pendingCritical,
+      pendingBackground: pendingBackground,
+      scheduler: SyncSchedulerMetrics.instance.snapshot(),
+      avgSyncMs: avgSyncMs,
     );
   }
 }

@@ -131,8 +131,25 @@ class ProductoService {
   void _asegurarSyncProducto(
     int? id, {
     bool incluirStockAbsoluto = false,
+    bool background = false,
   }) {
     if (id == null) return;
+    // Import / masivos: solo outbox en lane fondo (no throttle interactivo).
+    if (background) {
+      syncInBackground(
+        CloudSyncThrottle.enqueueBackground(
+          () => FirestoreSyncService.instance.subirProductoPorId(
+            id,
+            incluirStockAbsoluto: incluirStockAbsoluto,
+            forzar: true,
+            forceBackground: true,
+          ),
+          tag: 'subirProductoFondo',
+        ),
+        tag: 'subirProductoBg',
+      );
+      return;
+    }
     // Windows fast-safe: 1 producto via throttle (serializado, delay corto).
     // Evita ráfagas concurrentes que tumban el .exe, pero sube al toque.
     if (PlatformCapabilities.isWindowsDesktop) {
@@ -238,7 +255,10 @@ class ProductoService {
     }
   }
 
-  Future<int> insertar(Producto producto) async {
+  Future<int> insertar(
+    Producto producto, {
+    bool syncBackground = false,
+  }) async {
     AuthorizationService.instance.require(
       AuthModules.productos,
       AuthzAction.crear,
@@ -269,7 +289,11 @@ class ProductoService {
       valorNuevo: _snapshot(guardado),
     );
     // Alta: sync metadata; stock via stock_ops del ledger.
-    _asegurarSyncProducto(id, incluirStockAbsoluto: false);
+    _asegurarSyncProducto(
+      id,
+      incluirStockAbsoluto: false,
+      background: syncBackground,
+    );
     DataRefreshHub.instance.notifyProductos();
     DataRefreshHub.instance.notifyStock();
     ProductoSideEffects.scheduleAfterSave(guardado, op: 'upsert');
@@ -320,7 +344,7 @@ class ProductoService {
             eventId: 'inv:ajuste:import:$batchTs:${p.codigo}',
           );
         }
-        _asegurarSyncProducto(localId);
+        _asegurarSyncProducto(localId, background: true);
       }
     } catch (_) {}
     DataRefreshHub.instance.notifyProductos();
@@ -387,7 +411,10 @@ class ProductoService {
     DataRefreshHub.instance.notifyProductos();
   }
 
-  Future<int> actualizar(Producto producto) async {
+  Future<int> actualizar(
+    Producto producto, {
+    bool syncBackground = false,
+  }) async {
     AuthorizationService.instance.require(
       AuthModules.productos,
       AuthzAction.editar,
@@ -473,7 +500,11 @@ class ProductoService {
           valorAnterior: _snapshot(anteriorProducto),
           valorNuevo: _snapshot(finalSnap),
         );
-        _asegurarSyncProducto(actualizado.id, incluirStockAbsoluto: false);
+        _asegurarSyncProducto(
+          actualizado.id,
+          incluirStockAbsoluto: false,
+          background: syncBackground,
+        );
         DataRefreshHub.instance.notifyProductos();
         DataRefreshHub.instance.notifyStock();
         ProductoSideEffects.scheduleAfterSave(finalSnap, op: 'upsert');
@@ -488,7 +519,11 @@ class ProductoService {
       'Producto actualizado: ${conFotos.descripcion}',
       valorNuevo: _snapshot(conFotos),
     );
-    _asegurarSyncProducto(conFotos.id, incluirStockAbsoluto: false);
+    _asegurarSyncProducto(
+      conFotos.id,
+      incluirStockAbsoluto: false,
+      background: syncBackground,
+    );
     DataRefreshHub.instance.notifyProductos();
     ProductoSideEffects.scheduleAfterSave(conFotos, op: 'upsert');
     return result;

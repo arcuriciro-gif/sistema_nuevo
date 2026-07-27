@@ -142,6 +142,8 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
           _row('Salud certificable', sync.isCertifiableHealthy ? 'OK' : 'ATENCIÓN'),
           _row('Pending / Inflight / Dead',
               '${sync.pending} / ${sync.inflight} / ${sync.dead}'),
+          _row('Cola crítica / fondo',
+              '${sync.pendingCritical} / ${sync.pendingBackground}'),
           _row('Conflictos 24h', '${sync.conflicts24h}'),
           _row('Ciclos / ACK / Fail',
               '${sync.syncCycles} / ${sync.acksTotal} / ${sync.failsTotal}'),
@@ -155,9 +157,49 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
                 ? '—'
                 : '${sync.lastSyncDurationMs} ms',
           ),
+          _row(
+            'Promedio ciclo',
+            sync.avgSyncMs == null ? '—' : '${sync.avgSyncMs!.toStringAsFixed(0)} ms',
+          ),
           _row('Firebase listo', sync.firebaseReady ? 'sí' : 'no'),
           _row('Puede escribir', sync.canWrite ? 'sí' : 'no'),
           _row('Último error', sync.lastError ?? '—'),
+        ]),
+        _section('Scheduler (métricas)', [
+          _row(
+            'Procesados crítico / fondo',
+            '${sync.scheduler['criticalProcessed'] ?? 0} / '
+            '${sync.scheduler['backgroundProcessed'] ?? 0}',
+          ),
+          _row(
+            'Fails crítico / fondo',
+            '${sync.scheduler['criticalFails'] ?? 0} / '
+            '${sync.scheduler['backgroundFails'] ?? 0}',
+          ),
+          _row('Coalesced ops', '${sync.scheduler['coalescedOps'] ?? 0}'),
+          _row(
+            'Latencia avg crítico',
+            sync.scheduler['avgCriticalLatencyMs'] == null
+                ? '—'
+                : '${(sync.scheduler['avgCriticalLatencyMs'] as num).toStringAsFixed(0)} ms',
+          ),
+          _row(
+            'Latencia max crítico',
+            sync.scheduler['maxCriticalLatencyMs'] == null
+                ? '—'
+                : '${sync.scheduler['maxCriticalLatencyMs']} ms',
+          ),
+          _row(
+            'Ops/min crítico (aprox)',
+            sync.scheduler['opsPerMinuteCritical'] == null
+                ? '—'
+                : (sync.scheduler['opsPerMinuteCritical'] as num)
+                    .toStringAsFixed(1),
+          ),
+          _row(
+            'Último tick',
+            sync.scheduler['lastTickAt']?.toString() ?? '—',
+          ),
         ]),
         if (sync.collectionStatus.isNotEmpty)
           _section(

@@ -126,44 +126,49 @@ class WindowsSyncPolicy {
     return 0;
   }
 
-  /// Plan de drain del outbox Windows: qué buckets tocar este tick.
+  /// Plan de drain del outbox Windows (scheduler v2).
   ///
-  /// Si hay productos pendientes, SIEMPRE van primero (antes un tick
-  /// compartido con soft-pull quedaba en 0 y nunca los subía).
+  /// **Crítico primero:** ventas/remitos/stock/clientes nunca esperan detrás
+  /// de miles de productos de importación. El fondo (productos) solo corre
+  /// con cupo residual o cuando no hay críticos.
   static List<({List<String> types, int claim})> outboxDrainPlan({
     required Map<String, int> breakdown,
     required int tick,
   }) {
-    final nProd = breakdown['producto'] ?? 0;
-    final nProv = breakdown['proveedor'] ?? 0;
-    final nDocs = (breakdown['venta'] ?? 0) +
+    final nCritDocs = (breakdown['venta'] ?? 0) +
         (breakdown['remito'] ?? 0) +
         (breakdown['compra'] ?? 0) +
-        (breakdown['cliente'] ?? 0);
+        (breakdown['cliente'] ?? 0) +
+        (breakdown['proveedor'] ?? 0);
     final nStock = breakdown['stock_op'] ?? 0;
+    final nProd = breakdown['producto'] ?? 0;
     final plan = <({List<String> types, int claim})>[];
-    if (nProd + nProv > 0) {
-      final claim = (nProd + nProv) >= 100
-          ? 8
-          : (nProd + nProv) >= 20
-              ? 6
-              : 4;
+
+    if (nCritDocs > 0) {
       plan.add((
-        types: const ['producto', 'proveedor'],
-        claim: claim,
+        types: const ['venta', 'remito', 'compra', 'cliente', 'proveedor'],
+        claim: nCritDocs.clamp(1, 10),
       ));
     }
-    if (nDocs > 0 || tick % 2 == 0) {
-      plan.add((
-        types: const ['venta', 'remito', 'compra', 'cliente'],
-        claim: 4,
-      ));
-    }
-    if (nStock > 0 || tick % 3 == 2) {
+    if (nStock > 0) {
       plan.add((
         types: const ['stock_op'],
-        claim: 2,
+        claim: nStock.clamp(1, 8),
       ));
+    }
+    // Fondo: solo si no hay críticos, o cupo mínimo residual.
+    if (nProd > 0) {
+      final bgClaim = (nCritDocs + nStock) == 0
+          ? nProd.clamp(1, 6)
+          : 1;
+      plan.add((
+        types: const ['producto'],
+        claim: bgClaim,
+      ));
+    }
+    // tick se conserva por compat API / métricas de rotación.
+    if (plan.isEmpty && tick >= 0) {
+      return plan;
     }
     return plan;
   }

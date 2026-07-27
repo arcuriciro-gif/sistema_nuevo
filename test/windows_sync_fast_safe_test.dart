@@ -56,14 +56,23 @@ void main() {
       );
     });
 
-    test('outboxDrainPlan prioriza productos si hay cola (no tick=0 eterno)', () {
+    test('outboxDrainPlan prioriza críticos aunque haya productos', () {
       final plan = WindowsSyncPolicy.outboxDrainPlan(
-        breakdown: const {'producto': 350, 'proveedor': 4},
+        breakdown: const {
+          'producto': 350,
+          'proveedor': 4,
+          'venta': 2,
+          'stock_op': 1,
+        },
         tick: 0,
       );
       expect(plan, isNotEmpty);
-      expect(plan.first.types, contains('producto'));
-      expect(plan.first.claim, greaterThanOrEqualTo(8));
+      expect(plan.first.types, contains('venta'));
+      expect(plan.first.types, isNot(contains('producto')));
+      expect(
+        plan.any((s) => s.types.contains('producto')),
+        isTrue,
+      );
     });
 
     test('outboxDrainPlan vacío no inventa drains', () {
@@ -71,8 +80,7 @@ void main() {
         breakdown: const {},
         tick: 1,
       );
-      // tick%2==0 es false → sin docs; tick%3==2 false → sin stock
-      expect(plan.where((s) => s.types.contains('producto')), isEmpty);
+      expect(plan, isEmpty);
     });
 
     test('throttle interactivo es más corto que el normal', () {

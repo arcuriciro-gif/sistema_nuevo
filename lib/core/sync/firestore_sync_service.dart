@@ -19,6 +19,9 @@ import '../firebase/firebase_bootstrap.dart';
 import '../utils/media_path.dart';
 import 'media_sync_service.dart';
 import 'cloud_sync_throttle.dart';
+import 'scheduler/sync_priority.dart';
+import 'scheduler/sync_scheduler.dart';
+import 'scheduler/sync_scheduler_metrics.dart';
 import 'sync_background.dart';
 import 'sync_catchup.dart';
 import 'sync_health.dart';
@@ -544,32 +547,8 @@ class FirestoreSyncService {
           }
 
           syncStatusDetail = '$pending pendientes…';
-          if (windows) {
-            // Drain con plan propio (NO soft-pull tick — productos quedaban
-            // eternamente en "intentos 0").
-            final tick = _outboxDrainTickWindows++;
-            final breakdown = await SyncOutbox.instance.pendingBreakdown();
-            for (final step in WindowsSyncPolicy.outboxDrainPlan(
-              breakdown: breakdown,
-              tick: tick,
-            )) {
-              await _procesarOutboxDrain(
-                maxBatches: 1,
-                claimLimit: step.claim,
-                entityTypes: step.types,
-              );
-            }
-          } else {
-            await _procesarOutboxDrain(
-              maxBatches: 10,
-              entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
-            );
-            await _procesarOutboxDrain(
-              maxBatches: 6,
-              entityTypes: const ['stock_op'],
-            );
-            await _procesarOutboxDrain(maxBatches: 6);
-          }
+          // Scheduler v2: crítico nunca espera detrás de import/masivos.
+          await _procesarSchedulerTicks(windows: windows);
           pending = await SyncOutbox.instance.countByStatus(
             SyncOutboxStatus.pending,
           );
@@ -1544,24 +1523,63 @@ class FirestoreSyncService {
   }
 
   Future<void> _procesarOutboxBatch({int limit = 80}) async {
-    final batch = await SyncOutbox.instance.claimBatch(limit: limit);
+    final batch = await SyncOutbox.instance.claimBatch(
+      limit: limit,
+      orderByPriority: true,
+    );
+    await _ejecutarClaimedOps(batch);
+  }
+
+  /// Scheduler: varios ticks crítico-primero por ciclo de pump.
+  Future<void> _procesarSchedulerTicks({required bool windows}) async {
+    final ticks = windows ? 3 : 8;
+    for (var i = 0; i < ticks; i++) {
+      final breakdown = await SyncOutbox.instance.pendingBreakdown();
+      if (breakdown.isEmpty) break;
+      final claimed = await SyncScheduler.instance.claimForTick(
+        breakdown: breakdown,
+        isWindows: windows,
+      );
+      if (claimed.isEmpty) break;
+      await _ejecutarClaimedOps(claimed, yieldMs: windows ? 80 : 0);
+      if (windows && i + 1 < ticks) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+    }
+  }
+
+  Future<void> _ejecutarClaimedOps(
+    List<Map<String, dynamic>> batch, {
+    int yieldMs = 0,
+  }) async {
     for (final op in batch) {
       final opId = op['op_id']?.toString() ?? '';
       if (opId.isEmpty) continue;
+      final entityType = op['entity_type']?.toString() ?? '';
+      final critical = SyncPriority.isCriticalEntity(entityType);
+      final sw = Stopwatch()..start();
       try {
         await _ejecutarOutboxOp(op);
         await SyncOutbox.instance.ack(opId);
         SyncHealthService.instance.recordAck();
+        SyncSchedulerMetrics.instance.recordSuccess(
+          critical: critical,
+          latencyMs: sw.elapsedMilliseconds,
+        );
         _syncMemoryColaTrasAck(op);
+        if (yieldMs > 0) {
+          await Future<void>.delayed(Duration(milliseconds: yieldMs));
+        }
       } catch (e) {
         await SyncOutbox.instance.fail(opId, e);
         SyncHealthService.instance.recordFail();
+        SyncSchedulerMetrics.instance.recordFail(critical: critical);
         debugPrint('Outbox fail $opId: $e');
       }
     }
   }
 
-  /// Drena varios batches por ciclo (Capacidad 9).
+  /// Drena varios batches por ciclo (Capacidad 9). Prioridad siempre on.
   Future<void> _procesarOutboxDrain({
     int maxBatches = 20,
     List<String>? entityTypes,
@@ -1585,25 +1603,10 @@ class FirestoreSyncService {
       final batch = await SyncOutbox.instance.claimBatch(
         limit: limit,
         entityTypes: entityTypes,
+        orderByPriority: true,
       );
       if (batch.isEmpty) break;
-      for (final op in batch) {
-        final opId = op['op_id']?.toString() ?? '';
-        if (opId.isEmpty) continue;
-        try {
-          await _ejecutarOutboxOp(op);
-          await SyncOutbox.instance.ack(opId);
-          SyncHealthService.instance.recordAck();
-          _syncMemoryColaTrasAck(op);
-          if (windows) {
-            await Future<void>.delayed(const Duration(milliseconds: 100));
-          }
-        } catch (e) {
-          await SyncOutbox.instance.fail(opId, e);
-          SyncHealthService.instance.recordFail();
-          debugPrint('Outbox fail $opId: $e');
-        }
-      }
+      await _ejecutarClaimedOps(batch, yieldMs: windows ? 100 : 0);
     }
   }
 
@@ -3404,10 +3407,14 @@ class FirestoreSyncService {
     bool incluirStockAbsoluto = false,
     bool forzar = false,
     bool desdeOutbox = false,
+    bool forceBackground = false,
   }) async {
     if (!desdeOutbox) {
-      await SyncOutbox.instance
-          .enqueueUpsert(entityType: 'producto', localId: productoId);
+      await SyncOutbox.instance.enqueueUpsert(
+        entityType: 'producto',
+        localId: productoId,
+        forceBackground: forceBackground,
+      );
     }
     if (!_puedeEscribirRemoto) {
       _colaProductos.add(productoId);

@@ -4,6 +4,8 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../database/database_helper.dart';
+import 'scheduler/sync_priority.dart';
+import 'scheduler/sync_scheduler_metrics.dart';
 
 /// Estados del outbox (Capacidad 2).
 class SyncOutboxStatus {
@@ -25,7 +27,11 @@ class SyncOutboxOp {
     this.attempts = 0,
     this.lastError,
     this.nextAttemptAt,
-  });
+    int? priority,
+    SyncLane? lane,
+    this.coalesceKey,
+  })  : priority = priority ?? SyncPriority.forEntityType(entityType),
+        lane = lane ?? SyncLane.forEntityType(entityType);
 
   final String opId;
   final String entityType;
@@ -37,6 +43,9 @@ class SyncOutboxOp {
   final int attempts;
   final String? lastError;
   final String? nextAttemptAt;
+  final int priority;
+  final SyncLane lane;
+  final String? coalesceKey;
 
   Map<String, dynamic> toInsertMap() {
     final ahora = DateTime.now().toUtc().toIso8601String();
@@ -53,6 +62,9 @@ class SyncOutboxOp {
       'created_at': ahora,
       'updated_at': ahora,
       'next_attempt_at': nextAttemptAt,
+      'priority': priority,
+      'lane': lane.wireName,
+      'coalesce_key': coalesceKey,
     };
   }
 }
@@ -66,19 +78,30 @@ class SyncOutbox {
 
   Future<Database> get _db async => DatabaseHelper.instance.database;
 
-  /// Encola upsert. Idempotente por opId estable.
+  /// Encola upsert. Idempotente por opId estable (coalesce natural).
   ///
   /// [reopenAcked]: `true` (default) ante edición real del usuario.
   /// `false` al absorber colas legacy / catch-up — no reabre lo ya sincronizado
   /// (evita "N pendientes" fantasma al login en Windows).
+  ///
+  /// [forceBackground]: importaciones / masivos → lane fondo, prioridad baja.
   Future<void> enqueueUpsert({
     required String entityType,
     required int localId,
     String? remoteId,
     Map<String, dynamic>? payload,
     bool reopenAcked = true,
+    bool forceBackground = false,
   }) async {
     final opId = 'upsert:$entityType:$localId';
+    final priority = forceBackground
+        ? SyncPriority.background
+        : SyncPriority.forEntityType(entityType);
+    final lane = forceBackground
+        ? SyncLane.background
+        : SyncLane.forEntityType(entityType);
+    final coalesceKey =
+        SyncPriority.canCoalesce(entityType, 'upsert') ? opId : null;
     await _upsertPending(
       SyncOutboxOp(
         opId: opId,
@@ -87,6 +110,9 @@ class SyncOutbox {
         entityLocalId: localId,
         entityRemoteId: remoteId,
         payloadJson: payload == null ? null : jsonEncode(payload),
+        priority: priority,
+        lane: lane,
+        coalesceKey: coalesceKey,
       ),
       reopenAcked: reopenAcked,
     );
@@ -110,6 +136,8 @@ class SyncOutbox {
         entityLocalId: localId,
         entityRemoteId: remoteId,
         payloadJson: payload == null ? null : jsonEncode(payload),
+        priority: SyncPriority.forEntityType(entityType),
+        lane: SyncLane.forEntityType(entityType),
       ),
     );
   }
@@ -139,6 +167,8 @@ class SyncOutbox {
         operation: 'upsert',
         entityRemoteId: opId,
         payloadJson: jsonEncode(payload),
+        priority: SyncPriority.critical,
+        lane: SyncLane.critical,
       ),
     );
   }
@@ -184,6 +214,14 @@ class SyncOutbox {
       return;
     }
     final status = existing.first['status']?.toString() ?? '';
+    // Coalesce: mismo opId upsertable → actualizar payload (último gana).
+    final coalescing = SyncPriority.canCoalesce(op.entityType, op.operation) &&
+        (status == SyncOutboxStatus.pending ||
+            status == SyncOutboxStatus.inflight ||
+            status == SyncOutboxStatus.acked);
+    if (coalescing && status != SyncOutboxStatus.acked) {
+      SyncSchedulerMetrics.instance.recordCoalesce();
+    }
     if (status == SyncOutboxStatus.acked) {
       if (!reopenAcked) return;
       await db.update(
@@ -196,6 +234,9 @@ class SyncOutbox {
           'next_attempt_at': null,
           'payload': op.payloadJson,
           'entity_remote_id': op.entityRemoteId,
+          'priority': op.priority,
+          'lane': op.lane.wireName,
+          'coalesce_key': op.coalesceKey,
         },
         where: 'op_id = ?',
         whereArgs: [op.opId],
@@ -214,6 +255,9 @@ class SyncOutbox {
           'next_attempt_at': null,
           'payload': op.payloadJson,
           'entity_remote_id': op.entityRemoteId,
+          'priority': op.priority,
+          'lane': op.lane.wireName,
+          'coalesce_key': op.coalesceKey,
         },
         where: 'op_id = ?',
         whereArgs: [op.opId],
@@ -229,6 +273,15 @@ class SyncOutbox {
           'payload': op.payloadJson ?? existing.first['payload'],
           'entity_remote_id':
               op.entityRemoteId ?? existing.first['entity_remote_id'],
+          // Si llega un crítico sobre la misma fila, subir prioridad.
+          'priority': op.priority <
+                  ((existing.first['priority'] as num?)?.toInt() ?? 50)
+              ? op.priority
+              : (existing.first['priority'] as num?)?.toInt() ?? op.priority,
+          'lane': op.lane == SyncLane.critical
+              ? SyncLane.critical.wireName
+              : (existing.first['lane']?.toString() ?? op.lane.wireName),
+          'coalesce_key': op.coalesceKey ?? existing.first['coalesce_key'],
         },
         where: 'op_id = ?',
         whereArgs: [op.opId],
@@ -289,9 +342,12 @@ class SyncOutbox {
     return n;
   }
 
+  /// Claim: por defecto ordena por prioridad (crítico primero).
   Future<List<Map<String, dynamic>>> claimBatch({
     int limit = 40,
     List<String>? entityTypes,
+    bool orderByPriority = true,
+    String? lane,
   }) async {
     final db = await _db;
     final ahora = DateTime.now().toUtc().toIso8601String();
@@ -303,11 +359,18 @@ class SyncOutbox {
       where += ' AND entity_type IN ($placeholders)';
       whereArgs.addAll(entityTypes);
     }
+    if (lane != null && lane.isNotEmpty) {
+      where += ' AND lane = ?';
+      whereArgs.add(lane);
+    }
+    final orderBy = orderByPriority
+        ? 'priority ASC, id ASC'
+        : 'id ASC';
     final rows = await db.query(
       'sync_outbox',
       where: where,
       whereArgs: whereArgs,
-      orderBy: 'id ASC',
+      orderBy: orderBy,
       limit: limit,
     );
     final claimed = <Map<String, dynamic>>[];
@@ -429,6 +492,29 @@ ORDER BY c DESC
     return out;
   }
 
+  /// Pendientes por carril (scheduler observability).
+  Future<Map<String, int>> pendingByLane() async {
+    final db = await _db;
+    final rows = await db.rawQuery(
+      '''
+SELECT COALESCE(lane, 'background') AS l, COUNT(*) AS c
+FROM sync_outbox
+WHERE status IN (?, ?)
+GROUP BY l
+''',
+      [SyncOutboxStatus.pending, SyncOutboxStatus.inflight],
+    );
+    final out = <String, int>{
+      SyncLane.critical.wireName: 0,
+      SyncLane.background.wireName: 0,
+    };
+    for (final r in rows) {
+      final l = r['l']?.toString() ?? SyncLane.background.wireName;
+      out[l] = (r['c'] as num?)?.toInt() ?? 0;
+    }
+    return out;
+  }
+
   /// Muestra legible del desglose (máx ~3 tipos).
   static String formatBreakdown(Map<String, int> breakdown, {int maxTypes = 4}) {
     if (breakdown.isEmpty) return '';
@@ -466,10 +552,12 @@ ORDER BY c DESC
         'attempts',
         'last_error',
         'updated_at',
+        'priority',
+        'lane',
       ],
       where: 'status IN (?, ?)',
       whereArgs: [SyncOutboxStatus.pending, SyncOutboxStatus.inflight],
-      orderBy: 'id ASC',
+      orderBy: 'priority ASC, id ASC',
       limit: limit,
     );
   }
