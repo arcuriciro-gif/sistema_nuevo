@@ -51,7 +51,7 @@ class SyncReportPdf {
           }),
           pw.SizedBox(height: 16),
           pw.Text(
-            'Cuellos de botella: ver P95/P99 vs SLA 2000ms en críticos. '
+            'Cuellos de botella: ver P95/P99 vs SLA 2000ms en criticos. '
             'Este PDF es evidencia de laboratorio (outbox local); hop remoto requiere piloto.',
             style: const pw.TextStyle(fontSize: 10),
           ),
@@ -96,8 +96,8 @@ class SyncReportPdf {
           pw.Text('Entorno: ${report['environment']}'),
           pw.SizedBox(height: 12),
           pw.Text(
-            'NOTA: CERTIFICADO PARA PRODUCCIÓN requiere evidencias de campo '
-            'EXE↔APK↔Firestore (P50/P95 hop remoto). Este informe es lab/piloto.',
+            'NOTA: CERTIFICADO PARA PRODUCCION requiere evidencias de campo '
+            'EXE/APK/Firestore (P50/P95 hop remoto). Este informe es lab/piloto.',
             style: const pw.TextStyle(fontSize: 10),
           ),
         ],
