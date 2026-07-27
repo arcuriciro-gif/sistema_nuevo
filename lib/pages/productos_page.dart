@@ -259,11 +259,37 @@ class _ProductosPageState extends State<ProductosPage> {
     return AppVisuals.danger(cs);
   }
 
+  Future<void> _abrirDetalle(Producto producto) async {
+    // Usar el context del State (ProductosPage), NUNCA el del itemBuilder.
+    // El ListView recicla/dispose tiles al refrescar (DataRefreshHub) y el
+    // context del ítem queda defunct → Navigator.of → StatefulElement.state bang.
+    if (!mounted) return;
+    final result = await Navigator.of(context).push<ProductoDetalleResult>(
+      MaterialPageRoute(
+        builder: (_) => ProductoDetallePage(
+          producto: producto,
+          listasActivas: listasActivas,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (result == ProductoDetalleResult.changed ||
+        result == ProductoDetalleResult.deleted) {
+      if (result == ProductoDetalleResult.deleted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Producto enviado a la papelera')),
+        );
+      }
+      await cargarProductos();
+    }
+  }
+
   Future<void> _nuevoProducto() async {
-    await Navigator.push(
-      context,
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
       MaterialPageRoute(builder: (_) => const ProductoFormPage()),
     );
+    if (!mounted) return;
     await cargarProductos();
   }
 
@@ -570,48 +596,7 @@ class _ProductosPageState extends State<ProductosPage> {
                               producto: p,
                               stockColor: stockColor,
                               colorScheme: colorScheme,
-                              onOpen: () async {
-                                final changed = await Navigator.push<bool>(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => ProductoDetallePage(
-                                      producto: p,
-                                      listasActivas: listasActivas,
-                                      onEdit: AuthorizationService
-                                              .instance.puedeEditarProductos
-                                          ? () async {
-                                              await Navigator.push(
-                                                context,
-                                                MaterialPageRoute(
-                                                  builder: (_) =>
-                                                      ProductoFormPage(
-                                                    producto: p,
-                                                  ),
-                                                ),
-                                              );
-                                              if (context.mounted) {
-                                                Navigator.pop(context, true);
-                                              }
-                                            }
-                                          : null,
-                                      onDelete: AuthorizationService
-                                              .instance.puedeEliminarProductos
-                                          ? () async {
-                                              Navigator.pop(context);
-                                              await eliminar(p);
-                                            }
-                                          : null,
-                                      onToggleFavorito: () async {
-                                        await _toggleFavorito(p);
-                                        if (context.mounted) {
-                                          Navigator.pop(context, true);
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                );
-                                if (changed == true) await cargarProductos();
-                              },
+                              onOpen: () => _abrirDetalle(p),
                               onToggleFavorito: () => _toggleFavorito(p),
                             );
                           },

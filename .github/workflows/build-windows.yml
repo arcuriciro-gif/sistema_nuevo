@@ -11,6 +11,7 @@ on:
       - cursor/fix-sync-ui-stutter-manual-e44b
       - cursor/fix-manual-crash-stock-push-e44b
       - cursor/sync-engine-forensic-rebuild-e44b
+      - cursor/fix-productos-navigator-context-e44b
       - cursor/fix-login-confirmacion-e44b
       - cursor/fotos-productos-sync-e44b
       - cursor/comparador-descripcion-costo-e44b
