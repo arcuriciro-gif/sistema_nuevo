@@ -1118,7 +1118,7 @@ class FirestoreSyncService {
   static const _prefsStockOpsWmRewindV151 = 'stock_ops_wm_rewind_v151';
 
   /// Rebobina watermark stock_ops (recupera ops perdidas por avance prematuro).
-  /// v1.5.1 / campo: 30 días — una sola vez (divergencia residual tras crash
+  /// v1.4.12 / campo: 30 días — una sola vez (divergencia residual tras crash
   /// de "Actualizar ahora" y HOL previo al hold-set).
   Future<void> _maybeRewindStockOpsWatermarkForConvergence() async {
     try {
@@ -1138,7 +1138,7 @@ class FirestoreSyncService {
       await prefs.setBool(_prefsStockOpsWmRewindV151, true);
       await prefs.setBool(_prefsStockOpsWmRewindV144, true);
       await prefs.setBool(_prefsStockOpsWmRewindV142, true);
-      debugPrint('stock_ops watermark: rewind 30d (convergencia v1.5.1)');
+      debugPrint('stock_ops watermark: rewind 30d (convergencia v1.4.12)');
     } catch (e) {
       debugPrint('stock_ops watermark rewind: $e');
     }
