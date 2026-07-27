@@ -77,10 +77,10 @@ class SyncMetricsHistoryStore {
   Future<void> record(SyncMetricsSample sample) async {
     final db = await _db;
     await db.insert('sync_metrics_samples', sample.toMap());
-    // Retener ~24h (asumiendo ~1 muestra / min → 1500 filas tope).
+    // Retener ~7 días (muestras ~1/min → tope ~12k; cleanup por fecha).
     final cutoff = DateTime.now()
         .toUtc()
-        .subtract(const Duration(hours: 24))
+        .subtract(const Duration(days: 7))
         .toIso8601String();
     await db.delete(
       'sync_metrics_samples',
@@ -89,11 +89,11 @@ class SyncMetricsHistoryStore {
     );
   }
 
-  Future<List<SyncMetricsSample>> last24h({int limit = 288}) async {
+  Future<List<SyncMetricsSample>> lastHours(int hours, {int limit = 500}) async {
     final db = await _db;
     final cutoff = DateTime.now()
         .toUtc()
-        .subtract(const Duration(hours: 24))
+        .subtract(Duration(hours: hours))
         .toIso8601String();
     final rows = await db.query(
       'sync_metrics_samples',
@@ -104,4 +104,10 @@ class SyncMetricsHistoryStore {
     );
     return rows.map(SyncMetricsSample.fromMap).toList();
   }
+
+  Future<List<SyncMetricsSample>> last24h({int limit = 288}) =>
+      lastHours(24, limit: limit);
+
+  Future<List<SyncMetricsSample>> last7d({int limit = 2000}) =>
+      lastHours(24 * 7, limit: limit);
 }

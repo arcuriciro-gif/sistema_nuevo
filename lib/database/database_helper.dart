@@ -1089,6 +1089,35 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 35) {
       await _migrarSyncEngineV35(db);
     }
+    if (oldVersion < 36) {
+      await _migrarSyncObservabilityV36(db);
+    }
+  }
+
+  /// Sync Engine 2.1: trazas E2E durables (muestra) para certificación.
+  Future<void> _migrarSyncObservabilityV36(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS sync_op_traces(
+  op_id TEXT PRIMARY KEY,
+  entity_type TEXT NOT NULL,
+  entity_local_id INTEGER,
+  entity_remote_id TEXT,
+  created_at TEXT NOT NULL,
+  enqueued_at TEXT,
+  claimed_at TEXT,
+  send_started_at TEXT,
+  firestore_done_at TEXT,
+  acked_at TEXT,
+  remote_applied_at TEXT,
+  total_ms INTEGER,
+  success INTEGER DEFAULT 0,
+  last_error TEXT
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sync_op_traces_entity '
+      'ON sync_op_traces(entity_type, created_at)',
+    );
   }
 
   /// Sync Engine 2.0: estado durable + historial 24h de métricas.
@@ -1420,6 +1449,7 @@ CREATE TABLE IF NOT EXISTS sync_outbox(
     );
     await _crearTablaImportJobs(db);
     await _migrarSyncEngineV35(db);
+    await _migrarSyncObservabilityV36(db);
     await db.execute('''
 CREATE TABLE IF NOT EXISTS sync_watermarks(
   collection TEXT PRIMARY KEY,
@@ -1621,5 +1651,5 @@ CREATE TABLE IF NOT EXISTS wa_catalog_items(
   }
 
   /// Versión de schema declarada por la app (Capacidad 5 / panel técnico).
-  static const int schemaVersion = 35;
+  static const int schemaVersion = 36;
 }

@@ -11,7 +11,7 @@ import '../sync/sync_health.dart';
 /// Versiones de contrato de plataforma (Capacidad 5 / ADR §9).
 class PlatformVersions {
   static const domain = '3';
-  static const sync = '4';
+  static const sync = '5';
   static const events = '1';
   static int get schema => DatabaseHelper.schemaVersion;
 }

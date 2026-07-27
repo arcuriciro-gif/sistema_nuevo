@@ -19,6 +19,8 @@ import '../firebase/firebase_bootstrap.dart';
 import '../utils/media_path.dart';
 import 'media_sync_service.dart';
 import 'cloud_sync_throttle.dart';
+import 'observability/sync_circuit_breaker.dart';
+import 'observability/sync_observability_hub.dart';
 import 'scheduler/entity_lock_registry.dart';
 import 'scheduler/sync_priority.dart';
 import 'scheduler/sync_scheduler.dart';
@@ -1602,6 +1604,15 @@ class FirestoreSyncService {
         }
       }
 
+      // Circuit breaker: no martillar Firestore si está abierto.
+      if (!SyncCircuitBreaker.instance.allowRequest()) {
+        await SyncOutbox.instance.requeueImmediate(
+          opId,
+          reason: 'circuit_open',
+        );
+        continue;
+      }
+
       final lockOk = EntityLockRegistry.instance.tryAcquire(
         entityType,
         localId,
@@ -1614,17 +1625,30 @@ class FirestoreSyncService {
       final sw = Stopwatch()..start();
       var error = false;
       try {
+        SyncObservabilityHub.instance.onSendStart(opId);
         await _ejecutarOutboxOp(op);
         await SyncOutbox.instance.ack(opId);
         SyncHealthService.instance.recordAck();
+        SyncObservabilityHub.instance.onSendDone(
+          opId,
+          latencyMs: sw.elapsedMilliseconds,
+          error: false,
+        );
         _syncMemoryColaTrasAck(op);
-        if (yieldMs > 0) {
-          await Future<void>.delayed(Duration(milliseconds: yieldMs));
+        final waitCb = SyncCircuitBreaker.instance.extraWaitMs;
+        final totalYield = yieldMs + waitCb;
+        if (totalYield > 0) {
+          await Future<void>.delayed(Duration(milliseconds: totalYield));
         }
       } catch (e) {
         error = true;
         await SyncOutbox.instance.fail(opId, e);
         SyncHealthService.instance.recordFail();
+        SyncObservabilityHub.instance.onSendDone(
+          opId,
+          latencyMs: sw.elapsedMilliseconds,
+          error: true,
+        );
         debugPrint('Outbox fail $opId: $e');
       } finally {
         EntityLockRegistry.instance.release(entityType, localId);
@@ -4354,6 +4378,13 @@ class FirestoreSyncService {
             });
           }
           huboCambios = true;
+          try {
+            SyncObservabilityHub.instance.onRemoteApplied(
+              entityType: 'venta',
+              localId: ventaId,
+              remoteId: doc.id,
+            );
+          } catch (_) {}
         } catch (e) {
           debugPrint('Aplicar venta remota ${doc.id}: $e');
         }
