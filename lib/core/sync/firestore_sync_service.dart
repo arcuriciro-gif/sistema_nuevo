@@ -33,6 +33,7 @@ import 'stock_ops_pull_policy.dart';
 import 'stock_ops_pull_hold_store.dart';
 import 'stock_ops_watermark.dart';
 import 'stock_ops_applied_store.dart';
+import 'stable_document_id.dart';
 import 'sync_watermark_store.dart';
 import 'windows_sync_policy.dart';
 import '../integrity/legacy_ledger_migration.dart';
@@ -1807,24 +1808,41 @@ class FirestoreSyncService {
   }
 
   /// Antes de hard-delete por tombstone: reverso local si el ledger neto ≠ 0.
+  ///
+  /// Hardening: busca neto por identidad estable (`numero`) y fallback
+  /// legado (`localId`) — cada nodo tiene autoincrement distinto.
   Future<void> _reversoLocalAntesDeTombstone({
     required String documentType,
-    required int documentId,
+    required int localId,
+    required String stableDocumentId,
     required String itemsTable,
     required String fkColumn,
   }) async {
     DomainBootstrap.ensureInitialized();
-    final net = await InventoryLedgerService.instance.ledgerNetForDocument(
-      documentType: documentType,
-      documentId: '$documentId',
+    final candidates = ledgerDocumentIdCandidates(
+      numero: stableDocumentId,
+      localId: localId,
     );
+    var net = 0;
+    var ledgerKey = stableDocumentId;
+    for (final key in candidates) {
+      final n = await InventoryLedgerService.instance.ledgerNetForDocument(
+        documentType: documentType,
+        documentId: key,
+      );
+      if (n != 0) {
+        net = n;
+        ledgerKey = key;
+        break;
+      }
+    }
     if (net == 0) return;
 
     final db = await DatabaseHelper.instance.database;
     final items = await db.query(
       itemsTable,
       where: '$fkColumn = ?',
-      whereArgs: [documentId],
+      whereArgs: [localId],
     );
     final lines = <InventoryLine>[];
     for (final item in items) {
@@ -1837,17 +1855,17 @@ class FirestoreSyncService {
     if (lines.isEmpty) return;
 
     final rev = DateTime.now().toUtc().microsecondsSinceEpoch;
-    // Entrega (net < 0) → reverso con sign +1; recepción (net > 0) → sign -1.
     final sign = net < 0 ? 1 : -1;
     final tipo = sign > 0 ? 'entrada' : 'salida';
     await InventoryLedgerService.instance.reverseDocumentLocally(
       documentType: documentType,
-      documentId: '$documentId',
-      eventId: 'inv:tombstone_rev:$documentType:$documentId:$rev',
+      documentId: ledgerKey,
+      eventId: 'inv:tombstone_rev:$documentType:$stableDocumentId:$rev',
       lines: lines,
       sign: sign,
       movimientoTipo: tipo,
-      motivo: 'Reverso local por tombstone remoto $documentType#$documentId',
+      motivo:
+          'Reverso local por tombstone remoto $documentType#$stableDocumentId',
     );
   }
 
@@ -3081,29 +3099,41 @@ class FirestoreSyncService {
 
   Future<void> _subirClientesAusentesEnNube(Database db) async {
     try {
-      final remote = await _clientesCol.get();
+      // Hardening: paginado (nunca .get() completo).
       final remoteIds = <String>{};
-      for (final d in remote.docs) {
-        remoteIds.add(d.id);
-        final sid = d.data()['syncId']?.toString();
-        if (sid != null && sid.isNotEmpty) remoteIds.add(sid);
+      String? afterId;
+      const pageSize = 80;
+      const maxPages = 40; // tope duro por ciclo
+      for (var i = 0; i < maxPages; i++) {
+        Query<Map<String, dynamic>> q =
+            _clientesCol.orderBy(FieldPath.documentId).limit(pageSize);
+        if (afterId != null && afterId.isNotEmpty) {
+          q = q.startAfter([afterId]);
+        }
+        final snap = await q.get();
+        if (snap.docs.isEmpty) break;
+        for (final d in snap.docs) {
+          remoteIds.add(d.id);
+          final sid = d.data()['syncId']?.toString();
+          if (sid != null && sid.isNotEmpty) remoteIds.add(sid);
+        }
+        afterId = snap.docs.last.id;
+        if (snap.docs.length < pageSize) break;
       }
       final locales = await db.query(
         'clientes',
         columns: ['id', 'syncId', 'activo'],
       );
+      var subidos = 0;
       for (final row in locales) {
         final id = (row['id'] as num?)?.toInt();
         if (id == null) continue;
-        if (_asInt01(row['activo'], defaultValue: 1) == 0) continue;
-        var syncId = row['syncId']?.toString() ?? '';
-        if (syncId.isEmpty) {
-          syncId = await asegurarSyncIdCliente(id);
-        }
-        if (syncId.isEmpty) continue;
-        if (!remoteIds.contains(syncId)) {
-          await subirCliente(id, forzar: true);
-        }
+        final syncId = row['syncId']?.toString() ?? '';
+        if (syncId.isNotEmpty && remoteIds.contains(syncId)) continue;
+        if (remoteIds.contains('$id')) continue;
+        await subirCliente(id, forzar: true);
+        subidos++;
+        if (subidos >= 50) break; // presupuesto por ciclo
       }
     } catch (e) {
       debugPrint('Subir clientes ausentes: $e');
@@ -3112,17 +3142,32 @@ class FirestoreSyncService {
 
   Future<void> _subirProveedoresAusentesEnNube(Database db) async {
     try {
-      final remote = await _proveedoresCol.get();
+      // Hardening: paginado (nunca .get() completo).
       final remoteIds = <String>{};
-      for (final d in remote.docs) {
-        remoteIds.add(d.id);
-        final sid = d.data()['syncId']?.toString();
-        if (sid != null && sid.isNotEmpty) remoteIds.add(sid);
+      String? afterId;
+      const pageSize = 80;
+      const maxPages = 40;
+      for (var i = 0; i < maxPages; i++) {
+        Query<Map<String, dynamic>> q =
+            _proveedoresCol.orderBy(FieldPath.documentId).limit(pageSize);
+        if (afterId != null && afterId.isNotEmpty) {
+          q = q.startAfter([afterId]);
+        }
+        final snap = await q.get();
+        if (snap.docs.isEmpty) break;
+        for (final d in snap.docs) {
+          remoteIds.add(d.id);
+          final sid = d.data()['syncId']?.toString();
+          if (sid != null && sid.isNotEmpty) remoteIds.add(sid);
+        }
+        afterId = snap.docs.last.id;
+        if (snap.docs.length < pageSize) break;
       }
       final locales = await db.query(
         'proveedores',
         columns: ['id', 'syncId', 'activo'],
       );
+      var subidos = 0;
       for (final row in locales) {
         final id = (row['id'] as num?)?.toInt();
         if (id == null) continue;
@@ -3132,9 +3177,10 @@ class FirestoreSyncService {
           syncId = await asegurarSyncIdProveedor(id);
         }
         if (syncId.isEmpty) continue;
-        if (!remoteIds.contains(syncId)) {
-          await subirProveedor(id, forzar: true);
-        }
+        if (remoteIds.contains(syncId)) continue;
+        await subirProveedor(id, forzar: true);
+        subidos++;
+        if (subidos >= 50) break;
       }
     } catch (e) {
       debugPrint('Subir proveedores ausentes: $e');
@@ -4048,11 +4094,8 @@ class FirestoreSyncService {
         } catch (_) {}
       }
 
-      if (incluirStockAbsoluto) {
-        await _remote.actualizar(producto);
-      } else {
-        await _remote.actualizarSinStock(producto);
-      }
+      // Hardening: jamás stock absoluto en upload de producto.
+      await _remote.actualizarSinStock(producto);
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:producto:$productoId');
       }
@@ -4357,7 +4400,8 @@ class FirestoreSyncService {
                 !await SyncOutbox.instance.hasPendingLocalId('compra', id)) {
               await _reversoLocalAntesDeTombstone(
                 documentType: 'compra',
-                documentId: id,
+                localId: id,
+                stableDocumentId: numero,
                 itemsTable: 'compra_items',
                 fkColumn: 'compraId',
               );
@@ -4545,7 +4589,8 @@ class FirestoreSyncService {
                 !await SyncOutbox.instance.hasPendingLocalId('remito', id)) {
               await _reversoLocalAntesDeTombstone(
                 documentType: 'remito',
-                documentId: id,
+                localId: id,
+                stableDocumentId: numero,
                 itemsTable: 'remito_items',
                 fkColumn: 'remitoId',
               );
@@ -4721,7 +4766,8 @@ class FirestoreSyncService {
                   !await SyncOutbox.instance.hasPendingLocalId('venta', id)) {
                 await _reversoLocalAntesDeTombstone(
                   documentType: 'venta',
-                  documentId: id,
+                  localId: id,
+                  stableDocumentId: numero,
                   itemsTable: 'ventas_items',
                   fkColumn: 'ventaId',
                 );

@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite/sqflite.dart';
 
 /// Política de acceso del admin por defecto (Fase 1).
 ///
@@ -25,18 +26,34 @@ class AdminAccessPolicy {
 
   Future<bool> isDefaultRecoveryEnabled() async {
     final prefs = await SharedPreferences.getInstance();
-    // Compat instalaciones existentes: si nunca se persistió, sigue true.
-    // Tras cambiar clave admin se llama disableDefaultRecovery().
-    // Capacidad 1: nuevas empresas no dependen de esto para aislamiento
-    // (tenant propio + rules). Checklist de release: desactivar en campo.
-    return prefs.getBool(_kDefaultRecoveryEnabled) ?? true;
+    // Hardening: default OFF. Solo bootstrap explícito lo habilita.
+    return prefs.getBool(_kDefaultRecoveryEnabled) ?? false;
   }
 
   /// Marca explícitamente el bootstrap local (seed admin). Idempotente.
   Future<void> enableDefaultRecoveryForBootstrap() async {
     final prefs = await SharedPreferences.getInstance();
-    if (prefs.containsKey(_kDefaultRecoveryEnabled)) return;
     await prefs.setBool(_kDefaultRecoveryEnabled, true);
+  }
+
+  /// Migración one-shot: instalaciones que ya cambiaron la clave admin
+  /// dejan de tener recovery; las que siguen en hash bootstrap lo conservan.
+  Future<void> migrateHardeningRecoveryDefault(DatabaseExecutor db) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.containsKey(_kDefaultRecoveryEnabled)) return;
+    final admin = await db.query(
+      'usuarios',
+      columns: ['password'],
+      where: "LOWER(usuario) = 'admin'",
+      limit: 1,
+    );
+    if (admin.isEmpty) {
+      await prefs.setBool(_kDefaultRecoveryEnabled, false);
+      return;
+    }
+    final hash = admin.first['password']?.toString() ?? '';
+    final stillBootstrap = hash == hashAdmin123;
+    await prefs.setBool(_kDefaultRecoveryEnabled, stillBootstrap);
   }
 
   Future<void> disableDefaultRecovery() async {

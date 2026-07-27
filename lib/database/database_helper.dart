@@ -475,13 +475,14 @@ CREATE TABLE IF NOT EXISTS usuarios(
       return;
     }
 
-    // Si el admin quedó inactivo o sin clave usable, lo reparamos para
-    // que admin/admin123 vuelva a abrir la app en la PC (si la política
-    // de recovery default sigue habilitada en AuthService).
+    await AdminAccessPolicy.instance.migrateHardeningRecoveryDefault(db);
+
+    // Hardening: NO resetear a admin123 salvo recovery explícitamente ON.
     final row = adminRows.first;
     final activo = (row['activo'] as int?) ?? 0;
     final pass = (row['password'] ?? '').toString();
-    if (activo != 1 || pass.isEmpty) {
+    if ((activo != 1 || pass.isEmpty) &&
+        await AdminAccessPolicy.instance.isDefaultRecoveryEnabled()) {
       await db.update(
         'usuarios',
         {

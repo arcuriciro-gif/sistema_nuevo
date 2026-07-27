@@ -13,6 +13,7 @@ import '../core/domain/money_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/stable_document_id.dart';
 import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/venta.dart';
@@ -186,7 +187,7 @@ class VentaService {
           deviceId: tag,
           payload: {
             'documentType': 'venta',
-            'documentId': '$id',
+            'documentId': stableCommercialDocumentId(numero: venta.numero, localId: id, fallbackPrefix: 'v_'),
             'documentNumero': venta.numero,
             'motivo': 'Reverso entrega venta ${venta.numero}',
             'lines': invLines,
@@ -340,7 +341,7 @@ class VentaService {
           deviceId: tag,
           payload: {
             'documentType': 'venta',
-            'documentId': '$id',
+            'documentId': stableCommercialDocumentId(numero: venta.numero, localId: id, fallbackPrefix: 'v_'),
             'documentNumero': venta.numero,
             'motivo': 'Restauración entrega venta ${venta.numero}',
             'lines': invLines,

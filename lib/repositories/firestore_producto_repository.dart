@@ -35,7 +35,9 @@ class FirestoreProductoRepository implements ProductoRepository {
   @override
   Future<int> insertar(Producto producto) async {
     final docId = _docId(producto);
-    await _collection.doc(docId).set(producto.toFirestore(), SetOptions(merge: true));
+    // Hardening: nunca escribir stock absoluto — deltas vía stock_ops.
+    final data = producto.toFirestore()..remove('stock');
+    await _collection.doc(docId).set(data, SetOptions(merge: true));
     return producto.id ?? docId.hashCode;
   }
 
@@ -48,7 +50,7 @@ class FirestoreProductoRepository implements ProductoRepository {
       final batch = _firestore.batch();
       for (final producto in slice) {
         final ref = _collection.doc(_docId(producto));
-        batch.set(ref, producto.toFirestore(), SetOptions(merge: true));
+        batch.set(ref, producto.toFirestore()..remove('stock'), SetOptions(merge: true));
       }
       await batch.commit();
     }
@@ -157,17 +159,15 @@ class FirestoreProductoRepository implements ProductoRepository {
 
   @override
   Future<int> actualizar(Producto producto) async {
-    await _collection.doc(_docId(producto)).set(
-          producto.toFirestore(),
-          SetOptions(merge: true),
-        );
-    return 1;
+    // Hardening: actualizar == sin stock absoluto (usar stock_ops).
+    return actualizarSinStock(producto);
   }
 
   /// Sube metadata sin pisar stock absoluto (los deltas van por [ajustarStock]).
-  Future<void> actualizarSinStock(Producto producto) async {
+  Future<int> actualizarSinStock(Producto producto) async {
     final data = producto.toFirestore()..remove('stock');
     await _collection.doc(_docId(producto)).set(data, SetOptions(merge: true));
+    return 1;
   }
 
   /// Ajuste de stock en la nube (Capacidad 6).

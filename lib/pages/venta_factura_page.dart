@@ -585,11 +585,13 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                   if (ok == true) {
                     try {
                       await _ventaSvc.anular(_ventaExistente!.id!);
+                      if (!mounted) return;
                       messenger.showSnackBar(
                         const SnackBar(content: Text('Venta anulada')),
                       );
                       navigator.pop();
                     } catch (e) {
+                      if (!mounted) return;
                       messenger.showSnackBar(
                         SnackBar(
                           content: Text(
@@ -626,11 +628,13 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
                   if (ok == true) {
                     try {
                       await _ventaSvc.eliminar(_ventaExistente!.id!);
+                      if (!mounted) return;
                       messenger.showSnackBar(
                         const SnackBar(content: Text('Factura eliminada')),
                       );
                       navigator.pop();
                     } catch (e) {
+                      if (!mounted) return;
                       messenger.showSnackBar(
                         SnackBar(
                           content: Text(

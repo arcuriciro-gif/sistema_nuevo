@@ -13,6 +13,7 @@ import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/cloud_sync_throttle.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/stable_document_id.dart';
 import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/compra.dart';
@@ -140,7 +141,11 @@ class CompraService {
           deviceId: tag,
           payload: {
             'documentType': 'compra',
-            'documentId': '$id',
+            'documentId': stableCommercialDocumentId(
+              numero: compra.numero,
+              localId: id,
+              fallbackPrefix: 'C_',
+            ),
             'documentNumero': compra.numero,
             'motivo': 'Recepción por compra ${compra.numero}',
             'lines': lines,
@@ -277,7 +282,7 @@ class CompraService {
           deviceId: tag,
           payload: {
             'documentType': 'compra',
-            'documentId': '$id',
+            'documentId': stableCommercialDocumentId(numero: numero, localId: id, fallbackPrefix: 'C_'),
             'documentNumero': numero,
             'motivo': 'Reverso recepción compra ${numero ?? id}',
             'lines': lines,
@@ -374,7 +379,7 @@ class CompraService {
           deviceId: tag,
           payload: {
             'documentType': 'compra',
-            'documentId': '$id',
+            'documentId': stableCommercialDocumentId(numero: numero, localId: id, fallbackPrefix: 'C_'),
             'documentNumero': numero,
             'motivo': 'Reapertura recepción compra $numero',
             'lines': lines,
@@ -511,7 +516,7 @@ class CompraService {
           deviceId: tag,
           payload: {
             'documentType': 'compra',
-            'documentId': '$id',
+            'documentId': stableCommercialDocumentId(numero: numero, localId: id, fallbackPrefix: 'C_'),
             'documentNumero': numero,
             'motivo': 'Reverso por edición compra $numero',
             'lines': linesOld,
@@ -535,7 +540,7 @@ class CompraService {
           deviceId: tag,
           payload: {
             'documentType': 'compra',
-            'documentId': '$id',
+            'documentId': stableCommercialDocumentId(numero: numero, localId: id, fallbackPrefix: 'C_'),
             'documentNumero': numero,
             'motivo': 'Recepción por edición compra $numero',
             'lines': linesNew,
