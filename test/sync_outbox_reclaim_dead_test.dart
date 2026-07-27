@@ -70,7 +70,7 @@ void main() {
       );
     });
 
-    test('ackStockOpsYaHechas limpia cola de stock ya aplicados', () async {
+    test('ackStockOpsYaHechas es no-op (ACK solo con cloud proof)', () async {
       await SyncOutbox.instance.enqueueStockOp(
         opId: 'op-done',
         codigo: 'X',
@@ -83,14 +83,14 @@ void main() {
       );
 
       final n = await SyncOutbox.instance.ackStockOpsYaHechas({'op-done'});
-      expect(n, 1);
+      expect(n, 0);
       expect(
         await SyncOutbox.instance.countByStatus(SyncOutboxStatus.acked),
-        1,
+        0,
       );
       expect(
         await SyncOutbox.instance.countByStatus(SyncOutboxStatus.pending),
-        1,
+        2,
       );
     });
 
@@ -135,7 +135,7 @@ void main() {
       );
     });
 
-    test('ackDeadStockOps reencola dead; no ACK ciego; deja fresco', () async {
+    test('ackDeadStockOps reencola dead recuperable; poison se queda dead', () async {
       await SyncOutbox.instance.enqueueStockOp(
         opId: 'fresh',
         codigo: 'F',
@@ -146,28 +146,43 @@ void main() {
         codigo: 'D',
         delta: -1,
       );
+      await SyncOutbox.instance.enqueueStockOp(
+        opId: 'poison',
+        codigo: 'P',
+        delta: -2,
+      );
       final db = await DatabaseHelper.instance.database;
       await db.update(
         'sync_outbox',
         {
           'status': SyncOutboxStatus.dead,
-          'attempts': 99,
+          'attempts': SyncOutbox.maxAttempts - 1,
           'last_error': 'boom',
         },
         where: 'op_id = ?',
         whereArgs: ['stock_op:dead-one'],
       );
+      await db.update(
+        'sync_outbox',
+        {
+          'status': SyncOutboxStatus.dead,
+          'attempts': SyncOutbox.maxAttempts,
+          'last_error': 'poison',
+        },
+        where: 'op_id = ?',
+        whereArgs: ['stock_op:poison'],
+      );
 
       final n = await SyncOutbox.instance.ackDeadStockOps();
       expect(n, 1);
-      // fresh + dead reencolado
+      // fresh + dead recuperable
       expect(
         await SyncOutbox.instance.countByStatus(SyncOutboxStatus.pending),
         2,
       );
       expect(
         await SyncOutbox.instance.countByStatus(SyncOutboxStatus.dead),
-        0,
+        1,
       );
       expect(
         await SyncOutbox.instance.countByStatus(SyncOutboxStatus.acked),
