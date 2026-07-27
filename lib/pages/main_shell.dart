@@ -10,6 +10,7 @@ import '../services/permisos_service.dart';
 import '../services/sidebar_preferencias_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/comms/local_notification_service.dart';
+import '../core/comms/fcm_push_service.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/config/platform_capabilities.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
@@ -204,6 +205,12 @@ class _MainShellState extends State<MainShell> {
         await ComunicacionesService.instance.iniciar();
       } catch (e) {
         debugPrint('Comunicaciones init: $e');
+      }
+      try {
+        await FcmPushService.instance.iniciar();
+        await FcmPushService.instance.registrarUsuarioActual();
+      } catch (e) {
+        debugPrint('FCM init: $e');
       }
       if (mounted) await EmpresaOnboardingDialog.mostrarSiHaceFalta(context);
       if (mounted) await _ofrecerActivarNubeSiHaceFalta();

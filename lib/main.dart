@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'pages/login_page.dart';
@@ -12,6 +13,7 @@ import 'services/document_numbering_service.dart';
 import 'services/permisos_service.dart';
 import 'services/sidebar_preferencias_service.dart';
 import 'core/comms/local_notification_service.dart';
+import 'core/comms/fcm_push_service.dart';
 import 'core/config/backend_config_service.dart';
 import 'core/config/platform_capabilities.dart';
 import 'core/domain/domain_bootstrap.dart';
@@ -45,6 +47,20 @@ void main() async {
     await IntegrityPolicy.instance.cargar();
     await FirebaseSafeMode.cargar();
     await LocalNotificationService.instance.init();
+
+    // FCM background handler debe registrarse antes de runApp (Android).
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        BackendConfigService.instance.firebaseEnabled &&
+        !FirebaseSafeMode.enabled) {
+      try {
+        FirebaseMessaging.onBackgroundMessage(
+          firebaseMessagingBackgroundHandler,
+        );
+      } catch (e) {
+        await appendAppLog('FCM background register: $e');
+      }
+    }
 
     const desktopPlatforms = {
       TargetPlatform.windows,

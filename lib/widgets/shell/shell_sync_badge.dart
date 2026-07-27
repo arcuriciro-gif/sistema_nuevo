@@ -49,11 +49,19 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
     } catch (_) {}
   }
 
-  Future<void> _actualizarAhora() async {
+      Future<void> _actualizarAhora() async {
     if (_actualizando) return;
     setState(() => _actualizando = true);
     try {
-      final r = await FirestoreSyncService.instance.actualizarAhora();
+      final r = await FirestoreSyncService.instance
+          .actualizarAhora()
+          .timeout(
+            const Duration(seconds: 90),
+            onTimeout: () => {
+              'ok': false,
+              'error': 'timeout_90s',
+            },
+          );
       if (!mounted) return;
       final ok = r['ok'] == true;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -66,6 +74,12 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
         ),
       );
       await _refrescar();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Actualizar ahora falló: $e')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _actualizando = false);
     }

@@ -178,5 +178,19 @@ void main() {
       // Nunca 0: sin recientes el watermark truncado deja stock divergente.
       expect(busy.recentLimit, greaterThan(0));
     });
+
+    test('Actualizar ahora Windows usa presupuesto chico (no tumba EXE)', () {
+      final m = WindowsSyncPolicy.manualRefreshBudgetWindows(
+        pendingProductos: 0,
+      );
+      expect(m.stockMaxApply, lessThanOrEqualTo(16));
+      expect(m.stockRecentLimit, lessThanOrEqualTo(30));
+      expect(m.schedulerTicks, equals(1));
+      expect(m.negocioLimit, lessThanOrEqualTo(25));
+      final busy = WindowsSyncPolicy.manualRefreshBudgetWindows(
+        pendingProductos: 80,
+      );
+      expect(busy.stockMaxApply, lessThanOrEqualTo(m.stockMaxApply));
+    });
   });
 }
