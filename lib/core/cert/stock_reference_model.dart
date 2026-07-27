@@ -309,6 +309,11 @@ class StockReferenceModel {
     if (s.appliedRemote.contains(opId) || s.appliedLocal.contains(opId)) {
       return s; // G1
     }
+    // Self-echo: op ya originada localmente (cloudDelta) — no re-aplicar stock.
+    if (s.cloudDelta.containsKey(opId)) {
+      final remote = Set<String>.from(s.appliedRemote)..add(opId);
+      return s.copyWith(appliedRemote: remote, clearError: true);
+    }
     final cod = codigo.trim();
     if (cod.isEmpty || !s.stock.containsKey(cod)) {
       return s.copyWith(lastError: 'remote skip missing $cod');
