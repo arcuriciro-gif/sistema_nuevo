@@ -5,6 +5,9 @@ import '../core/integrity/integrity_policy.dart';
 import '../core/integrity/integrity_reconcile_service.dart';
 import '../core/ops/technical_health_service.dart';
 import '../core/security/authorization_service.dart';
+import '../core/sync/observability/sync_benchmark_runner.dart';
+import '../core/sync/observability/sync_diagnostic_service.dart';
+import '../core/sync/observability/sync_observability_hub.dart';
 import '../services/auth_service.dart';
 import '../theme/module_app_bar.dart';
 
@@ -19,9 +22,12 @@ class PanelTecnicoPage extends StatefulWidget {
 class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
   TechnicalHealthSnapshot? _snap;
   IntegrityScanReport? _integrity;
+  Map<String, dynamic>? _dash;
   String? _error;
   bool _loading = true;
   bool _scanning = false;
+  bool _busy = false;
+  String? _diagText;
 
   @override
   void initState() {
@@ -41,10 +47,12 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
       final snap = await TechnicalHealthService.instance.snapshot();
       await IntegrityPolicy.instance.ensureLoaded();
       final last = await IntegrityReconcileService.instance.lastReport();
+      final dash = await SyncObservabilityHub.instance.dashboardSnapshot();
       if (!mounted) return;
       setState(() {
         _snap = snap;
         _integrity = last;
+        _dash = dash;
         _loading = false;
       });
     } catch (e) {
@@ -53,6 +61,56 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _diagnosticar() async {
+    setState(() => _busy = true);
+    try {
+      final report = await SyncDiagnosticService.instance.diagnose();
+      if (!mounted) return;
+      setState(() {
+        _diagText = report.toHumanText();
+        _busy = false;
+      });
+      await Clipboard.setData(ClipboardData(text: report.toHumanText()));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            report.ok
+                ? 'Diagnóstico OK — copiado al portapapeles'
+                : 'Diagnóstico con hallazgos — copiado al portapapeles',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Diagnóstico falló: $e')),
+      );
+    }
+  }
+
+  Future<void> _benchmark() async {
+    setState(() => _busy = true);
+    try {
+      final report = await SyncBenchmarkRunner.instance.run();
+      if (!mounted) return;
+      setState(() => _busy = false);
+      await Clipboard.setData(ClipboardData(text: report.toMarkdown()));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Benchmark listo — markdown en portapapeles')),
+      );
+      await _cargar();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Benchmark falló: $e')),
+      );
     }
   }
 
@@ -140,8 +198,15 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
         ]),
         _section('Sincronización', [
           _row('Salud certificable', sync.isCertifiableHealthy ? 'OK' : 'ATENCIÓN'),
+          _row('Indicador', sync.healthColor.toUpperCase()),
           _row('Pending / Inflight / Dead',
               '${sync.pending} / ${sync.inflight} / ${sync.dead}'),
+          _row('L1 crítico / L2 alto',
+              '${sync.pendingL1} / ${sync.pendingL2}'),
+          _row('L3 normal / L4 background',
+              '${sync.pendingL3} / ${sync.pendingL4}'),
+          _row('Cola crítica / fondo (compat)',
+              '${sync.pendingCritical} / ${sync.pendingBackground}'),
           _row('Conflictos 24h', '${sync.conflicts24h}'),
           _row('Ciclos / ACK / Fail',
               '${sync.syncCycles} / ${sync.acksTotal} / ${sync.failsTotal}'),
@@ -155,9 +220,192 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
                 ? '—'
                 : '${sync.lastSyncDurationMs} ms',
           ),
+          _row(
+            'Promedio ciclo',
+            sync.avgSyncMs == null ? '—' : '${sync.avgSyncMs!.toStringAsFixed(0)} ms',
+          ),
           _row('Firebase listo', sync.firebaseReady ? 'sí' : 'no'),
           _row('Puede escribir', sync.canWrite ? 'sí' : 'no'),
           _row('Último error', sync.lastError ?? '—'),
+        ]),
+        _section('Sync Engine 2.0', [
+          _row('Modo', '${sync.engine['mode'] ?? '—'}'),
+          _row(
+            'Turbo',
+            ((sync.engine['turbo'] as Map?)?['turboActive'] == true)
+                ? 'ACTIVO'
+                : 'off',
+          ),
+          _row(
+            'Preemptions',
+            '${(sync.engine['turbo'] as Map?)?['preemptionCount'] ?? 0}',
+          ),
+          _row(
+            'Batch L1 / fondo (adaptativo)',
+            '${(sync.engine['adaptive'] as Map?)?['batchL1'] ?? '—'} / '
+            '${(sync.engine['adaptive'] as Map?)?['batchBackground'] ?? '—'}',
+          ),
+          _row(
+            'EMA latencia',
+            sync.engine['adaptive'] == null ||
+                    (sync.engine['adaptive'] as Map)['emaLatencyMs'] == null
+                ? '—'
+                : '${((sync.engine['adaptive'] as Map)['emaLatencyMs'] as num).toStringAsFixed(0)} ms',
+          ),
+          _row(
+            'Auto-heals',
+            '${(sync.engine['healer'] as Map?)?['healsRun'] ?? 0}',
+          ),
+          _row(
+            'Último heal',
+            (sync.engine['healer'] as Map?)?['lastHealDetail']?.toString() ??
+                '—',
+          ),
+          _row('Locks entidad', '${sync.engine['locksHeld'] ?? 0}'),
+          _row('Muestras 24h', '${sync.history24h.length}'),
+        ]),
+        if (_dash != null) ...[
+          Builder(builder: (context) {
+            final d = _dash!;
+            final colorName = (d['healthColor'] ?? 'amarillo').toString();
+            final color = colorName == 'verde'
+                ? Colors.green
+                : colorName == 'rojo'
+                    ? Colors.red
+                    : Colors.orange;
+            final sla = (d['sla'] as Map?) ?? const {};
+            final byEnt = (sla['byEntity'] as Map?) ?? const {};
+            final cb = (d['circuitBreaker'] as Map?) ?? const {};
+            final hist = (d['history'] as Map?) ?? const {};
+            String histLine(String key) {
+              final m = (hist[key] as Map?) ?? const {};
+              if ((m['n'] as num?)?.toInt() == 0) return 'sin muestras';
+              final avg = m['avgLatencyMs'];
+              final err = m['sumErrors'];
+              final ops = m['avgOpsPerMin'];
+              return 'n=${m['n']} lat=${avg is num ? avg.toStringAsFixed(0) : '—'}ms '
+                  'err=$err ops/min=${ops is num ? ops.toStringAsFixed(1) : '—'}';
+            }
+            return _section('Sync Engine 2.1 — Salud', [
+              Row(
+                children: [
+                  Container(
+                    width: 14,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Estado: ${d['healthStatus'] ?? '—'} ($colorName)',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _row('Latencia avg / P95',
+                  '${d['latencyAvgMs'] ?? '—'} / ${d['latencyP95Ms'] ?? '—'} ms'),
+              _row('Throughput',
+                  '${d['throughputOpsPerMin'] ?? '—'} ops/min'),
+              _row('Pendientes / retries',
+                  '${d['pending'] ?? 0} / ${d['retries'] ?? 0}'),
+              _row('Conflictos 24h', '${d['conflicts'] ?? 0}'),
+              _row('Oldest pending', '${d['oldestPendingAgeSec'] ?? 0}s'),
+              _row('Workers L1/L2/L3/L4',
+                  '${((d['workers'] as Map?)?['l1'] ?? 0)}/'
+                  '${((d['workers'] as Map?)?['l2'] ?? 0)}/'
+                  '${((d['workers'] as Map?)?['l3'] ?? 0)}/'
+                  '${((d['workers'] as Map?)?['l4'] ?? 0)}'),
+              _row(
+                'Turbo',
+                ((d['turbo'] as Map?)?['turboActive'] == true) ? 'ACTIVO' : 'off',
+              ),
+              _row('Circuit breaker',
+                  '${cb['state'] ?? '—'} (trips=${cb['tripCount'] ?? 0}, wait=${cb['extraWaitMs'] ?? 0}ms)'),
+              _row('RSS memoria',
+                  d['rssBytes'] == null
+                      ? '—'
+                      : '${((d['rssBytes'] as num) / (1024 * 1024)).toStringAsFixed(1)} MB'),
+              _row('SLA global',
+                  '${((sla['overallCompliancePct'] as num?) ?? 0).toStringAsFixed(1)}%'),
+              _row('Histórica 1h', histLine('last1h')),
+              _row('Histórica 24h', histLine('last24h')),
+              _row('Histórica 7d', histLine('last7d')),
+              ...byEnt.entries.take(8).map((e) {
+                final m = e.value as Map;
+                return _row(
+                  'SLA ${e.key}',
+                  'P50=${m['p50Ms']} P95=${m['p95Ms']} '
+                  'ok=${((m['compliancePct'] as num?) ?? 0).toStringAsFixed(0)}% '
+                  'n=${m['samples']}',
+                );
+              }),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.icon(
+                    onPressed: _busy ? null : _diagnosticar,
+                    icon: const Icon(Icons.troubleshoot_outlined),
+                    label: const Text('Diagnosticar Sincronización'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : _benchmark,
+                    icon: const Icon(Icons.speed_outlined),
+                    label: const Text('Benchmark lab'),
+                  ),
+                ],
+              ),
+              if (_diagText != null) ...[
+                const SizedBox(height: 12),
+                SelectableText(
+                  _diagText!,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ]);
+          }),
+        ],
+        _section('Scheduler (métricas)', [
+          _row(
+            'Procesados crítico / fondo',
+            '${sync.scheduler['criticalProcessed'] ?? 0} / '
+            '${sync.scheduler['backgroundProcessed'] ?? 0}',
+          ),
+          _row(
+            'Fails crítico / fondo',
+            '${sync.scheduler['criticalFails'] ?? 0} / '
+            '${sync.scheduler['backgroundFails'] ?? 0}',
+          ),
+          _row('Coalesced ops', '${sync.scheduler['coalescedOps'] ?? 0}'),
+          _row('Turbo ticks / preempts',
+              '${sync.scheduler['turboTicks'] ?? 0} / ${sync.scheduler['preemptCount'] ?? 0}'),
+          _row(
+            'Latencia avg crítico',
+            sync.scheduler['avgCriticalLatencyMs'] == null
+                ? '—'
+                : '${(sync.scheduler['avgCriticalLatencyMs'] as num).toStringAsFixed(0)} ms',
+          ),
+          _row(
+            'Latencia max crítico',
+            sync.scheduler['maxCriticalLatencyMs'] == null
+                ? '—'
+                : '${sync.scheduler['maxCriticalLatencyMs']} ms',
+          ),
+          _row(
+            'Ops/min crítico (aprox)',
+            sync.scheduler['opsPerMinuteCritical'] == null
+                ? '—'
+                : (sync.scheduler['opsPerMinuteCritical'] as num)
+                    .toStringAsFixed(1),
+          ),
+          _row(
+            'Último tick',
+            sync.scheduler['lastTickAt']?.toString() ?? '—',
+          ),
         ]),
         if (sync.collectionStatus.isNotEmpty)
           _section(

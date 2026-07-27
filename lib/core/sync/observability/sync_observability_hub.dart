@@ -1,0 +1,308 @@
+import 'dart:async' show unawaited;
+import 'dart:io' show ProcessInfo;
+
+import 'package:flutter/foundation.dart';
+import 'package:sqflite/sqflite.dart';
+
+import '../../../database/database_helper.dart';
+import '../scheduler/sync_metrics_history_store.dart';
+import '../scheduler/sync_scheduler.dart';
+import '../sync_health.dart';
+import '../sync_outbox.dart';
+import 'sync_circuit_breaker.dart';
+import 'sync_flight_recorder.dart';
+import 'sync_op_trace.dart';
+import 'sync_sla_monitor.dart';
+
+/// Fachada Sync Engine 2.1 — observabilidad sin cambiar el scheduler core.
+class SyncObservabilityHub {
+  SyncObservabilityHub._();
+  static final SyncObservabilityHub instance = SyncObservabilityHub._();
+
+  final traces = SyncTraceRegistry.instance;
+  final flight = SyncFlightRecorder.instance;
+  final circuit = SyncCircuitBreaker.instance;
+  final sla = SyncSlaMonitor.instance;
+
+  void onEnqueue({
+    required String opId,
+    required String entityType,
+    int? localId,
+    String? remoteId,
+  }) {
+    traces.ensure(
+      opId,
+      entityType: entityType,
+      entityLocalId: localId,
+      entityRemoteId: remoteId,
+    );
+    traces.markEnqueued(opId);
+    flight.record(
+      kind: 'enqueue',
+      message: 'enqueued $entityType',
+      opId: opId,
+      entityType: entityType,
+    );
+  }
+
+  void onClaimed(String opId) {
+    traces.markClaimed(opId);
+    flight.record(kind: 'claim', message: 'claimed', opId: opId);
+  }
+
+  void onSendStart(String opId) => traces.markSendStart(opId);
+
+  void onSendDone(String opId, {required int latencyMs, required bool error}) {
+    if (error) {
+      traces.markAcked(opId, success: false);
+      circuit.recordFailure(latencyMs: latencyMs);
+      flight.record(
+        kind: 'fail',
+        message: 'send_fail ${latencyMs}ms',
+        opId: opId,
+      );
+    } else {
+      traces.markFirestoreDone(opId);
+      traces.markAcked(opId, success: true);
+      circuit.recordSuccess(latencyMs: latencyMs);
+      flight.record(
+        kind: 'ack',
+        message: 'acked ${latencyMs}ms',
+        opId: opId,
+      );
+    }
+    unawaited(_persistTrace(opId));
+  }
+
+  void onRemoteApplied({
+    required String entityType,
+    int? localId,
+    String? remoteId,
+  }) {
+    traces.markRemoteApplied(
+      entityType: entityType,
+      entityLocalId: localId,
+      entityRemoteId: remoteId,
+    );
+    flight.record(
+      kind: 'remote_apply',
+      message: 'applied $entityType',
+      entityType: entityType,
+      data: {'localId': localId, 'remoteId': remoteId},
+    );
+  }
+
+  Future<Map<String, dynamic>> dashboardSnapshot() async {
+    final health = await SyncHealthService.instance.snapshot();
+    final engine = SyncScheduler.instance.engineSnapshot();
+    final metrics = (engine['metrics'] as Map?) ?? const {};
+    final adaptive = (engine['adaptive'] as Map?) ?? const {};
+    final turbo = (engine['turbo'] as Map?) ?? const {};
+
+    int? oldestAgeSec;
+    try {
+      final preview = await SyncOutbox.instance.listPendingPreview(limit: 1);
+      if (preview.isNotEmpty) {
+        final u = preview.first['updated_at']?.toString();
+        final at = u == null ? null : DateTime.tryParse(u);
+        if (at != null) {
+          oldestAgeSec = DateTime.now().toUtc().difference(at).inSeconds;
+        }
+      }
+    } catch (_) {}
+
+    int? rss;
+    try {
+      if (!kIsWeb) rss = ProcessInfo.currentRss;
+    } catch (_) {
+      rss = null;
+    }
+
+    final slaSnap = _slaDashboard();
+    final history = await _historyWindows();
+
+    final color = health.healthColor; // verde | amarillo | rojo
+    final status = color == 'verde'
+        ? 'OK'
+        : color == 'rojo'
+            ? 'CRÍTICO'
+            : 'DEGRADADO';
+
+    return {
+      'healthColor': color,
+      'healthStatus': status,
+      'pendingL1': health.pendingL1,
+      'pendingL2': health.pendingL2,
+      'pendingL3': health.pendingL3,
+      'pendingL4': health.pendingL4,
+      'pending': health.pending,
+      'inflight': health.inflight,
+      'dead': health.dead,
+      'retries': health.failsTotal,
+      'acks': health.acksTotal,
+      'conflicts': health.conflicts24h,
+      'conflicts24h': health.conflicts24h,
+      'firebaseReady': health.firebaseReady,
+      'canWrite': health.canWrite,
+      'latencyAvgMs': (metrics['avgCriticalLatencyMs'] as num?)?.round() ??
+          (adaptive['emaLatencyMs'] as num?)?.round(),
+      'latencyP95Ms': slaSnap['globalP95Ms'],
+      'throughputOpsPerMin': metrics['opsPerMinuteCritical'],
+      'workers': {
+        'l1': adaptive['workerSlotsCritical'] ?? 1,
+        'l2': adaptive['workerSlotsCritical'] ?? 1,
+        'l3': adaptive['workerSlotsBackground'] ?? 1,
+        'l4': adaptive['workerSlotsBackground'] ?? 1,
+      },
+      'turbo': turbo,
+      'adaptive': adaptive,
+      'circuitBreaker': circuit.snapshot(),
+      'circuit': circuit.snapshot(),
+      'sla': slaSnap,
+      'schedulerMode': engine['mode'],
+      'oldestPendingAgeSec': oldestAgeSec ?? 0,
+      'rssBytes': rss,
+      'history': history,
+      'flightLast': flight.dumpJson(n: 20),
+      'at': DateTime.now().toUtc().toIso8601String(),
+    };
+  }
+
+  Map<String, dynamic> _slaDashboard() {
+    final by = <String, dynamic>{};
+    var weighted = 0.0;
+    var weight = 0;
+    final p95s = <int>[];
+    for (final e in SyncSlaMonitor.tracked) {
+      final s = sla.statsFor(e);
+      by[e] = {
+        ...s.toJson(),
+        'p50Ms': s.p50,
+        'p90Ms': s.p90,
+        'p95Ms': s.p95,
+        'p99Ms': s.p99,
+        'compliancePct': s.withinSlaPct,
+        'samples': s.n,
+      };
+      if (s.n > 0) {
+        weighted += s.withinSlaPct * s.n;
+        weight += s.n;
+        if (s.p95 != null) p95s.add(s.p95!);
+      }
+    }
+    p95s.sort();
+    return {
+      'byEntity': by,
+      'overallCompliancePct': weight == 0 ? 100.0 : weighted / weight,
+      'overallMeetsSla': SyncSlaMonitor.tracked.every((e) {
+        final s = sla.statsFor(e);
+        return s.n == 0 || s.meetsSla;
+      }),
+      'globalP95Ms': p95s.isEmpty ? null : p95s[((p95s.length - 1) * 0.95).round()],
+    };
+  }
+
+  Future<Map<String, dynamic>> _historyWindows() async {
+    Future<Map<String, dynamic>> summarize(List<SyncMetricsSample> rows) async {
+      if (rows.isEmpty) {
+        return {
+          'n': 0,
+          'avgLatencyMs': null,
+          'maxLatencyMs': null,
+          'sumErrors': 0,
+          'avgPendingL1': null,
+          'avgOpsPerMin': null,
+          'maxPendingTotal': null,
+        };
+      }
+      var lat = 0.0;
+      var maxLat = 0.0;
+      var err = 0;
+      var pend = 0.0;
+      var ops = 0.0;
+      var maxPend = 0;
+      for (final r in rows) {
+        lat += r.avgLatencyMs;
+        if (r.maxLatencyMs > maxLat) maxLat = r.maxLatencyMs;
+        err += r.errors;
+        final p = r.pendingL1 + r.pendingL2 + r.pendingL3 + r.pendingL4;
+        pend += r.pendingL1.toDouble();
+        ops += r.opsPerMin;
+        if (p > maxPend) maxPend = p;
+      }
+      final n = rows.length;
+      return {
+        'n': n,
+        'avgLatencyMs': lat / n,
+        'maxLatencyMs': maxLat,
+        'sumErrors': err,
+        'avgPendingL1': pend / n,
+        'avgOpsPerMin': ops / n,
+        'maxPendingTotal': maxPend,
+      };
+    }
+
+    try {
+      final h1 = await SyncMetricsHistoryStore.instance.lastHours(1, limit: 120);
+      final h24 = await SyncMetricsHistoryStore.instance.last24h(limit: 500);
+      final h7 = await SyncMetricsHistoryStore.instance.last7d(limit: 2000);
+      return {
+        'last1h': await summarize(h1),
+        'last24h': await summarize(h24),
+        'last7d': await summarize(h7),
+      };
+    } catch (_) {
+      return {
+        'last1h': {'n': 0},
+        'last24h': {'n': 0},
+        'last7d': {'n': 0},
+      };
+    }
+  }
+
+  Future<void> _persistTrace(String opId) async {
+    final t = traces.get(opId);
+    if (t == null) return;
+    try {
+      final db = await DatabaseHelper.instance.database;
+      await db.insert(
+        'sync_op_traces',
+        {
+          'op_id': t.opId,
+          'entity_type': t.entityType,
+          'entity_local_id': t.entityLocalId,
+          'entity_remote_id': t.entityRemoteId,
+          'created_at': t.createdAt.toIso8601String(),
+          'enqueued_at': t.enqueuedAt?.toIso8601String(),
+          'claimed_at': t.claimedAt?.toIso8601String(),
+          'send_started_at': t.sendStartedAt?.toIso8601String(),
+          'firestore_done_at': t.firestoreDoneAt?.toIso8601String(),
+          'acked_at': t.ackedAt?.toIso8601String(),
+          'remote_applied_at': t.remoteAppliedAt?.toIso8601String(),
+          'total_ms': t.totalMs,
+          'success': t.success ? 1 : 0,
+          'last_error': t.lastError,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      // Cap tabla ~5000 filas (evitar crecimiento indefinido).
+      final count = Sqflite.firstIntValue(
+            await db.rawQuery('SELECT COUNT(*) AS c FROM sync_op_traces'),
+          ) ??
+          0;
+      if (count > 5000) {
+        await db.execute(
+          'DELETE FROM sync_op_traces WHERE op_id IN ('
+          'SELECT op_id FROM sync_op_traces ORDER BY created_at ASC LIMIT ?)',
+          [count - 4000],
+        );
+      }
+    } catch (_) {}
+  }
+
+  void resetForTests() {
+    traces.resetForTests();
+    flight.resetForTests();
+    circuit.resetForTests();
+  }
+}

@@ -18,14 +18,27 @@ class WindowsSyncPolicy {
   /// Delay entre jobs normales del throttle (outbox/pull).
   static const Duration throttleDelayNormal = Duration(milliseconds: 600);
 
-  /// Delay corto para acción de usuario (1 producto / listas).
-  static const Duration throttleDelayInteractive = Duration(milliseconds: 100);
+  /// Delay corto para acción de usuario (1 producto / remito / cliente).
+  /// Objetivo: reflejar en el otro dispositivo en segundos, no minutos.
+  static const Duration throttleDelayInteractive = Duration(milliseconds: 50);
 
   /// Outbox pump (tras cuarentena): micro-lotes más frecuentes.
-  static const Duration outboxPumpInterval = Duration(seconds: 35);
+  static const Duration outboxPumpInterval = Duration(seconds: 25);
 
-  /// Soft-pull: convergencia APK→PC (ventas/compras/productos).
-  static const Duration softPullInterval = Duration(seconds: 75);
+  /// Soft-pull: convergencia catálogo/stock (no sustituye listeners de negocio).
+  static const Duration softPullInterval = Duration(seconds: 60);
+
+  /// Listeners Firestore en Windows SOLO para colecciones chicas de negocio.
+  /// Productos/branding/Storage siguen OFF (eran los que tumbaban el .exe).
+  static bool enableBusinessDocListeners({required bool isWindowsDesktop}) =>
+      isWindowsDesktop;
+
+  static const List<String> windowsBusinessListenerCollections = [
+    'remitos',
+    'ventas',
+    'clientes',
+    'compras',
+  ];
 
   /// Reclaim inflight huérfanos tras crash.
   static const Duration reclaimStaleInflightAfter = Duration(minutes: 3);
@@ -44,15 +57,19 @@ class WindowsSyncPolicy {
     'branding_text',
   ];
 
-  /// Con cola de upload chica, el PC puede bajar stock_ops del APK
-  /// (si no, quedan stocks distintos: campo 1127/1339/superbota39).
-  static bool prioritizeStockOpsPull({required int pendingProductos}) =>
+  /// Con cola de upload chica, priorizar convergencia de negocio + stock
+  /// (remitos/ventas/stock_ops). Campo: venta rápida EXE↔APK no cruzaba.
+  static bool prioritizeBusinessConvergence({required int pendingProductos}) =>
       pendingProductos <= 5;
+
+  /// @Deprecated — alias de [prioritizeBusinessConvergence].
+  static bool prioritizeStockOpsPull({required int pendingProductos}) =>
+      prioritizeBusinessConvergence(pendingProductos: pendingProductos);
 
   /// Presupuesto de pull stock_ops en Windows (ráfagas controladas).
   static ({int maxPages, int pageSize, int maxApply, int recentLimit})
       stockOpsPullBudget({required int pendingProductos}) {
-    if (prioritizeStockOpsPull(pendingProductos: pendingProductos)) {
+    if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
       return (maxPages: 2, pageSize: 30, maxApply: 24, recentLimit: 50);
     }
     if (pendingProductos <= 50) {
@@ -62,18 +79,28 @@ class WindowsSyncPolicy {
     return (maxPages: 1, pageSize: 10, maxApply: 4, recentLimit: 0);
   }
 
-  /// Soft-pull lane. Con [prioritizeStockOps] ≈50% stock_ops (convergencia).
-  /// Sin eso: ~33% productos, resto round-robin (incluye stock_ops liviano).
+  /// Soft-pull lane.
+  ///
+  /// Con [prioritizeStockOps]/convergencia de negocio):
+  ///   remitos / ventas / stock_ops / compras en rotación densa.
+  /// Sin eso: ~33% productos, resto round-robin.
   static String softPullLane(int n, {bool prioritizeStockOps = false}) {
     if (prioritizeStockOps) {
-      if (n.isEven) return 'stock_ops';
-      if (n % 4 == 1) {
-        return (n ~/ 4).isEven ? 'productos_inc' : 'productos_cat';
+      // Ciclo de 6: negocio primero (campo venta rápida EXE↔APK).
+      switch (n % 6) {
+        case 0:
+          return 'remitos';
+        case 1:
+          return 'ventas';
+        case 2:
+          return 'stock_ops';
+        case 3:
+          return 'compras';
+        case 4:
+          return 'stock_ops';
+        default:
+          return (n ~/ 6).isEven ? 'productos_inc' : 'clientes';
       }
-      final others = softPullOtherLanes
-          .where((l) => l != 'stock_ops')
-          .toList(growable: false);
-      return others[(n ~/ 2) % others.length];
     }
     if (n % 3 == 0) {
       return (n ~/ 3) % 2 == 0 ? 'productos_inc' : 'productos_cat';
@@ -83,44 +110,65 @@ class WindowsSyncPolicy {
     return softPullOtherLanes[otherIdx];
   }
 
-  /// Plan de drain del outbox Windows: qué buckets tocar este tick.
+  /// Intervalo soft-pull más corto cuando ya no hay cola de productos.
+  static Duration softPullIntervalFor({required int pendingProductos}) {
+    if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
+      return const Duration(seconds: 20);
+    }
+    return softPullInterval;
+  }
+
+  /// Cuántos docs recientes tirar por `actualizadoEn` (idempotente).
+  static int recentBusinessDocsLimit({required int pendingProductos}) {
+    if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
+      return 25;
+    }
+    return 0;
+  }
+
+  /// Plan de drain del outbox Windows (scheduler v2).
   ///
-  /// Si hay productos pendientes, SIEMPRE van primero (antes un tick
-  /// compartido con soft-pull quedaba en 0 y nunca los subía).
+  /// **Crítico primero:** ventas/remitos/stock/clientes nunca esperan detrás
+  /// de miles de productos de importación. El fondo (productos) solo corre
+  /// con cupo residual o cuando no hay críticos.
   static List<({List<String> types, int claim})> outboxDrainPlan({
     required Map<String, int> breakdown,
     required int tick,
   }) {
-    final nProd = breakdown['producto'] ?? 0;
-    final nProv = breakdown['proveedor'] ?? 0;
-    final nDocs = (breakdown['venta'] ?? 0) +
+    final nCritDocs = (breakdown['venta'] ?? 0) +
         (breakdown['remito'] ?? 0) +
         (breakdown['compra'] ?? 0) +
-        (breakdown['cliente'] ?? 0);
+        (breakdown['cliente'] ?? 0) +
+        (breakdown['proveedor'] ?? 0);
     final nStock = breakdown['stock_op'] ?? 0;
+    final nProd = breakdown['producto'] ?? 0;
     final plan = <({List<String> types, int claim})>[];
-    if (nProd + nProv > 0) {
-      final claim = (nProd + nProv) >= 100
-          ? 8
-          : (nProd + nProv) >= 20
-              ? 6
-              : 4;
+
+    if (nCritDocs > 0) {
       plan.add((
-        types: const ['producto', 'proveedor'],
-        claim: claim,
+        types: const ['venta', 'remito', 'compra', 'cliente', 'proveedor'],
+        claim: nCritDocs.clamp(1, 10),
       ));
     }
-    if (nDocs > 0 || tick % 2 == 0) {
-      plan.add((
-        types: const ['venta', 'remito', 'compra', 'cliente'],
-        claim: 4,
-      ));
-    }
-    if (nStock > 0 || tick % 3 == 2) {
+    if (nStock > 0) {
       plan.add((
         types: const ['stock_op'],
-        claim: 2,
+        claim: nStock.clamp(1, 8),
       ));
+    }
+    // Fondo: solo si no hay críticos, o cupo mínimo residual.
+    if (nProd > 0) {
+      final bgClaim = (nCritDocs + nStock) == 0
+          ? nProd.clamp(1, 6)
+          : 1;
+      plan.add((
+        types: const ['producto'],
+        claim: bgClaim,
+      ));
+    }
+    // tick se conserva por compat API / métricas de rotación.
+    if (plan.isEmpty && tick >= 0) {
+      return plan;
     }
     return plan;
   }

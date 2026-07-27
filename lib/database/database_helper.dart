@@ -105,7 +105,7 @@ class DatabaseHelper {
     try {
       final db = await openDatabase(
         path,
-        version: 33,
+        version: schemaVersion,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -118,7 +118,7 @@ class DatabaseHelper {
       await _cuarentenaDb(path);
       final db = await openDatabase(
         path,
-        version: 33,
+        version: schemaVersion,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -1083,6 +1083,138 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 33) {
       await _migrarCodigoProductoUnicoV33(db);
     }
+    if (oldVersion < 34) {
+      await _migrarSyncSchedulerV34(db);
+    }
+    if (oldVersion < 35) {
+      await _migrarSyncEngineV35(db);
+    }
+    if (oldVersion < 36) {
+      await _migrarSyncObservabilityV36(db);
+    }
+  }
+
+  /// Sync Engine 2.1: trazas E2E durables (muestra) para certificación.
+  Future<void> _migrarSyncObservabilityV36(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS sync_op_traces(
+  op_id TEXT PRIMARY KEY,
+  entity_type TEXT NOT NULL,
+  entity_local_id INTEGER,
+  entity_remote_id TEXT,
+  created_at TEXT NOT NULL,
+  enqueued_at TEXT,
+  claimed_at TEXT,
+  send_started_at TEXT,
+  firestore_done_at TEXT,
+  acked_at TEXT,
+  remote_applied_at TEXT,
+  total_ms INTEGER,
+  success INTEGER DEFAULT 0,
+  last_error TEXT
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sync_op_traces_entity '
+      'ON sync_op_traces(entity_type, created_at)',
+    );
+  }
+
+  /// Sync Engine 2.0: estado durable + historial 24h de métricas.
+  Future<void> _migrarSyncEngineV35(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS sync_scheduler_state(
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  mode TEXT NOT NULL DEFAULT 'idle',
+  turbo_active INTEGER NOT NULL DEFAULT 0,
+  adaptive_batch_l1 INTEGER NOT NULL DEFAULT 10,
+  adaptive_batch_bg INTEGER NOT NULL DEFAULT 20,
+  last_firestore_latency_ms REAL DEFAULT 0,
+  checkpoint_json TEXT,
+  updated_at TEXT NOT NULL
+)
+''');
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS sync_metrics_samples(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  pending_l1 INTEGER DEFAULT 0,
+  pending_l2 INTEGER DEFAULT 0,
+  pending_l3 INTEGER DEFAULT 0,
+  pending_l4 INTEGER DEFAULT 0,
+  ops_per_min REAL DEFAULT 0,
+  avg_latency_ms REAL DEFAULT 0,
+  max_latency_ms REAL DEFAULT 0,
+  errors INTEGER DEFAULT 0,
+  turbo INTEGER DEFAULT 0,
+  firestore_ok INTEGER DEFAULT 1
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sync_metrics_at '
+      'ON sync_metrics_samples(at)',
+    );
+    // Alinear lanes 4 niveles (v34 solo tenía critical/background).
+    await db.execute('''
+UPDATE sync_outbox SET lane = 'high', priority = 20
+WHERE entity_type IN ('cliente','proveedor','pedido','pago')
+''');
+    await db.execute('''
+UPDATE sync_outbox SET lane = 'normal', priority = 50
+WHERE entity_type IN ('producto','lista_precio')
+''');
+  }
+
+  /// Scheduler v2: prioridad/carril en outbox + checkpoints de importación.
+  Future<void> _migrarSyncSchedulerV34(Database db) async {
+    await _agregarColumnas(db, 'sync_outbox', {
+      'priority': 'INTEGER DEFAULT 50',
+      'lane': "TEXT DEFAULT 'background'",
+      'coalesce_key': 'TEXT',
+    });
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sync_outbox_claim '
+      'ON sync_outbox(status, priority, next_attempt_at, id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sync_outbox_lane '
+      'ON sync_outbox(lane, status, priority)',
+    );
+    // Backfill: críticos primero.
+    await db.execute('''
+UPDATE sync_outbox SET priority = 10, lane = 'critical'
+WHERE entity_type IN ('venta','remito','stock_op','compra')
+''');
+    await db.execute('''
+UPDATE sync_outbox SET priority = 20, lane = 'high'
+WHERE entity_type IN ('cliente','proveedor')
+''');
+    await db.execute('''
+UPDATE sync_outbox SET priority = 50, lane = 'normal'
+WHERE entity_type = 'producto'
+''');
+    await _crearTablaImportJobs(db);
+  }
+
+  Future<void> _crearTablaImportJobs(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS import_jobs(
+  job_id TEXT PRIMARY KEY,
+  source_name TEXT NOT NULL,
+  total_rows INTEGER NOT NULL DEFAULT 0,
+  next_row_index INTEGER NOT NULL DEFAULT 0,
+  imported INTEGER NOT NULL DEFAULT 0,
+  updated INTEGER NOT NULL DEFAULT 0,
+  skipped INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'running',
+  updated_at TEXT NOT NULL,
+  mapping_json TEXT
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_import_jobs_status '
+      'ON import_jobs(status, updated_at)',
+    );
   }
 
   /// Códigos únicos en productos activos (auditoría C3).
@@ -1297,13 +1429,27 @@ CREATE TABLE IF NOT EXISTS sync_outbox(
   last_error TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  next_attempt_at TEXT
+  next_attempt_at TEXT,
+  priority INTEGER DEFAULT 50,
+  lane TEXT DEFAULT 'background',
+  coalesce_key TEXT
 )
 ''');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_sync_outbox_status '
       'ON sync_outbox(status, next_attempt_at)',
     );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sync_outbox_claim '
+      'ON sync_outbox(status, priority, next_attempt_at, id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sync_outbox_lane '
+      'ON sync_outbox(lane, status, priority)',
+    );
+    await _crearTablaImportJobs(db);
+    await _migrarSyncEngineV35(db);
+    await _migrarSyncObservabilityV36(db);
     await db.execute('''
 CREATE TABLE IF NOT EXISTS sync_watermarks(
   collection TEXT PRIMARY KEY,
@@ -1505,5 +1651,5 @@ CREATE TABLE IF NOT EXISTS wa_catalog_items(
   }
 
   /// Versión de schema declarada por la app (Capacidad 5 / panel técnico).
-  static const int schemaVersion = 33;
+  static const int schemaVersion = 36;
 }

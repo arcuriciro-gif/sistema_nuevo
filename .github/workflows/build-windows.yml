@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - cursor/sync-scheduler-v2-e44b
       - cursor/fix-login-confirmacion-e44b
       - cursor/fotos-productos-sync-e44b
       - cursor/comparador-descripcion-costo-e44b

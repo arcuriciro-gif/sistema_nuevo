@@ -56,14 +56,23 @@ void main() {
       );
     });
 
-    test('outboxDrainPlan prioriza productos si hay cola (no tick=0 eterno)', () {
+    test('outboxDrainPlan prioriza críticos aunque haya productos', () {
       final plan = WindowsSyncPolicy.outboxDrainPlan(
-        breakdown: const {'producto': 350, 'proveedor': 4},
+        breakdown: const {
+          'producto': 350,
+          'proveedor': 4,
+          'venta': 2,
+          'stock_op': 1,
+        },
         tick: 0,
       );
       expect(plan, isNotEmpty);
-      expect(plan.first.types, contains('producto'));
-      expect(plan.first.claim, greaterThanOrEqualTo(8));
+      expect(plan.first.types, contains('venta'));
+      expect(plan.first.types, isNot(contains('producto')));
+      expect(
+        plan.any((s) => s.types.contains('producto')),
+        isTrue,
+      );
     });
 
     test('outboxDrainPlan vacío no inventa drains', () {
@@ -71,8 +80,7 @@ void main() {
         breakdown: const {},
         tick: 1,
       );
-      // tick%2==0 es false → sin docs; tick%3==2 false → sin stock
-      expect(plan.where((s) => s.types.contains('producto')), isEmpty);
+      expect(plan, isEmpty);
     });
 
     test('throttle interactivo es más corto que el normal', () {
@@ -105,9 +113,9 @@ void main() {
       );
     });
 
-    test('con outbox quieto prioriza stock_ops (~50%)', () {
+    test('con outbox quieto prioriza negocio (remitos/ventas/stock_ops)', () {
       expect(
-        WindowsSyncPolicy.prioritizeStockOpsPull(pendingProductos: 0),
+        WindowsSyncPolicy.prioritizeBusinessConvergence(pendingProductos: 0),
         isTrue,
       );
       expect(
@@ -115,18 +123,50 @@ void main() {
         isTrue,
       );
       expect(
-        WindowsSyncPolicy.prioritizeStockOpsPull(pendingProductos: 6),
+        WindowsSyncPolicy.prioritizeBusinessConvergence(pendingProductos: 6),
         isFalse,
       );
       final lanes = List.generate(
-        20,
+        12,
         (i) => WindowsSyncPolicy.softPullLane(i, prioritizeStockOps: true),
       );
-      final stockOps = lanes.where((l) => l == 'stock_ops').length;
-      expect(stockOps, 10);
+      expect(lanes.where((l) => l == 'remitos').length, greaterThanOrEqualTo(2));
+      expect(lanes.where((l) => l == 'ventas').length, greaterThanOrEqualTo(2));
+      expect(lanes.where((l) => l == 'stock_ops').length, greaterThanOrEqualTo(2));
       expect(
         WindowsSyncPolicy.softPullLane(0, prioritizeStockOps: true),
-        'stock_ops',
+        'remitos',
+      );
+      expect(
+        WindowsSyncPolicy.softPullLane(1, prioritizeStockOps: true),
+        'ventas',
+      );
+      expect(
+        WindowsSyncPolicy.recentBusinessDocsLimit(pendingProductos: 0),
+        greaterThan(0),
+      );
+      expect(
+        WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 0).inSeconds,
+        lessThan(WindowsSyncPolicy.softPullInterval.inSeconds),
+      );
+    });
+
+    test('Windows habilita listeners solo de negocio (no productos)', () {
+      expect(
+        WindowsSyncPolicy.enableBusinessDocListeners(isWindowsDesktop: true),
+        isTrue,
+      );
+      expect(
+        WindowsSyncPolicy.windowsBusinessListenerCollections,
+        containsAll(['remitos', 'ventas', 'clientes', 'compras']),
+      );
+      expect(
+        WindowsSyncPolicy.windowsBusinessListenerCollections,
+        isNot(contains('productos')),
+      );
+      expect(
+        WindowsSyncPolicy.throttleDelayInteractive.inMilliseconds,
+        lessThanOrEqualTo(80),
       );
     });
 

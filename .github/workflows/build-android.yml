@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - cursor/sync-scheduler-v2-e44b
       - cursor/release-mejoras-e44b
       - cursor/ui-shell-fotos-bio-e44b
       - cursor/productos-busqueda-eliminar-e44b

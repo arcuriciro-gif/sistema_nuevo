@@ -5,7 +5,7 @@ import 'package:excel/excel.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
-import '../models/producto.dart';
+import '../core/sync/import/import_batch_runner.dart';
 import '../services/producto_service.dart';
 import '../theme/module_app_bar.dart';
 
@@ -36,6 +36,7 @@ enum _Estado { inicio, vista_previa, importando, listo }
 
 class _ImportacionPageState extends State<ImportacionPage> {
   final ProductoService _svc = ProductoService();
+  ImportBatchRunner? _runner;
 
   _Estado _estado = _Estado.inicio;
 
@@ -46,7 +47,10 @@ class _ImportacionPageState extends State<ImportacionPage> {
   int _importados = 0;
   int _actualizados = 0;
   int _saltados = 0;
+  int _progresoFila = 0;
+  int _totalFilas = 0;
   String _mensajeError = '';
+  String? _sourceName;
 
   // ---------------------------------------------------------------------------
   // Paso 1 – Seleccionar archivo
@@ -60,6 +64,7 @@ class _ImportacionPageState extends State<ImportacionPage> {
 
     final path = result.files.single.path!;
     final ext = path.split('.').last.toLowerCase();
+    _sourceName = path.split(Platform.pathSeparator).last;
 
     try {
       if (ext == 'csv') {
@@ -130,7 +135,7 @@ class _ImportacionPageState extends State<ImportacionPage> {
   // ---------------------------------------------------------------------------
 
   // ---------------------------------------------------------------------------
-  // Paso 3 – Importar
+  // Paso 3 – Importar (lotes + checkpoint + sync background)
   // ---------------------------------------------------------------------------
   Future<void> _importar() async {
     if (_mapeo[_Col.codigo] == null) {
@@ -143,68 +148,109 @@ class _ImportacionPageState extends State<ImportacionPage> {
       _importados = 0;
       _actualizados = 0;
       _saltados = 0;
+      _progresoFila = 0;
+      _totalFilas = _filas.length;
       _mensajeError = '';
     });
 
     final codigoIdx = _mapeo[_Col.codigo]!;
+    final source = _sourceName ?? 'import_${_filas.length}';
+    final mapping = <String, int?>{
+      for (final e in _mapeo.entries) e.key.name: e.value,
+    };
 
     String valorCol(List<dynamic> fila, int? idx) =>
         (idx != null && idx < fila.length) ? fila[idx].toString().trim() : '';
     double numCol(List<dynamic> fila, int? idx) =>
         _parsearNumero(valorCol(fila, idx));
 
-    for (final fila in _filas) {
-      if (codigoIdx >= fila.length) continue;
-      final codigo = fila[codigoIdx].toString().trim();
-      if (codigo.isEmpty) continue;
-
-      final descripcion = valorCol(fila, _mapeo[_Col.descripcion]);
-      final marca = valorCol(fila, _mapeo[_Col.marca]);
-      final categoria = valorCol(fila, _mapeo[_Col.categoria]);
-      final proveedor = valorCol(fila, _mapeo[_Col.proveedor]);
-      final costo = numCol(fila, _mapeo[_Col.costo]);
-      final precio = numCol(fila, _mapeo[_Col.precio]);
-      final stock = numCol(fila, _mapeo[_Col.stock]).toInt();
-
-      final existente = await _svc.buscarPorCodigo(codigo);
-
-      if (existente == null) {
-        await _svc.insertar(
-          Producto(
-            codigo: codigo,
-            descripcion: descripcion.isNotEmpty ? descripcion : codigo,
-            marca: marca,
-            categoria: categoria,
-            proveedor: proveedor,
-            ubicacion: '',
-            stock: stock,
-            costo: costo,
-            precio: precio,
-            observaciones: '',
-            foto: '',
-          ),
-        );
-        _importados++;
-      } else {
-        // Actualizar solo los campos importados que no estén vacíos
-        final actualizado = existente.copyWith(
-          descripcion: descripcion.isNotEmpty
-              ? descripcion
-              : existente.descripcion,
-          marca: marca.isNotEmpty ? marca : existente.marca,
-          categoria: categoria.isNotEmpty ? categoria : existente.categoria,
-          proveedor: proveedor.isNotEmpty ? proveedor : existente.proveedor,
-          costo: _mapeo[_Col.costo] != null ? costo : existente.costo,
-          precio: _mapeo[_Col.precio] != null ? precio : existente.precio,
-          stock: _mapeo[_Col.stock] != null ? stock : existente.stock,
-        );
-        await _svc.actualizar(actualizado);
-        _actualizados++;
+    final runner = ImportBatchRunner(productoService: _svc);
+    _runner = runner;
+    try {
+      final job = await runner.ensureJob(
+        sourceName: source,
+        totalRows: _filas.length,
+        mapping: mapping,
+      );
+      if (mounted) {
+        setState(() {
+          _progresoFila = job.nextRowIndex;
+          _importados = job.imported;
+          _actualizados = job.updated;
+          _saltados = job.skipped;
+        });
       }
-    }
 
-    if (!mounted) return;
-    setState(() => _estado = _Estado.listo);
+      final result = await runner.run(
+        job: job,
+        onProgress: (p) {
+          if (!mounted) return;
+          setState(() {
+            _progresoFila = p.nextRowIndex;
+            _importados = p.imported;
+            _actualizados = p.updated;
+            _saltados = p.skipped;
+          });
+        },
+        rowBuilder: (i) {
+          if (i < 0 || i >= _filas.length) return null;
+          final fila = _filas[i];
+          if (codigoIdx >= fila.length) return null;
+          final codigo = fila[codigoIdx].toString().trim();
+          if (codigo.isEmpty) return null;
+          return ImportRowSpec(
+            codigo: codigo,
+            descripcion: _mapeo[_Col.descripcion] != null
+                ? valorCol(fila, _mapeo[_Col.descripcion])
+                : null,
+            marca: _mapeo[_Col.marca] != null
+                ? valorCol(fila, _mapeo[_Col.marca])
+                : null,
+            categoria: _mapeo[_Col.categoria] != null
+                ? valorCol(fila, _mapeo[_Col.categoria])
+                : null,
+            proveedor: _mapeo[_Col.proveedor] != null
+                ? valorCol(fila, _mapeo[_Col.proveedor])
+                : null,
+            costo: _mapeo[_Col.costo] != null
+                ? numCol(fila, _mapeo[_Col.costo])
+                : null,
+            precio: _mapeo[_Col.precio] != null
+                ? numCol(fila, _mapeo[_Col.precio])
+                : null,
+            stock: _mapeo[_Col.stock] != null
+                ? numCol(fila, _mapeo[_Col.stock]).toInt()
+                : null,
+          );
+        },
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _importados = result.job.imported;
+        _actualizados = result.job.updated;
+        _saltados = result.job.skipped;
+        _progresoFila = result.job.nextRowIndex;
+        _estado = result.cancelled ? _Estado.vista_previa : _Estado.listo;
+        if (result.cancelled) {
+          _mensajeError =
+              'Importación cancelada. Al reabrir el mismo archivo continúa desde la fila ${_progresoFila + 1}.';
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _mensajeError =
+            'Importación interrumpida (checkpoint guardado): $e. Al volver reanudá el mismo archivo.';
+        _estado = _Estado.vista_previa;
+      });
+    } finally {
+      _runner = null;
+    }
+  }
+
+  void _cancelarImportacion() {
+    _runner?.requestCancel();
   }
 
   double _parsearNumero(String valor) {
@@ -233,6 +279,9 @@ class _ImportacionPageState extends State<ImportacionPage> {
       _filas = [];
       _mapeo = {};
       _mensajeError = '';
+      _progresoFila = 0;
+      _totalFilas = 0;
+      _sourceName = null;
     });
   }
 
@@ -504,19 +553,37 @@ class _ImportacionPageState extends State<ImportacionPage> {
 
   // ---------------------
   Widget _buildImportando() {
+    final total = _totalFilas <= 0 ? 1 : _totalFilas;
+    final progress = (_progresoFila / total).clamp(0.0, 1.0);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(),
+            LinearProgressIndicator(value: progress),
             const SizedBox(height: 24),
-            const Text('Importando productos...'),
+            Text(
+              'Importando… $_progresoFila / $_totalFilas',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             Text(
-              'Creados: $_importados  |  Actualizados: $_actualizados',
+              'Creados: $_importados  |  Actualizados: $_actualizados'
+              '  |  Saltados: $_saltados',
               style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Checkpoint guardado: si se cierra la app, continúa desde aquí.',
+              style: Theme.of(context).textTheme.bodySmall,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            OutlinedButton.icon(
+              onPressed: _cancelarImportacion,
+              icon: const Icon(Icons.cancel_outlined),
+              label: const Text('Cancelar (seguro)'),
             ),
           ],
         ),
