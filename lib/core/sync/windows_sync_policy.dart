@@ -18,14 +18,27 @@ class WindowsSyncPolicy {
   /// Delay entre jobs normales del throttle (outbox/pull).
   static const Duration throttleDelayNormal = Duration(milliseconds: 600);
 
-  /// Delay corto para acción de usuario (1 producto / listas).
-  static const Duration throttleDelayInteractive = Duration(milliseconds: 100);
+  /// Delay corto para acción de usuario (1 producto / remito / cliente).
+  /// Objetivo: reflejar en el otro dispositivo en segundos, no minutos.
+  static const Duration throttleDelayInteractive = Duration(milliseconds: 50);
 
   /// Outbox pump (tras cuarentena): micro-lotes más frecuentes.
-  static const Duration outboxPumpInterval = Duration(seconds: 35);
+  static const Duration outboxPumpInterval = Duration(seconds: 25);
 
-  /// Soft-pull: convergencia APK→PC (ventas/compras/productos).
-  static const Duration softPullInterval = Duration(seconds: 75);
+  /// Soft-pull: convergencia catálogo/stock (no sustituye listeners de negocio).
+  static const Duration softPullInterval = Duration(seconds: 60);
+
+  /// Listeners Firestore en Windows SOLO para colecciones chicas de negocio.
+  /// Productos/branding/Storage siguen OFF (eran los que tumbaban el .exe).
+  static bool enableBusinessDocListeners({required bool isWindowsDesktop}) =>
+      isWindowsDesktop;
+
+  static const List<String> windowsBusinessListenerCollections = [
+    'remitos',
+    'ventas',
+    'clientes',
+    'compras',
+  ];
 
   /// Reclaim inflight huérfanos tras crash.
   static const Duration reclaimStaleInflightAfter = Duration(minutes: 3);
@@ -100,7 +113,7 @@ class WindowsSyncPolicy {
   /// Intervalo soft-pull más corto cuando ya no hay cola de productos.
   static Duration softPullIntervalFor({required int pendingProductos}) {
     if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
-      return const Duration(seconds: 40);
+      return const Duration(seconds: 20);
     }
     return softPullInterval;
   }

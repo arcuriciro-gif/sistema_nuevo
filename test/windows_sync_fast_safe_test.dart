@@ -143,6 +143,25 @@ void main() {
       );
     });
 
+    test('Windows habilita listeners solo de negocio (no productos)', () {
+      expect(
+        WindowsSyncPolicy.enableBusinessDocListeners(isWindowsDesktop: true),
+        isTrue,
+      );
+      expect(
+        WindowsSyncPolicy.windowsBusinessListenerCollections,
+        containsAll(['remitos', 'ventas', 'clientes', 'compras']),
+      );
+      expect(
+        WindowsSyncPolicy.windowsBusinessListenerCollections,
+        isNot(contains('productos')),
+      );
+      expect(
+        WindowsSyncPolicy.throttleDelayInteractive.inMilliseconds,
+        lessThanOrEqualTo(80),
+      );
+    });
+
     test('budget stock_ops crece solo con cola quieta', () {
       final quiet = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 0);
       final busy = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 200);

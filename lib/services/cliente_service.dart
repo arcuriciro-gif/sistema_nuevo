@@ -2,8 +2,10 @@ import 'dart:convert';
 
 import 'package:uuid/uuid.dart';
 
+import '../core/config/platform_capabilities.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
+import '../core/sync/cloud_sync_throttle.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
@@ -50,10 +52,21 @@ class ClienteService {
       valorNuevo: _snapshot(listo.copyWith(id: id)),
     );
     // Offline: no bloquear el alta esperando Firestore (queda en outbox).
-    syncInBackground(
-      FirestoreSyncService.instance.subirCliente(id, forzar: true),
-      tag: 'subirCliente',
-    );
+    if (PlatformCapabilities.isWindowsDesktop) {
+      syncInBackground(
+        CloudSyncThrottle.enqueue(
+          () => FirestoreSyncService.instance.subirCliente(id, forzar: true),
+          tag: 'subirCliente',
+          interactive: true,
+        ),
+        tag: 'subirCliente',
+      );
+    } else {
+      syncInBackground(
+        FirestoreSyncService.instance.subirCliente(id, forzar: true),
+        tag: 'subirCliente',
+      );
+    }
     DataRefreshHub.instance.notifyTodo();
     return id;
   }
@@ -103,10 +116,22 @@ class ClienteService {
     );
 
     if (listo.id != null) {
-      syncInBackground(
-        FirestoreSyncService.instance.subirCliente(listo.id!, forzar: true),
-        tag: 'subirCliente',
-      );
+      if (PlatformCapabilities.isWindowsDesktop) {
+        syncInBackground(
+          CloudSyncThrottle.enqueue(
+            () => FirestoreSyncService.instance
+                .subirCliente(listo.id!, forzar: true),
+            tag: 'subirCliente',
+            interactive: true,
+          ),
+          tag: 'subirCliente',
+        );
+      } else {
+        syncInBackground(
+          FirestoreSyncService.instance.subirCliente(listo.id!, forzar: true),
+          tag: 'subirCliente',
+        );
+      }
     }
     DataRefreshHub.instance.notifyTodo();
     return result;

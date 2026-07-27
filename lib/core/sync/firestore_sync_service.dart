@@ -362,16 +362,22 @@ class FirestoreSyncService {
     required Future<void> Function() job,
   }) {
     if (PlatformCapabilities.isWindowsDesktop) {
+      // Interactivo: sin demora artificial — la venta/precio debe verse ya.
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
-          await Future<void>.delayed(const Duration(milliseconds: 900));
           await job();
-          // Solo docs/cliente: drenar productos acá tumba el .exe.
           await _procesarOutboxDrain(
             maxBatches: 2,
-            entityTypes: const ['venta', 'remito', 'compra', 'cliente'],
+            claimLimit: 8,
+            entityTypes: const [
+              'venta',
+              'remito',
+              'compra',
+              'cliente',
+              'stock_op',
+            ],
           );
-        }, tag: tag),
+        }, tag: tag, interactive: true),
         tag: tag,
       );
       return;
@@ -382,6 +388,77 @@ class FirestoreSyncService {
         await _procesarOutboxDrain(maxBatches: 2);
       }(),
       tag: tag,
+    );
+  }
+
+  /// Windows: listeners solo de negocio (colecciones chicas). Arrancar
+  /// DESPUÉS de la cuarentena — no en el login frío.
+  void _iniciarListenersNegocioWindows() {
+    if (!PlatformCapabilities.isWindowsDesktop) return;
+    if (!WindowsSyncPolicy.enableBusinessDocListeners(
+      isWindowsDesktop: true,
+    )) {
+      return;
+    }
+    _ventasSub?.cancel();
+    _remitosSub?.cancel();
+    _clientesSub?.cancel();
+    _comprasSub?.cancel();
+    _ventasSub = _ventasCol.snapshots().listen(
+      (snap) {
+        syncInBackground(
+          CloudSyncThrottle.enqueue(
+            () => _aplicarVentasRemotas(snap),
+            tag: 'listenVentasWin',
+            interactive: true,
+          ),
+          tag: 'listenVentasWin',
+        );
+      },
+      onError: (Object e) => debugPrint('Listen ventas Windows: $e'),
+    );
+    _remitosSub = _remitosCol.snapshots().listen(
+      (snap) {
+        syncInBackground(
+          CloudSyncThrottle.enqueue(
+            () => _aplicarRemitosRemotos(snap),
+            tag: 'listenRemitosWin',
+            interactive: true,
+          ),
+          tag: 'listenRemitosWin',
+        );
+      },
+      onError: (Object e) => debugPrint('Listen remitos Windows: $e'),
+    );
+    _clientesSub = _clientesCol.snapshots().listen(
+      (snap) {
+        syncInBackground(
+          CloudSyncThrottle.enqueue(
+            () => _aplicarClientesRemotos(snap),
+            tag: 'listenClientesWin',
+            interactive: true,
+          ),
+          tag: 'listenClientesWin',
+        );
+      },
+      onError: (Object e) => debugPrint('Listen clientes Windows: $e'),
+    );
+    _comprasSub = _comprasCol.snapshots().listen(
+      (snap) {
+        syncInBackground(
+          CloudSyncThrottle.enqueue(
+            () => _aplicarComprasRemotas(snap),
+            tag: 'listenComprasWin',
+            interactive: true,
+          ),
+          tag: 'listenComprasWin',
+        );
+      },
+      onError: (Object e) => debugPrint('Listen compras Windows: $e'),
+    );
+    debugPrint(
+      'Windows: listeners negocio ON '
+      '(${WindowsSyncPolicy.windowsBusinessListenerCollections.join(", ")})',
     );
   }
 
@@ -672,6 +749,11 @@ class FirestoreSyncService {
 
     // Arrancar pump igual: cada tick chequéa Auth; no dejar cola huérfana.
     _iniciarOutboxPump();
+    // Listeners de negocio (remitos/ventas/clientes/compras) — sync en segundos.
+    // Productos siguen por soft-pull (no snapshot de 3k docs).
+    if (authOk) {
+      _iniciarListenersNegocioWindows();
+    }
 
     if (!authOk) {
       syncStatusLabel = 'Sin nube';
@@ -740,10 +822,11 @@ class FirestoreSyncService {
       );
     });
 
-    Future<void>.delayed(const Duration(seconds: 35), () {
+    Future<void>.delayed(const Duration(seconds: 25), () {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       _pullPump?.cancel();
-      _pullPump = Timer.periodic(WindowsSyncPolicy.softPullInterval, (_) {
+      // Intervalo base; el tick usa softPullIntervalFor según cola.
+      _pullPump = Timer.periodic(const Duration(seconds: 20), (_) {
         if (!_puedeEscribirRemoto) return;
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
