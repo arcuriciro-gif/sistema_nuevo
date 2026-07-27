@@ -99,7 +99,7 @@ class SyncDiagnosticService {
       findings.add('Muchos entity locks activos ($locks) — posible trabado.');
       actions.add('Reiniciar app si locks no bajan en 1 minuto.');
     }
-    if ((heal['inflightReclaimed'] as int? ?? 0) > 0) {
+    if ((heal['inflightReclaimed'] ?? 0) > 0) {
       findings.add(
         'Auto-heal recuperó ${heal['inflightReclaimed']} inflight stale.',
       );

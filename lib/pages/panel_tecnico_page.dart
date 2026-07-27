@@ -318,7 +318,10 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
                   '${((d['workers'] as Map?)?['l2'] ?? 0)}/'
                   '${((d['workers'] as Map?)?['l3'] ?? 0)}/'
                   '${((d['workers'] as Map?)?['l4'] ?? 0)}'),
-              _row('Turbo', '${((d['turbo'] as Map?)?['turboActive'] == true) ? 'ACTIVO' : 'off'}'),
+              _row(
+                'Turbo',
+                ((d['turbo'] as Map?)?['turboActive'] == true) ? 'ACTIVO' : 'off',
+              ),
               _row('Circuit breaker',
                   '${cb['state'] ?? '—'} (trips=${cb['tripCount'] ?? 0}, wait=${cb['extraWaitMs'] ?? 0}ms)'),
               _row('RSS memoria',

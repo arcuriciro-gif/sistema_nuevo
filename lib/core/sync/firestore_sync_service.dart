@@ -24,7 +24,6 @@ import 'observability/sync_observability_hub.dart';
 import 'scheduler/entity_lock_registry.dart';
 import 'scheduler/sync_priority.dart';
 import 'scheduler/sync_scheduler.dart';
-import 'scheduler/sync_scheduler_metrics.dart';
 import 'sync_background.dart';
 import 'sync_catchup.dart';
 import 'sync_health.dart';
@@ -133,6 +132,7 @@ class FirestoreSyncService {
   bool _windowsRecentDocsForced = false;
   /// Contador propio del outbox pump (NO reutilizar soft-pull: si no,
   /// tick queda en 0 y nunca drena productos → 350 pending eternos).
+  // ignore: unused_field
   int _outboxDrainTickWindows = 0;
 
   CollectionReference<Map<String, dynamic>> _col(String name) {
