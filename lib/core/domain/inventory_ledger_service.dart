@@ -226,23 +226,28 @@ class InventoryLedgerService {
       if (enqueueOutboundStockOps) {
         final cloudOpId = '${event.eventId}_${line.productoId}';
         final codCloud = (codigo ?? '').trim();
-        if (codCloud.isNotEmpty) {
-          await SyncOutbox.instance.enqueueStockOpInTxn(
-            txn,
-            opId: cloudOpId,
-            codigo: codCloud,
-            delta: delta,
-            documentType: docType,
-            documentId: docId,
-          );
-          await StockOpsAppliedStore.instance.markInTxn(
-            txn,
-            opId: cloudOpId,
-            origin: 'local',
-            codigo: codCloud,
-            delta: delta,
+        // G2: sin código no hay clave cloud → rechazar TX (no perder op en silencio).
+        if (codCloud.isEmpty) {
+          throw StateError(
+            'Producto ${line.productoId} sin codigo: '
+            'no se puede encolar stock_op (garantía G2).',
           );
         }
+        await SyncOutbox.instance.enqueueStockOpInTxn(
+          txn,
+          opId: cloudOpId,
+          codigo: codCloud,
+          delta: delta,
+          documentType: docType,
+          documentId: docId,
+        );
+        await StockOpsAppliedStore.instance.markInTxn(
+          txn,
+          opId: cloudOpId,
+          origin: 'local',
+          codigo: codCloud,
+          delta: delta,
+        );
       }
     }
     return true;
