@@ -430,6 +430,25 @@ class FirestoreSyncService {
           );
 
           if (pending == 0 && inflight == 0) {
+            // Outbox quieto: aprovechar para alinear stock_ops APK→EXE
+            // (sin esto el PC puede quedar con stock distinto para siempre).
+            if (windows) {
+              try {
+                final budget = WindowsSyncPolicy.stockOpsPullBudget(
+                  pendingProductos: 0,
+                );
+                await _pullStockOpsRemotas(
+                  maxPages: budget.maxPages,
+                  pageSize: budget.pageSize,
+                  maxApply: budget.maxApply,
+                );
+                if (budget.recentLimit > 0) {
+                  await _pullStockOpsRecientes(limit: budget.recentLimit);
+                }
+              } catch (e) {
+                debugPrint('stock_ops catch-up post-outbox vacío: $e');
+              }
+            }
             syncStatusLabel = windows
                 ? 'En la nube (modo estable PC)'
                 : 'En la nube';
@@ -775,13 +794,21 @@ class FirestoreSyncService {
 
   int _softPullTickWindows = 0;
 
-  /// Una sola colección por tick. Fast-safe: productos ~50% (otros devices
-  /// ven cambios de precio/catálogo antes); resto round-robin.
+  /// Una sola colección por tick. Con outbox quieto prioriza stock_ops
+  /// (campo: APK aplicó movimientos que el EXE nunca bajó).
   Future<void> _pullSuaveWindows() async {
     const page = 15;
     final tick = _softPullTickWindows;
     _softPullTickWindows++;
-    final lane = WindowsSyncPolicy.softPullLane(tick);
+    final breakdown = await SyncOutbox.instance.pendingBreakdown();
+    final pendingProd = breakdown['producto'] ?? 0;
+    final prioritizeStock = WindowsSyncPolicy.prioritizeStockOpsPull(
+      pendingProductos: pendingProd,
+    );
+    final lane = WindowsSyncPolicy.softPullLane(
+      tick,
+      prioritizeStockOps: prioritizeStock,
+    );
     try {
       switch (lane) {
         case 'productos_inc':
@@ -810,8 +837,18 @@ class FirestoreSyncService {
           );
           await _aplicarRemitosRemotos(snap);
         case 'stock_ops':
-          // Micro stock_ops: un poco más para cerrar off-by-one PC↔APK.
-          await _pullStockOpsRemotas(maxPages: 1, pageSize: 15, maxApply: 8);
+          final budget = WindowsSyncPolicy.stockOpsPullBudget(
+            pendingProductos: pendingProd,
+          );
+          await _pullStockOpsRemotas(
+            maxPages: budget.maxPages,
+            pageSize: budget.pageSize,
+            maxApply: budget.maxApply,
+          );
+          // Red de seguridad idempotente (watermark no debe dejar huecos).
+          if (budget.recentLimit > 0) {
+            await _pullStockOpsRecientes(limit: budget.recentLimit);
+          }
         case 'compras':
           final snap = await _pullPaginaPorDocId(
             _comprasCol,

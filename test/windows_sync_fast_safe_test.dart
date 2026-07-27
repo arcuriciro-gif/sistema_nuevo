@@ -83,7 +83,7 @@ void main() {
     });
 
     test('soft pull ~33% productos', () {
-      final lanes = List.generate(30, WindowsSyncPolicy.softPullLane);
+      final lanes = List.generate(30, (i) => WindowsSyncPolicy.softPullLane(i));
       final productos =
           lanes.where((l) => l.startsWith('productos_')).length;
       expect(productos, 10);
@@ -103,6 +103,39 @@ void main() {
           'stock_ops',
         ]),
       );
+    });
+
+    test('con outbox quieto prioriza stock_ops (~50%)', () {
+      expect(
+        WindowsSyncPolicy.prioritizeStockOpsPull(pendingProductos: 0),
+        isTrue,
+      );
+      expect(
+        WindowsSyncPolicy.prioritizeStockOpsPull(pendingProductos: 5),
+        isTrue,
+      );
+      expect(
+        WindowsSyncPolicy.prioritizeStockOpsPull(pendingProductos: 6),
+        isFalse,
+      );
+      final lanes = List.generate(
+        20,
+        (i) => WindowsSyncPolicy.softPullLane(i, prioritizeStockOps: true),
+      );
+      final stockOps = lanes.where((l) => l == 'stock_ops').length;
+      expect(stockOps, 10);
+      expect(
+        WindowsSyncPolicy.softPullLane(0, prioritizeStockOps: true),
+        'stock_ops',
+      );
+    });
+
+    test('budget stock_ops crece solo con cola quieta', () {
+      final quiet = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 0);
+      final busy = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 200);
+      expect(quiet.maxApply, greaterThan(busy.maxApply));
+      expect(quiet.recentLimit, greaterThan(0));
+      expect(busy.recentLimit, 0);
     });
   });
 }
