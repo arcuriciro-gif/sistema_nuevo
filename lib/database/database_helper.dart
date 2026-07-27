@@ -106,6 +106,9 @@ class DatabaseHelper {
       final db = await openDatabase(
         path,
         version: schemaVersion,
+        onConfigure: (db) async {
+          await db.execute('PRAGMA foreign_keys = ON');
+        },
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -119,6 +122,9 @@ class DatabaseHelper {
       final db = await openDatabase(
         path,
         version: schemaVersion,
+        onConfigure: (db) async {
+          await db.execute('PRAGMA foreign_keys = ON');
+        },
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );

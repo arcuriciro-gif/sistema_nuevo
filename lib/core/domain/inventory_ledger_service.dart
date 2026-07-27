@@ -412,6 +412,9 @@ class InventoryLedgerService {
         event,
         sign: sign,
         movimientoTipo: movimientoTipo,
+        // Tombstone reverse es peer-local: NO re-subir (origen ya emite
+        // stock_ops de anulación). Default true duplicaba cloud (G1/G6).
+        enqueueOutboundStockOps: false,
       );
     });
     if (applied) {

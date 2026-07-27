@@ -165,15 +165,22 @@ service cloud.firestore {
         allow write: if isTenantAdmin(tenantId);
       }
 
-      // stock_ops: create/update idempotente; delete prohibido.
+      // stock_ops: create SOLO pending/claimed; applied requiere update
+      // tras increment (evita create applied sin FieldValue.increment).
       match /stock_ops/{opId} {
         allow read: if isMember(tenantId);
         allow create: if canWriteOps(tenantId)
           && request.resource.data.keys().hasAll(['codigo', 'delta', 'status', 'at'])
-          && request.resource.data.status in ['claimed', 'applied', 'pending_apply'];
+          && request.resource.data.status in ['claimed', 'pending_apply']
+          && request.resource.data.delta is int
+          && request.resource.data.codigo is string
+          && request.resource.data.codigo.size() > 0;
         allow update: if canWriteOps(tenantId)
           && resource.data.status in ['claimed', 'pending_apply']
-          && request.resource.data.status in ['applied', 'pending_apply', 'claimed'];
+          && request.resource.data.status in ['applied', 'pending_apply', 'claimed']
+          // Inmutables: codigo/delta no pueden cambiar tras create.
+          && request.resource.data.codigo == resource.data.codigo
+          && request.resource.data.delta == resource.data.delta;
         allow delete: if false;
       }
 

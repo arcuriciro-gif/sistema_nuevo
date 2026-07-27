@@ -1530,7 +1530,19 @@ class FirestoreSyncService {
       final delta = (op['delta'] as num?)?.toInt() ?? 0;
       final status = op['status']?.toString() ?? '';
       final at = op['at']?.toString();
-      if (opId.isEmpty || codigo.isEmpty || delta == 0) continue;
+      if (opId.isEmpty || codigo.isEmpty || delta == 0) {
+        // Malformed: park si hay opId (no avanzar a ciegas perdiendo la op).
+        if (opId.isNotEmpty) {
+          holds.add((
+            opId: opId,
+            reason: 'malformed',
+            codigo: codigo.isEmpty ? null : codigo,
+            delta: delta == 0 ? null : delta,
+            at: at,
+          ));
+        }
+        continue;
+      }
       if (status == 'pending_apply' || status == 'claimed') {
         skippedPendingApply++;
         holds.add((
@@ -1694,8 +1706,10 @@ class FirestoreSyncService {
           at: h.at,
         );
       }
-      final blockers =
-          result.skippedMissingProduct + result.skippedPendingApply;
+      final malformed = result.holds.where((h) => h.reason == 'malformed').length;
+      final blockers = result.skippedMissingProduct +
+          result.skippedPendingApply +
+          malformed;
       final parked = blockers > 0 &&
           result.holds.length >= blockers &&
           !result.truncatedByMaxApply;
@@ -1703,7 +1717,7 @@ class FirestoreSyncService {
       if (!shouldAdvanceStockOpsWatermark(
         consideredValid: result.consideredValid,
         skippedMissingProduct: result.skippedMissingProduct,
-        skippedPendingApply: result.skippedPendingApply,
+        skippedPendingApply: result.skippedPendingApply + malformed,
         truncatedByMaxApply: result.truncatedByMaxApply,
         blockersParkedInHolds: parked,
       )) {
@@ -3158,7 +3172,9 @@ class FirestoreSyncService {
         final codigo = row['codigo']?.toString().trim() ?? '';
         if (id == null || codigo.isEmpty) continue;
         if (!remoteCodigos.contains(codigo)) {
-          await subirProductoPorId(id, incluirStockAbsoluto: true, forzar: true);
+          // NUNCA absolute stock aquí: alta/import ya encolan stock_ops.
+          // Absolute + increment = doble conteo cloud (auditoría forense).
+          await subirProductoPorId(id, incluirStockAbsoluto: false, forzar: true);
           subidos += 1;
           if (windows) {
             await Future<void>.delayed(const Duration(milliseconds: 250));

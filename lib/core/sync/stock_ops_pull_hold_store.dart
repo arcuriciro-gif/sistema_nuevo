@@ -52,8 +52,8 @@ class StockOpsPullHoldStore {
       {
         'reason': reason,
         'codigo': codigo ?? existing.first['codigo'],
-        'delta': delta,
-        'op_at': at,
+        'delta': delta ?? existing.first['delta'],
+        'op_at': at ?? existing.first['op_at'],
         'attempts': attempts + 1,
         'retry_after': DateTime.now()
             .toUtc()

@@ -96,14 +96,11 @@ class IntegrityReconcileService {
 
   static const _epsMoney = 0.05;
 
-  Future<IntegrityScanReport> scanAndPersist({int productLimit = 2000}) async {
+/// C8: NO auto-seed en cada scan (laundering de proyección ilegal → ledger).
+/// La migración legacy se corre explícitamente (boot / panel), no aquí.
+Future<IntegrityScanReport> scanAndPersist({int productLimit = 2000}) async {
     await IntegrityPolicy.instance.ensureLoaded();
     final alarms = <IntegrityAlarm>[];
-
-    // G4: migrar histórico sin ledger antes de escanear proyecciones.
-    try {
-      await LegacyLedgerMigration.instance.seedMissing(limit: productLimit);
-    } catch (_) {}
 
     final stock = await _scanStockProjections(limit: productLimit);
     alarms.addAll(stock.alarms);
