@@ -103,6 +103,18 @@ void main() {
         isFalse,
       );
     });
+
+    test('pending_apply parked en holds SÍ avanza (anti-HOL)', () {
+      expect(
+        shouldAdvanceStockOpsWatermark(
+          consideredValid: 0,
+          skippedMissingProduct: 0,
+          skippedPendingApply: 2,
+          blockersParkedInHolds: true,
+        ),
+        isTrue,
+      );
+    });
   });
 
   group('C2 document meta en stock_ops', () {

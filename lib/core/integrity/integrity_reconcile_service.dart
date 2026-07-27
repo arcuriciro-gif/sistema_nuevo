@@ -1,13 +1,17 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../../database/database_helper.dart';
+import '../sync/sync_outbox.dart';
 import 'integrity_policy.dart';
+import 'legacy_ledger_migration.dart';
 
 enum IntegrityAlarmKind {
   stockProjection,
   ccDocument,
   stockNegative,
   moneyLedger,
+  outboxDeadStockOp,
+  legacyWithoutLedger,
 }
 
 class IntegrityAlarm {
@@ -37,6 +41,10 @@ class IntegrityAlarm {
         return 'stock_negative';
       case IntegrityAlarmKind.moneyLedger:
         return 'money_ledger';
+      case IntegrityAlarmKind.outboxDeadStockOp:
+        return 'outbox_dead_stock_op';
+      case IntegrityAlarmKind.legacyWithoutLedger:
+        return 'legacy_without_ledger';
     }
   }
 
@@ -50,6 +58,10 @@ class IntegrityAlarm {
         return IntegrityAlarmKind.stockNegative;
       case 'money_ledger':
         return IntegrityAlarmKind.moneyLedger;
+      case 'outbox_dead_stock_op':
+        return IntegrityAlarmKind.outboxDeadStockOp;
+      case 'legacy_without_ledger':
+        return IntegrityAlarmKind.legacyWithoutLedger;
       default:
         return null;
     }
@@ -84,7 +96,9 @@ class IntegrityReconcileService {
 
   static const _epsMoney = 0.05;
 
-  Future<IntegrityScanReport> scanAndPersist({int productLimit = 2000}) async {
+/// C8: NO auto-seed en cada scan (laundering de proyección ilegal → ledger).
+/// La migración legacy se corre explícitamente (boot / panel), no aquí.
+Future<IntegrityScanReport> scanAndPersist({int productLimit = 2000}) async {
     await IntegrityPolicy.instance.ensureLoaded();
     final alarms = <IntegrityAlarm>[];
 
@@ -96,6 +110,8 @@ class IntegrityReconcileService {
     alarms.addAll(cc.alarms);
     final money = await _scanMoneyLedgerVsSaldo();
     alarms.addAll(money.alarms);
+    alarms.addAll(await _scanDeadStockOps());
+    alarms.addAll(await _scanLegacyWithoutLedger());
 
     final report = IntegrityScanReport(
       at: DateTime.now().toUtc(),
@@ -340,6 +356,42 @@ class IntegrityReconcileService {
       }
     }
     return (checked: accounts.length, alarms: alarms);
+  }
+
+  Future<List<IntegrityAlarm>> _scanDeadStockOps() async {
+    final dead = await SyncOutbox.instance.countByStatus(SyncOutboxStatus.dead);
+    if (dead == 0) return const [];
+    final rows = await SyncOutbox.instance.listDeadStockOps(limit: 20);
+    return [
+      IntegrityAlarm(
+        kind: IntegrityAlarmKind.outboxDeadStockOp,
+        entityType: 'sync_outbox',
+        entityId: 'stock_op',
+        expected: 0,
+        actual: dead.toDouble(),
+        detail:
+            'Hay $dead stock_ops dead/poison. '
+            'Recover con proveCloudApplied / forceRequeue. '
+            'Muestra: ${rows.map((r) => r['op_id']).take(5).join(', ')}',
+      ),
+    ];
+  }
+
+  Future<List<IntegrityAlarm>> _scanLegacyWithoutLedger() async {
+    final missing = await LegacyLedgerMigration.instance.countMissing();
+    if (missing == 0) return const [];
+    return [
+      IntegrityAlarm(
+        kind: IntegrityAlarmKind.legacyWithoutLedger,
+        entityType: 'producto',
+        entityId: 'legacy',
+        expected: 0,
+        actual: missing.toDouble(),
+        detail:
+            '$missing productos sin inventory_ledger. '
+            'Correr LegacyLedgerMigration.seedMissing.',
+      ),
+    ];
   }
 
   Future<void> _persistAlarms(IntegrityScanReport report) async {

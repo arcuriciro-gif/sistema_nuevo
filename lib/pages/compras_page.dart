@@ -248,6 +248,7 @@ class _ComprasPageState extends State<ComprasPage> {
     );
     if (ok == true) {
       await service.anular(compra['id']);
+      if (!mounted) return;
       await cargar();
     }
   }
@@ -281,6 +282,7 @@ class _ComprasPageState extends State<ComprasPage> {
     if (ok == true) {
       try {
         await service.eliminar((compra['id'] as num).toInt());
+        if (!mounted) return;
         await cargar();
       } catch (e) {
         if (!mounted) return;

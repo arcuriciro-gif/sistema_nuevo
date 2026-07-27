@@ -56,10 +56,11 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
       final r = await FirestoreSyncService.instance
           .actualizarAhora()
           .timeout(
-            const Duration(seconds: 90),
+            // Windows: varias micro-rondas de stock; 90s cortaba mid-apply.
+            const Duration(seconds: 150),
             onTimeout: () => {
               'ok': false,
-              'error': 'timeout_90s',
+              'error': 'timeout_150s',
             },
           );
       if (!mounted) return;

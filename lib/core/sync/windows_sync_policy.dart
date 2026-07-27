@@ -129,8 +129,11 @@ class WindowsSyncPolicy {
     return 0;
   }
 
-  /// Presupuesto de "Actualizar ahora" en Windows: más chico que soft-pull
-  /// quieto para no tumbar el .exe (ráfaga ledger + Firestore en UI isolate).
+  /// Presupuesto de "Actualizar ahora" en Windows.
+  ///
+  /// Campo 1.4.12: la ráfaga negocio+clientes+stock+drain en un solo gesto
+  /// seguía tumbando el .exe. Ahora: **stock primero**, micro-rondas con
+  /// yield, negocio mínimo, sin página grande de clientes.
   static ({
     int negocioLimit,
     int clientesPage,
@@ -138,40 +141,65 @@ class WindowsSyncPolicy {
     int stockPageSize,
     int stockMaxApply,
     int stockRecentLimit,
+    int stockRounds,
+    int stockMicroBatch,
+    int yieldMs,
     int schedulerTicks,
+    bool pullClientes,
+    bool pullConfig,
   }) manualRefreshBudgetWindows({required int pendingProductos}) {
     if (pendingProductos >= 50) {
       return (
-        negocioLimit: 10,
-        clientesPage: 15,
+        negocioLimit: 5,
+        clientesPage: 0,
         stockMaxPages: 1,
-        stockPageSize: 10,
-        stockMaxApply: 6,
-        stockRecentLimit: 15,
+        stockPageSize: 8,
+        stockMaxApply: 3,
+        stockRecentLimit: 10,
+        stockRounds: 2,
+        stockMicroBatch: 2,
+        yieldMs: 250,
         schedulerTicks: 1,
+        pullClientes: false,
+        pullConfig: false,
       );
     }
     if (pendingProductos >= 10) {
       return (
-        negocioLimit: 15,
-        clientesPage: 20,
+        negocioLimit: 8,
+        clientesPage: 0,
         stockMaxPages: 1,
-        stockPageSize: 15,
-        stockMaxApply: 10,
-        stockRecentLimit: 20,
+        stockPageSize: 10,
+        stockMaxApply: 4,
+        stockRecentLimit: 12,
+        stockRounds: 3,
+        stockMicroBatch: 2,
+        yieldMs: 200,
         schedulerTicks: 1,
+        pullClientes: false,
+        pullConfig: true,
       );
     }
     return (
-      negocioLimit: 20,
-      clientesPage: 25,
+      negocioLimit: 10,
+      clientesPage: 0,
       stockMaxPages: 1,
-      stockPageSize: 20,
-      stockMaxApply: 12,
-      stockRecentLimit: 25,
+      stockPageSize: 12,
+      stockMaxApply: 4,
+      stockRecentLimit: 15,
+      stockRounds: 4,
+      stockMicroBatch: 3,
+      yieldMs: 150,
       schedulerTicks: 1,
+      pullClientes: false,
+      pullConfig: true,
     );
   }
+
+  /// Catch-up inicial Windows: cupo mínimo de stock_ops (antes: 0 → diverge).
+  static ({int maxPages, int pageSize, int maxApply})
+      windowsCatchupStockOpsBudget() =>
+          (maxPages: 1, pageSize: 8, maxApply: 4);
 
   /// Plan de drain del outbox Windows (scheduler v2).
   ///

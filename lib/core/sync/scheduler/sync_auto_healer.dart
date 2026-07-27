@@ -35,6 +35,13 @@ class SyncAutoHealer {
     deadStockRequeued += dead;
     out['deadStockRequeued'] = dead;
 
+    // Poison explícito: reabrir con grace (gestión completa de dead queue).
+    final poison = await SyncOutbox.instance.forceRequeuePoisonStockOps(
+      limit: 20,
+    );
+    deadStockRequeued += poison;
+    out['poisonForceRequeued'] = poison;
+
     // Persistir modo recovering si hubo trabajo.
     if (reclaimed + orphans + dead > 0) {
       lastHealDetail =

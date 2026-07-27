@@ -9,6 +9,7 @@ import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/cloud_sync_throttle.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/stable_document_id.dart';
 import '../core/sync/sync_background.dart';
 import '../database/database_helper.dart';
 import '../models/pago.dart';
@@ -192,7 +193,11 @@ class CuentaCorrienteService {
           deviceId: tag,
           payload: {
             'documentType': 'venta',
-            'documentId': '$id',
+            'documentId': stableCommercialDocumentId(
+              numero: venta.numero,
+              localId: id,
+              fallbackPrefix: 'v_',
+            ),
             'documentNumero': venta.numero,
             'motivo': 'Entrega por ${venta.tipo} ${venta.numero}',
             'lines': linesJson,

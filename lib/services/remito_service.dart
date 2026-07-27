@@ -14,6 +14,7 @@ import '../core/domain/money_ledger_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/firestore_sync_service.dart';
+import '../core/sync/stable_document_id.dart';
 import '../database/database_helper.dart';
 import '../models/remito.dart';
 import '../models/remito_detalle.dart';
@@ -160,7 +161,11 @@ class RemitoService {
           deviceId: tag,
           payload: {
             'documentType': 'remito',
-            'documentId': '$id',
+            'documentId': stableCommercialDocumentId(
+              numero: remito.numero,
+              localId: id,
+              fallbackPrefix: 'R_',
+            ),
             'documentNumero': remito.numero,
             'motivo': 'Entrega por remito ${remito.numero}',
             'lines': linesJson,
@@ -495,7 +500,7 @@ class RemitoService {
           deviceId: tag,
           payload: {
             'documentType': 'remito',
-            'documentId': '$id',
+            'documentId': stableCommercialDocumentId(numero: numero, localId: id, fallbackPrefix: 'R_'),
             'documentNumero': numero,
             'motivo': 'Reverso entrega remito ${numero ?? id}',
             'lines': lines,
@@ -634,7 +639,7 @@ class RemitoService {
           deviceId: tag,
           payload: {
             'documentType': 'remito',
-            'documentId': '$id',
+            'documentId': stableCommercialDocumentId(numero: numero, localId: id, fallbackPrefix: 'R_'),
             'documentNumero': numero,
             'motivo': 'Restauración entrega remito $numero',
             'lines': lines,

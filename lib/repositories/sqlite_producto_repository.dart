@@ -14,6 +14,8 @@ class SqliteProductoRepository implements ProductoRepository {
   Future<int> insertar(Producto producto) async {
     final db = await _databaseHelper.database;
     final map = producto.toMap()..remove('id');
+    // Hardening: stock solo vía ledger. Insert siempre en 0.
+    map['stock'] = 0;
     map['deleted_at'] = null;
     map['actualizadoEn'] = producto.actualizadoEn?.isNotEmpty == true
         ? producto.actualizadoEn
@@ -32,6 +34,7 @@ class SqliteProductoRepository implements ProductoRepository {
     final ahora = DateTime.now().toUtc().toIso8601String();
     for (final producto in productos) {
       final map = producto.toMap()..remove('id');
+      map['stock'] = 0;
       map['deleted_at'] = null;
       map['actualizadoEn'] =
           producto.actualizadoEn?.isNotEmpty == true ? producto.actualizadoEn : ahora;

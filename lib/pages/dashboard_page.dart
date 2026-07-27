@@ -83,6 +83,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> cargar() async {
+    if (!mounted) return;
     setState(() => cargando = true);
 
     final productos = await productoService.obtenerTodos();
@@ -156,7 +157,10 @@ class _DashboardPageState extends State<DashboardPage> {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const ClientesDeudoresPage()),
-      ).then((_) => cargar());
+      ).then((_) {
+        if (!mounted) return;
+        cargar();
+      });
     }
   }
 

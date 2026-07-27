@@ -106,6 +106,9 @@ class DatabaseHelper {
       final db = await openDatabase(
         path,
         version: schemaVersion,
+        onConfigure: (db) async {
+          await db.execute('PRAGMA foreign_keys = ON');
+        },
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -119,6 +122,9 @@ class DatabaseHelper {
       final db = await openDatabase(
         path,
         version: schemaVersion,
+        onConfigure: (db) async {
+          await db.execute('PRAGMA foreign_keys = ON');
+        },
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -298,6 +304,7 @@ CREATE TABLE comparacion(
     await _crearTablaWaMensajesLog(db);
     await _crearTablaWaCatalogItems(db);
     await _migrarStockOpsAppliedV37(db);
+    await _migrarStockOpsPullHoldsV38(db);
     await _migrarSyncCompletoV21(db);
     await _crearIndices(db);
   }
@@ -468,13 +475,14 @@ CREATE TABLE IF NOT EXISTS usuarios(
       return;
     }
 
-    // Si el admin quedó inactivo o sin clave usable, lo reparamos para
-    // que admin/admin123 vuelva a abrir la app en la PC (si la política
-    // de recovery default sigue habilitada en AuthService).
+    await AdminAccessPolicy.instance.migrateHardeningRecoveryDefault(db);
+
+    // Hardening: NO resetear a admin123 salvo recovery explícitamente ON.
     final row = adminRows.first;
     final activo = (row['activo'] as int?) ?? 0;
     final pass = (row['password'] ?? '').toString();
-    if (activo != 1 || pass.isEmpty) {
+    if ((activo != 1 || pass.isEmpty) &&
+        await AdminAccessPolicy.instance.isDefaultRecoveryEnabled()) {
       await db.update(
         'usuarios',
         {
@@ -1096,6 +1104,9 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 37) {
       await _migrarStockOpsAppliedV37(db);
     }
+    if (oldVersion < 38) {
+      await _migrarStockOpsPullHoldsV38(db);
+    }
   }
 
   /// Auditoría forense 1.4.5: dedupe durable de stock_ops (reemplaza prefs).
@@ -1112,6 +1123,27 @@ CREATE TABLE IF NOT EXISTS stock_ops_applied(
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_stock_ops_applied_origin '
       'ON stock_ops_applied(origin, applied_at)',
+    );
+  }
+
+  /// Certificación: hold-set anti-HOL para watermark de stock_ops.
+  Future<void> _migrarStockOpsPullHoldsV38(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS stock_ops_pull_holds(
+  op_id TEXT PRIMARY KEY NOT NULL,
+  reason TEXT NOT NULL,
+  codigo TEXT,
+  delta INTEGER,
+  op_at TEXT,
+  first_seen_at TEXT NOT NULL,
+  retry_after TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_stock_ops_pull_holds_retry '
+      'ON stock_ops_pull_holds(retry_after, first_seen_at)',
     );
   }
 
@@ -1672,5 +1704,5 @@ CREATE TABLE IF NOT EXISTS wa_catalog_items(
   }
 
   /// Versión de schema declarada por la app (Capacidad 5 / panel técnico).
-  static const int schemaVersion = 37;
+  static const int schemaVersion = 38;
 }
