@@ -81,6 +81,28 @@ void main() {
         isTrue,
       );
     });
+
+    test('truncate por maxApply NO avanza', () {
+      expect(
+        shouldAdvanceStockOpsWatermark(
+          consideredValid: 4,
+          skippedMissingProduct: 0,
+          truncatedByMaxApply: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('pending_apply en página NO avanza', () {
+      expect(
+        shouldAdvanceStockOpsWatermark(
+          consideredValid: 0,
+          skippedMissingProduct: 0,
+          skippedPendingApply: 2,
+        ),
+        isFalse,
+      );
+    });
   });
 
   group('C2 document meta en stock_ops', () {

@@ -72,6 +72,7 @@ class InventoryLedgerService {
     DomainEvent event, {
     required int sign,
     required String movimientoTipo,
+    bool enforceStockPolicy = true,
   }) async {
     final existing = await txn.query(
       'domain_events',
@@ -107,28 +108,47 @@ class InventoryLedgerService {
         .toList();
 
     // Validación de política dentro de la misma TX (stock actual).
-    for (final line in lines) {
-      final prod = await txn.query(
-        'productos',
-        columns: ['stock', 'codigo'],
-        where: 'id = ?',
-        whereArgs: [line.productoId],
-        limit: 1,
-      );
-      if (prod.isEmpty) {
-        throw StateError(
-          'Producto ${line.productoId} inexistente: no se puede mover stock.',
+    // Remoto (stock_ops peer): no bloquear — el origen ya comprometió el delta.
+    if (enforceStockPolicy) {
+      for (final line in lines) {
+        final prod = await txn.query(
+          'productos',
+          columns: ['stock', 'codigo'],
+          where: 'id = ?',
+          whereArgs: [line.productoId],
+          limit: 1,
         );
+        if (prod.isEmpty) {
+          throw StateError(
+            'Producto ${line.productoId} inexistente: no se puede mover stock.',
+          );
+        }
+        final stockBefore = (prod.first['stock'] as num?)?.toInt() ?? 0;
+        final stockAfter = stockBefore + sign * line.cantidad.abs();
+        if (!await IntegrityPolicy.instance.permiteStockResultante(stockAfter)) {
+          final codigo =
+              prod.first['codigo']?.toString() ?? '${line.productoId}';
+          throw StateError(
+            'Stock insuficiente para $codigo '
+            '(hay $stockBefore, se necesitan ${line.cantidad.abs()}). '
+            'Activá "Permitir stock negativo" en Configuración si corresponde.',
+          );
+        }
       }
-      final stockBefore = (prod.first['stock'] as num?)?.toInt() ?? 0;
-      final stockAfter = stockBefore + sign * line.cantidad.abs();
-      if (!await IntegrityPolicy.instance.permiteStockResultante(stockAfter)) {
-        final codigo = prod.first['codigo']?.toString() ?? '${line.productoId}';
-        throw StateError(
-          'Stock insuficiente para $codigo '
-          '(hay $stockBefore, se necesitan ${line.cantidad.abs()}). '
-          'Activá "Permitir stock negativo" en Configuración si corresponde.',
+    } else {
+      for (final line in lines) {
+        final prod = await txn.query(
+          'productos',
+          columns: ['id'],
+          where: 'id = ?',
+          whereArgs: [line.productoId],
+          limit: 1,
         );
+        if (prod.isEmpty) {
+          throw StateError(
+            'Producto ${line.productoId} inexistente: no se puede mover stock.',
+          );
+        }
       }
     }
 
@@ -309,6 +329,8 @@ class InventoryLedgerService {
       event,
       sign: delta > 0 ? 1 : -1,
       movimientoTipo: tipo,
+      // Peer debe aplicar el mismo delta aunque deje negativo (origen ya OK).
+      enforceStockPolicy: false,
     );
   }
 

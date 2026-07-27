@@ -191,6 +191,9 @@ class FirestoreSyncService {
         await _migrateLegacyColasToOutbox();
       }
       await _cargarWatermarksPersistidos();
+      // 1.4.2: una sola vez rebobina watermark stock_ops 72h para recuperar
+      // ops perdidas por avance prematuro (truncate/pending_apply).
+      await _maybeRewindStockOpsWatermarkForConvergence();
       SyncHealthService.instance.firebaseReady = true;
       SyncHealthService.instance.canWrite = _puedeEscribirRemoto;
       syncStatusLabel = 'Sincronizando…';
@@ -268,6 +271,7 @@ class FirestoreSyncService {
           CloudSyncThrottle.enqueue(() async {
             try {
               await _cargarColasPersistidas();
+              await _maybeRewindStockOpsWatermarkForConvergence();
               // Solo stock MUERTO/reclaim eterno — NO borrar pending frescos
               // (si no, el stock del .exe nunca llega al APK).
               final purged = await SyncOutbox.instance.purgeStuckStockOps(
@@ -830,6 +834,31 @@ class FirestoreSyncService {
   static const _wmVentasDoc = 'pull_ventas_doc';
   static const _wmRemitosDoc = 'pull_remitos_doc';
   static const _wmStockOpsDoc = 'pull_stock_ops_doc';
+  static const _prefsStockOpsWmRewindV142 = 'stock_ops_wm_rewind_v142';
+
+  /// Rebobina watermark stock_ops ~72h una sola vez (recupera ops perdidas
+  /// por avance prematuro en 2.0/2.1). Idempotente vía prefs.
+  Future<void> _maybeRewindStockOpsWatermarkForConvergence() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_prefsStockOpsWmRewindV142) == true) return;
+      final from = DateTime.now()
+          .toUtc()
+          .subtract(const Duration(hours: 72))
+          .toIso8601String();
+      await SyncWatermarkStore.instance.saveMap(_wmStockOpsDoc, {
+        'afterDocId': '',
+        'afterAt': from,
+        'v': 'at_v2',
+        'rewoundAt': DateTime.now().toUtc().toIso8601String(),
+        'rewoundReason': 'hold_fix_v142',
+      });
+      await prefs.setBool(_prefsStockOpsWmRewindV142, true);
+      debugPrint('stock_ops watermark: rewind 72h (convergencia v1.4.2)');
+    } catch (e) {
+      debugPrint('stock_ops watermark rewind: $e');
+    }
+  }
 
   /// Una página por colección (sin `.get()` completo — A2).
   Future<QuerySnapshot<Map<String, dynamic>>> _pullPaginaPorDocId(
@@ -1228,8 +1257,14 @@ class FirestoreSyncService {
   }
 
   /// Aplica una lista de docs stock_ops al ledger (sin re-upload).
-  Future<({int applied, int consideredValid, int skippedMissingProduct})>
-      _aplicarStockOpsItems(
+  Future<
+      ({
+        int applied,
+        int consideredValid,
+        int skippedMissingProduct,
+        int skippedPendingApply,
+        bool truncatedByMaxApply,
+      })> _aplicarStockOpsItems(
     List<Map<String, dynamic>> items, {
     int? maxApply,
   }) async {
@@ -1245,14 +1280,22 @@ class FirestoreSyncService {
     })>[];
     var consideredValid = 0;
     var skippedMissingProduct = 0;
+    var skippedPendingApply = 0;
+    var truncatedByMaxApply = false;
     for (final op in items) {
-      if (batch.length >= limit) break;
+      if (batch.length >= limit) {
+        truncatedByMaxApply = true;
+        break;
+      }
       final opId = op['opId']?.toString() ?? '';
       final codigo = op['codigo']?.toString().trim() ?? '';
       final delta = (op['delta'] as num?)?.toInt() ?? 0;
       final status = op['status']?.toString() ?? '';
       if (opId.isEmpty || codigo.isEmpty || delta == 0) continue;
-      if (status == 'pending_apply' || status == 'claimed') continue;
+      if (status == 'pending_apply' || status == 'claimed') {
+        skippedPendingApply++;
+        continue;
+      }
       consideredValid++;
       if (_stockOpsHechas.contains(opId)) continue;
 
@@ -1281,6 +1324,8 @@ class FirestoreSyncService {
         applied: 0,
         consideredValid: consideredValid,
         skippedMissingProduct: skippedMissingProduct,
+        skippedPendingApply: skippedPendingApply,
+        truncatedByMaxApply: truncatedByMaxApply,
       );
     }
     final n =
@@ -1298,6 +1343,8 @@ class FirestoreSyncService {
       applied: n,
       consideredValid: consideredValid,
       skippedMissingProduct: skippedMissingProduct,
+      skippedPendingApply: skippedPendingApply,
+      truncatedByMaxApply: truncatedByMaxApply,
     );
   }
 
@@ -1311,7 +1358,8 @@ class FirestoreSyncService {
   }
 
   /// Aplica stock_ops remotos al ledger local (sin re-upload).
-  /// Watermark por `at`+docId; NO avanza si se saltaron ops por producto ausente.
+  /// Watermark por `at`+docId; NO avanza si se saltaron ops (producto,
+  /// pending_apply) o si maxApply truncó la página a mitad.
   Future<void> _pullStockOpsRemotas({
     int maxPages = 5,
     int pageSize = 80,
@@ -1350,14 +1398,18 @@ class FirestoreSyncService {
       );
       appliedTotal += result.applied;
 
-      // C4: si faltó producto local, no avanzar watermark (se reintentan).
+      // C4: no avanzar si hay ops no aplicadas (producto/pending/truncate).
       if (!shouldAdvanceStockOpsWatermark(
         consideredValid: result.consideredValid,
         skippedMissingProduct: result.skippedMissingProduct,
+        skippedPendingApply: result.skippedPendingApply,
+        truncatedByMaxApply: result.truncatedByMaxApply,
       )) {
         debugPrint(
           'stock_ops watermark: hold '
-          '(missingProduct=${result.skippedMissingProduct})',
+          '(missingProduct=${result.skippedMissingProduct} '
+          'pendingApply=${result.skippedPendingApply} '
+          'truncated=${result.truncatedByMaxApply})',
         );
         break;
       }

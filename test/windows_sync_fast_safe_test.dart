@@ -175,7 +175,8 @@ void main() {
       final busy = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 200);
       expect(quiet.maxApply, greaterThan(busy.maxApply));
       expect(quiet.recentLimit, greaterThan(0));
-      expect(busy.recentLimit, 0);
+      // Nunca 0: sin recientes el watermark truncado deja stock divergente.
+      expect(busy.recentLimit, greaterThan(0));
     });
   });
 }

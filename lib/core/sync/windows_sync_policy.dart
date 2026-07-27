@@ -67,16 +67,19 @@ class WindowsSyncPolicy {
       prioritizeBusinessConvergence(pendingProductos: pendingProductos);
 
   /// Presupuesto de pull stock_ops en Windows (ráfagas controladas).
+  ///
+  /// `recentLimit` NUNCA es 0: sin pull reciente, un watermark que avanzó
+  /// de más deja stock divergente para siempre (EXE↔APK).
   static ({int maxPages, int pageSize, int maxApply, int recentLimit})
       stockOpsPullBudget({required int pendingProductos}) {
     if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
-      return (maxPages: 2, pageSize: 30, maxApply: 24, recentLimit: 50);
+      return (maxPages: 2, pageSize: 30, maxApply: 24, recentLimit: 80);
     }
     if (pendingProductos <= 50) {
-      return (maxPages: 1, pageSize: 15, maxApply: 8, recentLimit: 0);
+      return (maxPages: 1, pageSize: 15, maxApply: 8, recentLimit: 50);
     }
-    // Subiendo catálogo: casi no tocar stock_ops (evita tumbar .exe).
-    return (maxPages: 1, pageSize: 10, maxApply: 4, recentLimit: 0);
+    // Subiendo catálogo: watermark chico, pero recientes sí (convergencia).
+    return (maxPages: 1, pageSize: 10, maxApply: 4, recentLimit: 40);
   }
 
   /// Soft-pull lane.
