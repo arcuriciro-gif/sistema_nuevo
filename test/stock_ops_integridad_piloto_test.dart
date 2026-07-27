@@ -17,15 +17,15 @@ void main() {
       expect(stockOpNeedsIncrement(p), isTrue);
     });
 
-    test('applied sin ultimaStockOp → appliedIncomplete (crash mid-write)', () {
+    test('applied sin ultimaStockOp → appliedComplete (idempotencia por op)', () {
       final p = classifyStockOpCloud(
         exists: true,
         status: 'applied',
         ultimaStockOpProducto: 'otra',
         opId: 'op1',
       );
-      expect(p, StockOpCloudPhase.appliedIncomplete);
-      expect(stockOpNeedsIncrement(p), isTrue);
+      expect(p, StockOpCloudPhase.appliedComplete);
+      expect(stockOpNeedsIncrement(p), isFalse);
     });
 
     test('applied + ultimaStockOp → complete, no re-increment', () {

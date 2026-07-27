@@ -297,6 +297,7 @@ CREATE TABLE comparacion(
     await _crearTablaCrmSeguimientos(db);
     await _crearTablaWaMensajesLog(db);
     await _crearTablaWaCatalogItems(db);
+    await _migrarStockOpsAppliedV37(db);
     await _migrarSyncCompletoV21(db);
     await _crearIndices(db);
   }
@@ -1092,6 +1093,26 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 36) {
       await _migrarSyncObservabilityV36(db);
     }
+    if (oldVersion < 37) {
+      await _migrarStockOpsAppliedV37(db);
+    }
+  }
+
+  /// Auditoría forense 1.4.5: dedupe durable de stock_ops (reemplaza prefs).
+  Future<void> _migrarStockOpsAppliedV37(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS stock_ops_applied(
+  op_id TEXT PRIMARY KEY NOT NULL,
+  origin TEXT NOT NULL,
+  codigo TEXT,
+  delta INTEGER,
+  applied_at TEXT NOT NULL
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_stock_ops_applied_origin '
+      'ON stock_ops_applied(origin, applied_at)',
+    );
   }
 
   /// Sync Engine 2.1: trazas E2E durables (muestra) para certificación.
@@ -1651,5 +1672,5 @@ CREATE TABLE IF NOT EXISTS wa_catalog_items(
   }
 
   /// Versión de schema declarada por la app (Capacidad 5 / panel técnico).
-  static const int schemaVersion = 36;
+  static const int schemaVersion = 37;
 }

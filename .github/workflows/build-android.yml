@@ -10,6 +10,7 @@ on:
       - cursor/fix-stock-ops-convergencia-e44b
       - cursor/fix-sync-ui-stutter-manual-e44b
       - cursor/fix-manual-crash-stock-push-e44b
+      - cursor/sync-engine-forensic-rebuild-e44b
       - cursor/release-mejoras-e44b
       - cursor/ui-shell-fotos-bio-e44b
       - cursor/productos-busqueda-eliminar-e44b

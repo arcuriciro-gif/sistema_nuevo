@@ -152,6 +152,27 @@ class SyncOutbox {
     String? documentId,
   }) async {
     if (opId.isEmpty || codigo.isEmpty || delta == 0) return;
+    final db = await _db;
+    await enqueueStockOpInTxn(
+      db,
+      opId: opId,
+      codigo: codigo,
+      delta: delta,
+      documentType: documentType,
+      documentId: documentId,
+    );
+  }
+
+  /// Encola stock_op dentro de una TX SQLite existente (ledger + outbox atómicos).
+  Future<void> enqueueStockOpInTxn(
+    DatabaseExecutor txn, {
+    required String opId,
+    required String codigo,
+    required int delta,
+    String? documentType,
+    String? documentId,
+  }) async {
+    if (opId.isEmpty || codigo.isEmpty || delta == 0) return;
     final payload = <String, dynamic>{
       'opId': opId,
       'codigo': codigo,
@@ -161,7 +182,8 @@ class SyncOutbox {
     final di = (documentId ?? '').trim();
     if (dt.isNotEmpty) payload['documentType'] = dt;
     if (di.isNotEmpty) payload['documentId'] = di;
-    await _upsertPending(
+    await _upsertPendingOn(
+      txn,
       SyncOutboxOp(
         opId: 'stock_op:$opId',
         entityType: 'stock_op',
@@ -203,6 +225,14 @@ class SyncOutbox {
     bool reopenAcked = true,
   }) async {
     final db = await _db;
+    await _upsertPendingOn(db, op, reopenAcked: reopenAcked);
+  }
+
+  Future<void> _upsertPendingOn(
+    DatabaseExecutor db,
+    SyncOutboxOp op, {
+    bool reopenAcked = true,
+  }) async {
     final existing = await db.query(
       'sync_outbox',
       where: 'op_id = ?',
@@ -237,65 +267,56 @@ class SyncOutbox {
         'sync_outbox',
         {
           'status': SyncOutboxStatus.pending,
+          'payload': op.payloadJson,
+          'entity_local_id': op.entityLocalId,
+          'entity_remote_id': op.entityRemoteId,
+          'priority': op.priority,
+          'lane': op.lane.wireName,
           'attempts': 0,
           'last_error': null,
           'updated_at': ahora,
           'next_attempt_at': null,
-          'payload': op.payloadJson,
-          'entity_remote_id': op.entityRemoteId,
-          'priority': op.priority,
-          'lane': op.lane.wireName,
-          'coalesce_key': op.coalesceKey,
         },
         where: 'op_id = ?',
         whereArgs: [op.opId],
       );
       return;
     }
-    if (status == SyncOutboxStatus.dead) {
-      // Dead siempre se puede reintentar (catch-up / migración).
+    if (status == SyncOutboxStatus.pending ||
+        status == SyncOutboxStatus.inflight) {
       await db.update(
         'sync_outbox',
         {
-          'status': SyncOutboxStatus.pending,
-          'attempts': 0,
-          'last_error': null,
-          'updated_at': ahora,
-          'next_attempt_at': null,
           'payload': op.payloadJson,
+          'entity_local_id': op.entityLocalId,
           'entity_remote_id': op.entityRemoteId,
           'priority': op.priority,
           'lane': op.lane.wireName,
-          'coalesce_key': op.coalesceKey,
+          'updated_at': ahora,
         },
         where: 'op_id = ?',
         whereArgs: [op.opId],
       );
       return;
     }
-    if (status == SyncOutboxStatus.inflight ||
-        status == SyncOutboxStatus.pending) {
-      await db.update(
-        'sync_outbox',
-        {
-          'updated_at': ahora,
-          'payload': op.payloadJson ?? existing.first['payload'],
-          'entity_remote_id':
-              op.entityRemoteId ?? existing.first['entity_remote_id'],
-          // Si llega un crítico sobre la misma fila, subir prioridad.
-          'priority': op.priority <
-                  ((existing.first['priority'] as num?)?.toInt() ?? 50)
-              ? op.priority
-              : (existing.first['priority'] as num?)?.toInt() ?? op.priority,
-          'lane': op.lane == SyncLane.critical
-              ? SyncLane.critical.wireName
-              : (existing.first['lane']?.toString() ?? op.lane.wireName),
-          'coalesce_key': op.coalesceKey ?? existing.first['coalesce_key'],
-        },
-        where: 'op_id = ?',
-        whereArgs: [op.opId],
-      );
-    }
+    // dead u otro: reabrir a pending.
+    await db.update(
+      'sync_outbox',
+      {
+        'status': SyncOutboxStatus.pending,
+        'payload': op.payloadJson,
+        'entity_local_id': op.entityLocalId,
+        'entity_remote_id': op.entityRemoteId,
+        'priority': op.priority,
+        'lane': op.lane.wireName,
+        'attempts': 0,
+        'last_error': null,
+        'updated_at': ahora,
+        'next_attempt_at': null,
+      },
+      where: 'op_id = ?',
+      whereArgs: [op.opId],
+    );
   }
 
   /// Inflight viejos → pending (crash / corte de luz).
@@ -718,30 +739,35 @@ GROUP BY l
     return n;
   }
 
-  /// Reencola stock_op `dead` a pending (C6: no ACK ciego).
-  /// El apply es idempotente; con pending_apply→applied se completa.
-  Future<int> ackDeadStockOps() async {
+  /// Reencola stock_op `dead` a pending con tope (no storm infinito).
+  /// Conserva attempts (no reset a 0) para que vuelvan a dead si siguen fallando.
+  Future<int> ackDeadStockOps({int limit = 50}) async {
     final db = await _db;
     final rows = await db.query(
       'sync_outbox',
-      columns: ['op_id'],
+      columns: ['op_id', 'attempts'],
       where: "entity_type = 'stock_op' AND status = ?",
       whereArgs: [SyncOutboxStatus.dead],
-      limit: 500,
+      limit: limit,
     );
     var n = 0;
     final ahora = DateTime.now().toUtc().toIso8601String();
     for (final r in rows) {
       final opId = r['op_id']?.toString() ?? '';
       if (opId.isEmpty) continue;
+      final attempts = (r['attempts'] as num?)?.toInt() ?? maxAttempts;
+      // Si ya explotó el tope duro, no reabrir (poison pill).
+      if (attempts >= maxAttempts) continue;
       n += await db.update(
         'sync_outbox',
         {
           'status': SyncOutboxStatus.pending,
-          'attempts': 0,
           'last_error': 'requeued_from_dead',
           'updated_at': ahora,
-          'next_attempt_at': null,
+          'next_attempt_at': DateTime.now()
+              .toUtc()
+              .add(const Duration(seconds: 45))
+              .toIso8601String(),
         },
         where: 'op_id = ?',
         whereArgs: [opId],
@@ -775,41 +801,12 @@ GROUP BY l
     return n;
   }
 
-  /// ACK stock_ops ya aplicadas localmente (opId en [hechas]).
+  /// @Deprecated — NUNCA ACK por set local. Solo cloud proof (auditoría 1.4.5).
+  /// Conservado como no-op para no romper callers; siempre retorna 0.
   Future<int> ackStockOpsYaHechas(Set<String> hechas) async {
-    if (hechas.isEmpty) return 0;
-    final db = await _db;
-    final rows = await db.query(
-      'sync_outbox',
-      columns: ['op_id', 'entity_remote_id', 'payload'],
-      where: "status IN (?, ?) AND entity_type = 'stock_op'",
-      whereArgs: [SyncOutboxStatus.pending, SyncOutboxStatus.inflight],
-      limit: 200,
-    );
-    var n = 0;
-    for (final r in rows) {
-      final opId = r['op_id']?.toString() ?? '';
-      if (opId.isEmpty) continue;
-      var stockOpId = r['entity_remote_id']?.toString() ?? '';
-      if (stockOpId.isEmpty) {
-        final payload = r['payload']?.toString();
-        if (payload != null && payload.isNotEmpty) {
-          try {
-            final m = jsonDecode(payload);
-            if (m is Map) stockOpId = m['opId']?.toString() ?? '';
-          } catch (_) {}
-        }
-      }
-      // op_id outbox = "stock_op:$opId"
-      final bare = opId.startsWith('stock_op:')
-          ? opId.substring('stock_op:'.length)
-          : opId;
-      if (hechas.contains(stockOpId) || hechas.contains(bare)) {
-        await ack(opId);
-        n++;
-      }
-    }
-    return n;
+    // Intencionalmente vacío: ACK ciego por `_stockOpsHechas` perdía ops
+    // que nunca llegaron a Firestore (EXE→APK stock diverge).
+    return 0;
   }
 
   Future<bool> hasPendingLocalId(String entityType, int localId) async {

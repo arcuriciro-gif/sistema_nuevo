@@ -31,6 +31,7 @@ import 'sync_outbox.dart';
 import 'sync_tombstone.dart';
 import 'stock_ops_pull_policy.dart';
 import 'stock_ops_watermark.dart';
+import 'stock_ops_applied_store.dart';
 import 'sync_watermark_store.dart';
 import 'windows_sync_policy.dart';
 import '../../services/cuenta_corriente_service.dart';
@@ -1506,7 +1507,11 @@ class FirestoreSyncService {
         continue;
       }
       consideredValid++;
-      if (_stockOpsHechas.contains(opId)) continue;
+      // Dedupe durable (local-origin o remote ya aplicado).
+      if (_stockOpsHechas.contains(opId) ||
+          await StockOpsAppliedStore.instance.contains(opId)) {
+        continue;
+      }
 
       final local = await _cache.buscarPorCodigo(codigo);
       if (local?.id == null) {
@@ -2081,7 +2086,6 @@ class FirestoreSyncService {
 
     final windows = PlatformCapabilities.isWindowsDesktop;
     try {
-      // Remoto idempotente por opId. Windows usa camino sin runTransaction.
       final future = _remote.ajustarStock(
         codigo: codigo,
         delta: delta,
@@ -2094,12 +2098,24 @@ class FirestoreSyncService {
       } else {
         await future;
       }
+      // ACK del caller solo tras prueba cloud applied (idempotencia por op).
+      final proven = await _remote.stockOpCloudApplied(opId);
+      if (!proven) {
+        throw StateError(
+          'stock_op $opId sin status=applied en nube; no ACK',
+        );
+      }
+      await StockOpsAppliedStore.instance.mark(
+        opId: opId,
+        origin: 'local',
+        codigo: codigo,
+        delta: delta,
+      );
       if (!_stockOpsHechas.contains(opId)) {
         _stockOpsHechas.add(opId);
         await _persistirStockOpsHechas();
       }
     } on TimeoutException {
-      // Windows: no dejar reclaim eterno — fallar con backoff; purge limpia.
       throw StateError('stock_op timeout Windows ($opId)');
     }
   }
@@ -3043,6 +3059,7 @@ class FirestoreSyncService {
     bool flushImmediately = true,
     String? documentType,
     String? documentId,
+    bool alreadyEnqueuedInTxn = false,
   }) async {
     if (delta == 0) return;
     final idOp = (opId == null || opId.isEmpty) ? const Uuid().v4() : opId;
@@ -3059,26 +3076,32 @@ class FirestoreSyncService {
     if (codigo.isEmpty) return;
 
     final token = '$idOp|$codigo|$delta';
-    // Capacidad 7: stock ops viven en outbox SQLite.
-    // Marca hechas para que el PULL inbound no reaplique.
+    // Dedupe inbound durable (NO es prueba de ACK en nube).
+    await StockOpsAppliedStore.instance.mark(
+      opId: idOp,
+      origin: 'local',
+      codigo: codigo,
+      delta: delta,
+    );
     if (!_stockOpsHechas.contains(idOp)) {
       _stockOpsHechas.add(idOp);
       await _persistirStockOpsHechas();
     }
-    await SyncOutbox.instance.enqueueStockOp(
-      opId: idOp,
-      codigo: codigo,
-      delta: delta,
-      documentType: documentType,
-      documentId: documentId,
-    );
+    if (!alreadyEnqueuedInTxn) {
+      await SyncOutbox.instance.enqueueStockOp(
+        opId: idOp,
+        codigo: codigo,
+        delta: delta,
+        documentType: documentType,
+        documentId: documentId,
+      );
+    }
     if (!_colaStockOps.contains(token)) {
       _colaStockOps.add(token);
       await _persistirColaStockOps();
     }
 
-    // Windows: disparo safe (sin txn). ACK solo si subió; si falla queda
-    // pending para el pump (antes se ACK-eaba igual → el APK nunca veía stock).
+    // Windows: disparo safe (sin txn). ACK solo si cloud applied.
     if (PlatformCapabilities.isWindowsDesktop) {
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
@@ -3092,6 +3115,10 @@ class FirestoreSyncService {
                   documentId: documentId,
                 )
                 .timeout(const Duration(seconds: 20));
+            final proven = await _remote.stockOpCloudApplied(idOp);
+            if (!proven) {
+              throw StateError('stock_op $idOp sin prueba applied en nube');
+            }
             await SyncOutbox.instance.ack('stock_op:$idOp');
             _colaStockOps.remove(token);
             await _persistirColaStockOps();

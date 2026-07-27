@@ -13,6 +13,7 @@ import '../sync/cloud_sync_throttle.dart';
 import '../sync/firestore_sync_service.dart';
 import '../sync/sync_background.dart';
 import '../sync/sync_outbox.dart';
+import '../sync/stock_ops_applied_store.dart';
 import 'domain_event.dart';
 import 'event_bus.dart';
 
@@ -73,6 +74,9 @@ class InventoryLedgerService {
     required int sign,
     required String movimientoTipo,
     bool enforceStockPolicy = true,
+    /// Encola stock_ops al outbox en la MISMA TX (origen local).
+    /// Remoto (peer apply) debe pasar false.
+    bool enqueueOutboundStockOps = true,
   }) async {
     final existing = await txn.query(
       'domain_events',
@@ -217,6 +221,29 @@ class InventoryLedgerService {
         ).toMap()
           ..remove('id'),
       });
+
+      // Outbox + dedupe durable en la MISMA TX que el ledger (no post-commit).
+      if (enqueueOutboundStockOps) {
+        final cloudOpId = '${event.eventId}_${line.productoId}';
+        final codCloud = (codigo ?? '').trim();
+        if (codCloud.isNotEmpty) {
+          await SyncOutbox.instance.enqueueStockOpInTxn(
+            txn,
+            opId: cloudOpId,
+            codigo: codCloud,
+            delta: delta,
+            documentType: docType,
+            documentId: docId,
+          );
+          await StockOpsAppliedStore.instance.markInTxn(
+            txn,
+            opId: cloudOpId,
+            origin: 'local',
+            codigo: codCloud,
+            delta: delta,
+          );
+        }
+      }
     }
     return true;
   }
@@ -324,14 +351,26 @@ class InventoryLedgerService {
         ],
       },
     );
-    return applyInTxn(
+    final ok = await applyInTxn(
       txn,
       event,
       sign: delta > 0 ? 1 : -1,
       movimientoTipo: tipo,
       // Peer debe aplicar el mismo delta aunque deje negativo (origen ya OK).
       enforceStockPolicy: false,
+      // No re-subir a la nube: ya viene de stock_ops remoto.
+      enqueueOutboundStockOps: false,
     );
+    if (ok) {
+      await StockOpsAppliedStore.instance.markInTxn(
+        txn,
+        opId: opId,
+        origin: 'remote',
+        codigo: codigo,
+        delta: delta,
+      );
+    }
+    return ok;
   }
 
   /// Reverso local de stock de un documento (p. ej. tombstone remoto).
@@ -389,7 +428,7 @@ class InventoryLedgerService {
     return (r.first['s'] as num?)?.toInt() ?? 0;
   }
 
-  /// Encola sync nube tras commit de TX comercial (no bloquear UI).
+  /// Tras commit local: solo dispara flush/upload (outbox ya encolado en TX).
   void enqueueCloudAfterApply(DomainEvent event, {required int sign}) {
     final lines = _linesFrom(event);
     if (lines.isEmpty) return;
@@ -398,14 +437,16 @@ class InventoryLedgerService {
         final windows = PlatformCapabilities.isWindowsDesktop;
         for (final line in lines) {
           final delta = sign * line.cantidad.abs();
-          // Windows: solo encolar; el outbox pump drena (flush inmediato tumba .exe).
+          final opId = '${event.eventId}_${line.productoId}';
+          // Outbox ya insertado en applyInTxn; acá solo flush / metadata.
           await FirestoreSyncService.instance.ajustarStockEnNube(
             productoId: line.productoId,
             delta: delta,
-            opId: '${event.eventId}_${line.productoId}',
+            opId: opId,
             flushImmediately: !windows,
             documentType: event.payload['documentType']?.toString(),
             documentId: event.payload['documentId']?.toString(),
+            alreadyEnqueuedInTxn: true,
           );
           if (!windows) {
             await FirestoreSyncService.instance
@@ -417,8 +458,6 @@ class InventoryLedgerService {
             );
           }
         }
-        // Windows: NO dormir 18s en el throttle ni flush agresivo acá.
-        // El pump periódico de outbox ya drena stock_ops con límites seguros.
       }, tag: 'InventoryLedger cloud'),
       tag: 'InventoryLedger cloud',
     );
