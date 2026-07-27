@@ -179,16 +179,14 @@ class _MainShellState extends State<MainShell> {
     if (mounted) setState(() {});
   }
 
-  void _onDatosRemotos() {
-    if (mounted) setState(() {});
-  }
-
   @override
   void initState() {
     super.initState();
     BrandingService.instance.addListener(_onBrandingChanged);
     ComunicacionesService.instance.addListener(_onCommsChanged);
-    DataRefreshHub.instance.addListener(_onDatosRemotos);
+    // No escuchar DataRefreshHub aquí: cada notifyTodo reconstruía el shell
+    // completo (IndexedStack) y generaba "pantallazo" cada ~20–25s.
+    // Las páginas y el badge de sync ya escuchan el hub por su cuenta.
     SidebarPreferenciasService.instance.addListener(_onSidebarPrefs);
     LocalNotificationService.instance.onTap = _onNotificationTap;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -363,7 +361,6 @@ class _MainShellState extends State<MainShell> {
   void dispose() {
     BrandingService.instance.removeListener(_onBrandingChanged);
     ComunicacionesService.instance.removeListener(_onCommsChanged);
-    DataRefreshHub.instance.removeListener(_onDatosRemotos);
     SidebarPreferenciasService.instance.removeListener(_onSidebarPrefs);
     LocalNotificationService.instance.onTap = null;
     super.dispose();

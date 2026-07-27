@@ -520,39 +520,29 @@ class FirestoreSyncService {
           );
 
           if (pending == 0 && inflight == 0) {
-            // Outbox quieto: alinear stock_ops + remitos/ventas recientes
-            // (venta rápida EXE↔APK no debe quedar solo local).
-            if (windows) {
-              try {
-                await _pullNegocioRecienteWindows(limit: 25);
-                final budget = WindowsSyncPolicy.stockOpsPullBudget(
-                  pendingProductos: 0,
-                );
-                await _pullStockOpsRemotas(
-                  maxPages: budget.maxPages,
-                  pageSize: budget.pageSize,
-                  maxApply: budget.maxApply,
-                );
-                if (budget.recentLimit > 0) {
-                  await _pullStockOpsRecientes(limit: budget.recentLimit);
-                }
-              } catch (e) {
-                debugPrint('catch-up post-outbox vacío: $e');
-              }
-            }
-            syncStatusLabel = windows
+            // Outbox quieto: NO tirar pull+notifyTodo cada tick (pantallazo UI).
+            // Soft-pull / "Actualizar ahora" / listeners cubren bajada.
+            // Apply methods ya notifican si hubo cambios reales.
+            final nextLabel = windows
                 ? 'En la nube (modo estable PC)'
                 : 'En la nube';
-            syncStatusDetail = null;
-            DataRefreshHub.instance.notifyTodo();
+            if (syncStatusLabel != nextLabel || syncStatusDetail != null) {
+              syncStatusLabel = nextLabel;
+              syncStatusDetail = null;
+              // Solo badge/status — sin reload de todas las páginas.
+              SyncHealthService.instance.recordCycle(durationMs: 0);
+            }
             return;
           }
 
           if (pending == 0 && inflight > 0) {
             // Aún en vuelo o trabadas recientes: no spamear drain.
-            syncStatusLabel = 'Sincronizando…';
-            syncStatusDetail = '$inflight en curso';
-            DataRefreshHub.instance.notifyTodo();
+            final nextDetail = '$inflight en curso';
+            if (syncStatusLabel != 'Sincronizando…' ||
+                syncStatusDetail != nextDetail) {
+              syncStatusLabel = 'Sincronizando…';
+              syncStatusDetail = nextDetail;
+            }
             return;
           }
 
@@ -565,6 +555,8 @@ class FirestoreSyncService {
           final leftInflight = await SyncOutbox.instance.countByStatus(
             SyncOutboxStatus.inflight,
           );
+          final prevLabel = syncStatusLabel;
+          final prevDetail = syncStatusDetail;
           if (pending == 0 && leftInflight == 0) {
             syncStatusLabel = windows
                 ? 'En la nube (modo estable PC)'
@@ -582,11 +574,131 @@ class FirestoreSyncService {
               syncStatusDetail = '$leftInflight en curso';
             }
           }
-          DataRefreshHub.instance.notifyTodo();
+          // Notificar UI solo si cambió el estado o hubo drain real.
+          if (prevLabel != syncStatusLabel || prevDetail != syncStatusDetail) {
+            DataRefreshHub.instance.notifyTodo();
+          }
         }, tag: 'outboxPump'),
         tag: 'outboxPump',
       );
     });
+  }
+
+  bool _actualizarAhoraBusy = false;
+
+  /// Actualización manual segura (UI: badge → "Actualizar ahora").
+  ///
+  /// Baja listas/clientes/negocio/stock_ops y drena críticos del outbox.
+  /// Un solo notify al final — no rompe el motor ni fuerza tormenta de UI.
+  Future<Map<String, dynamic>> actualizarAhora() async {
+    if (_actualizarAhoraBusy) {
+      return {'ok': false, 'error': 'already_running'};
+    }
+    if (!BackendConfigService.instance.firebaseEnabled ||
+        !FirebaseBootstrap.isReady) {
+      return {'ok': false, 'error': 'firebase_off'};
+    }
+    _actualizarAhoraBusy = true;
+    final sw = Stopwatch()..start();
+    final windows = PlatformCapabilities.isWindowsDesktop;
+    try {
+      syncStatusLabel = 'Sincronizando…';
+      syncStatusDetail = 'Actualización manual…';
+
+      if (windows) {
+        try {
+          await _pullConfigWindowsLane('listas');
+          await _pullConfigWindowsLane('permisos');
+          await _pullConfigWindowsLane('branding_text');
+          await _pullConfigWindowsLane('categorias');
+        } catch (e) {
+          debugPrint('actualizarAhora config: $e');
+        }
+        try {
+          await _pullNegocioRecienteWindows(limit: 40);
+        } catch (e) {
+          debugPrint('actualizarAhora negocio: $e');
+        }
+        try {
+          // Soft-pull lane clientes una vez.
+          final page = await _pullPaginaPorDocId(
+            _col('clientes'),
+            watermarkKey: _wmClientesDoc,
+            pageSize: 40,
+          );
+          if (page.docs.isNotEmpty) {
+            await _aplicarClientesRemotos(page);
+          }
+        } catch (e) {
+          debugPrint('actualizarAhora clientes: $e');
+        }
+        try {
+          final budget = WindowsSyncPolicy.stockOpsPullBudget(
+            pendingProductos: 0,
+          );
+          await _pullStockOpsRemotas(
+            maxPages: budget.maxPages,
+            pageSize: budget.pageSize,
+            maxApply: budget.maxApply,
+          );
+          await _pullStockOpsRecientes(limit: budget.recentLimit);
+        } catch (e) {
+          debugPrint('actualizarAhora stock_ops: $e');
+        }
+      } else {
+        try {
+          await _pullStockOpsRemotas(maxPages: 3, pageSize: 50);
+          await _pullStockOpsRecientes(limit: 80);
+          final rem = await _remitosCol
+              .orderBy('actualizadoEn', descending: true)
+              .limit(40)
+              .get();
+          if (rem.docs.isNotEmpty) await _aplicarRemitosRemotos(rem);
+          final ven = await _ventasCol
+              .orderBy('actualizadoEn', descending: true)
+              .limit(40)
+              .get();
+          if (ven.docs.isNotEmpty) await _aplicarVentasRemotas(ven);
+          final cli = await _col('clientes')
+              .orderBy('actualizadoEn', descending: true)
+              .limit(40)
+              .get();
+          if (cli.docs.isNotEmpty) await _aplicarClientesRemotos(cli);
+          final listas = await _configDoc('listas_precios').get();
+          if (listas.exists) {
+            await _aplicarListasPreciosRemotas(listas);
+          }
+        } catch (e) {
+          debugPrint('actualizarAhora mobile: $e');
+        }
+      }
+
+      if (_puedeEscribirRemoto) {
+        try {
+          await SyncScheduler.instance.ensureRestored();
+          await _procesarSchedulerTicks(windows: windows);
+        } catch (e) {
+          debugPrint('actualizarAhora drain: $e');
+        }
+      }
+
+      syncStatusLabel =
+          windows ? 'En la nube (modo estable PC)' : 'En la nube';
+      syncStatusDetail = 'Actualizado ahora';
+      SyncHealthService.instance.recordCycle(durationMs: sw.elapsedMilliseconds);
+      DataRefreshHub.instance.notifyTodo();
+      return {
+        'ok': true,
+        'ms': sw.elapsedMilliseconds,
+        'platform': windows ? 'windows' : 'mobile',
+      };
+    } catch (e) {
+      syncStatusLabel = 'Sync con errores';
+      syncStatusDetail = e.toString();
+      return {'ok': false, 'error': e.toString()};
+    } finally {
+      _actualizarAhoraBusy = false;
+    }
   }
 
   /// Windows: encola ventas/compras/productos/clientes recientes sin .get() masivo.
@@ -814,8 +926,8 @@ class FirestoreSyncService {
     Future<void>.delayed(const Duration(seconds: 25), () {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       _pullPump?.cancel();
-      // Intervalo base; el tick usa softPullIntervalFor según cola.
-      _pullPump = Timer.periodic(const Duration(seconds: 20), (_) {
+      // Idle: 60s (antes 20s hardcode → pantallazo frecuente).
+      _pullPump = Timer.periodic(WindowsSyncPolicy.softPullInterval, (_) {
         if (!_puedeEscribirRemoto) return;
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
@@ -1220,11 +1332,10 @@ class FirestoreSyncService {
     }
   }
 
-  /// APK: tira stock_ops cada ~25s (EXE→nube→celular) + remitos/ventas
-  /// recientes por si el listener perdió un snapshot.
+  /// APK: tira stock_ops cada ~45s (antes 25s; reduce jank UI) + docs recientes.
   void _iniciarStockOpsPullMobile() {
     _stockOpsPullPump?.cancel();
-    _stockOpsPullPump = Timer.periodic(const Duration(seconds: 25), (_) {
+    _stockOpsPullPump = Timer.periodic(const Duration(seconds: 45), (_) {
       if (!_puedeEscribirRemoto) return;
       if (PlatformCapabilities.isWindowsDesktop) return;
       syncInBackground(
