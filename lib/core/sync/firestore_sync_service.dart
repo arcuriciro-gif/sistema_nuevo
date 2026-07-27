@@ -2066,12 +2066,12 @@ class FirestoreSyncService {
   Future<void> _ejecutarStockOpOutbox(Map<String, dynamic> op) async {
     final payloadRaw = op['payload']?.toString();
     if (payloadRaw == null || payloadRaw.isEmpty) {
-      // Basura en cola: ACK (no tiene sentido reintentar).
-      return;
+      // G3: nunca ACK silencioso. Basura → fail (dead tras maxAttempts).
+      throw StateError('stock_op outbox sin payload; no ACK');
     }
     final payload = jsonDecode(payloadRaw);
     if (payload is! Map) {
-      return;
+      throw StateError('stock_op outbox payload inválido; no ACK');
     }
     final map = Map<String, dynamic>.from(payload);
     final opId =
@@ -2079,7 +2079,9 @@ class FirestoreSyncService {
     final codigo = map['codigo']?.toString() ?? '';
     final delta = (map['delta'] as num?)?.toInt() ?? 0;
     if (opId.isEmpty || codigo.isEmpty || delta == 0) {
-      return;
+      throw StateError(
+        'stock_op outbox incompleto (opId/codigo/delta); no ACK',
+      );
     }
     final documentType = map['documentType']?.toString();
     final documentId = map['documentId']?.toString();

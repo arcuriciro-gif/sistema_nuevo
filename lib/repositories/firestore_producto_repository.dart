@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/config/backend_config_service.dart';
 import '../core/config/platform_capabilities.dart';
+import '../core/sync/stock_ops_windows_apply_protocol.dart';
 import '../core/sync/stock_ops_windows_policy.dart';
 import '../models/producto.dart';
 import 'producto_repository.dart';
@@ -244,7 +245,11 @@ class FirestoreProductoRepository implements ProductoRepository {
     return meta;
   }
 
-  /// Windows: pending_apply → increment → applied (nunca applied sin increment).
+  /// Windows sin txn: claim exclusivo + WriteBatch(increment, applied).
+  ///
+  /// Nunca incrementa sin ser dueño del claim. Increment y
+  /// `status=applied`/`incrementApplied` van en el mismo batch atómico
+  /// (cierra la ventana "incrementó pero no applied" → ACK falso / retry).
   Future<void> _ajustarStockWindowsSafe({
     required String cod,
     required int delta,
@@ -265,19 +270,35 @@ class FirestoreProductoRepository implements ProductoRepository {
       documentId: documentId,
     );
 
+    WindowsStockOpSnapshot readSnap(DocumentSnapshot<Map<String, dynamic>> doc) {
+      final data = doc.data();
+      return WindowsStockOpSnapshot(
+        exists: doc.exists,
+        status: data?['status']?.toString(),
+        incrementApplied: data?['incrementApplied'] == true,
+        claim: data?['claim']?.toString(),
+      );
+    }
+
     final existing = await opRef.get().timeout(const Duration(seconds: 8));
-    final prodSnap = await prodRef.get().timeout(const Duration(seconds: 8));
-    final ultima = prodSnap.data()?['ultimaStockOp']?.toString();
-    final phase = classifyStockOpCloud(
-      exists: existing.exists,
-      status: existing.data()?['status']?.toString(),
-      ultimaStockOpProducto: ultima,
-      opId: opId,
-    );
+    var step = decideWindowsStockOpAfterRead(readSnap(existing));
 
-    if (phase == StockOpCloudPhase.appliedComplete) return;
+    if (step == WindowsStockOpStep.done) return;
 
-    if (phase == StockOpCloudPhase.missing) {
+    if (step == WindowsStockOpStep.sealAppliedOnly) {
+      await opRef
+          .set({
+            ...base,
+            'status': 'applied',
+            'appliedAt': ahora,
+            'incrementApplied': true,
+            'via': 'windows_safe',
+          }, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 8));
+      return;
+    }
+
+    if (step == WindowsStockOpStep.createPendingWithClaim) {
       await opRef
           .set({
             ...base,
@@ -286,42 +307,75 @@ class FirestoreProductoRepository implements ProductoRepository {
             'claim': claim,
           })
           .timeout(const Duration(seconds: 8));
-      final check = await opRef.get().timeout(const Duration(seconds: 5));
-      if ((check.data()?['claim']?.toString() ?? '') != claim) {
-        // Perdimos la carrera: NO ACK hasta prueba de applied.
-        final st = check.data()?['status']?.toString();
-        if (st == 'applied') return;
-        throw StateError(
-          'stock_ops: lost claim on $opId (status=$st); keep outbox pending',
-        );
-      }
-    }
-
-    // Completar increment solo si la op aún no está applied (pending).
-    if (stockOpNeedsIncrement(phase) || phase == StockOpCloudPhase.missing) {
-      // Guard: re-leer status (otro writer pudo completar).
-      final again = await opRef.get().timeout(const Duration(seconds: 5));
-      if (again.data()?['status']?.toString() == 'applied') return;
-
-      await prodRef
+    } else if (step == WindowsStockOpStep.claimExisting) {
+      await opRef
           .set({
-            'codigo': cod,
-            'stock': FieldValue.increment(delta),
-            'actualizadoEn': ahora,
-            'ultimaStockOp': opId,
+            ...base,
+            'status': 'claimed',
+            'via': 'windows_safe',
+            'claim': claim,
+            'claimedAt': ahora,
           }, SetOptions(merge: true))
           .timeout(const Duration(seconds: 8));
     }
 
-    await opRef
-        .set({
-          ...base,
-          'status': 'applied',
-          'appliedAt': ahora,
-          'incrementApplied': true,
-          'via': 'windows_safe',
-        }, SetOptions(merge: true))
-        .timeout(const Duration(seconds: 8));
+    final check = await opRef.get().timeout(const Duration(seconds: 5));
+    step = decideWindowsStockOpAfterClaim(
+      snap: readSnap(check),
+      ourClaim: claim,
+    );
+
+    if (step == WindowsStockOpStep.done) return;
+
+    if (step == WindowsStockOpStep.sealAppliedOnly) {
+      await opRef
+          .set({
+            ...base,
+            'status': 'applied',
+            'appliedAt': ahora,
+            'incrementApplied': true,
+            'via': 'windows_safe',
+          }, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 8));
+      return;
+    }
+
+    if (step == WindowsStockOpStep.retryLater) {
+      final st = check.data()?['status']?.toString();
+      throw StateError(
+        'stock_ops: lost claim on $opId (status=$st); keep outbox pending',
+      );
+    }
+
+    if (!windowsStepMayIncrement(step)) {
+      throw StateError('stock_ops: estado inesperado $step en $opId');
+    }
+
+    // Batch atómico: product.increment + op.applied (sin ventana intermedia).
+    final batch = _firestore.batch();
+    batch.set(
+      prodRef,
+      {
+        'codigo': cod,
+        'stock': FieldValue.increment(delta),
+        'actualizadoEn': ahora,
+        'ultimaStockOp': opId,
+      },
+      SetOptions(merge: true),
+    );
+    batch.set(
+      opRef,
+      {
+        ...base,
+        'status': 'applied',
+        'appliedAt': ahora,
+        'incrementApplied': true,
+        'via': 'windows_safe',
+        'claim': claim,
+      },
+      SetOptions(merge: true),
+    );
+    await batch.commit().timeout(const Duration(seconds: 12));
   }
 
   /// Idempotente estricto: si `stock_ops/{opId}` ya applied completo → no-op.

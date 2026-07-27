@@ -94,7 +94,7 @@ void main() {
       );
     });
 
-    test('clearAllStockOpsOutbox limpia pending/inflight/dead', () async {
+    test('clearAllStockOpsOutbox es no-op (no ACK ciego)', () async {
       await SyncOutbox.instance.enqueueStockOp(
         opId: 'a',
         codigo: 'A',
@@ -124,14 +124,14 @@ void main() {
       );
 
       final n = await SyncOutbox.instance.clearAllStockOpsOutbox();
-      expect(n, greaterThanOrEqualTo(2));
+      expect(n, 0);
       expect(
         await SyncOutbox.instance.countByStatus(SyncOutboxStatus.pending),
-        0,
+        1,
       );
       expect(
         await SyncOutbox.instance.countByStatus(SyncOutboxStatus.dead),
-        0,
+        1,
       );
     });
 

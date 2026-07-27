@@ -777,28 +777,11 @@ GROUP BY l
   }
 
   /// @Deprecated: preferir [purgeStuckStockOps] / [ackDeadStockOps].
-  /// No usar en pump: borraba stock fresco y el APK no veía cambios.
+  ///
+  /// G3: **no-op**. ACK ciego de stock_ops perdía ops sin `status=applied`
+  /// en nube (EXE→APK diverge). Conservado para no romper callers.
   Future<int> clearAllStockOpsOutbox() async {
-    final db = await _db;
-    final rows = await db.query(
-      'sync_outbox',
-      columns: ['op_id'],
-      where: "entity_type = 'stock_op' AND status IN (?, ?, ?)",
-      whereArgs: [
-        SyncOutboxStatus.pending,
-        SyncOutboxStatus.inflight,
-        SyncOutboxStatus.dead,
-      ],
-      limit: 500,
-    );
-    var n = 0;
-    for (final r in rows) {
-      final opId = r['op_id']?.toString() ?? '';
-      if (opId.isEmpty) continue;
-      await ack(opId);
-      n++;
-    }
-    return n;
+    return 0;
   }
 
   /// @Deprecated — NUNCA ACK por set local. Solo cloud proof (auditoría 1.4.5).
