@@ -284,7 +284,10 @@ class InventoryLedgerService {
     return applied;
   }
 
-  /// Aplica varios stock_ops en una sola TX (Windows: evita ráfagas que tumban el .exe).
+  /// Aplica varios stock_ops en TX(s).
+  ///
+  /// Windows: micro-lotes + yield entre TX (un batch grande + notify
+  /// concurrente seguía tumbando el .exe en "Actualizar ahora").
   Future<int> applyRemoteStockOpsBatch(
     List<
         ({
@@ -294,30 +297,105 @@ class InventoryLedgerService {
           int delta,
           String? documentType,
           String? documentId,
-        })> ops,
-  ) async {
+        })> ops, {
+    int? microBatchSize,
+    int yieldMs = 0,
+  }) async {
     if (ops.isEmpty) return 0;
     final db = await DatabaseHelper.instance.database;
     var applied = 0;
-    await db.transaction((txn) async {
-      for (final op in ops) {
-        final ok = await _applyRemoteStockOpInTxn(
-          txn,
-          opId: op.opId,
-          productoId: op.productoId,
-          codigo: op.codigo,
-          delta: op.delta,
-          documentType: op.documentType,
-          documentId: op.documentId,
-        );
-        if (ok) applied++;
+    final chunk = (microBatchSize != null && microBatchSize > 0)
+        ? microBatchSize
+        : ops.length;
+    for (var i = 0; i < ops.length; i += chunk) {
+      final slice = ops.sublist(
+        i,
+        i + chunk > ops.length ? ops.length : i + chunk,
+      );
+      await db.transaction((txn) async {
+        for (final op in slice) {
+          final ok = await _applyRemoteStockOpInTxn(
+            txn,
+            opId: op.opId,
+            productoId: op.productoId,
+            codigo: op.codigo,
+            delta: op.delta,
+            documentType: op.documentType,
+            documentId: op.documentId,
+          );
+          if (ok) applied++;
+        }
+      });
+      if (yieldMs > 0 && i + chunk < ops.length) {
+        await Future<void>.delayed(Duration(milliseconds: yieldMs));
       }
-    });
+    }
     if (applied > 0) {
       DataRefreshHub.instance.notifyStock();
       DataRefreshHub.instance.notifyProductos();
     }
     return applied;
+  }
+
+  /// Alinea `productos.stock` con ledger local (base + Σ delta).
+  ///
+  /// No escribe la nube: solo repara proyección local divergente
+  /// (campo: stock “fantasma” tras crash mid-apply).
+  Future<int> repararProyeccionesDivergentes({int limit = 80}) async {
+    final db = await DatabaseHelper.instance.database;
+    final productIds = await db.rawQuery(
+      '''
+      SELECT DISTINCT product_id AS id
+      FROM inventory_ledger
+      ORDER BY product_id ASC
+      LIMIT ?
+      ''',
+      [limit],
+    );
+    var repaired = 0;
+    final now = DateTime.now().toUtc().toIso8601String();
+    for (final row in productIds) {
+      final id = (row['id'] as num?)?.toInt();
+      if (id == null) continue;
+      final first = await db.query(
+        'inventory_ledger',
+        columns: ['stock_before'],
+        where: 'product_id = ?',
+        whereArgs: [id],
+        orderBy: 'id ASC',
+        limit: 1,
+      );
+      if (first.isEmpty) continue;
+      final base = (first.first['stock_before'] as num?)?.toInt() ?? 0;
+      final sumRows = await db.rawQuery(
+        'SELECT COALESCE(SUM(delta), 0) s FROM inventory_ledger WHERE product_id = ?',
+        [id],
+      );
+      final sumDelta = (sumRows.first['s'] as num?)?.toInt() ?? 0;
+      final expected = base + sumDelta;
+      final prod = await db.query(
+        'productos',
+        columns: ['stock'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (prod.isEmpty) continue;
+      final actual = (prod.first['stock'] as num?)?.toInt() ?? 0;
+      if (actual == expected) continue;
+      await db.update(
+        'productos',
+        {'stock': expected, 'actualizadoEn': now},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      repaired++;
+    }
+    if (repaired > 0) {
+      DataRefreshHub.instance.notifyStock();
+      DataRefreshHub.instance.notifyProductos();
+    }
+    return repaired;
   }
 
   Future<bool> _applyRemoteStockOpInTxn(

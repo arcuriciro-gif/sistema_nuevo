@@ -179,18 +179,26 @@ void main() {
       expect(busy.recentLimit, greaterThan(0));
     });
 
-    test('Actualizar ahora Windows usa presupuesto chico (no tumba EXE)', () {
+    test('Actualizar ahora Windows: stock-first micro, no tumba EXE', () {
       final m = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 0,
       );
-      expect(m.stockMaxApply, lessThanOrEqualTo(16));
-      expect(m.stockRecentLimit, lessThanOrEqualTo(30));
+      expect(m.stockMaxApply, lessThanOrEqualTo(6));
+      expect(m.stockRecentLimit, lessThanOrEqualTo(20));
+      expect(m.stockRounds, greaterThanOrEqualTo(2));
+      expect(m.stockMicroBatch, lessThanOrEqualTo(4));
       expect(m.schedulerTicks, equals(1));
-      expect(m.negocioLimit, lessThanOrEqualTo(25));
+      expect(m.negocioLimit, lessThanOrEqualTo(12));
+      expect(m.pullClientes, isFalse);
+      expect(m.yieldMs, greaterThanOrEqualTo(100));
       final busy = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 80,
       );
       expect(busy.stockMaxApply, lessThanOrEqualTo(m.stockMaxApply));
+      expect(busy.stockRounds, lessThanOrEqualTo(m.stockRounds));
+      final catchup = WindowsSyncPolicy.windowsCatchupStockOpsBudget();
+      expect(catchup.maxApply, greaterThan(0));
+      expect(catchup.maxApply, lessThanOrEqualTo(8));
     });
   });
 }
