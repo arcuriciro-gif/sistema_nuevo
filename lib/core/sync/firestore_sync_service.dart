@@ -430,10 +430,11 @@ class FirestoreSyncService {
           );
 
           if (pending == 0 && inflight == 0) {
-            // Outbox quieto: aprovechar para alinear stock_ops APK→EXE
-            // (sin esto el PC puede quedar con stock distinto para siempre).
+            // Outbox quieto: alinear stock_ops + remitos/ventas recientes
+            // (venta rápida EXE↔APK no debe quedar solo local).
             if (windows) {
               try {
+                await _pullNegocioRecienteWindows(limit: 25);
                 final budget = WindowsSyncPolicy.stockOpsPullBudget(
                   pendingProductos: 0,
                 );
@@ -446,7 +447,7 @@ class FirestoreSyncService {
                   await _pullStockOpsRecientes(limit: budget.recentLimit);
                 }
               } catch (e) {
-                debugPrint('stock_ops catch-up post-outbox vacío: $e');
+                debugPrint('catch-up post-outbox vacío: $e');
               }
             }
             syncStatusLabel = windows
@@ -794,20 +795,53 @@ class FirestoreSyncService {
 
   int _softPullTickWindows = 0;
 
-  /// Una sola colección por tick. Con outbox quieto prioriza stock_ops
-  /// (campo: APK aplicó movimientos que el EXE nunca bajó).
+  /// Remitos/ventas más recientes por `actualizadoEn` (no depende del
+  /// watermark lento por documentId). Idempotente por número.
+  Future<void> _pullNegocioRecienteWindows({int limit = 25}) async {
+    try {
+      final rem = await _remitosCol
+          .orderBy('actualizadoEn', descending: true)
+          .limit(limit)
+          .get();
+      if (rem.docs.isNotEmpty) {
+        await _aplicarRemitosRemotos(rem);
+      }
+    } catch (e) {
+      debugPrint('pull remitos recientes Windows: $e');
+    }
+    try {
+      final ven = await _ventasCol
+          .orderBy('actualizadoEn', descending: true)
+          .limit(limit)
+          .get();
+      if (ven.docs.isNotEmpty) {
+        await _aplicarVentasRemotas(ven);
+      }
+    } catch (e) {
+      debugPrint('pull ventas recientes Windows: $e');
+    }
+  }
+
+  /// Una sola colección por tick. Con outbox quieto prioriza negocio + stock.
   Future<void> _pullSuaveWindows() async {
     const page = 15;
     final tick = _softPullTickWindows;
     _softPullTickWindows++;
     final breakdown = await SyncOutbox.instance.pendingBreakdown();
     final pendingProd = breakdown['producto'] ?? 0;
-    final prioritizeStock = WindowsSyncPolicy.prioritizeStockOpsPull(
+    final prioritize = WindowsSyncPolicy.prioritizeBusinessConvergence(
       pendingProductos: pendingProd,
     );
+    // Siempre (si quieto): tirón de remitos/ventas recientes antes del lane.
+    final recentLimit = WindowsSyncPolicy.recentBusinessDocsLimit(
+      pendingProductos: pendingProd,
+    );
+    if (recentLimit > 0 && tick % 2 == 0) {
+      await _pullNegocioRecienteWindows(limit: recentLimit);
+    }
     final lane = WindowsSyncPolicy.softPullLane(
       tick,
-      prioritizeStockOps: prioritizeStock,
+      prioritizeStockOps: prioritize,
     );
     try {
       switch (lane) {
@@ -823,19 +857,27 @@ class FirestoreSyncService {
           );
           await _aplicarClientesRemotos(snap);
         case 'ventas':
-          final snap = await _pullPaginaPorDocId(
-            _ventasCol,
-            watermarkKey: _wmVentasDoc,
-            pageSize: page,
-          );
-          await _aplicarVentasRemotas(snap);
+          if (prioritize) {
+            await _pullNegocioRecienteWindows(limit: recentLimit > 0 ? recentLimit : 20);
+          } else {
+            final snap = await _pullPaginaPorDocId(
+              _ventasCol,
+              watermarkKey: _wmVentasDoc,
+              pageSize: page,
+            );
+            await _aplicarVentasRemotas(snap);
+          }
         case 'remitos':
-          final snap = await _pullPaginaPorDocId(
-            _remitosCol,
-            watermarkKey: _wmRemitosDoc,
-            pageSize: page,
-          );
-          await _aplicarRemitosRemotos(snap);
+          if (prioritize) {
+            await _pullNegocioRecienteWindows(limit: recentLimit > 0 ? recentLimit : 20);
+          } else {
+            final snap = await _pullPaginaPorDocId(
+              _remitosCol,
+              watermarkKey: _wmRemitosDoc,
+              pageSize: page,
+            );
+            await _aplicarRemitosRemotos(snap);
+          }
         case 'stock_ops':
           final budget = WindowsSyncPolicy.stockOpsPullBudget(
             pendingProductos: pendingProd,
@@ -845,7 +887,6 @@ class FirestoreSyncService {
             pageSize: budget.pageSize,
             maxApply: budget.maxApply,
           );
-          // Red de seguridad idempotente (watermark no debe dejar huecos).
           if (budget.recentLimit > 0) {
             await _pullStockOpsRecientes(limit: budget.recentLimit);
           }
@@ -1082,7 +1123,8 @@ class FirestoreSyncService {
     }
   }
 
-  /// APK: tira stock_ops cada ~25s (EXE→nube→celular).
+  /// APK: tira stock_ops cada ~25s (EXE→nube→celular) + remitos/ventas
+  /// recientes por si el listener perdió un snapshot.
   void _iniciarStockOpsPullMobile() {
     _stockOpsPullPump?.cancel();
     _stockOpsPullPump = Timer.periodic(const Duration(seconds: 25), (_) {
@@ -1092,10 +1134,24 @@ class FirestoreSyncService {
         () async {
           try {
             await _pullStockOpsRemotas(maxPages: 3, pageSize: 50);
-            // Red de seguridad: últimas ops por `at` (idempotente por opId).
             await _pullStockOpsRecientes(limit: 80);
           } catch (e) {
             debugPrint('Pull stock_ops mobile: $e');
+          }
+          // Red de seguridad docs: venta rápida del EXE debe verse acá.
+          try {
+            final rem = await _remitosCol
+                .orderBy('actualizadoEn', descending: true)
+                .limit(30)
+                .get();
+            if (rem.docs.isNotEmpty) await _aplicarRemitosRemotos(rem);
+            final ven = await _ventasCol
+                .orderBy('actualizadoEn', descending: true)
+                .limit(30)
+                .get();
+            if (ven.docs.isNotEmpty) await _aplicarVentasRemotas(ven);
+          } catch (e) {
+            debugPrint('Pull docs recientes mobile: $e');
           }
         }(),
         tag: 'stockOpsPullMobile',

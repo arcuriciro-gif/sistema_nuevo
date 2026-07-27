@@ -44,15 +44,19 @@ class WindowsSyncPolicy {
     'branding_text',
   ];
 
-  /// Con cola de upload chica, el PC puede bajar stock_ops del APK
-  /// (si no, quedan stocks distintos: campo 1127/1339/superbota39).
-  static bool prioritizeStockOpsPull({required int pendingProductos}) =>
+  /// Con cola de upload chica, priorizar convergencia de negocio + stock
+  /// (remitos/ventas/stock_ops). Campo: venta rápida EXE↔APK no cruzaba.
+  static bool prioritizeBusinessConvergence({required int pendingProductos}) =>
       pendingProductos <= 5;
+
+  /// @Deprecated — alias de [prioritizeBusinessConvergence].
+  static bool prioritizeStockOpsPull({required int pendingProductos}) =>
+      prioritizeBusinessConvergence(pendingProductos: pendingProductos);
 
   /// Presupuesto de pull stock_ops en Windows (ráfagas controladas).
   static ({int maxPages, int pageSize, int maxApply, int recentLimit})
       stockOpsPullBudget({required int pendingProductos}) {
-    if (prioritizeStockOpsPull(pendingProductos: pendingProductos)) {
+    if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
       return (maxPages: 2, pageSize: 30, maxApply: 24, recentLimit: 50);
     }
     if (pendingProductos <= 50) {
@@ -62,18 +66,28 @@ class WindowsSyncPolicy {
     return (maxPages: 1, pageSize: 10, maxApply: 4, recentLimit: 0);
   }
 
-  /// Soft-pull lane. Con [prioritizeStockOps] ≈50% stock_ops (convergencia).
-  /// Sin eso: ~33% productos, resto round-robin (incluye stock_ops liviano).
+  /// Soft-pull lane.
+  ///
+  /// Con [prioritizeStockOps]/convergencia de negocio):
+  ///   remitos / ventas / stock_ops / compras en rotación densa.
+  /// Sin eso: ~33% productos, resto round-robin.
   static String softPullLane(int n, {bool prioritizeStockOps = false}) {
     if (prioritizeStockOps) {
-      if (n.isEven) return 'stock_ops';
-      if (n % 4 == 1) {
-        return (n ~/ 4).isEven ? 'productos_inc' : 'productos_cat';
+      // Ciclo de 6: negocio primero (campo venta rápida EXE↔APK).
+      switch (n % 6) {
+        case 0:
+          return 'remitos';
+        case 1:
+          return 'ventas';
+        case 2:
+          return 'stock_ops';
+        case 3:
+          return 'compras';
+        case 4:
+          return 'stock_ops';
+        default:
+          return (n ~/ 6).isEven ? 'productos_inc' : 'clientes';
       }
-      final others = softPullOtherLanes
-          .where((l) => l != 'stock_ops')
-          .toList(growable: false);
-      return others[(n ~/ 2) % others.length];
     }
     if (n % 3 == 0) {
       return (n ~/ 3) % 2 == 0 ? 'productos_inc' : 'productos_cat';
@@ -81,6 +95,22 @@ class WindowsSyncPolicy {
     final otherIdx =
         ((n ~/ 3) * 2 + ((n % 3) - 1)) % softPullOtherLanes.length;
     return softPullOtherLanes[otherIdx];
+  }
+
+  /// Intervalo soft-pull más corto cuando ya no hay cola de productos.
+  static Duration softPullIntervalFor({required int pendingProductos}) {
+    if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
+      return const Duration(seconds: 40);
+    }
+    return softPullInterval;
+  }
+
+  /// Cuántos docs recientes tirar por `actualizadoEn` (idempotente).
+  static int recentBusinessDocsLimit({required int pendingProductos}) {
+    if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
+      return 25;
+    }
+    return 0;
   }
 
   /// Plan de drain del outbox Windows: qué buckets tocar este tick.
