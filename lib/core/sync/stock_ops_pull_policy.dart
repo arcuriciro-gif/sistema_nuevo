@@ -1,11 +1,16 @@
 // Políticas puras del pull de stock_ops (watermark / skips).
 
 /// Si en la página hubo ops válidas saltadas por producto ausente,
-/// NO avanzar el watermark (si no, el movimiento se pierde para siempre).
+/// pending_apply, o truncado por maxApply, NO avanzar el watermark
+/// (si no, el movimiento se pierde para siempre → stock diverge EXE↔APK).
 bool shouldAdvanceStockOpsWatermark({
   required int consideredValid,
   required int skippedMissingProduct,
+  int skippedPendingApply = 0,
+  bool truncatedByMaxApply = false,
 }) {
+  if (truncatedByMaxApply) return false;
+  if (skippedPendingApply > 0) return false;
   if (consideredValid == 0 && skippedMissingProduct == 0) {
     // Página vacía de candidatos → se puede cerrar/avanzar.
     return true;

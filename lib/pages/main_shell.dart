@@ -10,6 +10,7 @@ import '../services/permisos_service.dart';
 import '../services/sidebar_preferencias_service.dart';
 import '../core/events/data_refresh_hub.dart';
 import '../core/comms/local_notification_service.dart';
+import '../core/comms/fcm_push_service.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/config/platform_capabilities.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
@@ -179,16 +180,14 @@ class _MainShellState extends State<MainShell> {
     if (mounted) setState(() {});
   }
 
-  void _onDatosRemotos() {
-    if (mounted) setState(() {});
-  }
-
   @override
   void initState() {
     super.initState();
     BrandingService.instance.addListener(_onBrandingChanged);
     ComunicacionesService.instance.addListener(_onCommsChanged);
-    DataRefreshHub.instance.addListener(_onDatosRemotos);
+    // No escuchar DataRefreshHub aquí: cada notifyTodo reconstruía el shell
+    // completo (IndexedStack) y generaba "pantallazo" cada ~20–25s.
+    // Las páginas y el badge de sync ya escuchan el hub por su cuenta.
     SidebarPreferenciasService.instance.addListener(_onSidebarPrefs);
     LocalNotificationService.instance.onTap = _onNotificationTap;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -206,6 +205,12 @@ class _MainShellState extends State<MainShell> {
         await ComunicacionesService.instance.iniciar();
       } catch (e) {
         debugPrint('Comunicaciones init: $e');
+      }
+      try {
+        await FcmPushService.instance.iniciar();
+        await FcmPushService.instance.registrarUsuarioActual();
+      } catch (e) {
+        debugPrint('FCM init: $e');
       }
       if (mounted) await EmpresaOnboardingDialog.mostrarSiHaceFalta(context);
       if (mounted) await _ofrecerActivarNubeSiHaceFalta();
@@ -363,7 +368,6 @@ class _MainShellState extends State<MainShell> {
   void dispose() {
     BrandingService.instance.removeListener(_onBrandingChanged);
     ComunicacionesService.instance.removeListener(_onCommsChanged);
-    DataRefreshHub.instance.removeListener(_onDatosRemotos);
     SidebarPreferenciasService.instance.removeListener(_onSidebarPrefs);
     LocalNotificationService.instance.onTap = null;
     super.dispose();

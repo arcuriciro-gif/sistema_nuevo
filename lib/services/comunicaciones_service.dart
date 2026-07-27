@@ -9,6 +9,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/comms/chat_alert_service.dart';
+import '../core/comms/fcm_push_service.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/config/platform_capabilities.dart';
 import '../core/firebase/firebase_bootstrap.dart';
@@ -660,6 +661,19 @@ class ComunicacionesService extends ChangeNotifier {
         debugPrint('notif remota: $e');
       }
     }
+    // Push con app cerrada (FCM vía Cloud Function + cola).
+    final convId = (conversacionId ?? '').trim();
+    final payload = convId.isEmpty ? 'notif' : 'chat:$convId';
+    unawaited(
+      FcmPushService.instance.encolarPush(
+        usuarioDestino: usuarioDestino,
+        titulo: tituloOk,
+        cuerpo: cuerpoOk,
+        payload: payload,
+        conversacionId: convId.isEmpty ? null : convId,
+        notificacionId: id,
+      ),
+    );
     if (usuarioDestino == _yo) {
       await refrescar();
     }

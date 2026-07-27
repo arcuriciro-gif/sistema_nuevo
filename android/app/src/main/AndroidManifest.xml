@@ -8,6 +8,12 @@
         android:label="Tata.Manager"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="tata_manager_avisos" />
+        <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="true" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

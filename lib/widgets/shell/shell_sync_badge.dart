@@ -11,7 +11,7 @@ import '../../theme/app_tokens.dart';
 
 enum ShellSyncTone { ok, syncing, offline, error }
 
-/// Indicador visible de sync (solo lectura de estado existente).
+/// Indicador visible de sync + actualización manual.
 class ShellSyncBadge extends StatefulWidget {
   const ShellSyncBadge({super.key, this.compact = false});
 
@@ -24,14 +24,15 @@ class ShellSyncBadge extends StatefulWidget {
 class _ShellSyncBadgeState extends State<ShellSyncBadge> {
   SyncHealthSnapshot? _health;
   Timer? _poll;
+  bool _actualizando = false;
 
   @override
   void initState() {
     super.initState();
     DataRefreshHub.instance.addListener(_refrescar);
     _refrescar();
-    // Poll suave: el desglose de pendientes cambia con el outbox.
-    _poll = Timer.periodic(const Duration(seconds: 8), (_) => _refrescar());
+    // Poll suave del badge (no recarga páginas).
+    _poll = Timer.periodic(const Duration(seconds: 12), (_) => _refrescar());
   }
 
   @override
@@ -46,6 +47,42 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
       final h = await SyncHealthService.instance.snapshot();
       if (mounted) setState(() => _health = h);
     } catch (_) {}
+  }
+
+      Future<void> _actualizarAhora() async {
+    if (_actualizando) return;
+    setState(() => _actualizando = true);
+    try {
+      final r = await FirestoreSyncService.instance
+          .actualizarAhora()
+          .timeout(
+            const Duration(seconds: 90),
+            onTimeout: () => {
+              'ok': false,
+              'error': 'timeout_90s',
+            },
+          );
+      if (!mounted) return;
+      final ok = r['ok'] == true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ok
+                ? 'Actualizado (${r['ms']} ms). Listas, clientes, ventas y stock.'
+                : 'No se pudo actualizar: ${r['error'] ?? 'error'}',
+          ),
+        ),
+      );
+      await _refrescar();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Actualizar ahora falló: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _actualizando = false);
+    }
   }
 
   ({ShellSyncTone tone, String title, String subtitle}) _estado() {
@@ -75,17 +112,21 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
     }
     final lower = label.toLowerCase();
     final inflight = _health?.inflight ?? 0;
-    // Pendientes reales primero (no pintar "Error" por dead históricos de stock).
-    if (lower.contains('sincronizando') || pending > 0 || inflight > 0) {
+    if (lower.contains('sincronizando') ||
+        pending > 0 ||
+        inflight > 0 ||
+        _actualizando) {
       final que = _health?.pendingBreakdownLabel ?? '';
       return (
         tone: ShellSyncTone.syncing,
-        title: 'Sincronizando',
-        subtitle: pending > 0
-            ? (que.isEmpty
-                ? '$pending cambios pendientes'
-                : '$pending pendientes: $que')
-            : (detail ?? 'Actualizando…'),
+        title: _actualizando ? 'Actualizando' : 'Sincronizando',
+        subtitle: _actualizando
+            ? 'Actualización manual…'
+            : pending > 0
+                ? (que.isEmpty
+                    ? '$pending cambios pendientes'
+                    : '$pending pendientes: $que')
+                : (detail ?? 'Actualizando…'),
       );
     }
     if (dead > 0 || lower.contains('error')) {
@@ -95,7 +136,6 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
         subtitle: detail ?? '$dead ops con error',
       );
     }
-    // lastSyncAt se guarda en UTC; mostrar hora local (AR ≠ 18:xx).
     final local = last?.toLocal();
     final lastTxt = local == null
         ? 'Al día'
@@ -148,88 +188,114 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
           child: SingleChildScrollView(
             child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(_icon(e.tone), color: _color(e.tone)),
-                  const SizedBox(width: 10),
-                  Text(
-                    e.title,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(_icon(e.tone), color: _color(e.tone)),
+                    const SizedBox(width: 10),
+                    Text(
+                      e.title,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(e.subtitle),
+                const SizedBox(height: 12),
+                Text('Pendientes: ${h?.pending ?? 0}'),
+                Text('En curso: ${h?.inflight ?? 0}'),
+                Text('Con error: ${h?.dead ?? 0}'),
+                if ((h?.pendingBreakdownLabel ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'De qué son',
+                    style: Theme.of(ctx).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
+                  Text(h!.pendingBreakdownLabel),
                 ],
-              ),
-              const SizedBox(height: 8),
-              Text(e.subtitle),
-              const SizedBox(height: 12),
-              Text('Pendientes: ${h?.pending ?? 0}'),
-              Text('En curso: ${h?.inflight ?? 0}'),
-              Text('Con error: ${h?.dead ?? 0}'),
-              if ((h?.pendingBreakdownLabel ?? '').isNotEmpty) ...[
+                if ((h?.pendingPreview ?? const []).isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    'Detalle (máx. 20)',
+                    style: Theme.of(ctx).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  ...h!.pendingPreview.map((op) {
+                    final type = op['entity_type']?.toString() ?? '?';
+                    final id = op['entity_local_id'];
+                    final attempts = op['attempts'] ?? 0;
+                    final err = (op['last_error']?.toString() ?? '').trim();
+                    final line = id == null
+                        ? '• $type (intentos $attempts)'
+                        : '• $type #$id (intentos $attempts)';
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Text(
+                        err.isEmpty ? line : '$line — $err',
+                        style: Theme.of(ctx).textTheme.bodySmall,
+                      ),
+                    );
+                  }),
+                ],
+                if (h?.lastSyncAt != null)
+                  Text(
+                    'Última sync: ${h!.lastSyncAt!.toLocal()}',
+                  ),
                 const SizedBox(height: 8),
                 Text(
-                  'De qué son',
-                  style: Theme.of(ctx).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-                Text(h!.pendingBreakdownLabel),
-              ],
-              if ((h?.pendingPreview ?? const []).isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Text(
-                  'Detalle (máx. 20)',
-                  style: Theme.of(ctx).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-                const SizedBox(height: 4),
-                ...h!.pendingPreview.map((op) {
-                  final type = op['entity_type']?.toString() ?? '?';
-                  final id = op['entity_local_id'];
-                  final attempts = op['attempts'] ?? 0;
-                  final err = (op['last_error']?.toString() ?? '').trim();
-                  final line = id == null
-                      ? '• $type (intentos $attempts)'
-                      : '• $type #$id (intentos $attempts)';
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 2),
-                    child: Text(
-                      err.isEmpty ? line : '$line — $err',
-                      style: Theme.of(ctx).textTheme.bodySmall,
-                    ),
-                  );
-                }),
-              ],
-              if (h?.lastSyncAt != null)
-                Text(
-                  'Última sync: ${h!.lastSyncAt!.toLocal()}',
-                ),
-              const SizedBox(height: 8),
-              Text(
-                'Estado: ${FirestoreSyncService.instance.syncStatusLabel}',
-                style: Theme.of(ctx).textTheme.bodySmall,
-              ),
-              if ((FirestoreSyncService.instance.syncStatusDetail ?? '')
-                  .isNotEmpty)
-                Text(
-                  FirestoreSyncService.instance.syncStatusDetail!,
+                  'Estado: ${FirestoreSyncService.instance.syncStatusLabel}',
                   style: Theme.of(ctx).textTheme.bodySmall,
                 ),
-              const SizedBox(height: 6),
-              Text(
-                'Tip: tocá este indicador para ver de qué son los pendientes.',
-                style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(ctx).hintColor,
+                if ((FirestoreSyncService.instance.syncStatusDetail ?? '')
+                    .isNotEmpty)
+                  Text(
+                    FirestoreSyncService.instance.syncStatusDetail!,
+                    style: Theme.of(ctx).textTheme.bodySmall,
+                  ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _actualizando
+                        ? null
+                        : () async {
+                            Navigator.of(ctx).pop();
+                            await _actualizarAhora();
+                          },
+                    icon: _actualizando
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.cloud_sync_rounded),
+                    label: Text(
+                      _actualizando
+                          ? 'Actualizando…'
+                          : 'Actualizar ahora',
                     ),
-              ),
-            ],
-          ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Baja listas, clientes, ventas/remitos y stock de la nube, '
+                  'y sube lo pendiente. Usalo después de cargar una lista, '
+                  'un cliente o una venta si querés ver el cambio ya.',
+                  style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(ctx).hintColor,
+                      ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -242,7 +308,7 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
     final c = _color(e.tone);
     if (widget.compact) {
       return Tooltip(
-        message: '${e.title}\n${e.subtitle}',
+        message: '${e.title}\n${e.subtitle}\nTocá para actualizar',
         child: InkWell(
           onTap: _mostrarDetalle,
           borderRadius: BorderRadius.circular(999),
@@ -308,7 +374,7 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
                 children: [
                   Text(
                     e.title,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
                       fontSize: 12,
@@ -316,7 +382,7 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
                   ),
                   Text(
                     e.subtitle,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: AppTokens.mute,
                       fontSize: 10,
                     ),

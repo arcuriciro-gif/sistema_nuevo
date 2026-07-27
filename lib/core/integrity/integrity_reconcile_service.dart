@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../database/database_helper.dart';
@@ -195,16 +194,19 @@ class IntegrityReconcileService {
       final actual = (prod.first['stock'] as num?)?.toInt() ?? 0;
       if (actual != expected) {
         final codigo = prod.first['codigo']?.toString() ?? '$id';
-        // Auto-alinear stock al ledger (fuente C3). Evita alarmas fantasmas
-        // tras sync/cloud overwrite (ej. SUPERBOTA39 stock=0 ledger=1).
-        await db.update(
-          'productos',
-          {'stock': expected},
-          where: 'id = ?',
-          whereArgs: [id],
-        );
-        debugPrint(
-          'Integridad: alineado SKU $codigo stock $actual → $expected (ledger)',
+        // Forense 1.4.5: NUNCA mutar proyección en silencio.
+        // Reportar alarma con historial; repair = DomainEvent explícito.
+        alarms.add(
+          IntegrityAlarm(
+            kind: IntegrityAlarmKind.stockProjection,
+            entityType: 'producto',
+            entityId: '$id',
+            expected: expected.toDouble(),
+            actual: actual.toDouble(),
+            detail:
+                'SKU $codigo proyección=$actual ledger=$expected '
+                '(base=$base sumDelta=$sumDelta). Repair manual requerido.',
+          ),
         );
       }
     }

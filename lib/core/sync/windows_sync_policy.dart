@@ -67,16 +67,19 @@ class WindowsSyncPolicy {
       prioritizeBusinessConvergence(pendingProductos: pendingProductos);
 
   /// Presupuesto de pull stock_ops en Windows (ráfagas controladas).
+  ///
+  /// `recentLimit` NUNCA es 0: sin pull reciente, un watermark que avanzó
+  /// de más deja stock divergente para siempre (EXE↔APK).
   static ({int maxPages, int pageSize, int maxApply, int recentLimit})
       stockOpsPullBudget({required int pendingProductos}) {
     if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
-      return (maxPages: 2, pageSize: 30, maxApply: 24, recentLimit: 50);
+      return (maxPages: 2, pageSize: 30, maxApply: 24, recentLimit: 80);
     }
     if (pendingProductos <= 50) {
-      return (maxPages: 1, pageSize: 15, maxApply: 8, recentLimit: 0);
+      return (maxPages: 1, pageSize: 15, maxApply: 8, recentLimit: 50);
     }
-    // Subiendo catálogo: casi no tocar stock_ops (evita tumbar .exe).
-    return (maxPages: 1, pageSize: 10, maxApply: 4, recentLimit: 0);
+    // Subiendo catálogo: watermark chico, pero recientes sí (convergencia).
+    return (maxPages: 1, pageSize: 10, maxApply: 4, recentLimit: 40);
   }
 
   /// Soft-pull lane.
@@ -124,6 +127,50 @@ class WindowsSyncPolicy {
       return 25;
     }
     return 0;
+  }
+
+  /// Presupuesto de "Actualizar ahora" en Windows: más chico que soft-pull
+  /// quieto para no tumbar el .exe (ráfaga ledger + Firestore en UI isolate).
+  static ({
+    int negocioLimit,
+    int clientesPage,
+    int stockMaxPages,
+    int stockPageSize,
+    int stockMaxApply,
+    int stockRecentLimit,
+    int schedulerTicks,
+  }) manualRefreshBudgetWindows({required int pendingProductos}) {
+    if (pendingProductos >= 50) {
+      return (
+        negocioLimit: 10,
+        clientesPage: 15,
+        stockMaxPages: 1,
+        stockPageSize: 10,
+        stockMaxApply: 6,
+        stockRecentLimit: 15,
+        schedulerTicks: 1,
+      );
+    }
+    if (pendingProductos >= 10) {
+      return (
+        negocioLimit: 15,
+        clientesPage: 20,
+        stockMaxPages: 1,
+        stockPageSize: 15,
+        stockMaxApply: 10,
+        stockRecentLimit: 20,
+        schedulerTicks: 1,
+      );
+    }
+    return (
+      negocioLimit: 20,
+      clientesPage: 25,
+      stockMaxPages: 1,
+      stockPageSize: 20,
+      stockMaxApply: 12,
+      stockRecentLimit: 25,
+      schedulerTicks: 1,
+    );
   }
 
   /// Plan de drain del outbox Windows (scheduler v2).

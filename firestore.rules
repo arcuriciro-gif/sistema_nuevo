@@ -136,6 +136,25 @@ service cloud.firestore {
         allow delete: if isTenantAdmin(tenantId);
       }
 
+      // Tokens FCM por dispositivo (push con app cerrada).
+      match /fcm_tokens/{tokenId} {
+        allow read: if isMember(tenantId);
+        allow create, update: if canWriteOps(tenantId)
+          && request.resource.data.keys().hasAll(['usuario', 'token', 'actualizadoEn']);
+        allow delete: if isTenantAdmin(tenantId) || canWriteOps(tenantId);
+      }
+
+      // Cola de push (Cloud Function despacha → FCM).
+      match /push_requests/{reqId} {
+        allow read: if isMember(tenantId);
+        allow create: if canWriteOps(tenantId)
+          && request.resource.data.keys().hasAll([
+            'usuarioDestino', 'titulo', 'cuerpo', 'status', 'creadoEn'
+          ]);
+        allow update: if false; // solo Admin SDK / Functions
+        allow delete: if isTenantAdmin(tenantId);
+      }
+
       match /config/{docId} {
         allow read: if isMember(tenantId);
         allow write: if isTenantAdmin(tenantId);

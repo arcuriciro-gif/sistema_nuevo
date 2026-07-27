@@ -108,7 +108,7 @@ void main() {
       );
     });
 
-    test('scan alinea proyección de stock rota al ledger', () async {
+    test('scan alarma proyección rota (sin silent repair)', () async {
       final db = await DatabaseHelper.instance.database;
       final id = await db.insert('productos', {
         'codigo': 'C8-2',
@@ -141,7 +141,8 @@ void main() {
       final report = await IntegrityReconcileService.instance.scanAndPersist();
       expect(
         report.alarms.any((a) => a.kind == IntegrityAlarmKind.stockProjection),
-        isFalse,
+        isTrue,
+        reason: 'debe alarmar proyección≠ledger (no silent repair)',
       );
       final prod = await db.query(
         'productos',
@@ -150,11 +151,11 @@ void main() {
         whereArgs: [id],
         limit: 1,
       );
-      // Auto-alineado al ledger (salida de 2 desde 10 → 8).
-      expect((prod.first['stock'] as num?)?.toInt(), 8);
+      // Sin auto-alineado: proyección queda rota hasta repair explícito.
+      expect((prod.first['stock'] as num?)?.toInt(), 99);
       expect(
         await InventoryLedgerService.instance.verificarProyeccion(id),
-        isTrue,
+        isFalse,
       );
     });
 
