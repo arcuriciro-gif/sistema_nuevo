@@ -101,13 +101,17 @@ class VentaService {
     return rows.map(VentaItem.fromMap).toList();
   }
 
-  Future<int> _ledgerNetVenta(DatabaseExecutor txn, int ventaId) async {
-    final r = await txn.rawQuery(
-      "SELECT COALESCE(SUM(delta), 0) s FROM inventory_ledger "
-      "WHERE document_type = 'venta' AND document_id = ?",
-      ['$ventaId'],
+  Future<int> _ledgerNetVenta(
+    DatabaseExecutor txn,
+    int ventaId, {
+    String? numero,
+  }) {
+    return ledgerNetForDocumentCandidates(
+      txn,
+      documentType: 'venta',
+      numero: numero,
+      localId: ventaId,
     );
-    return (r.first['s'] as num?)?.toInt() ?? 0;
   }
 
   /// Anula venta: estado + reverso de stock (si el ledger neto entregó) + money
@@ -159,7 +163,7 @@ class VentaService {
       }
 
       // net<0: entrega atribuida. net==0 solo si el tipo entrega (seguidor).
-      final net = await _ledgerNetVenta(txn, id);
+      final net = await _ledgerNetVenta(txn, id, numero: venta.numero);
       final debeRevertirStock =
           DocumentStockReversalPolicy.shouldReverseOnAnular(
         ledgerNet: net,
@@ -310,7 +314,7 @@ class VentaService {
         ],
         limit: 1,
       );
-      final net = await _ledgerNetVenta(txn, id);
+      final net = await _ledgerNetVenta(txn, id, numero: venta.numero);
       final candidata = invLines.isNotEmpty &&
           (venta.mueveStock || entregaCanon.isNotEmpty);
       final debeEntregar = candidata &&

@@ -206,13 +206,17 @@ class CompraService {
     ''', [compraId]);
   }
 
-  Future<int> _ledgerNetCompra(DatabaseExecutor txn, int compraId) async {
-    final r = await txn.rawQuery(
-      "SELECT COALESCE(SUM(delta), 0) s FROM inventory_ledger "
-      "WHERE document_type = 'compra' AND document_id = ?",
-      ['$compraId'],
+  Future<int> _ledgerNetCompra(
+    DatabaseExecutor txn,
+    int compraId, {
+    String? numero,
+  }) {
+    return ledgerNetForDocumentCandidates(
+      txn,
+      documentType: 'compra',
+      numero: numero,
+      localId: compraId,
     );
-    return (r.first['s'] as num?)?.toInt() ?? 0;
   }
 
   Future<void> anular(int id, {bool syncAfter = true}) async {
@@ -259,7 +263,7 @@ class CompraService {
         ).toJson());
       }
 
-      final net = await _ledgerNetCompra(txn, id);
+      final net = await _ledgerNetCompra(txn, id, numero: numero);
       final debeRevertir = lines.isNotEmpty && net > 0;
 
       await txn.update(
