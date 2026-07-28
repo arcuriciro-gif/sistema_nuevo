@@ -21,6 +21,7 @@ import 'media_sync_service.dart';
 import 'cloud_sync_throttle.dart';
 import 'observability/sync_circuit_breaker.dart';
 import 'observability/sync_observability_hub.dart';
+import 'observability/sync_path_logger.dart';
 import 'scheduler/entity_lock_registry.dart';
 import 'scheduler/sync_priority.dart';
 import 'scheduler/sync_scheduler.dart';
@@ -190,6 +191,19 @@ class FirestoreSyncService {
       if (windows) _windowsBootInProgress = true;
 
       await _cargarColasPersistidas();
+      // Trazabilidad E2E: cada hop lleva deviceId + tenant.
+      SyncPathLogger.instance.configure(
+        deviceId:
+            '${Platform.operatingSystem}:${BackendConfigService.instance.tenantId}',
+      );
+      SyncPathLogger.instance.hop(
+        stage: 'sync_start',
+        entityType: 'engine',
+        eventId: 'sync:start:${DateTime.now().toUtc().microsecondsSinceEpoch}',
+        transactionId: 'boot',
+        outcome: windows ? 'windows_boot' : 'mobile_boot',
+        extra: {'tenant': BackendConfigService.instance.tenantId},
+      );
       if (!windows) {
         await SyncOutbox.instance.reclaimStaleInflight();
         await _migrateLegacyColasToOutbox();
@@ -4575,8 +4589,20 @@ class FirestoreSyncService {
         for (final raw in items) {
           final item = Map<String, dynamic>.from(raw as Map);
           final codigo = item['productoCodigo']?.toString();
+          final peerId = (item['productoId'] as num?)?.toInt();
           final productoId = await _productoLocalIdPorCodigo(db, codigo);
-          if (productoId == null) continue;
+          if (productoId == null) {
+            SyncPathLogger.instance.hop(
+              stage: 'line_resolve',
+              entityType: 'compra_item',
+              entityId: numero,
+              opId: 'pull:compra:$numero',
+              eventId: 'pull:compra:$numero',
+              outcome: 'skipped_missing_sku',
+              extra: {'codigo': codigo, 'peerProductoId': peerId},
+            );
+            continue;
+          }
           await db.insert('compra_items', {
             'compraId': compraId,
             'productoId': productoId,
@@ -4701,6 +4727,17 @@ class FirestoreSyncService {
       return;
     }
     _sincronizandoRemitos = true;
+    final txId =
+        'pull:remitos:${DateTime.now().toUtc().microsecondsSinceEpoch}';
+    SyncPathLogger.instance.hop(
+      stage: 'pull_snapshot',
+      entityType: 'remito',
+      eventId: txId,
+      transactionId: txId,
+      opId: txId,
+      outcome: 'received',
+      extra: {'docs': snap.docs.length},
+    );
     try {
       var actual = snap;
       while (true) {
@@ -4708,9 +4745,10 @@ class FirestoreSyncService {
       final remoteNumeros = <String>{};
       var hubo = false;
       for (final doc in actual.docs) {
-        try {
         final data = doc.data();
         final numero = data['numero']?.toString() ?? doc.id;
+        final entityId = numero;
+        final opId = 'pull:remito:$numero';
         if (isRemoteTombstone(data)) {
           // Tombstone remoto → reverso local si hace falta, luego borrar.
           final rows = await db.query(
@@ -4736,12 +4774,40 @@ class FirestoreSyncService {
                   where: 'remitoId = ?', whereArgs: [id]);
               await db.delete('remitos', where: 'id = ?', whereArgs: [id]);
               hubo = true;
+              SyncPathLogger.instance.hop(
+                stage: 'sqlite_delete',
+                entityType: 'remito',
+                eventId: opId,
+                entityId: entityId,
+                opId: opId,
+                transactionId: txId,
+                outcome: 'tombstone_applied',
+              );
             }
           }
           _remitosConfirmadosEnNube.remove(numero);
           continue;
         }
         remoteNumeros.add(numero);
+        SyncPathLogger.instance.hop(
+          stage: 'firestore_doc',
+          entityType: 'remito',
+          eventId: opId,
+          entityId: entityId,
+          opId: opId,
+          transactionId: txId,
+          outcome: 'exists',
+          extra: {
+            'remoteDocId': doc.id,
+            'items': ((data['items'] as List?) ?? const []).length,
+            'peerProductoIds': ((data['items'] as List?) ?? const [])
+                .map((raw) => (raw as Map)['productoId'])
+                .toList(),
+            'codigos': ((data['items'] as List?) ?? const [])
+                .map((raw) => (raw as Map)['productoCodigo'])
+                .toList(),
+          },
+        );
         final existentes = await db.query(
           'remitos',
           where: 'numero = ?',
@@ -4792,15 +4858,45 @@ class FirestoreSyncService {
           );
         }
         hubo = true;
+        SyncPathLogger.instance.hop(
+          stage: 'sqlite_upsert_header',
+          entityType: 'remito',
+          eventId: opId,
+          entityId: entityId,
+          opId: opId,
+          transactionId: txId,
+          outcome: 'persisted',
+          extra: {'localId': remitoId},
+        );
 
         final items = (data['items'] as List?) ?? const [];
+        var itemsOk = 0;
+        var itemsSkippedMissingSku = 0;
         for (final raw in items) {
           final item = Map<String, dynamic>.from(raw as Map);
           final codigo = item['productoCodigo']?.toString();
+          final peerId = (item['productoId'] as num?)?.toInt();
           final productoId = await _productoLocalIdPorCodigo(db, codigo);
-          // Si el producto aún no llegó al APK: guardar remito sin esa línea
-          // (antes: usaba productoId del PC → FK fail → perdía TODOS los remitos).
-          if (productoId == null) continue;
+          // Nunca usar peerId: con FK ON abortaba el apply del snapshot.
+          if (productoId == null) {
+            itemsSkippedMissingSku++;
+            SyncPathLogger.instance.hop(
+              stage: 'line_resolve',
+              entityType: 'remito_item',
+              eventId: opId,
+              entityId: entityId,
+              opId: opId,
+              transactionId: txId,
+              outcome: 'skipped_missing_sku',
+              extra: {
+                'codigo': codigo,
+                'peerProductoId': peerId,
+                'reason':
+                    'productoCodigo no existe en SQLite local; peer id ignorado',
+              },
+            );
+            continue;
+          }
 
           await db.insert('remito_items', {
             'remitoId': remitoId,
@@ -4811,17 +4907,41 @@ class FirestoreSyncService {
             'costoUnitario': item['costoUnitario'] ?? 0,
             'ganancia': item['ganancia'] ?? 0,
           });
+          itemsOk++;
         }
-        } catch (e) {
-          debugPrint(
-            'Aplicar remito ${doc.id}: $e (sigo con el resto)',
-          );
-        }
+        SyncPathLogger.instance.hop(
+          stage: 'sqlite_items',
+          entityType: 'remito',
+          eventId: opId,
+          entityId: entityId,
+          opId: opId,
+          transactionId: txId,
+          outcome: 'applied',
+          extra: {
+            'itemsOk': itemsOk,
+            'itemsSkippedMissingSku': itemsSkippedMissingSku,
+            'localId': remitoId,
+          },
+        );
+        SyncObservabilityHub.instance.onRemoteApplied(
+          entityType: 'remito',
+          localId: remitoId,
+          remoteId: doc.id,
+        );
       }
 
       // Capacidad 7: solo tombstones borran locales (no inferir por ausencia).
       _remitosConfirmadosEnNube.addAll(remoteNumeros);
       await _persistirWatermarkRemitos();
+      SyncPathLogger.instance.hop(
+        stage: 'watermark',
+        entityType: 'remito',
+        eventId: txId,
+        transactionId: txId,
+        opId: txId,
+        outcome: 'advanced',
+        extra: {'numeros': remoteNumeros.length},
+      );
 
       if (hubo) {
         // C7: CC local desde saldos de docs remotos (ventas día/mes + saldo).
@@ -4852,14 +4972,35 @@ class FirestoreSyncService {
         // Inicio KPI (ventas día/mes) suma remitos — refrescar al llegar del PC.
         DataRefreshHub.instance.notifyVentas();
         DataRefreshHub.instance.notifyTodo();
+        SyncPathLogger.instance.hop(
+          stage: 'ui_notify',
+          entityType: 'remito',
+          eventId: txId,
+          transactionId: txId,
+          opId: txId,
+          outcome: 'DataRefreshHub.notifyVentas+notifyTodo',
+        );
       }
       final pendiente = _snapRemitosPendiente;
       _snapRemitosPendiente = null;
       if (pendiente == null) break;
       actual = pendiente;
       }
-    } catch (e) {
-      debugPrint('Aplicar remitos remotos: $e');
+    } catch (e, st) {
+      // No ocultar: registrar SQL/exception exacta y rethrow implícito vía log.
+      SyncPathLogger.instance.hop(
+        stage: 'apply_abort',
+        entityType: 'remito',
+        eventId: txId,
+        transactionId: txId,
+        opId: txId,
+        outcome: 'FAILED',
+        extra: {
+          'error': e.toString(),
+          'stack': st.toString().split('\n').take(12).join(' | '),
+        },
+      );
+      debugPrint('Aplicar remitos remotos: $e\n$st');
     } finally {
       _sincronizandoRemitos = false;
     }
@@ -4977,9 +5118,21 @@ class FirestoreSyncService {
           for (final raw in items) {
             final item = Map<String, dynamic>.from(raw as Map);
             final codigo = item['productoCodigo']?.toString();
+            final peerId = (item['productoId'] as num?)?.toInt();
             final productoId = await _productoLocalIdPorCodigo(db, codigo);
             // Si el producto no existe aún en este nodo: omitir línea (no peer id).
-            if (productoId == null) continue;
+            if (productoId == null) {
+              SyncPathLogger.instance.hop(
+                stage: 'line_resolve',
+                entityType: 'venta_item',
+                entityId: numero,
+                opId: 'pull:venta:$numero',
+                eventId: 'pull:venta:$numero',
+                outcome: 'skipped_missing_sku',
+                extra: {'codigo': codigo, 'peerProductoId': peerId},
+              );
+              continue;
+            }
 
             await db.insert('ventas_items', {
               'ventaId': ventaId,

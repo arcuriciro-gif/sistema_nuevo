@@ -15,3 +15,19 @@ int? resolveRemoteLineProductoId({
   if (cod.isEmpty) return null;
   return localIdByCodigo[cod];
 }
+
+/// Comportamiento PRE-1.4.14 (BUG): si el código no existe localmente,
+/// conserva el `productoId` del peer. Solo para tests forenses.
+int? legacyResolveRemoteLineProductoIdKeepingPeer({
+  required int? peerProductoId,
+  required String? codigo,
+  required Map<String, int> localIdByCodigo,
+}) {
+  var productoId = peerProductoId;
+  final cod = (codigo ?? '').trim();
+  if (cod.isNotEmpty) {
+    final local = localIdByCodigo[cod];
+    if (local != null) productoId = local;
+  }
+  return productoId;
+}

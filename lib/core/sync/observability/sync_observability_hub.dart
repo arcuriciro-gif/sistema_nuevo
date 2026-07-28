@@ -10,6 +10,7 @@ import '../sync_health.dart';
 import 'sync_circuit_breaker.dart';
 import 'sync_flight_recorder.dart';
 import 'sync_op_trace.dart';
+import 'sync_path_logger.dart';
 import 'sync_process_rss.dart';
 import 'sync_sla_monitor.dart';
 
@@ -24,6 +25,7 @@ class SyncObservabilityHub {
   final flight = SyncFlightRecorder.instance;
   final circuit = SyncCircuitBreaker.instance;
   final sla = SyncSlaMonitor.instance;
+  final path = SyncPathLogger.instance;
 
   /// Evita persistir trazas en ráfaga (SQLite busy / OOM en Android bajo).
   bool _persistBusy = false;
@@ -339,6 +341,7 @@ class SyncObservabilityHub {
     traces.resetForTests();
     flight.resetForTests();
     circuit.resetForTests();
+    path.resetForTests();
     _persistBusy = false;
     _persistSkip = 0;
   }
