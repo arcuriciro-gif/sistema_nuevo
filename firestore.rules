@@ -184,13 +184,14 @@ service cloud.firestore {
         allow delete: if false;
       }
 
-      // Productos: metadata sí; stock absoluto NO.
-      // Stock solo vía stock_ops (FieldValue.increment → keys acotadas).
+      // Productos: metadata libre en create; stock absoluto en update
+      // solo si el update es forma-increment (stock_ops).
+      // create con stock!=0 se permite: stub por FieldValue.increment
+      // cuando el SKU aún no existe en nube (Windows sube remito antes
+      // que el catálogo). El cliente sigue subiendo metadata sin stock.
       match /productos/{docId} {
         allow read: if isMember(tenantId);
-        allow create: if canWriteOps(tenantId)
-          && (!('stock' in request.resource.data)
-              || request.resource.data.stock == 0);
+        allow create: if canWriteOps(tenantId);
         allow update: if canWriteOps(tenantId) && (
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['stock'])
           || request.resource.data.diff(resource.data).affectedKeys()
