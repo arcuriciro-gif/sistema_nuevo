@@ -77,13 +77,18 @@ void main() {
     skip: Platform.isWindows ? 'CI Windows lento — lab en Linux/Android' : false,
   );
 
-  test('Stress runner corto', () async {
-    final r = await SyncStressRunner.instance.run(
-      duration: const Duration(seconds: 2),
-      tick: const Duration(milliseconds: 30),
-    );
-    expect(r['opsGenerated'], greaterThan(5));
-  }, timeout: const Timeout(Duration(minutes: 1)));
+  test(
+    'Stress runner corto',
+    () async {
+      final r = await SyncStressRunner.instance.run(
+        duration: const Duration(seconds: 2),
+        tick: const Duration(milliseconds: 30),
+      );
+      expect(r['opsGenerated'], greaterThan(5));
+    },
+    timeout: const Timeout(Duration(minutes: 1)),
+    skip: Platform.isWindows ? 'CI Windows lento — lab en Linux/Android' : false,
+  );
 
   test(
     'Certification runner genera informe',
