@@ -39,16 +39,25 @@ void main() {
         WindowsSyncPolicy.quarantineForBacklog(pendingProductos: 500).inSeconds,
         lessThanOrEqualTo(12),
       );
-      expect(
-        WindowsSyncPolicy.quarantineForBacklog(pendingProductos: 0).inSeconds,
-        WindowsSyncPolicy.quarantineAfterLogin.inSeconds,
-      );
+      if (WindowsSyncPolicy.freezeBackgroundForStability) {
+        expect(
+          WindowsSyncPolicy.quarantineForBacklog(pendingProductos: 0).inSeconds,
+          lessThanOrEqualTo(10),
+        );
+      } else {
+        expect(
+          WindowsSyncPolicy.quarantineForBacklog(pendingProductos: 0).inSeconds,
+          WindowsSyncPolicy.quarantineAfterLogin.inSeconds,
+        );
+      }
     });
 
     test('pump/pull más frecuentes para convergencia negocio', () {
       expect(
         WindowsSyncPolicy.outboxPumpInterval.inSeconds,
-        lessThanOrEqualTo(40),
+        lessThanOrEqualTo(
+          WindowsSyncPolicy.freezeBackgroundForStability ? 60 : 40,
+        ),
       );
       expect(
         WindowsSyncPolicy.softPullInterval.inSeconds,
@@ -146,15 +155,16 @@ void main() {
         greaterThan(0),
       );
       expect(
-        WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 0).inSeconds,
-        lessThan(WindowsSyncPolicy.softPullInterval.inSeconds),
+        WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 0).inHours,
+        greaterThanOrEqualTo(1),
       );
+      expect(WindowsSyncPolicy.freezeBackgroundForStability, isTrue);
     });
 
-    test('Windows habilita listeners solo de negocio (no productos)', () {
+    test('Windows freeze: listeners OFF (anti cierre a los ~2 min)', () {
       expect(
         WindowsSyncPolicy.enableBusinessDocListeners(isWindowsDesktop: true),
-        isTrue,
+        isFalse,
       );
       expect(
         WindowsSyncPolicy.windowsBusinessListenerCollections,

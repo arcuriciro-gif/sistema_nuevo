@@ -564,7 +564,7 @@ class FirestoreSyncService {
 
           // Windows: encolar remitos/ventas locales que nunca subieron
           // (si no, el APK queda en ventas $0 con stock casi OK).
-          if (windows) {
+          if (windows && !WindowsSyncPolicy.freezeBackgroundForStability) {
             await _microCatchupDocsWindows();
           }
 
@@ -1050,6 +1050,34 @@ class FirestoreSyncService {
       DataRefreshHub.instance.notifyTodo();
       await Future<void>.delayed(const Duration(seconds: 5));
       authOk = _puedeEscribirRemoto;
+    }
+
+    // Congelado: sin listeners, sin micro-catchup masivo, sin soft-pull.
+    // Solo un drain chico de outbox para que el EXE se quede abierto.
+    if (WindowsSyncPolicy.freezeBackgroundForStability) {
+      await CloudSyncThrottle.enqueue(() async {
+        if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+        await SyncOutbox.instance.ackOrphanUpserts();
+        SyncCircuitBreaker.instance.forceClose(reason: 'windows_freeze_boot');
+        await _procesarOutboxDrain(
+          maxBatches: 1,
+          claimLimit: 3,
+          entityTypes: const ['proveedor', 'producto', 'stock_op'],
+        );
+        final breakdown = await SyncOutbox.instance.pendingBreakdown();
+        final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
+        if (pending > 0) {
+          syncStatusLabel = 'En la nube (modo estable PC)';
+          syncStatusDetail =
+              '$pending pendientes — usá Actualizar ahora (sin soft-pull)';
+        } else {
+          syncStatusLabel = 'En la nube (modo estable PC)';
+          syncStatusDetail = null;
+        }
+        DataRefreshHub.instance.notifyTodo();
+      }, tag: 'primerDrainPostCuarentenaFreeze');
+      _iniciarOutboxPump();
+      return;
     }
 
     // Arrancar pump igual: cada tick chequéa Auth; no dejar cola huérfana.

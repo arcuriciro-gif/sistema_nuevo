@@ -50,10 +50,15 @@ void main() {
       expect(c.maxApply, lessThanOrEqualTo(4));
     });
 
-    test('soft-pull quieto es más rápido que idle cargado', () {
+    test('soft-pull congelado o quieto no es más agresivo que idle cargado', () {
       final quiet = WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 0);
       final busy = WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 80);
-      expect(quiet.inSeconds, lessThan(busy.inSeconds));
+      if (WindowsSyncPolicy.freezeBackgroundForStability) {
+        expect(quiet.inHours, greaterThanOrEqualTo(1));
+        expect(busy.inHours, greaterThanOrEqualTo(1));
+      } else {
+        expect(quiet.inSeconds, lessThan(busy.inSeconds));
+      }
     });
   });
 
