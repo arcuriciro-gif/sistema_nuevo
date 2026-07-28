@@ -91,9 +91,8 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
           fb.disponible &&
           fb.uidActual != null;
       _modoSeguro = FirebaseSafeMode.enabled;
-      _tenantCtrl.text = BackendConfigService.instance.empresaConfirmada
-          ? BackendConfigService.instance.tenantId
-          : '';
+      // Siempre el tenant REAL del sync (no un borrador vacío que engaña).
+      _tenantCtrl.text = BackendConfigService.instance.tenantId;
     });
   }
 
@@ -104,18 +103,24 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       );
       return;
     }
-    if (BackendConfigService.instance.empresaConfirmada) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('La empresa ya está fijada y no se puede modificar.'),
-        ),
-      );
-      return;
-    }
     final nuevo = _tenantCtrl.text.trim();
     if (nuevo.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('El código de empresa no puede estar vacío.')),
+      );
+      return;
+    }
+    final yendoALegacy =
+        nuevo == BackendConfigService.legacySharedTenantId;
+    // Permitir migración a tata_stock aunque la empresa auto ya esté fijada.
+    if (BackendConfigService.instance.empresaConfirmada && !yendoALegacy) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'La empresa ya está fijada. Para unir PC y celular usá el botón '
+            '"Usar tata_stock".',
+          ),
+        ),
       );
       return;
     }
@@ -134,8 +139,8 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
         content: Text(
           'Vas a pasar de:\n$anterior\n\na:\n$nuevo\n\n'
           'Después: cerrá sesión, volvé a entrar con el mismo usuario/clave '
-          'que en la PC, y activá la sincronización online.\n\n'
-          'Para ver los productos de la PC vieja usá: tata_stock',
+          'que en el otro dispositivo, y activá la sincronización online.\n\n'
+          'PC y celular DEBEN usar el mismo código o el stock nunca coincide.',
         ),
         actions: [
           TextButton(
@@ -183,8 +188,72 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   }
 
   Future<void> _usarEmpresaCompartidaLegada() async {
-    _tenantCtrl.text = BackendConfigService.legacySharedTenantId;
-    await _guardarCodigoEmpresa();
+    if (!AuthService.instance.esAdministrador()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Solo el administrador puede cambiar el código.'),
+        ),
+      );
+      return;
+    }
+    final actual = BackendConfigService.instance.tenantId;
+    if (actual == BackendConfigService.legacySharedTenantId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ya estás en tata_stock.')),
+      );
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Unir a tata_stock'),
+        content: Text(
+          'Ahora este dispositivo está en:\n$actual\n\n'
+          'Si el celular (u otra PC) usa tata_stock, el stock NUNCA va a '
+          'coincidir hasta que ambos usen el mismo código.\n\n'
+          '¿Pasar este dispositivo a tata_stock?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Usar tata_stock'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _guardandoTenant = true);
+    try {
+      await BackendConfigService.instance.unirAEmpresaCompartidaLegada();
+      if (BackendConfigService.instance.firebaseEnabled) {
+        await AuthService.instance.desactivarNube();
+      }
+      if (!mounted) return;
+      setState(() {
+        _nubeActiva = false;
+        _tenantCtrl.text = BackendConfigService.legacySharedTenantId;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Ahora usás tata_stock. Cerrá sesión, entrá de nuevo y '
+            'activá la nube. Hacé lo mismo en el celular si hace falta.',
+          ),
+          duration: Duration(seconds: 8),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo unir: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _guardandoTenant = false);
+    }
   }
 
   Future<void> _activarNube() async {
@@ -753,6 +822,42 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                         ),
                       ),
                       const SizedBox(height: 8),
+                      // Activa ahora: lo que REALMENTE usa el sync (no el texto del campo).
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: BackendConfigService
+                                  .instance.riesgoDesyncMultiDispositivo
+                              ? colorScheme.errorContainer
+                              : colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Activa ahora: ${BackendConfigService.instance.tenantId}',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (BackendConfigService
+                                .instance.riesgoDesyncMultiDispositivo) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                'Este código es automático (t_…). Si el celular '
+                                'usa tata_stock, el stock NUNCA va a coincidir. '
+                                'Tocá "Usar tata_stock" en PC y celular.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: colorScheme.onErrorContainer,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       if (!BackendConfigService.instance.empresaConfirmada)
                         Text(
                           'Pegá el código para unirte. Una vez guardado queda fijo.',
@@ -760,9 +865,17 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                             color: colorScheme.onSurfaceVariant,
                           ),
                         )
-                      else
+                      else if (!BackendConfigService
+                          .instance.riesgoDesyncMultiDispositivo)
                         Text(
                           'Empresa fijada. No se puede cambiar desde acá.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        )
+                      else
+                        Text(
+                          'Podés unirte a tata_stock para sincronizar con la PC/celular vieja.',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -770,8 +883,10 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                       const SizedBox(height: 8),
                       TextField(
                         controller: _tenantCtrl,
-                        readOnly:
-                            BackendConfigService.instance.empresaConfirmada,
+                        readOnly: BackendConfigService
+                                .instance.empresaConfirmada &&
+                            !BackendConfigService
+                                .instance.riesgoDesyncMultiDispositivo,
                         onChanged: (_) => setState(() {}),
                         decoration: InputDecoration(
                           labelText: 'Código de empresa',
@@ -782,7 +897,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                           border: const OutlineInputBorder(),
                           isDense: true,
                           suffixIcon: BackendConfigService
-                                  .instance.empresaConfirmada
+                                      .instance.empresaConfirmada &&
+                                  !BackendConfigService
+                                      .instance.riesgoDesyncMultiDispositivo
                               ? const Icon(Icons.lock_outline, size: 18)
                               : null,
                         ),
@@ -790,11 +907,14 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                         enableSuggestions: false,
                       ),
                       const SizedBox(height: 8),
-                      if (!BackendConfigService.instance.empresaConfirmada)
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (!BackendConfigService
+                                  .instance.empresaConfirmada ||
+                              BackendConfigService
+                                  .instance.riesgoDesyncMultiDispositivo)
                             FilledButton.icon(
                               onPressed: _guardandoTenant
                                   ? null
@@ -814,15 +934,22 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                                     : 'Guardar código',
                               ),
                             ),
-                            OutlinedButton.icon(
+                          // Siempre visible si no estamos ya en tata_stock.
+                          if (BackendConfigService.instance.tenantId !=
+                              BackendConfigService.legacySharedTenantId)
+                            FilledButton.icon(
                               onPressed: _guardandoTenant
                                   ? null
                                   : _usarEmpresaCompartidaLegada,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: colorScheme.tertiary,
+                                foregroundColor: colorScheme.onTertiary,
+                              ),
                               icon: const Icon(Icons.link_rounded),
                               label: const Text('Usar tata_stock'),
                             ),
-                          ],
-                        ),
+                        ],
+                      ),
                       const SizedBox(height: 16),
                       Text(
                         'Seguridad admin',

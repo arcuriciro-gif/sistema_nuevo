@@ -105,6 +105,13 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
         subtitle: 'Solo local · Sync desactivado',
       );
     }
+    if (BackendConfigService.instance.riesgoDesyncMultiDispositivo) {
+      return (
+        tone: ShellSyncTone.error,
+        title: 'Empresa distinta',
+        subtitle: 'Usá tata_stock en PC y celular',
+      );
+    }
     if (!conAuth) {
       return (
         tone: ShellSyncTone.offline,

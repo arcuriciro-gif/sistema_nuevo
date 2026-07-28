@@ -102,6 +102,21 @@ class BackendConfigService {
     await prefs.setBool(_empresaConfirmadaKey, true);
   }
 
+  /// Migración de recuperación: unir PC/celular a `tata_stock` aunque la
+  /// empresa autogenerada (`t_…`) ya estuviera "fijada".
+  ///
+  /// Campo: EXE en `t_736fba…` y APK en `tata_stock` → stock nunca coincide.
+  Future<bool> unirAEmpresaCompartidaLegada() async {
+    if (_tenantId == legacySharedTenantId) return false;
+    await setTenantId(legacySharedTenantId);
+    return true;
+  }
+
+  /// true si este dispositivo está en un tenant auto y NO en tata_stock:
+  /// PC y celular no van a compartir stock/ops.
+  bool get riesgoDesyncMultiDispositivo =>
+      esEmpresaAutogenerada && _tenantId != legacySharedTenantId;
+
   /// Confirma la empresa actual (p. ej. una instalación nueva a propósito).
   Future<void> confirmarEmpresaActual() async {
     _empresaConfirmada = true;

@@ -289,7 +289,7 @@ class FirestoreSyncService {
           CloudSyncThrottle.enqueue(() async {
             try {
               await _cargarColasPersistidas();
-              await _maybeRewindStockOpsWatermarkForConvergence();
+              // NO rewind watermark en boot (ráfaga + seed tumbaba EXE).
               // Solo stock MUERTO/reclaim eterno — NO borrar pending frescos
               // (si no, el stock del .exe nunca llega al APK).
               final purged = await SyncOutbox.instance.purgeStuckStockOps(
@@ -314,9 +314,9 @@ class FirestoreSyncService {
                   'poisonForce=${recovered.forceRequeued}',
                 );
               }
-              // Histórico sin ledger → seed idempotente (G4).
+              // Seed ledger mínimo (300 TX seguidas tumbaban el boot).
               try {
-                await LegacyLedgerMigration.instance.seedMissing(limit: 300);
+                await LegacyLedgerMigration.instance.seedMissing(limit: 8);
               } catch (e) {
                 debugPrint('LegacyLedgerMigration boot: $e');
               }
@@ -333,7 +333,11 @@ class FirestoreSyncService {
 
               final breakdown = await SyncOutbox.instance.pendingBreakdown();
               final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
-              if (pending > 0) {
+              if (BackendConfigService.instance.riesgoDesyncMultiDispositivo) {
+                syncStatusLabel = 'Empresa distinta';
+                syncStatusDetail =
+                    'Usá tata_stock en PC y celular (Configuración)';
+              } else if (pending > 0) {
                 final que = SyncOutbox.formatBreakdown(breakdown);
                 syncStatusLabel = 'Sincronizando…';
                 syncStatusDetail =
@@ -1404,6 +1408,9 @@ class FirestoreSyncService {
             }
             await _sweepStockOpsHolds(limit: 3);
           });
+          try {
+            await LegacyLedgerMigration.instance.seedMissing(limit: 5);
+          } catch (_) {}
           try {
             await InventoryLedgerService.instance
                 .repararProyeccionesDivergentes(limit: 8);
