@@ -184,13 +184,15 @@ void main() {
         pendingProductos: 0,
       );
       expect(m.stockMaxApply, lessThanOrEqualTo(6));
-      expect(m.stockRecentLimit, lessThanOrEqualTo(20));
+      expect(m.stockRecentLimit, lessThanOrEqualTo(40));
       expect(m.stockRounds, greaterThanOrEqualTo(2));
       expect(m.stockMicroBatch, lessThanOrEqualTo(4));
       expect(m.schedulerTicks, equals(1));
       expect(m.negocioLimit, lessThanOrEqualTo(12));
       expect(m.pullClientes, isFalse);
       expect(m.yieldMs, greaterThanOrEqualTo(100));
+      // Total por gesto: rondas × maxApply + recent (convergencia sin ráfaga).
+      expect(m.stockRounds * m.stockMaxApply, greaterThanOrEqualTo(20));
       final busy = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 80,
       );
@@ -198,7 +200,8 @@ void main() {
       expect(busy.stockRounds, lessThanOrEqualTo(m.stockRounds));
       final catchup = WindowsSyncPolicy.windowsCatchupStockOpsBudget();
       expect(catchup.maxApply, greaterThan(0));
-      expect(catchup.maxApply, lessThanOrEqualTo(8));
+      expect(catchup.maxApply, lessThanOrEqualTo(24));
+      expect(catchup.maxPages, greaterThanOrEqualTo(2));
     });
   });
 }

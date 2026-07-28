@@ -1,31 +1,33 @@
 // Políticas puras del pull de stock_ops (watermark / skips / HOL).
 
-/// Si en la página hubo ops válidas saltadas por producto ausente,
-/// pending_apply, o truncado por maxApply:
-/// - **antes:** no avanzar (HOL — cursor congelado).
-/// - **ahora:** si [blockersParkedInHolds] (todas las bloqueantes están en
-///   `stock_ops_pull_holds`), SÍ avanzar. El sweeper reintenta holds aparte.
+/// Reglas de avance del watermark stock_ops:
 ///
-/// Nunca avanzar a ciegas sin holds (perdería ops → stock diverge).
+/// - Truncado por maxApply → NO avanzar.
+/// - `pending_apply` / `claimed` en página → **NO avanzar** (aunque estén
+///   en hold-set). Si se avanza, el peer pierde las ops y el stock diverge
+///   (EXE=-2 / APK=0). El reconcile debe pasarlas a `applied` primero.
+/// - Solo `missing_product` parked en holds → SÍ avanzar (anti-HOL).
+///   El sweeper aplica cuando llega el SKU al catálogo.
+/// - Sin blockers → avanzar.
 bool shouldAdvanceStockOpsWatermark({
   required int consideredValid,
   required int skippedMissingProduct,
   int skippedPendingApply = 0,
   bool truncatedByMaxApply = false,
-  /// Blockers (missing/pending) ya persistidos en hold-set.
+  /// Blockers (missing) ya persistidos en hold-set.
   bool blockersParkedInHolds = false,
 }) {
   if (truncatedByMaxApply) return false;
-  final blockers = skippedMissingProduct + skippedPendingApply;
-  if (blockers > 0 && blockersParkedInHolds) {
-    return true;
-  }
+  // Regresión P0: jamás saltar pending_apply (stock diverge permanente).
   if (skippedPendingApply > 0) return false;
+  if (skippedMissingProduct > 0) {
+    // Anti-HOL solo para producto ausente (recoverable vía catalog+sweep).
+    return blockersParkedInHolds;
+  }
   if (consideredValid == 0 && skippedMissingProduct == 0) {
-    // Página vacía de candidatos → se puede cerrar/avanzar.
     return true;
   }
-  return skippedMissingProduct == 0;
+  return true;
 }
 
 /// Metadatos de documento comercial embebidos en stock_ops.

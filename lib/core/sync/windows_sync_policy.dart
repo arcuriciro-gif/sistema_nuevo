@@ -73,13 +73,13 @@ class WindowsSyncPolicy {
   static ({int maxPages, int pageSize, int maxApply, int recentLimit})
       stockOpsPullBudget({required int pendingProductos}) {
     if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
-      return (maxPages: 2, pageSize: 30, maxApply: 24, recentLimit: 80);
+      return (maxPages: 3, pageSize: 40, maxApply: 60, recentLimit: 120);
     }
     if (pendingProductos <= 50) {
-      return (maxPages: 1, pageSize: 15, maxApply: 8, recentLimit: 50);
+      return (maxPages: 2, pageSize: 25, maxApply: 30, recentLimit: 80);
     }
     // Subiendo catálogo: watermark chico, pero recientes sí (convergencia).
-    return (maxPages: 1, pageSize: 10, maxApply: 4, recentLimit: 40);
+    return (maxPages: 1, pageSize: 15, maxApply: 12, recentLimit: 60);
   }
 
   /// Soft-pull lane.
@@ -148,17 +148,19 @@ class WindowsSyncPolicy {
     bool pullClientes,
     bool pullConfig,
   }) manualRefreshBudgetWindows({required int pendingProductos}) {
+    // Anti-crash: maxApply por ronda chico + más rondas + recentLimit alto.
+    // Subir maxApply a 50 tumbaba el .exe (regresión vs 1.4.12).
     if (pendingProductos >= 50) {
       return (
         negocioLimit: 5,
         clientesPage: 0,
         stockMaxPages: 1,
-        stockPageSize: 8,
-        stockMaxApply: 3,
-        stockRecentLimit: 10,
-        stockRounds: 2,
+        stockPageSize: 12,
+        stockMaxApply: 4,
+        stockRecentLimit: 25,
+        stockRounds: 3,
         stockMicroBatch: 2,
-        yieldMs: 250,
+        yieldMs: 220,
         schedulerTicks: 1,
         pullClientes: false,
         pullConfig: false,
@@ -168,13 +170,13 @@ class WindowsSyncPolicy {
       return (
         negocioLimit: 8,
         clientesPage: 0,
-        stockMaxPages: 1,
-        stockPageSize: 10,
-        stockMaxApply: 4,
-        stockRecentLimit: 12,
-        stockRounds: 3,
+        stockMaxPages: 2,
+        stockPageSize: 15,
+        stockMaxApply: 5,
+        stockRecentLimit: 35,
+        stockRounds: 4,
         stockMicroBatch: 2,
-        yieldMs: 200,
+        yieldMs: 180,
         schedulerTicks: 1,
         pullClientes: false,
         pullConfig: true,
@@ -183,23 +185,23 @@ class WindowsSyncPolicy {
     return (
       negocioLimit: 10,
       clientesPage: 0,
-      stockMaxPages: 1,
-      stockPageSize: 12,
-      stockMaxApply: 4,
-      stockRecentLimit: 15,
-      stockRounds: 4,
+      stockMaxPages: 2,
+      stockPageSize: 15,
+      stockMaxApply: 6,
+      stockRecentLimit: 40,
+      stockRounds: 5,
       stockMicroBatch: 3,
-      yieldMs: 150,
+      yieldMs: 140,
       schedulerTicks: 1,
       pullClientes: false,
       pullConfig: true,
     );
   }
 
-  /// Catch-up inicial Windows: cupo mínimo de stock_ops (antes: 0 → diverge).
+  /// Catch-up inicial Windows: suficiente para converger sin ráfaga letal.
   static ({int maxPages, int pageSize, int maxApply})
       windowsCatchupStockOpsBudget() =>
-          (maxPages: 1, pageSize: 8, maxApply: 4);
+          (maxPages: 2, pageSize: 25, maxApply: 20);
 
   /// Plan de drain del outbox Windows (scheduler v2).
   ///

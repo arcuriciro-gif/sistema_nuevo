@@ -1884,9 +1884,21 @@ class FirestoreSyncService {
       final delta = (h['delta'] as num?)?.toInt() ?? 0;
       if (opId.isEmpty || codigo.isEmpty || delta == 0) continue;
       try {
-        final applied = await _remote.stockOpCloudApplied(opId);
+        var applied = await _remote.stockOpCloudApplied(opId);
         if (!applied) {
-          // Sigue pending en nube: renovar hold.
+          // Completar ESTA op (no depender del limit random de reconcile).
+          try {
+            await _remote.ajustarStock(
+              codigo: codigo,
+              delta: delta,
+              opId: opId,
+            );
+            applied = await _remote.stockOpCloudApplied(opId);
+          } catch (e) {
+            debugPrint('sweep complete $opId: $e');
+          }
+        }
+        if (!applied) {
           await StockOpsPullHoldStore.instance.upsert(
             opId: opId,
             reason: h['reason']?.toString() ??
@@ -1921,6 +1933,8 @@ class FirestoreSyncService {
     }
     if (result.applied > 0) {
       debugPrint('stock_ops holds sweep: ${result.applied} aplicadas');
+      DataRefreshHub.instance.notifyStock();
+      DataRefreshHub.instance.notifyProductos();
     }
     return result.applied;
   }
@@ -4694,28 +4708,62 @@ class FirestoreSyncService {
     return (prod.first['id'] as num?)?.toInt();
   }
 
-  bool _reparandoRemitosTrasCatalogo = false;
+  bool _reparandoTrasCatalogo = false;
 
-  /// Tras llegar productos: re-aplica remitos recientes (completa líneas).
-  Future<void> _repararRemitosTrasCatalogo() async {
-    if (_reparandoRemitosTrasCatalogo) return;
+  /// Tras llegar productos: stock_ops en hold + remitos/ventas/compras recientes.
+  Future<void> _recuperarStockYDocsTrasCatalogo() async {
+    if (_reparandoTrasCatalogo) return;
     if (!BackendConfigService.instance.firebaseEnabled ||
         !FirebaseBootstrap.isReady) {
       return;
     }
-    _reparandoRemitosTrasCatalogo = true;
+    _reparandoTrasCatalogo = true;
+    try {
+      await _runStockOpsLane(() async {
+        await _sweepStockOpsHolds(
+          limit: PlatformCapabilities.isWindowsDesktop ? 40 : 80,
+        );
+        await _pullStockOpsRecientes(
+          limit: PlatformCapabilities.isWindowsDesktop ? 80 : 120,
+          maxApply: PlatformCapabilities.isWindowsDesktop ? 60 : 100,
+        );
+      });
+      await _repararDocsComercialesTrasCatalogo();
+    } catch (e) {
+      debugPrint('recuperar stock/docs tras catálogo: $e');
+    } finally {
+      _reparandoTrasCatalogo = false;
+    }
+  }
+
+  /// Completa líneas de docs que llegaron antes que el SKU local.
+  Future<void> _repararDocsComercialesTrasCatalogo() async {
     try {
       final rem = await _remitosCol
           .orderBy('actualizadoEn', descending: true)
           .limit(40)
           .get();
-      if (rem.docs.isNotEmpty) {
-        await _aplicarRemitosRemotos(rem);
-      }
+      if (rem.docs.isNotEmpty) await _aplicarRemitosRemotos(rem);
     } catch (e) {
       debugPrint('reparar remitos tras catálogo: $e');
-    } finally {
-      _reparandoRemitosTrasCatalogo = false;
+    }
+    try {
+      final ven = await _ventasCol
+          .orderBy('actualizadoEn', descending: true)
+          .limit(40)
+          .get();
+      if (ven.docs.isNotEmpty) await _aplicarVentasRemotas(ven);
+    } catch (e) {
+      debugPrint('reparar ventas tras catálogo: $e');
+    }
+    try {
+      final com = await _comprasCol
+          .orderBy('actualizadoEn', descending: true)
+          .limit(40)
+          .get();
+      if (com.docs.isNotEmpty) await _aplicarComprasRemotas(com);
+    } catch (e) {
+      debugPrint('reparar compras tras catálogo: $e');
     }
   }
 
@@ -5283,6 +5331,7 @@ class FirestoreSyncService {
         final db = await DatabaseHelper.instance.database;
         final batch = db.batch();
         var huboCambios = false;
+        final codigosTocados = <String>{};
         for (final producto in actual) {
           final local =
               await _cache.buscarPorCodigoIncluyendoEliminados(producto.codigo);
@@ -5338,6 +5387,7 @@ class FirestoreSyncService {
             continue;
           }
           huboCambios = true;
+          codigosTocados.add(producto.codigo.trim());
           final data = merged.toMap();
           data['actualizadoEn'] = producto.actualizadoEn ??
               merged.actualizadoEn ??
@@ -5365,11 +5415,14 @@ class FirestoreSyncService {
           await batch.commit(noResult: true);
           DataRefreshHub.instance.notifyProductos();
           DataRefreshHub.instance.notifyStock();
-          // Recuperación: remitos pudieron llegar antes que el catálogo;
-          // con el bug FK se perdían. Re-tirar recientes para completar ítems.
-          if (!PlatformCapabilities.isWindowsDesktop) {
-            unawaited(_repararRemitosTrasCatalogo());
+          // Stock: liberar holds de SKUs que acabaron de llegar y aplicar.
+          for (final cod in codigosTocados) {
+            if (cod.isEmpty) continue;
+            try {
+              await StockOpsPullHoldStore.instance.forceDueForCodigo(cod);
+            } catch (_) {}
           }
+          unawaited(_recuperarStockYDocsTrasCatalogo());
         }
         final pendiente = _productosPendientes;
         _productosPendientes = null;

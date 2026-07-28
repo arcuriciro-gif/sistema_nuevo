@@ -17,7 +17,7 @@ void main() {
       );
     });
 
-    test('malformed parked → avanza (no HOL eterno)', () {
+    test('malformed/pending parked → NO avanza (anti divergencia stock)', () {
       expect(
         shouldAdvanceStockOpsWatermark(
           consideredValid: 1,
@@ -25,7 +25,7 @@ void main() {
           skippedPendingApply: 1,
           blockersParkedInHolds: true,
         ),
-        isTrue,
+        isFalse,
       );
     });
   });

@@ -98,6 +98,20 @@ class StockOpsPullHoldStore {
     );
   }
 
+  /// Al llegar un SKU al catálogo: liberar backoff de holds de ese código
+  /// para que el sweeper aplique stock_ops enseguida (anti APK stock=0).
+  Future<int> forceDueForCodigo(String codigo) async {
+    final cod = codigo.trim();
+    if (cod.isEmpty) return 0;
+    final ahora = DateTime.now().toUtc().toIso8601String();
+    return (await _db).update(
+      'stock_ops_pull_holds',
+      {'retry_after': ahora, 'updated_at': ahora},
+      where: 'codigo = ?',
+      whereArgs: [cod],
+    );
+  }
+
   Future<int> count() async {
     final r = await (await _db).rawQuery(
       'SELECT COUNT(*) c FROM stock_ops_pull_holds',

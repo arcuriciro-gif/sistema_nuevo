@@ -45,12 +45,21 @@ void main() {
       );
     });
 
-    test('todos parked → advance', () {
+    test('todos parked → advance solo si no hay pending', () {
       expect(
         shouldAdvanceStockOpsWatermark(
           consideredValid: 3,
           skippedMissingProduct: 1,
           skippedPendingApply: 2,
+          blockersParkedInHolds: true,
+        ),
+        isFalse,
+      );
+      expect(
+        shouldAdvanceStockOpsWatermark(
+          consideredValid: 3,
+          skippedMissingProduct: 1,
+          skippedPendingApply: 0,
           blockersParkedInHolds: true,
         ),
         isTrue,

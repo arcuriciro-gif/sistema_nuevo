@@ -104,12 +104,24 @@ void main() {
       );
     });
 
-    test('pending_apply parked en holds SÍ avanza (anti-HOL)', () {
+    test('pending_apply parked NO avanza (anti divergencia stock)', () {
       expect(
         shouldAdvanceStockOpsWatermark(
           consideredValid: 0,
           skippedMissingProduct: 0,
           skippedPendingApply: 2,
+          blockersParkedInHolds: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('missing_product parked SÍ avanza (anti-HOL recoverable)', () {
+      expect(
+        shouldAdvanceStockOpsWatermark(
+          consideredValid: 0,
+          skippedMissingProduct: 2,
+          skippedPendingApply: 0,
           blockersParkedInHolds: true,
         ),
         isTrue,
