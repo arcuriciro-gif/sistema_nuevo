@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import '../../database/database_helper.dart';
 import '../domain/domain_event.dart';
 import '../domain/inventory_ledger_service.dart';
+import '../sync/cloud_sync_throttle.dart';
 import '../sync/sync_outbox.dart';
 import 'stock_reference_model.dart';
 
@@ -20,6 +21,7 @@ class StockRealHarness {
   final Map<String, int> _codigoToId = {};
 
   Future<void> open(Map<String, int> seedStock) async {
+    CloudSyncThrottle.resetForTests();
     // ignore: invalid_use_of_visible_for_testing_member
     await DatabaseHelper.instance.resetForTests(
       absolutePath: p.join(tmpDir.path, 'cert.db'),
@@ -40,6 +42,7 @@ class StockRealHarness {
   }
 
   Future<void> close() async {
+    CloudSyncThrottle.resetForTests();
     await DatabaseHelper.instance.cerrar();
   }
 
@@ -67,9 +70,10 @@ class StockRealHarness {
   Future<void> applyLocalish(StockCertEvent e) async {
     switch (e) {
       case LocalApply(:final eventId, :final codigo, :final delta, :final documentType):
-        await _apply(eventId, codigo, delta, documentType, enqueue: true);
+        // Sin outbox/cloud: evita jobs async que cierran la DB mid-PBT (CI Win).
+        await _apply(eventId, codigo, delta, documentType, enqueue: false);
       case LocalReplay(:final eventId, :final codigo, :final delta):
-        await _apply(eventId, codigo, delta, 'replay', enqueue: true);
+        await _apply(eventId, codigo, delta, 'replay', enqueue: false);
       case RemoteApply(:final opId, :final codigo, :final delta):
         final id = _codigoToId[codigo];
         if (id == null) return;
