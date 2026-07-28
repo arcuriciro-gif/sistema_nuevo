@@ -4574,18 +4574,8 @@ class FirestoreSyncService {
         final items = (data['items'] as List?) ?? const [];
         for (final raw in items) {
           final item = Map<String, dynamic>.from(raw as Map);
-          int? productoId = (item['productoId'] as num?)?.toInt();
           final codigo = item['productoCodigo']?.toString();
-          if (codigo != null && codigo.isNotEmpty) {
-            final prod = await db.query(
-              'productos',
-              columns: ['id'],
-              where: 'codigo = ?',
-              whereArgs: [codigo],
-              limit: 1,
-            );
-            if (prod.isNotEmpty) productoId = prod.first['id'] as int?;
-          }
+          final productoId = await _productoLocalIdPorCodigo(db, codigo);
           if (productoId == null) continue;
           await db.insert('compra_items', {
             'compraId': compraId,
@@ -4660,6 +4650,49 @@ class FirestoreSyncService {
     }
   }
 
+  /// Lookup producto local por codigo. Nunca acepta id del peer.
+  Future<int?> _productoLocalIdPorCodigo(
+    DatabaseExecutor db,
+    String? codigo,
+  ) async {
+    final cod = (codigo ?? '').trim();
+    if (cod.isEmpty) return null;
+    final prod = await db.query(
+      'productos',
+      columns: ['id'],
+      where: 'codigo = ?',
+      whereArgs: [cod],
+      limit: 1,
+    );
+    if (prod.isEmpty) return null;
+    return (prod.first['id'] as num?)?.toInt();
+  }
+
+  bool _reparandoRemitosTrasCatalogo = false;
+
+  /// Tras llegar productos: re-aplica remitos recientes (completa líneas).
+  Future<void> _repararRemitosTrasCatalogo() async {
+    if (_reparandoRemitosTrasCatalogo) return;
+    if (!BackendConfigService.instance.firebaseEnabled ||
+        !FirebaseBootstrap.isReady) {
+      return;
+    }
+    _reparandoRemitosTrasCatalogo = true;
+    try {
+      final rem = await _remitosCol
+          .orderBy('actualizadoEn', descending: true)
+          .limit(40)
+          .get();
+      if (rem.docs.isNotEmpty) {
+        await _aplicarRemitosRemotos(rem);
+      }
+    } catch (e) {
+      debugPrint('reparar remitos tras catálogo: $e');
+    } finally {
+      _reparandoRemitosTrasCatalogo = false;
+    }
+  }
+
   Future<void> _aplicarRemitosRemotos(
     QuerySnapshot<Map<String, dynamic>> snap,
   ) async {
@@ -4675,6 +4708,7 @@ class FirestoreSyncService {
       final remoteNumeros = <String>{};
       var hubo = false;
       for (final doc in actual.docs) {
+        try {
         final data = doc.data();
         final numero = data['numero']?.toString() ?? doc.id;
         if (isRemoteTombstone(data)) {
@@ -4762,20 +4796,10 @@ class FirestoreSyncService {
         final items = (data['items'] as List?) ?? const [];
         for (final raw in items) {
           final item = Map<String, dynamic>.from(raw as Map);
-          int? productoId = (item['productoId'] as num?)?.toInt();
           final codigo = item['productoCodigo']?.toString();
-          if (codigo != null && codigo.isNotEmpty) {
-            final prod = await db.query(
-              'productos',
-              columns: ['id'],
-              where: 'codigo = ?',
-              whereArgs: [codigo],
-              limit: 1,
-            );
-            if (prod.isNotEmpty) {
-              productoId = prod.first['id'] as int?;
-            }
-          }
+          final productoId = await _productoLocalIdPorCodigo(db, codigo);
+          // Si el producto aún no llegó al APK: guardar remito sin esa línea
+          // (antes: usaba productoId del PC → FK fail → perdía TODOS los remitos).
           if (productoId == null) continue;
 
           await db.insert('remito_items', {
@@ -4787,6 +4811,11 @@ class FirestoreSyncService {
             'costoUnitario': item['costoUnitario'] ?? 0,
             'ganancia': item['ganancia'] ?? 0,
           });
+        }
+        } catch (e) {
+          debugPrint(
+            'Aplicar remito ${doc.id}: $e (sigo con el resto)',
+          );
         }
       }
 
@@ -4947,22 +4976,9 @@ class FirestoreSyncService {
           final items = (data['items'] as List?) ?? const [];
           for (final raw in items) {
             final item = Map<String, dynamic>.from(raw as Map);
-            int? productoId = (item['productoId'] as num?)?.toInt();
             final codigo = item['productoCodigo']?.toString();
-            if (codigo != null && codigo.isNotEmpty) {
-              final prod = await db.query(
-                'productos',
-                columns: ['id'],
-                where: 'codigo = ?',
-                whereArgs: [codigo],
-                limit: 1,
-              );
-              if (prod.isNotEmpty) {
-                productoId = prod.first['id'] as int?;
-              }
-            }
-            // Si el producto no existe en esta PC, igual guardamos la línea
-            // con el id remoto (sin FK estricta) para no perder la venta.
+            final productoId = await _productoLocalIdPorCodigo(db, codigo);
+            // Si el producto no existe aún en este nodo: omitir línea (no peer id).
             if (productoId == null) continue;
 
             await db.insert('ventas_items', {
@@ -5196,6 +5212,11 @@ class FirestoreSyncService {
           await batch.commit(noResult: true);
           DataRefreshHub.instance.notifyProductos();
           DataRefreshHub.instance.notifyStock();
+          // Recuperación: remitos pudieron llegar antes que el catálogo;
+          // con el bug FK se perdían. Re-tirar recientes para completar ítems.
+          if (!PlatformCapabilities.isWindowsDesktop) {
+            unawaited(_repararRemitosTrasCatalogo());
+          }
         }
         final pendiente = _productosPendientes;
         _productosPendientes = null;
