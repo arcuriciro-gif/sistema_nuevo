@@ -5,32 +5,7 @@ on:
   push:
     branches:
       - main
-      - cursor/sync-scheduler-v2-e44b
-      - cursor/fix-apk-crash-sync21-e44b
-      - cursor/fix-stock-ops-convergencia-e44b
-      - cursor/fix-sync-ui-stutter-manual-e44b
-      - cursor/fix-manual-crash-stock-push-e44b
-      - cursor/sync-engine-forensic-rebuild-e44b
-      - cursor/fix-login-confirmacion-e44b
-      - cursor/fotos-productos-sync-e44b
-      - cursor/comparador-descripcion-costo-e44b
-      - cursor/release-mejoras-e44b
-      - cursor/ui-shell-fotos-bio-e44b
-      - cursor/productos-busqueda-eliminar-e44b
-      - cursor/fase0-fase1-seguridad-e44b
-      - cursor/fase2-sync-stock-e44b
-      - cursor/fase3-sync-conflictos-e44b
-      - cursor/ficha-cliente-foto-producto-e44b
-      - cursor/remitos-eliminar-sync-admin-e44b
-      - cursor/capacidad-1-plataforma-segura-e44b
-      - cursor/capacidad-2-sync-certificable-e44b
-      - cursor/capacidad-3-dominio-transaccional-e44b
-      - cursor/capacidad-4-autorizacion-real-e44b
-      - cursor/capacidad-5-release-readiness-e44b
-      - cursor/tenant-codigo-empresa-e44b
-      - cursor/fix-nube-eliminar-usuarios-e44b
-      - cursor/capacidad-6-integridad-stock-cc-e44b
-      - cursor/pagos-parciales-remitos-e44b
+      - 'cursor/**'
 
 jobs:
   build-windows:
@@ -39,7 +14,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -143,7 +118,7 @@ jobs:
           }
 
       - name: Subir Instalador_Windows (ZIP)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: Instalador_Windows
           path: Instalador_Windows
