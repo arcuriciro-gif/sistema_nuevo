@@ -444,6 +444,27 @@ class SyncOutbox {
     );
   }
 
+  /// Libera backoff de ops pending (p. ej. productos stuck con intentos 0
+  /// tras reinstall / cuarentena). Usado por "Actualizar ahora".
+  Future<int> clearBackoffPending({String? entityType}) async {
+    final db = await _db;
+    final ahora = DateTime.now().toUtc().toIso8601String();
+    if (entityType == null || entityType.isEmpty) {
+      return db.update(
+        'sync_outbox',
+        {'next_attempt_at': null, 'updated_at': ahora},
+        where: 'status = ? AND next_attempt_at IS NOT NULL',
+        whereArgs: [SyncOutboxStatus.pending],
+      );
+    }
+    return db.update(
+      'sync_outbox',
+      {'next_attempt_at': null, 'updated_at': ahora},
+      where: 'status = ? AND entity_type = ? AND next_attempt_at IS NOT NULL',
+      whereArgs: [SyncOutboxStatus.pending, entityType],
+    );
+  }
+
   Future<void> fail(String opId, Object error) async {
     final db = await _db;
     final rows = await db.query(
