@@ -247,7 +247,16 @@ void main() {
   });
 
   group('R4 — watermark HOL / hold-set', () {
-    test('blockers parked → advance permitido', () {
+    test('missing parked → advance; pending parked → NO', () {
+      expect(
+        shouldAdvanceStockOpsWatermark(
+          consideredValid: 2,
+          skippedMissingProduct: 1,
+          skippedPendingApply: 0,
+          blockersParkedInHolds: true,
+        ),
+        isTrue,
+      );
       expect(
         shouldAdvanceStockOpsWatermark(
           consideredValid: 2,
@@ -255,7 +264,7 @@ void main() {
           skippedPendingApply: 1,
           blockersParkedInHolds: true,
         ),
-        isTrue,
+        isFalse,
       );
     });
 

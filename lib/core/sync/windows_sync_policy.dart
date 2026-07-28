@@ -73,13 +73,13 @@ class WindowsSyncPolicy {
   static ({int maxPages, int pageSize, int maxApply, int recentLimit})
       stockOpsPullBudget({required int pendingProductos}) {
     if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
-      return (maxPages: 2, pageSize: 30, maxApply: 24, recentLimit: 80);
+      return (maxPages: 3, pageSize: 40, maxApply: 60, recentLimit: 120);
     }
     if (pendingProductos <= 50) {
-      return (maxPages: 1, pageSize: 15, maxApply: 8, recentLimit: 50);
+      return (maxPages: 2, pageSize: 25, maxApply: 30, recentLimit: 80);
     }
     // Subiendo catálogo: watermark chico, pero recientes sí (convergencia).
-    return (maxPages: 1, pageSize: 10, maxApply: 4, recentLimit: 40);
+    return (maxPages: 1, pageSize: 15, maxApply: 12, recentLimit: 60);
   }
 
   /// Soft-pull lane.
@@ -152,13 +152,13 @@ class WindowsSyncPolicy {
       return (
         negocioLimit: 5,
         clientesPage: 0,
-        stockMaxPages: 1,
-        stockPageSize: 8,
-        stockMaxApply: 3,
-        stockRecentLimit: 10,
-        stockRounds: 2,
+        stockMaxPages: 2,
+        stockPageSize: 20,
+        stockMaxApply: 20,
+        stockRecentLimit: 40,
+        stockRounds: 3,
         stockMicroBatch: 2,
-        yieldMs: 250,
+        yieldMs: 200,
         schedulerTicks: 1,
         pullClientes: false,
         pullConfig: false,
@@ -168,13 +168,13 @@ class WindowsSyncPolicy {
       return (
         negocioLimit: 8,
         clientesPage: 0,
-        stockMaxPages: 1,
-        stockPageSize: 10,
-        stockMaxApply: 4,
-        stockRecentLimit: 12,
+        stockMaxPages: 2,
+        stockPageSize: 25,
+        stockMaxApply: 30,
+        stockRecentLimit: 50,
         stockRounds: 3,
-        stockMicroBatch: 2,
-        yieldMs: 200,
+        stockMicroBatch: 3,
+        yieldMs: 150,
         schedulerTicks: 1,
         pullClientes: false,
         pullConfig: true,
@@ -183,23 +183,23 @@ class WindowsSyncPolicy {
     return (
       negocioLimit: 10,
       clientesPage: 0,
-      stockMaxPages: 1,
-      stockPageSize: 12,
-      stockMaxApply: 4,
-      stockRecentLimit: 15,
+      stockMaxPages: 3,
+      stockPageSize: 30,
+      stockMaxApply: 50,
+      stockRecentLimit: 80,
       stockRounds: 4,
-      stockMicroBatch: 3,
-      yieldMs: 150,
+      stockMicroBatch: 4,
+      yieldMs: 120,
       schedulerTicks: 1,
       pullClientes: false,
       pullConfig: true,
     );
   }
 
-  /// Catch-up inicial Windows: cupo mínimo de stock_ops (antes: 0 → diverge).
+  /// Catch-up inicial Windows: cupo real de stock_ops (antes: 4 → diverge).
   static ({int maxPages, int pageSize, int maxApply})
       windowsCatchupStockOpsBudget() =>
-          (maxPages: 1, pageSize: 8, maxApply: 4);
+          (maxPages: 3, pageSize: 40, maxApply: 60);
 
   /// Plan de drain del outbox Windows (scheduler v2).
   ///
