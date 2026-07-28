@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/inventory/stock_kpi.dart';
 import '../core/security/authorization_service.dart';
 import '../core/utils/busqueda_texto.dart';
 import '../models/lista_precio.dart';
@@ -68,8 +69,8 @@ class _ProductosPageState extends State<ProductosPage> {
 
   int get _totalProductos => productos.length;
   double get _valorStock => productos.fold(0, (s, p) => s + p.precio * p.stock);
-  int get _sinStock => productos.where((p) => p.stock == 0).length;
-  int get _conStock => productos.where((p) => p.stock > 0).length;
+  int get _sinStock => productos.where((p) => StockKpi.sinStock(p.stock)).length;
+  int get _conStock => productos.where((p) => StockKpi.conStock(p.stock)).length;
 
   @override
   void initState() {
@@ -132,10 +133,10 @@ class _ProductosPageState extends State<ProductosPage> {
       final matchProveedor =
           _filtroProveedor == null || p.proveedor == _filtroProveedor;
       final matchFavorito = !_soloFavoritos || p.favorito;
-      final matchSinStock = !_soloSinStock || p.stock == 0;
-      final matchConStock = !_soloConStock || p.stock > 0;
+      final matchSinStock = !_soloSinStock || StockKpi.sinStock(p.stock);
+      final matchConStock = !_soloConStock || StockKpi.conStock(p.stock);
       final matchStockBajo = !_soloStockBajo ||
-          p.stock == 0 ||
+          StockKpi.sinStock(p.stock) ||
           (p.stockMinimo > 0 ? p.stock <= p.stockMinimo : p.stock <= 5);
 
       return matchBusqueda &&

@@ -284,21 +284,26 @@ class FirestoreSyncService {
       // Sin micro-drain, sin SafeMode, sin listeners, sin Storage.
       if (windows) {
         syncStatusLabel = 'Sincronizando…';
-        syncStatusDetail = 'Limpiando cola stock trabada…';
+        syncStatusDetail = 'Arranque seguro…';
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
             try {
               await _cargarColasPersistidas();
+              syncStatusDetail = 'Revisando cola local…';
+              DataRefreshHub.instance.notifyTodo();
               // NO rewind watermark en boot (ráfaga + seed tumbaba EXE).
               // Solo stock MUERTO/reclaim eterno — NO borrar pending frescos
               // (si no, el stock del .exe nunca llega al APK).
               final purged = await SyncOutbox.instance.purgeStuckStockOps(
                 minAttempts: 5,
                 onlyLastErrorContains: 'reclaimed_stale_inflight',
-                proveCloudApplied: (remoteOpId) =>
-                    _remote.stockOpCloudApplied(remoteOpId),
+                // Boot: no consultar Firestore por cada op (deja el badge
+                // eterno en "Limpiando cola stock trabada…").
+                limit: 40,
+                proveCloudApplied: null,
               );
               final recovered = await SyncOutbox.instance.recoverDeadStockOps(
+                limit: 8,
                 proveCloudApplied: (remoteOpId) =>
                     _remote.stockOpCloudApplied(remoteOpId),
               );
@@ -544,8 +549,8 @@ class FirestoreSyncService {
             await SyncOutbox.instance.purgeStuckStockOps(
               minAttempts: 8,
               onlyLastErrorContains: 'reclaimed_stale_inflight',
-              proveCloudApplied: (remoteOpId) =>
-                  _remote.stockOpCloudApplied(remoteOpId),
+              limit: 20,
+              proveCloudApplied: null,
             );
           }
 

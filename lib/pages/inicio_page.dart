@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/inventory/stock_kpi.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../services/analytics_service.dart';
 import '../services/auth_service.dart';
@@ -92,8 +93,10 @@ class _InicioPageState extends State<InicioPage> {
     final docs = await AnalyticsService.instance.listarDocumentosVenta();
     final compras = await _compraService.obtenerTodasConProveedor();
 
-    final sinStock = productos.where((p) => p.stock <= 0).length;
-    final criticos = productos.where((p) => p.stock > 0 && p.stock <= 5).length;
+    final sinStock = productos.where((p) => StockKpi.sinStock(p.stock)).length;
+    final criticos = productos
+        .where((p) => StockKpi.conStock(p.stock) && p.stock <= 5)
+        .length;
 
     final actividad = <Map<String, dynamic>>[];
     for (final d in docs.take(8)) {

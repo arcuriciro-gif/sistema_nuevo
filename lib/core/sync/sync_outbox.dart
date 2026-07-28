@@ -697,6 +697,7 @@ GROUP BY l
   Future<int> purgeStuckStockOps({
     int minAttempts = 3,
     String? onlyLastErrorContains,
+    int limit = 300,
     Future<bool> Function(String remoteOpId)? proveCloudApplied,
   }) async {
     final db = await _db;
@@ -711,7 +712,7 @@ GROUP BY l
       ],
       where: "entity_type = 'stock_op' AND status IN (?, ?)",
       whereArgs: [SyncOutboxStatus.pending, SyncOutboxStatus.inflight],
-      limit: 300,
+      limit: limit,
     );
     var n = 0;
     final ahora = DateTime.now().toUtc().toIso8601String();
