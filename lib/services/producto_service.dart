@@ -645,9 +645,28 @@ class ProductoService {
       }
     }
     try {
-      await db.delete('productos', where: 'id = ?', whereArgs: [id]);
+      // foreign_keys ON: limpiar hijos que bloquean el hard-delete.
+      await db.transaction((txn) async {
+        await txn.delete(
+          'movimientos_stock',
+          where: 'productoId = ?',
+          whereArgs: [id],
+        );
+        await txn.delete(
+          'historial_precios',
+          where: 'productoId = ?',
+          whereArgs: [id],
+        );
+        await txn.delete(
+          'inventory_ledger',
+          where: 'product_id = ?',
+          whereArgs: [id],
+        );
+        await txn.delete('productos', where: 'id = ?', whereArgs: [id]);
+      });
     } catch (_) {
-      // Puede haberlo borrado el tombstone remoto en paralelo.
+      // Puede haberlo borrado el tombstone remoto en paralelo, o
+      // quedar FK de ítems de documentos (remito/venta/compra).
     }
     await AuthService.instance.registrarCambio(
       'ELIMINAR_DEFINITIVO_PRODUCTO',

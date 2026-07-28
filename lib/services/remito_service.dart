@@ -407,13 +407,17 @@ class RemitoService {
     DataRefreshHub.instance.notifyTodo();
   }
 
-  Future<int> _ledgerNetRemito(DatabaseExecutor txn, int remitoId) async {
-    final r = await txn.rawQuery(
-      "SELECT COALESCE(SUM(delta), 0) s FROM inventory_ledger "
-      "WHERE document_type = 'remito' AND document_id = ?",
-      ['$remitoId'],
+  Future<int> _ledgerNetRemito(
+    DatabaseExecutor txn,
+    int remitoId, {
+    String? numero,
+  }) {
+    return ledgerNetForDocumentCandidates(
+      txn,
+      documentType: 'remito',
+      numero: numero,
+      localId: remitoId,
     );
-    return (r.first['s'] as num?)?.toInt() ?? 0;
   }
 
   Future<void> anular(int id, {bool syncAfter = true}) async {
@@ -475,7 +479,7 @@ class RemitoService {
         ).toJson());
       }
 
-      final net = await _ledgerNetRemito(txn, id);
+      final net = await _ledgerNetRemito(txn, id, numero: numero);
       // Remito siempre entrega: net==0 + líneas = seguidor legado → revertir.
       final debeRevertir = DocumentStockReversalPolicy.shouldReverseOnAnular(
         ledgerNet: net,
@@ -623,7 +627,7 @@ class RemitoService {
         whereArgs: [id],
       );
 
-      final net = await _ledgerNetRemito(txn, id);
+      final net = await _ledgerNetRemito(txn, id, numero: numero);
       final debeEntregar = DocumentStockReversalPolicy.shouldRedeliverOnRestore(
         ledgerNet: net,
         hasLines: lines.isNotEmpty,
