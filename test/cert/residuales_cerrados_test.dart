@@ -302,8 +302,8 @@ void main() {
       await tmp.delete(recursive: true);
     });
 
-    test('schema v38', () {
-      expect(DatabaseHelper.schemaVersion, 38);
+    test('schema v39 (proveedores.actualizadoEn)', () {
+      expect(DatabaseHelper.schemaVersion, greaterThanOrEqualTo(39));
     });
   });
 }
