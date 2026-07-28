@@ -804,8 +804,38 @@ class FirestoreSyncService {
           }
         }
 
-        // Fase 4 — un tick de outbox (prioriza stock_op / docs).
+        // Fase 4 — drenar OUTBOX local (push). Sin esto, productos stuck
+        // (ej. #2 #3 #4 #5 #2899) quedan eternamente con intentos 0:
+        // Actualizar ahora solo hacía PULL + 1 tick scheduler.
         if (_puedeEscribirRemoto) {
+          try {
+            await SyncOutbox.instance.ackOrphanUpserts();
+            await SyncOutbox.instance.clearBackoffPending(entityType: 'producto');
+            await SyncOutbox.instance.clearBackoffPending(entityType: 'stock_op');
+            // Productos primero (lo que el usuario ve siempre pendiente).
+            await _procesarOutboxDrain(
+              maxBatches: 4,
+              claimLimit: 8,
+              entityTypes: const ['producto'],
+            );
+            await Future<void>.delayed(
+              Duration(milliseconds: budget.yieldMs),
+            );
+            await _procesarOutboxDrain(
+              maxBatches: 3,
+              claimLimit: 6,
+              entityTypes: const [
+                'stock_op',
+                'venta',
+                'remito',
+                'compra',
+                'cliente',
+                'proveedor',
+              ],
+            );
+          } catch (e) {
+            debugPrint('actualizarAhora drain productos/docs: $e');
+          }
           try {
             await SyncScheduler.instance.ensureRestored();
             for (var i = 0; i < budget.schedulerTicks; i++) {
@@ -4145,6 +4175,10 @@ class FirestoreSyncService {
     if (!_puedeEscribirRemoto) {
       _colaProductos.add(productoId);
       unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
+      // Desde outbox: NO retornar ok (el caller haría ACK fantasma).
+      if (desdeOutbox) {
+        throw StateError('producto $productoId: sin escritura remota; reencolar');
+      }
       return;
     }
     try {
@@ -4155,7 +4189,10 @@ class FirestoreSyncService {
         whereArgs: [productoId],
         limit: 1,
       );
-      if (rows.isEmpty) return;
+      if (rows.isEmpty) {
+        // Orphan: fila borrada → OK (caller ACK desde outbox).
+        return;
+      }
       var producto = Producto.fromMap(rows.first);
       final ahora = DateTime.now().toUtc().toIso8601String();
       if (producto.actualizadoEn == null || producto.actualizadoEn!.isEmpty) {
