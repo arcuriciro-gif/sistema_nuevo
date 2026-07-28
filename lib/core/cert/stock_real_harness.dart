@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../database/database_helper.dart';
 import '../domain/domain_event.dart';
@@ -11,6 +10,8 @@ import 'stock_reference_model.dart';
 
 /// Ejecuta el subconjunto LOCAL/REMOTE de una secuencia sobre SQLite real
 /// y compara contra el modelo de referencia (misma proyección de eventos).
+///
+/// Solo para certificación / tests (no runtime de producto).
 class StockRealHarness {
   StockRealHarness({required this.tmpDir});
 
@@ -19,6 +20,7 @@ class StockRealHarness {
   final Map<String, int> _codigoToId = {};
 
   Future<void> open(Map<String, int> seedStock) async {
+    // ignore: invalid_use_of_visible_for_testing_member
     await DatabaseHelper.instance.resetForTests(
       absolutePath: p.join(tmpDir.path, 'cert.db'),
     );

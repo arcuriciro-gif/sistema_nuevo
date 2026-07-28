@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:sistema_nuevo/core/cert/stock_real_harness.dart';
 import 'package:sistema_nuevo/core/cert/stock_reference_model.dart';
 import 'package:sistema_nuevo/core/cert/stock_sequence_generator.dart';
 import 'package:sistema_nuevo/core/domain/domain_event.dart';
@@ -422,7 +421,7 @@ void main() {
           ...order,
           ...order.map(
             (e) => LocalReplay(
-              eventId: (e as LocalApply).eventId,
+              eventId: e.eventId,
               codigo: e.codigo,
               delta: e.delta,
             ),
