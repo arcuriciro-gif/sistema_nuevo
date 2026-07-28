@@ -720,53 +720,16 @@ class FirestoreSyncService {
         );
         var stockAppliedHint = 0;
 
-        // Fase 1 — STOCK primero (convergencia EXE↔APK).
+        // Fase 0 — rewind one-shot si hace falta (ops perdidas por watermark).
         try {
-          try {
-            await _remote.reconcilizarStockOpsPendientes(limit: 6);
-          } catch (e) {
-            debugPrint('actualizarAhora reconcilizar: $e');
-          }
-          await _runStockOpsLane(() async {
-            for (var round = 0; round < budget.stockRounds; round++) {
-              await _pullStockOpsRemotas(
-                maxPages: budget.stockMaxPages,
-                pageSize: budget.stockPageSize,
-                maxApply: budget.stockMaxApply,
-                microBatchSize: budget.stockMicroBatch,
-                yieldMs: budget.yieldMs,
-              );
-              await Future<void>.delayed(
-                Duration(milliseconds: budget.yieldMs),
-              );
-              await _pullStockOpsRecientes(
-                limit: budget.stockRecentLimit,
-                maxApply: budget.stockMaxApply,
-                microBatchSize: budget.stockMicroBatch,
-                yieldMs: budget.yieldMs,
-              );
-              await Future<void>.delayed(
-                Duration(milliseconds: budget.yieldMs),
-              );
-              stockAppliedHint += await _sweepStockOpsHolds(limit: 4);
-              await Future<void>.delayed(
-                Duration(milliseconds: budget.yieldMs),
-              );
-            }
-          });
+          await _maybeRewindStockOpsWatermarkForConvergence();
+        } catch (_) {}
+
+        // Fase 1 — STOCK: PUSH local → pull grande → repair (parity EXE↔APK).
+        try {
+          stockAppliedHint = await _convergirStockOpsAhora(windows: true);
         } catch (e) {
           debugPrint('actualizarAhora stock_ops: $e');
-        }
-
-        // Fase 1b — proyección local vs ledger (crash mid-apply).
-        try {
-          final repaired = await InventoryLedgerService.instance
-              .repararProyeccionesDivergentes(limit: 60);
-          if (repaired > 0) {
-            debugPrint('actualizarAhora reparación proyección: $repaired');
-          }
-        } catch (e) {
-          debugPrint('actualizarAhora reparación: $e');
         }
 
         // Fase 2 — config liviana (opcional).
@@ -804,15 +767,12 @@ class FirestoreSyncService {
           }
         }
 
-        // Fase 4 — drenar OUTBOX local (push). Sin esto, productos stuck
-        // (ej. #2 #3 #4 #5 #2899) quedan eternamente con intentos 0:
-        // Actualizar ahora solo hacía PULL + 1 tick scheduler.
+        // Fase 4 — drenar OUTBOX local (productos + docs).
         if (_puedeEscribirRemoto) {
           try {
             await SyncOutbox.instance.ackOrphanUpserts();
             await SyncOutbox.instance.clearBackoffPending(entityType: 'producto');
             await SyncOutbox.instance.clearBackoffPending(entityType: 'stock_op');
-            // Productos primero (lo que el usuario ve siempre pendiente).
             await _procesarOutboxDrain(
               maxBatches: 4,
               claimLimit: 8,
@@ -822,8 +782,8 @@ class FirestoreSyncService {
               Duration(milliseconds: budget.yieldMs),
             );
             await _procesarOutboxDrain(
-              maxBatches: 3,
-              claimLimit: 6,
+              maxBatches: 4,
+              claimLimit: 8,
               entityTypes: const [
                 'stock_op',
                 'venta',
@@ -856,6 +816,15 @@ class FirestoreSyncService {
             debugPrint('actualizarAhora drain: $e');
           }
         }
+        // Fase 5 — segundo pull stock (ops que acabamos de subir).
+        try {
+          await _pullStockOpsRecientes(
+            limit: 200,
+            maxApply: 120,
+            microBatchSize: 4,
+            yieldMs: budget.yieldMs,
+          );
+        } catch (_) {}
         debugPrint(
           'actualizarAhora Windows done stockHint=$stockAppliedHint '
           'ms=${sw.elapsedMilliseconds}',
@@ -863,29 +832,27 @@ class FirestoreSyncService {
       } else {
         try {
           try {
-            await _remote.reconcilizarStockOpsPendientes(limit: 20);
+            await _maybeRewindStockOpsWatermarkForConvergence();
           } catch (_) {}
-          await _runStockOpsLane(() async {
-            await _pullStockOpsRemotas(maxPages: 2, pageSize: 40, maxApply: 40);
-            await _pullStockOpsRecientes(limit: 50, maxApply: 40);
-          });
-          try {
-            await InventoryLedgerService.instance
-                .repararProyeccionesDivergentes(limit: 80);
-          } catch (_) {}
+          await _convergirStockOpsAhora(windows: false);
           final rem = await _remitosCol
               .orderBy('actualizadoEn', descending: true)
-              .limit(25)
+              .limit(40)
               .get();
           if (rem.docs.isNotEmpty) await _aplicarRemitosRemotos(rem);
           final ven = await _ventasCol
               .orderBy('actualizadoEn', descending: true)
-              .limit(25)
+              .limit(40)
               .get();
           if (ven.docs.isNotEmpty) await _aplicarVentasRemotas(ven);
+          final com = await _comprasCol
+              .orderBy('actualizadoEn', descending: true)
+              .limit(40)
+              .get();
+          if (com.docs.isNotEmpty) await _aplicarComprasRemotas(com);
           final cli = await _col('clientes')
               .orderBy('actualizadoEn', descending: true)
-              .limit(25)
+              .limit(40)
               .get();
           if (cli.docs.isNotEmpty) await _aplicarClientesRemotos(cli);
           final listas = await _configDoc('listas_precios').get();
@@ -1160,32 +1127,109 @@ class FirestoreSyncService {
   static const _prefsStockOpsWmRewindV142 = 'stock_ops_wm_rewind_v142';
   static const _prefsStockOpsWmRewindV144 = 'stock_ops_wm_rewind_v144';
   static const _prefsStockOpsWmRewindV151 = 'stock_ops_wm_rewind_v151';
+  static const _prefsStockOpsWmRewindV153 = 'stock_ops_wm_rewind_v153';
 
   /// Rebobina watermark stock_ops (recupera ops perdidas por avance prematuro).
-  /// v1.4.12 / campo: 30 días — una sola vez (divergencia residual tras crash
-  /// de "Actualizar ahora" y HOL previo al hold-set).
+  /// v1.4.18 / campo: 90 días — divergencia EXE↔APK (1127 −2 vs 4, etc.).
   Future<void> _maybeRewindStockOpsWatermarkForConvergence() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(_prefsStockOpsWmRewindV151) == true) return;
+      if (prefs.getBool(_prefsStockOpsWmRewindV153) == true) return;
       final from = DateTime.now()
           .toUtc()
-          .subtract(const Duration(days: 30))
+          .subtract(const Duration(days: 90))
           .toIso8601String();
       await SyncWatermarkStore.instance.saveMap(_wmStockOpsDoc, {
         'afterDocId': '',
         'afterAt': from,
         'v': 'at_v2',
         'rewoundAt': DateTime.now().toUtc().toIso8601String(),
-        'rewoundReason': 'field_divergence_v151',
+        'rewoundReason': 'field_stock_parity_v153',
       });
+      await prefs.setBool(_prefsStockOpsWmRewindV153, true);
       await prefs.setBool(_prefsStockOpsWmRewindV151, true);
       await prefs.setBool(_prefsStockOpsWmRewindV144, true);
       await prefs.setBool(_prefsStockOpsWmRewindV142, true);
-      debugPrint('stock_ops watermark: rewind 30d (convergencia v1.4.12)');
+      debugPrint('stock_ops watermark: rewind 90d (parity v1.4.18)');
     } catch (e) {
       debugPrint('stock_ops watermark rewind: $e');
     }
+  }
+
+  /// Convergencia stock P0: PUSH local → reconciliar nube → PULL grande → repair.
+  ///
+  /// Campo: EXE 1127=-2 / APK=4 — el EXE aplicó salidas que el APK no bajó
+  /// porque el pull era chico y/o las ops no estaban `applied` en nube.
+  Future<int> _convergirStockOpsAhora({required bool windows}) async {
+    var applied = 0;
+    DomainBootstrap.ensureInitialized();
+    syncStatusDetail = windows
+        ? 'Subiendo movimientos de stock…'
+        : 'Bajando movimientos de stock…';
+    DataRefreshHub.instance.notifyTodo();
+
+    // 1) Windows: primero SUBIR stock_ops locales (si no, el APK nunca los ve).
+    if (windows && _puedeEscribirRemoto) {
+      try {
+        await SyncOutbox.instance.clearBackoffPending(entityType: 'stock_op');
+        await _procesarOutboxDrain(
+          maxBatches: 10,
+          claimLimit: 10,
+          entityTypes: const ['stock_op'],
+        );
+      } catch (e) {
+        debugPrint('convergirStock push outbox: $e');
+      }
+    }
+
+    // 2) Completar pending_apply/claimed en nube.
+    try {
+      await _remote.reconcilizarStockOpsPendientes(limit: windows ? 50 : 100);
+    } catch (e) {
+      debugPrint('convergirStock reconcilizar: $e');
+    }
+
+    // 3) PULL grande (recientes no dependen del watermark).
+    await _runStockOpsLane(() async {
+      try {
+        await _pullStockOpsRecientes(
+          limit: windows ? 400 : 600,
+          maxApply: windows ? 250 : 400,
+          microBatchSize: windows ? 4 : 8,
+          yieldMs: windows ? 80 : 20,
+        );
+      } catch (e) {
+        debugPrint('convergirStock recientes: $e');
+      }
+      try {
+        await _pullStockOpsRemotas(
+          maxPages: windows ? 8 : 20,
+          pageSize: 50,
+          maxApply: windows ? 200 : 500,
+          microBatchSize: windows ? 4 : 10,
+          yieldMs: windows ? 80 : 20,
+        );
+      } catch (e) {
+        debugPrint('convergirStock watermark: $e');
+      }
+      applied += await _sweepStockOpsHolds(limit: windows ? 60 : 120);
+    });
+
+    // 4) Alinear proyección productos.stock ↔ ledger.
+    try {
+      final repaired = await InventoryLedgerService.instance
+          .repararProyeccionesDivergentes(limit: 400);
+      if (repaired > 0) {
+        debugPrint('convergirStock repair proyección: $repaired');
+        applied += repaired;
+      }
+    } catch (e) {
+      debugPrint('convergirStock repair: $e');
+    }
+
+    DataRefreshHub.instance.notifyStock();
+    DataRefreshHub.instance.notifyProductos();
+    return applied;
   }
 
   /// Una página por colección (sin `.get()` completo — A2).
