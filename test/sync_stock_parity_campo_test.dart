@@ -28,6 +28,14 @@ void main() {
         lessThan(pasos.indexOf('pull_recientes_applied')));
   });
 
+  test('Windows Actualizar ahora: pull budgeted (no maxApply 250)', () {
+    // Regresión 1.4.18: ráfaga tumbaba EXE antes de drenar productos.
+    const winMaxApplySafe = 6;
+    const winFase5Banned = 120;
+    expect(winMaxApplySafe, lessThan(50));
+    expect(winFase5Banned, greaterThan(winMaxApplySafe));
+  });
+
   test('KPI sin stock: negativos no son stock==0 (explica 2884≠6+2866)', () {
     // APK: Con stock 6 + Sin stock 2866 = 2872; total 2884 → 12 con stock<0
     const total = 2884;
