@@ -34,11 +34,9 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
-      # Windows runners: stress/PBT a veces fallan post-test (database_closed)
-      # por jobs async del outbox. No bloquear el instalador del usuario.
+      # Stress/PBT se escalan solos en Platform.isWindows (ver test/*).
       - name: Tests
         id: tests
-        continue-on-error: true
         run: flutter test
 
       - name: Build Windows release
@@ -122,7 +120,7 @@ jobs:
           }
 
       - name: Subir Instalador_Windows (ZIP)
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: Instalador_Windows
           path: Instalador_Windows
