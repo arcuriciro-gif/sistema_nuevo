@@ -209,7 +209,8 @@ CREATE TABLE proveedores(
   whatsapp TEXT DEFAULT '',
   web TEXT DEFAULT '',
   condicionesComerciales TEXT DEFAULT '',
-  tiempoEntrega TEXT DEFAULT ''
+  tiempoEntrega TEXT DEFAULT '',
+  actualizadoEn TEXT DEFAULT ''
 )
 ''');
 
@@ -1107,6 +1108,13 @@ CREATE TABLE IF NOT EXISTS ventas_items(
     if (oldVersion < 38) {
       await _migrarStockOpsPullHoldsV38(db);
     }
+    if (oldVersion < 39) {
+      // Fresh onCreate v38 omitía actualizadoEn en proveedores → sync
+      // fallaba con "no such column" y abría circuit_open (campo notebook).
+      await _agregarColumnas(db, 'proveedores', {
+        'actualizadoEn': "TEXT DEFAULT ''",
+      });
+    }
   }
 
   /// Auditoría forense 1.4.5: dedupe durable de stock_ops (reemplaza prefs).
@@ -1704,5 +1712,5 @@ CREATE TABLE IF NOT EXISTS wa_catalog_items(
   }
 
   /// Versión de schema declarada por la app (Capacidad 5 / panel técnico).
-  static const int schemaVersion = 38;
+  static const int schemaVersion = 39;
 }

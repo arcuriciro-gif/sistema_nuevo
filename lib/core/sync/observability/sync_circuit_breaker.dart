@@ -128,4 +128,20 @@ class SyncCircuitBreaker {
     lastProbeAt = null;
     extraWaitMs = 0;
   }
+
+  /// Tras curar un error de schema/local: cerrar breaker para no dejar
+  /// la cola en circuit_open eterno (campo proveedores.actualizadoEn).
+  void forceClose({String reason = 'heal'}) {
+    state = CircuitState.closed;
+    failureStreak = 0;
+    successStreak = 0;
+    openedAt = null;
+    lastProbeAt = null;
+    extraWaitMs = 0;
+    SyncFlightRecorder.instance.record(
+      kind: 'circuit',
+      message: 'force_closed',
+      data: {'reason': reason},
+    );
+  }
 }

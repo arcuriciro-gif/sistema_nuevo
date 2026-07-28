@@ -330,6 +330,19 @@ class FirestoreSyncService {
               if (orphans > 0) {
                 debugPrint('Outbox: ACK $orphans huérfanos');
               }
+              // Heal: columna proveedores.actualizadoEn + liberar cola
+              // trabada por circuit_open tras el error de schema.
+              try {
+                await SyncOutbox.instance
+                    .clearBackoffPending(entityType: 'proveedor');
+                await SyncOutbox.instance
+                    .clearBackoffPending(entityType: 'producto');
+                SyncCircuitBreaker.instance.forceClose(
+                  reason: 'windows_boot_heal',
+                );
+              } catch (e) {
+                debugPrint('Outbox Windows heal circuit: $e');
+              }
 
               final breakdown = await SyncOutbox.instance.pendingBreakdown();
               final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
@@ -736,6 +749,11 @@ class FirestoreSyncService {
                 .clearBackoffPending(entityType: 'producto');
             await SyncOutbox.instance
                 .clearBackoffPending(entityType: 'stock_op');
+            await SyncOutbox.instance
+                .clearBackoffPending(entityType: 'proveedor');
+            SyncCircuitBreaker.instance.forceClose(
+              reason: 'actualizar_ahora_heal',
+            );
             // Productos stuck (#2..#5,#2899) — primero, lo que el usuario ve.
             await _procesarOutboxDrain(
               maxBatches: 2,
