@@ -1632,8 +1632,8 @@ class FirestoreSyncService {
       syncInBackground(
         () async {
           try {
-            await _pullStockOpsRemotas(maxPages: 3, pageSize: 50);
-            await _pullStockOpsRecientes(limit: 80);
+            await _pullStockOpsRemotas(maxPages: 6, pageSize: 80);
+            await _pullStockOpsRecientes(limit: 200);
           } catch (e) {
             debugPrint('Pull stock_ops mobile: $e');
           }
