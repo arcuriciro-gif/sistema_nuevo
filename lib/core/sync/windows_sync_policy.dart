@@ -148,17 +148,19 @@ class WindowsSyncPolicy {
     bool pullClientes,
     bool pullConfig,
   }) manualRefreshBudgetWindows({required int pendingProductos}) {
+    // Anti-crash: maxApply por ronda chico + más rondas + recentLimit alto.
+    // Subir maxApply a 50 tumbaba el .exe (regresión vs 1.4.12).
     if (pendingProductos >= 50) {
       return (
         negocioLimit: 5,
         clientesPage: 0,
-        stockMaxPages: 2,
-        stockPageSize: 20,
-        stockMaxApply: 20,
-        stockRecentLimit: 40,
+        stockMaxPages: 1,
+        stockPageSize: 12,
+        stockMaxApply: 4,
+        stockRecentLimit: 25,
         stockRounds: 3,
         stockMicroBatch: 2,
-        yieldMs: 200,
+        yieldMs: 220,
         schedulerTicks: 1,
         pullClientes: false,
         pullConfig: false,
@@ -169,12 +171,12 @@ class WindowsSyncPolicy {
         negocioLimit: 8,
         clientesPage: 0,
         stockMaxPages: 2,
-        stockPageSize: 25,
-        stockMaxApply: 30,
-        stockRecentLimit: 50,
-        stockRounds: 3,
-        stockMicroBatch: 3,
-        yieldMs: 150,
+        stockPageSize: 15,
+        stockMaxApply: 5,
+        stockRecentLimit: 35,
+        stockRounds: 4,
+        stockMicroBatch: 2,
+        yieldMs: 180,
         schedulerTicks: 1,
         pullClientes: false,
         pullConfig: true,
@@ -183,23 +185,23 @@ class WindowsSyncPolicy {
     return (
       negocioLimit: 10,
       clientesPage: 0,
-      stockMaxPages: 3,
-      stockPageSize: 30,
-      stockMaxApply: 50,
-      stockRecentLimit: 80,
-      stockRounds: 4,
-      stockMicroBatch: 4,
-      yieldMs: 120,
+      stockMaxPages: 2,
+      stockPageSize: 15,
+      stockMaxApply: 6,
+      stockRecentLimit: 40,
+      stockRounds: 5,
+      stockMicroBatch: 3,
+      yieldMs: 140,
       schedulerTicks: 1,
       pullClientes: false,
       pullConfig: true,
     );
   }
 
-  /// Catch-up inicial Windows: cupo real de stock_ops (antes: 4 → diverge).
+  /// Catch-up inicial Windows: suficiente para converger sin ráfaga letal.
   static ({int maxPages, int pageSize, int maxApply})
       windowsCatchupStockOpsBudget() =>
-          (maxPages: 3, pageSize: 40, maxApply: 60);
+          (maxPages: 2, pageSize: 25, maxApply: 20);
 
   /// Plan de drain del outbox Windows (scheduler v2).
   ///

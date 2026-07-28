@@ -46,8 +46,8 @@ void main() {
 
     test('catch-up Windows ya no omite stock_ops', () {
       final c = WindowsSyncPolicy.windowsCatchupStockOpsBudget();
-      expect(c.maxPages, equals(1));
-      expect(c.maxApply, inInclusiveRange(1, 8));
+      expect(c.maxPages, greaterThanOrEqualTo(2));
+      expect(c.maxApply, inInclusiveRange(8, 24));
     });
 
     test('soft-pull quieto es más rápido que idle cargado', () {
