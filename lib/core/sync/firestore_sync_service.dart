@@ -754,7 +754,17 @@ class FirestoreSyncService {
             SyncCircuitBreaker.instance.forceClose(
               reason: 'actualizar_ahora_heal',
             );
-            // Productos stuck (#2..#5,#2899) — primero, lo que el usuario ve.
+            // Proveedores primero: el error de schema abría el circuit y
+            // bloqueaba también los 92 productos.
+            await _procesarOutboxDrain(
+              maxBatches: 2,
+              claimLimit: 7,
+              entityTypes: const ['proveedor'],
+            );
+            await Future<void>.delayed(
+              Duration(milliseconds: budget.yieldMs),
+            );
+            // Productos stuck — lo que el usuario ve.
             await _procesarOutboxDrain(
               maxBatches: 2,
               claimLimit: 5,
