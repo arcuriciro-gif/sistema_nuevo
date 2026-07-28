@@ -20,18 +20,19 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  group('EXE manual refresh hardening 1.4.12', () {
-    test('presupuesto quieto prioriza stock y evita clientes masivos', () {
+  group('EXE manual refresh hardening 1.4.20', () {
+    test('presupuesto push-only: sin rondas de pull, sin clientes', () {
       final b = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 0,
       );
-      expect(b.stockRounds * b.stockMaxApply, greaterThanOrEqualTo(12));
+      expect(b.stockRounds, equals(0));
+      expect(b.stockMaxApply, lessThanOrEqualTo(2));
       expect(b.pullClientes, isFalse);
-      expect(b.negocioLimit, lessThanOrEqualTo(10));
-      expect(b.stockMicroBatch, lessThanOrEqualTo(b.stockMaxApply));
+      expect(b.negocioLimit, equals(0));
+      expect(b.pullConfig, isFalse);
     });
 
-    test('con cola de productos el presupuesto se reduce (anti-crash)', () {
+    test('con cola de productos sigue push-only (anti-crash)', () {
       final quiet = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 0,
       );
@@ -39,15 +40,14 @@ void main() {
         pendingProductos: 100,
       );
       expect(busy.stockMaxApply, lessThanOrEqualTo(quiet.stockMaxApply));
-      expect(busy.negocioLimit, lessThanOrEqualTo(quiet.negocioLimit));
-      expect(busy.yieldMs, greaterThanOrEqualTo(quiet.yieldMs));
+      expect(busy.stockRounds, equals(0));
       expect(busy.pullConfig, isFalse);
     });
 
-    test('catch-up Windows ya no omite stock_ops', () {
+    test('catch-up Windows techo ≤4', () {
       final c = WindowsSyncPolicy.windowsCatchupStockOpsBudget();
-      expect(c.maxPages, greaterThanOrEqualTo(2));
-      expect(c.maxApply, inInclusiveRange(8, 24));
+      expect(c.maxPages, greaterThanOrEqualTo(1));
+      expect(c.maxApply, lessThanOrEqualTo(4));
     });
 
     test('soft-pull quieto es más rápido que idle cargado', () {

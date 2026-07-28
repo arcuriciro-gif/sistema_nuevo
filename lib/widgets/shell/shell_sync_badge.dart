@@ -57,10 +57,11 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
           .actualizarAhora()
           .timeout(
             // Windows: varias micro-rondas de stock; 90s cortaba mid-apply.
-            const Duration(seconds: 150),
+            // 1.4.20: push-only → 60s alcanza.
+            const Duration(seconds: 60),
             onTimeout: () => {
               'ok': false,
-              'error': 'timeout_150s',
+              'error': 'timeout_60s',
             },
           );
       if (!mounted) return;
@@ -69,7 +70,7 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
         SnackBar(
           content: Text(
             ok
-                ? 'Actualizado (${r['ms']} ms). Listas, clientes, ventas y stock.'
+                ? 'Pendientes subidos (${r['ms']} ms). El stock sigue bajando solo en segundo plano.'
                 : 'No se pudo actualizar: ${r['error'] ?? 'error'}',
           ),
         ),

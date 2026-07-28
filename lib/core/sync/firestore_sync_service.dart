@@ -718,129 +718,38 @@ class FirestoreSyncService {
         final budget = WindowsSyncPolicy.manualRefreshBudgetWindows(
           pendingProductos: pendingProd,
         );
-        var stockAppliedHint = 0;
+        var pushedHint = 0;
 
-        // Fase 0 — rewind one-shot (ops perdidas por watermark). Soft-pull
-        // termina de bajar el resto; NO aplicar cientos de ops acá (tumba EXE).
-        try {
-          await _maybeRewindStockOpsWatermarkForConvergence();
-        } catch (_) {}
-
-        // Fase 0b — PUSH primero (antes del pull). Si el pull crashea, al
-        // menos ya salieron productos stuck (#2..#5,#2899) y stock_ops locales
-        // hacia la nube para que el APK pueda converger.
+        // 1.4.20 ULTRA-SAFE: Actualizar ahora = SOLO PUSH.
+        // El pull de stock (≤4/tick) lo hace soft-pull en background.
+        // Cualquier pull stacked acá tumba el .exe (campo 1.4.18–19).
         if (_puedeEscribirRemoto) {
           try {
+            syncStatusDetail = 'Subiendo pendientes…';
+            DataRefreshHub.instance.notifyTodo();
             await SyncOutbox.instance.ackOrphanUpserts();
-            await SyncOutbox.instance.clearBackoffPending(entityType: 'producto');
-            await SyncOutbox.instance.clearBackoffPending(entityType: 'stock_op');
+            await SyncOutbox.instance
+                .clearBackoffPending(entityType: 'producto');
+            await SyncOutbox.instance
+                .clearBackoffPending(entityType: 'stock_op');
+            // Productos stuck (#2..#5,#2899) — primero, lo que el usuario ve.
             await _procesarOutboxDrain(
-              maxBatches: 3,
+              maxBatches: 2,
               claimLimit: 5,
               entityTypes: const ['producto'],
             );
             await Future<void>.delayed(
               Duration(milliseconds: budget.yieldMs),
             );
+            // stock_ops locales → nube (sin esto el APK nunca iguala).
             await _procesarOutboxDrain(
               maxBatches: 3,
               claimLimit: 6,
               entityTypes: const ['stock_op'],
             );
-          } catch (e) {
-            debugPrint('actualizarAhora push early: $e');
-          }
-        }
-
-        // Fase 1 — STOCK PULL con presupuesto anti-crash (maxApply ≤ 6).
-        // Nunca llamar _convergirStockOpsAhora(windows:true): maxApply 250
-        // tumba el .exe (regresión 1.4.18 / capturas campo).
-        try {
-          try {
-            await _remote.reconcilizarStockOpsPendientes(limit: 6);
-          } catch (e) {
-            debugPrint('actualizarAhora reconcilizar: $e');
-          }
-          await _runStockOpsLane(() async {
-            for (var round = 0; round < budget.stockRounds; round++) {
-              await _pullStockOpsRemotas(
-                maxPages: budget.stockMaxPages,
-                pageSize: budget.stockPageSize,
-                maxApply: budget.stockMaxApply,
-                microBatchSize: budget.stockMicroBatch,
-                yieldMs: budget.yieldMs,
-              );
-              await Future<void>.delayed(
-                Duration(milliseconds: budget.yieldMs),
-              );
-              await _pullStockOpsRecientes(
-                limit: budget.stockRecentLimit,
-                maxApply: budget.stockMaxApply,
-                microBatchSize: budget.stockMicroBatch,
-                yieldMs: budget.yieldMs,
-              );
-              await Future<void>.delayed(
-                Duration(milliseconds: budget.yieldMs),
-              );
-              stockAppliedHint += await _sweepStockOpsHolds(limit: 4);
-              await Future<void>.delayed(
-                Duration(milliseconds: budget.yieldMs),
-              );
-            }
-          });
-        } catch (e) {
-          debugPrint('actualizarAhora stock_ops: $e');
-        }
-
-        // Fase 1b — proyección local vs ledger (crash mid-apply).
-        try {
-          final repaired = await InventoryLedgerService.instance
-              .repararProyeccionesDivergentes(limit: 60);
-          if (repaired > 0) {
-            debugPrint('actualizarAhora reparación proyección: $repaired');
-          }
-        } catch (e) {
-          debugPrint('actualizarAhora reparación: $e');
-        }
-
-        // Fase 2 — config liviana (opcional).
-        if (budget.pullConfig) {
-          try {
-            await _pullConfigWindowsLane('listas');
             await Future<void>.delayed(
               Duration(milliseconds: budget.yieldMs),
             );
-            await _pullConfigWindowsLane('categorias');
-          } catch (e) {
-            debugPrint('actualizarAhora config: $e');
-          }
-        }
-
-        // Fase 3 — negocio mínimo (no clientes masivos).
-        try {
-          await _pullNegocioRecienteWindows(limit: budget.negocioLimit);
-        } catch (e) {
-          debugPrint('actualizarAhora negocio: $e');
-        }
-
-        if (budget.pullClientes && budget.clientesPage > 0) {
-          try {
-            final page = await _pullPaginaPorDocId(
-              _col('clientes'),
-              watermarkKey: _wmClientesDoc,
-              pageSize: budget.clientesPage,
-            );
-            if (page.docs.isNotEmpty) {
-              await _aplicarClientesRemotos(page);
-            }
-          } catch (e) {
-            debugPrint('actualizarAhora clientes: $e');
-          }
-        }
-
-        // Fase 4 — drain residual docs + scheduler tick.
-        if (_puedeEscribirRemoto) {
-          try {
             await _procesarOutboxDrain(
               maxBatches: 2,
               claimLimit: 4,
@@ -850,12 +759,11 @@ class FirestoreSyncService {
                 'compra',
                 'cliente',
                 'proveedor',
-                'producto',
-                'stock_op',
               ],
             );
+            pushedHint = 1;
           } catch (e) {
-            debugPrint('actualizarAhora drain docs: $e');
+            debugPrint('actualizarAhora push: $e');
           }
           try {
             await SyncScheduler.instance.ensureRestored();
@@ -874,11 +782,30 @@ class FirestoreSyncService {
               );
             }
           } catch (e) {
-            debugPrint('actualizarAhora drain: $e');
+            debugPrint('actualizarAhora tick: $e');
           }
         }
+
+        // Micro-pull opcional: 2 ops máx (no rondas, no repair, no negocio).
+        if (budget.pullStockOnManual) {
+          try {
+            syncStatusDetail = 'Bajando 2 movimientos de stock…';
+            DataRefreshHub.instance.notifyTodo();
+            await _runStockOpsLane(() async {
+              await _pullStockOpsRecientes(
+                limit: budget.stockRecentLimit,
+                maxApply: budget.stockMaxApply,
+                microBatchSize: 1,
+                yieldMs: budget.yieldMs,
+              );
+            });
+          } catch (e) {
+            debugPrint('actualizarAhora micro-pull: $e');
+          }
+        }
+
         debugPrint(
-          'actualizarAhora Windows done stockHint=$stockAppliedHint '
+          'actualizarAhora Windows PUSH-ONLY done hint=$pushedHint '
           'ms=${sw.elapsedMilliseconds}',
         );
       } else {
@@ -1447,24 +1374,40 @@ class FirestoreSyncService {
           final budget = WindowsSyncPolicy.stockOpsPullBudget(
             pendingProductos: pendingProd,
           );
+          // Subir 1–2 stock_ops locales cada tick (APK necesita las del EXE).
+          if (_puedeEscribirRemoto) {
+            try {
+              await _procesarOutboxDrain(
+                maxBatches: 1,
+                claimLimit: 4,
+                entityTypes: const ['stock_op', 'producto'],
+              );
+            } catch (e) {
+              debugPrint('softPull push stock/prod: $e');
+            }
+          }
           await _runStockOpsLane(() async {
             await _pullStockOpsRemotas(
               maxPages: budget.maxPages,
               pageSize: budget.pageSize,
               maxApply: budget.maxApply,
-              microBatchSize: 3,
-              yieldMs: 120,
+              microBatchSize: 1,
+              yieldMs: 180,
             );
             if (budget.recentLimit > 0) {
               await _pullStockOpsRecientes(
                 limit: budget.recentLimit,
                 maxApply: budget.maxApply,
-                microBatchSize: 3,
-                yieldMs: 120,
+                microBatchSize: 1,
+                yieldMs: 180,
               );
             }
-            await _sweepStockOpsHolds(limit: 8);
+            await _sweepStockOpsHolds(limit: 3);
           });
+          try {
+            await InventoryLedgerService.instance
+                .repararProyeccionesDivergentes(limit: 8);
+          } catch (_) {}
         case 'compras':
           final snap = await _pullPaginaPorDocId(
             _comprasCol,
@@ -4888,11 +4831,13 @@ class FirestoreSyncService {
     try {
       await _runStockOpsLane(() async {
         await _sweepStockOpsHolds(
-          limit: PlatformCapabilities.isWindowsDesktop ? 40 : 80,
+          limit: PlatformCapabilities.isWindowsDesktop ? 4 : 80,
         );
         await _pullStockOpsRecientes(
-          limit: PlatformCapabilities.isWindowsDesktop ? 80 : 120,
-          maxApply: PlatformCapabilities.isWindowsDesktop ? 60 : 100,
+          limit: PlatformCapabilities.isWindowsDesktop ? 12 : 120,
+          maxApply: PlatformCapabilities.isWindowsDesktop ? 4 : 100,
+          microBatchSize: PlatformCapabilities.isWindowsDesktop ? 1 : 8,
+          yieldMs: PlatformCapabilities.isWindowsDesktop ? 180 : 20,
         );
       });
       await _repararDocsComercialesTrasCatalogo();

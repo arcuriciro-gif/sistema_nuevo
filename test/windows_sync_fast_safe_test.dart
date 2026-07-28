@@ -170,38 +170,38 @@ void main() {
       );
     });
 
-    test('budget stock_ops crece solo con cola quieta', () {
+    test('budget stock_ops Windows: techo ≤4 (nunca 60)', () {
       final quiet = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 0);
+      final mid = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 5);
       final busy = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 200);
-      expect(quiet.maxApply, greaterThan(busy.maxApply));
+      // Campo: 5 pending activaba maxApply 60 y tumbaba EXE.
+      expect(quiet.maxApply, lessThanOrEqualTo(4));
+      expect(mid.maxApply, lessThanOrEqualTo(4));
+      expect(busy.maxApply, lessThanOrEqualTo(4));
       expect(quiet.recentLimit, greaterThan(0));
-      // Nunca 0: sin recientes el watermark truncado deja stock divergente.
       expect(busy.recentLimit, greaterThan(0));
+      expect(busy.maxApply, lessThanOrEqualTo(quiet.maxApply));
     });
 
-    test('Actualizar ahora Windows: stock-first micro, no tumba EXE', () {
+    test('Actualizar ahora Windows: push-only ultra-safe 1.4.20', () {
       final m = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 0,
       );
-      expect(m.stockMaxApply, lessThanOrEqualTo(6));
-      expect(m.stockRecentLimit, lessThanOrEqualTo(40));
-      expect(m.stockRounds, greaterThanOrEqualTo(2));
-      expect(m.stockMicroBatch, lessThanOrEqualTo(4));
-      expect(m.schedulerTicks, equals(1));
-      expect(m.negocioLimit, lessThanOrEqualTo(12));
+      expect(m.stockMaxApply, lessThanOrEqualTo(2));
+      expect(m.stockRounds, equals(0));
+      expect(m.pullStockOnManual, isTrue);
+      expect(m.negocioLimit, equals(0));
       expect(m.pullClientes, isFalse);
-      expect(m.yieldMs, greaterThanOrEqualTo(100));
-      // Total por gesto: rondas × maxApply + recent (convergencia sin ráfaga).
-      expect(m.stockRounds * m.stockMaxApply, greaterThanOrEqualTo(20));
+      expect(m.pullConfig, isFalse);
+      expect(m.yieldMs, greaterThanOrEqualTo(150));
       final busy = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 80,
       );
-      expect(busy.stockMaxApply, lessThanOrEqualTo(m.stockMaxApply));
-      expect(busy.stockRounds, lessThanOrEqualTo(m.stockRounds));
+      expect(busy.stockMaxApply, lessThanOrEqualTo(2));
+      expect(busy.stockRounds, equals(0));
       final catchup = WindowsSyncPolicy.windowsCatchupStockOpsBudget();
       expect(catchup.maxApply, greaterThan(0));
-      expect(catchup.maxApply, lessThanOrEqualTo(24));
-      expect(catchup.maxPages, greaterThanOrEqualTo(2));
+      expect(catchup.maxApply, lessThanOrEqualTo(4));
     });
   });
 }

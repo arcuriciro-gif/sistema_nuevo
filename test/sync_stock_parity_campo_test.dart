@@ -28,12 +28,13 @@ void main() {
         lessThan(pasos.indexOf('pull_recientes_applied')));
   });
 
-  test('Windows Actualizar ahora: pull budgeted (no maxApply 250)', () {
-    // Regresión 1.4.18: ráfaga tumbaba EXE antes de drenar productos.
-    const winMaxApplySafe = 6;
-    const winFase5Banned = 120;
-    expect(winMaxApplySafe, lessThan(50));
-    expect(winFase5Banned, greaterThan(winMaxApplySafe));
+  test('Windows Actualizar ahora: push-only (no maxApply 250 ni 60)', () {
+    // Regresión 1.4.18 ráfaga + 1.4.19 soft-pull 60 con 5 pending.
+    const winManualMax = 2;
+    const winSoftMax = 4;
+    const banned = 60;
+    expect(winManualMax, lessThan(banned));
+    expect(winSoftMax, lessThan(banned));
   });
 
   test('KPI sin stock: negativos no son stock==0 (explica 2884≠6+2866)', () {
