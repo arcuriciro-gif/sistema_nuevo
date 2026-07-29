@@ -114,7 +114,8 @@ class _DashboardPageState extends State<DashboardPage> {
     for (final p in productos) {
       stock += p.precio * p.stock;
       if (p.stock <= 5) criticos++;
-      if (p.stock == 0) {
+      // Incluye negativos: mismos criterios que Inicio / Productos.
+      if (p.stock <= 0) {
         sinStockCount++;
         agotados.add(p);
       }

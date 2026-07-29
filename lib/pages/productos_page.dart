@@ -68,8 +68,11 @@ class _ProductosPageState extends State<ProductosPage> {
 
   int get _totalProductos => productos.length;
   double get _valorStock => productos.fold(0, (s, p) => s + p.precio * p.stock);
-  int get _sinStock => productos.where((p) => p.stock == 0).length;
+  /// Cero + negativos. Antes solo `== 0` y los 12 negativos no entraban en
+  /// ningún KPI → 2866+5 ≠ 2883 (campo).
+  int get _sinStock => productos.where((p) => p.stock <= 0).length;
   int get _conStock => productos.where((p) => p.stock > 0).length;
+  int get _stockNegativo => productos.where((p) => p.stock < 0).length;
 
   @override
   void initState() {
@@ -132,10 +135,10 @@ class _ProductosPageState extends State<ProductosPage> {
       final matchProveedor =
           _filtroProveedor == null || p.proveedor == _filtroProveedor;
       final matchFavorito = !_soloFavoritos || p.favorito;
-      final matchSinStock = !_soloSinStock || p.stock == 0;
+      final matchSinStock = !_soloSinStock || p.stock <= 0;
       final matchConStock = !_soloConStock || p.stock > 0;
       final matchStockBajo = !_soloStockBajo ||
-          p.stock == 0 ||
+          p.stock <= 0 ||
           (p.stockMinimo > 0 ? p.stock <= p.stockMinimo : p.stock <= 5);
 
       return matchBusqueda &&
@@ -368,7 +371,9 @@ class _ProductosPageState extends State<ProductosPage> {
                           },
                         ),
                         _KpiCard(
-                          title: 'Sin stock',
+                          title: _stockNegativo > 0
+                              ? 'Sin stock ($_stockNegativo neg.)'
+                              : 'Sin stock',
                           value: '$_sinStock',
                           icon: Icons.warning_amber_rounded,
                           color: dangerColor,
@@ -434,7 +439,10 @@ class _ProductosPageState extends State<ProductosPage> {
                         ),
                         title: Text(
                           _soloSinStock
-                              ? 'Mostrando $_sinStock producto(s) sin stock'
+                              ? (_stockNegativo > 0
+                                  ? 'Mostrando $_sinStock sin stock '
+                                      '($_stockNegativo con stock negativo)'
+                                  : 'Mostrando $_sinStock producto(s) sin stock')
                               : _soloStockBajo
                                   ? 'Mostrando productos con stock bajo'
                                   : _ordenarPorValorStock
