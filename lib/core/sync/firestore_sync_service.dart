@@ -1045,6 +1045,8 @@ class FirestoreSyncService {
     // Productos siguen por soft-pull (no snapshot de 3k docs).
     if (authOk) {
       _iniciarListenersNegocioWindows();
+      // Stock_ops dedicado: no depende del round-robin de productos.
+      _iniciarStockOpsPullMobile();
     }
 
     if (!authOk) {
@@ -1130,14 +1132,15 @@ class FirestoreSyncService {
   static const _prefsStockOpsWmRewindV142 = 'stock_ops_wm_rewind_v142';
   static const _prefsStockOpsWmRewindV144 = 'stock_ops_wm_rewind_v144';
   static const _prefsStockOpsWmRewindV151 = 'stock_ops_wm_rewind_v151';
+  static const _prefsStockOpsWmRewindV154 = 'stock_ops_wm_rewind_v154';
 
-  /// Rebobina watermark stock_ops (recupera ops perdidas por avance prematuro).
-  /// v1.4.12 / campo: 30 días — una sola vez (divergencia residual tras crash
-  /// de "Actualizar ahora" y HOL previo al hold-set).
+  /// Rebobina watermark stock_ops (recupera ops perdidas por avance prematuro
+  /// o por starvation Windows tras cola de productos / WhatsApp-listas).
+  /// v1.4.27: una sola vez — 30 días.
   Future<void> _maybeRewindStockOpsWatermarkForConvergence() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(_prefsStockOpsWmRewindV151) == true) return;
+      if (prefs.getBool(_prefsStockOpsWmRewindV154) == true) return;
       final from = DateTime.now()
           .toUtc()
           .subtract(const Duration(days: 30))
@@ -1147,12 +1150,13 @@ class FirestoreSyncService {
         'afterAt': from,
         'v': 'at_v2',
         'rewoundAt': DateTime.now().toUtc().toIso8601String(),
-        'rewoundReason': 'field_divergence_v151',
+        'rewoundReason': 'field_divergence_v154_starvation',
       });
+      await prefs.setBool(_prefsStockOpsWmRewindV154, true);
       await prefs.setBool(_prefsStockOpsWmRewindV151, true);
       await prefs.setBool(_prefsStockOpsWmRewindV144, true);
       await prefs.setBool(_prefsStockOpsWmRewindV142, true);
-      debugPrint('stock_ops watermark: rewind 30d (convergencia v1.4.12)');
+      debugPrint('stock_ops watermark: rewind 30d (convergencia v1.4.27)');
     } catch (e) {
       debugPrint('stock_ops watermark rewind: $e');
     }
@@ -1549,37 +1553,71 @@ class FirestoreSyncService {
     }
   }
 
-  /// APK: tira stock_ops cada ~45s (antes 25s; reduce jank UI) + docs recientes.
+  /// APK + Windows: tira stock_ops periódicos.
+  ///
+  /// Windows tenía solo soft-pull round-robin: con cola de productos
+  /// (WhatsApp/listas) stock_ops caía a ~1/30 ticks → diverge horas.
+  /// Pump dedicado con [WindowsSyncPolicy.stockOpsHardCap] (anti-crash).
   void _iniciarStockOpsPullMobile() {
     _stockOpsPullPump?.cancel();
-    _stockOpsPullPump = Timer.periodic(const Duration(seconds: 45), (_) {
+    final windows = PlatformCapabilities.isWindowsDesktop;
+    final interval = windows
+        ? WindowsSyncPolicy.windowsStockOpsPumpInterval
+        : const Duration(seconds: 45);
+    _stockOpsPullPump = Timer.periodic(interval, (_) {
       if (!_puedeEscribirRemoto) return;
-      if (PlatformCapabilities.isWindowsDesktop) return;
+      if (windows) {
+        if (!_windowsPumpsActivos) return;
+        if (_softPullBusy || _actualizarAhoraBusy) return;
+      }
       syncInBackground(
         () async {
           try {
+            if (windows) {
+              final breakdown = await SyncOutbox.instance.pendingBreakdown();
+              final pendingProd = breakdown['producto'] ?? 0;
+              final budget = WindowsSyncPolicy.stockOpsPullBudget(
+                pendingProductos: pendingProd,
+              );
+              await _runStockOpsLane(() async {
+                await _pullStockOpsRemotas(
+                  maxPages: budget.maxPages,
+                  pageSize: budget.pageSize,
+                  maxApply: budget.maxApply,
+                  microBatchSize: 2,
+                  yieldMs: 150,
+                );
+                if (budget.recentLimit > 0) {
+                  await _pullStockOpsRecientes(
+                    limit: budget.recentLimit,
+                    maxApply: budget.maxApply,
+                  );
+                }
+              });
+              return;
+            }
             await _pullStockOpsRemotas(maxPages: 3, pageSize: 50);
             await _pullStockOpsRecientes(limit: 80);
+            // Red de seguridad docs: venta rápida del EXE debe verse acá.
+            try {
+              final rem = await _remitosCol
+                  .orderBy('actualizadoEn', descending: true)
+                  .limit(30)
+                  .get();
+              if (rem.docs.isNotEmpty) await _aplicarRemitosRemotos(rem);
+              final ven = await _ventasCol
+                  .orderBy('actualizadoEn', descending: true)
+                  .limit(30)
+                  .get();
+              if (ven.docs.isNotEmpty) await _aplicarVentasRemotas(ven);
+            } catch (e) {
+              debugPrint('Pull docs recientes mobile: $e');
+            }
           } catch (e) {
-            debugPrint('Pull stock_ops mobile: $e');
-          }
-          // Red de seguridad docs: venta rápida del EXE debe verse acá.
-          try {
-            final rem = await _remitosCol
-                .orderBy('actualizadoEn', descending: true)
-                .limit(30)
-                .get();
-            if (rem.docs.isNotEmpty) await _aplicarRemitosRemotos(rem);
-            final ven = await _ventasCol
-                .orderBy('actualizadoEn', descending: true)
-                .limit(30)
-                .get();
-            if (ven.docs.isNotEmpty) await _aplicarVentasRemotas(ven);
-          } catch (e) {
-            debugPrint('Pull docs recientes mobile: $e');
+            debugPrint('Pull stock_ops pump: $e');
           }
         }(),
-        tag: 'stockOpsPullMobile',
+        tag: windows ? 'stockOpsPullWindows' : 'stockOpsPullMobile',
       );
     });
   }
@@ -4724,8 +4762,10 @@ class FirestoreSyncService {
           limit: PlatformCapabilities.isWindowsDesktop ? 40 : 80,
         );
         await _pullStockOpsRecientes(
-          limit: PlatformCapabilities.isWindowsDesktop ? 80 : 120,
-          maxApply: PlatformCapabilities.isWindowsDesktop ? 60 : 100,
+          limit: PlatformCapabilities.isWindowsDesktop ? 40 : 120,
+          maxApply: PlatformCapabilities.isWindowsDesktop
+              ? WindowsSyncPolicy.stockOpsHardCap
+              : 100,
         );
       });
       await _repararDocsComercialesTrasCatalogo();
