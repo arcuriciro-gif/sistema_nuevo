@@ -90,13 +90,25 @@ void main() {
       );
     });
 
-    test('soft pull ~33% productos', () {
+    test('soft pull busy: stock_ops 1 de cada 3 (no starvation WhatsApp/lista)', () {
       final lanes = List.generate(30, (i) => WindowsSyncPolicy.softPullLane(i));
+      final stockOps = lanes.where((l) => l == 'stock_ops').length;
       final productos =
           lanes.where((l) => l.startsWith('productos_')).length;
+      // Antes: ~1/30. Ahora: exactamente 1/3.
+      expect(stockOps, 10);
       expect(productos, 10);
-      expect(WindowsSyncPolicy.softPullLane(0), 'productos_inc');
-      expect(WindowsSyncPolicy.softPullLane(3), 'productos_cat');
+      expect(WindowsSyncPolicy.softPullLane(0), 'stock_ops');
+      expect(WindowsSyncPolicy.softPullLane(1), 'productos_inc');
+    });
+
+    test('soft pull ~33% productos (legacy idle formula replaced when busy)', () {
+      // Quiet path still densifies stock via prioritizeStockOps.
+      final lanes = List.generate(
+        12,
+        (i) => WindowsSyncPolicy.softPullLane(i, prioritizeStockOps: true),
+      );
+      expect(lanes.where((l) => l == 'stock_ops').length, greaterThanOrEqualTo(2));
     });
 
     test('soft pull incluye config (listas/permisos/branding texto)', () {
