@@ -25,7 +25,9 @@ jobs:
           cache: true
       - run: flutter pub get
       - name: Run Cert Lab protocolo
-        run: flutter test test/cert/lab/cert_lab_protocol_test.dart
+        run: flutter test test/cert/lab/cert_lab_protocol_test.dart test/cert/lab/cert_lab_oracle_test.dart
+      - name: Run Cert Lab Productos (real ProductoService)
+        run: flutter test test/cert/lab/cert_lab_productos_test.dart
       - name: Upload report if present
         if: always()
         uses: actions/upload-artifact@v4

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -269,6 +270,7 @@ class CertLabNode {
     if (codigo.isEmpty) return;
     final db = await DatabaseHelper.instance.database;
     final now = DateTime.now().toUtc().toIso8601String();
+    final deletedAt = data['deleted_at']?.toString();
     final existing = await db.query(
       'productos',
       columns: ['id', 'stock'],
@@ -284,6 +286,10 @@ class CertLabNode {
         'stock': 0,
         'precio': data['precio'] ?? 0,
         'costo': data['costo'] ?? 0,
+        'marca': data['marca'] ?? '',
+        'categoria': data['categoria'] ?? '',
+        'proveedor': data['proveedor'] ?? '',
+        'deleted_at': (deletedAt != null && deletedAt.isNotEmpty) ? deletedAt : null,
         'actualizadoEn': now,
       });
     } else {
@@ -291,7 +297,14 @@ class CertLabNode {
         'productos',
         {
           if (data['precio'] != null) 'precio': data['precio'],
+          if (data['precio2'] != null) 'precio2': data['precio2'],
+          if (data['precio3'] != null) 'precio3': data['precio3'],
           if (data['descripcion'] != null) 'descripcion': data['descripcion'],
+          if (data['categoria'] != null) 'categoria': data['categoria'],
+          if (data['marca'] != null) 'marca': data['marca'],
+          if (data['proveedor'] != null) 'proveedor': data['proveedor'],
+          'deleted_at':
+              (deletedAt != null && deletedAt.isNotEmpty) ? deletedAt : null,
           'actualizadoEn': now,
         },
         where: 'codigo = ?',
@@ -428,6 +441,8 @@ class CertLabNode {
 }
 
 /// Empuja pendientes del nodo a la nube y baja lo remoto (protocolo lab).
+///
+/// Usa filas reales de SQLite / sync_outbox cuando existen (ProductoService).
 class CertLabBridge {
   CertLabBridge(this.cloud);
 
@@ -458,10 +473,100 @@ class CertLabBridge {
       );
       node.pendingDocs.remove(doc);
     }
+    await _flushRealOutbox(node);
+  }
+
+  /// Publica metadata de producto desde SQLite real (sin stock absoluto).
+  Future<void> publishProductoCodigo(String codigo) async {
+    final db = await DatabaseHelper.instance.database;
+    final rows = await db.query(
+      'productos',
+      where: 'codigo = ?',
+      whereArgs: [codigo],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final r = rows.first;
+    cloud.upsert('productos', codigo, {
+      'codigo': codigo,
+      'descripcion': r['descripcion'],
+      'marca': r['marca'],
+      'categoria': r['categoria'],
+      'proveedor': r['proveedor'],
+      'precio': r['precio'],
+      'precio2': r['precio2'],
+      'precio3': r['precio3'],
+      'costo': r['costo'],
+      'deleted_at': r['deleted_at'],
+      'actualizadoEn': r['actualizadoEn'],
+    });
+  }
+
+  Future<void> _flushRealOutbox(CertLabNode node) async {
+    final claimed = await SyncOutbox.instance.claimBatch(
+      limit: 50,
+      entityTypes: const ['stock_op', 'producto'],
+      orderByPriority: true,
+    );
+    for (final row in claimed) {
+      final opId = row['op_id']?.toString() ?? '';
+      final type = row['entity_type']?.toString() ?? '';
+      if (opId.isEmpty) continue;
+      if (type == 'stock_op') {
+        Map<String, dynamic> payload = {};
+        final raw = row['payload']?.toString();
+        if (raw != null && raw.isNotEmpty) {
+          try {
+            payload = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+          } catch (_) {}
+        }
+        final codigo = payload['codigo']?.toString() ?? '';
+        final delta = (payload['delta'] as num?)?.toInt() ?? 0;
+        final realOpId = payload['opId']?.toString() ??
+            opId.replaceFirst('stock_op:', '');
+        if (codigo.isNotEmpty && delta != 0 && !cloud.hasStockOp(realOpId)) {
+          cloud.putStockOp(
+            opId: realOpId,
+            codigo: codigo,
+            delta: delta,
+            documentType: payload['documentType']?.toString(),
+            documentId: payload['documentId']?.toString(),
+            origin: node.id.name,
+          );
+        }
+        await SyncOutbox.instance.ack(opId);
+      } else if (type == 'producto') {
+        final localId = (row['entity_local_id'] as num?)?.toInt();
+        if (localId != null) {
+          final db = await DatabaseHelper.instance.database;
+          final rows = await db.query(
+            'productos',
+            where: 'id = ?',
+            whereArgs: [localId],
+            limit: 1,
+          );
+          if (rows.isNotEmpty) {
+            final codigo = rows.first['codigo']?.toString() ?? '';
+            if (codigo.isNotEmpty) await publishProductoCodigo(codigo);
+          }
+        }
+        await SyncOutbox.instance.ack(opId);
+      }
+    }
   }
 
   Future<void> pull(CertLabNode node) async {
     if (!node.online) return;
+    // Catálogo primero (anti-HOL): stock_ops requieren producto local.
+    for (final e in cloud.col('productos').entries) {
+      await node.applyRemoteProductoDoc(e.value);
+    }
+    for (final e in cloud.col('clientes').entries) {
+      await node.applyRemoteClienteDoc(e.value);
+    }
+    for (final e in cloud.col('proveedores').entries) {
+      await node.applyRemoteProveedorDoc(e.value);
+    }
     for (final e in cloud.stockOps.entries) {
       final op = e.value;
       if (op['status']?.toString() != 'applied') continue;
@@ -478,18 +583,8 @@ class CertLabBridge {
         documentId: op['documentId']?.toString(),
       );
     }
-    for (final e in cloud.col('productos').entries) {
-      await node.applyRemoteProductoDoc(e.value);
-    }
-    for (final e in cloud.col('clientes').entries) {
-      await node.applyRemoteClienteDoc(e.value);
-    }
-    for (final e in cloud.col('proveedores').entries) {
-      await node.applyRemoteProveedorDoc(e.value);
-    }
   }
 
-  /// Sync full-mesh: A→cloud→B y B→cloud→A.
   Future<void> converge(CertLabNode a, CertLabNode b) async {
     await flush(a);
     await flush(b);
@@ -499,3 +594,4 @@ class CertLabBridge {
     await flush(b);
   }
 }
+

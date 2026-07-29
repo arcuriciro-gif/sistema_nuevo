@@ -69,9 +69,13 @@ class CertLabCloud {
     Map<String, double> seedPrecios = const {},
   }) {
     final products = col('productos');
+    final activeProducts = products.entries.where((e) {
+      final d = e.value['deleted_at']?.toString();
+      return d == null || d.isEmpty;
+    });
     final stock = projectedStock(seed: seedStock);
     final precios = <String, double>{...seedPrecios};
-    for (final e in products.entries) {
+    for (final e in activeProducts) {
       final codigo = e.value['codigo']?.toString() ?? e.key;
       final p = e.value['precio'];
       if (p is num) precios[codigo] = p.toDouble();
@@ -82,11 +86,12 @@ class CertLabCloud {
       final key = e.value['syncId']?.toString() ?? e.key;
       saldos[key] = (e.value['saldo'] as num?)?.toDouble() ?? 0;
     }
+    final activeIds = activeProducts.map((e) => e.key).toSet();
     return CertLabSnapshot(
       node: CertLabNodeId.firestore,
       at: DateTime.now().toUtc(),
       counts: {
-        'productos': products.length,
+        'productos': activeIds.length,
         'clientes': clientes.length,
         'proveedores': col('proveedores').length,
         'ventas': col('ventas').length,
@@ -95,11 +100,15 @@ class CertLabCloud {
         'stock_ops_applied':
             stockOps.values.where((o) => o['status'] == 'applied').length,
       },
-      stockByCodigo: stock,
+      stockByCodigo: {
+        for (final e in stock.entries)
+          if (activeIds.contains(e.key) || seedStock.containsKey(e.key))
+            e.key: e.value,
+      },
       precioByCodigo: precios,
       saldoByCliente: saldos,
       docIds: {
-        'productos': products.keys.toSet(),
+        'productos': activeIds,
         'clientes': clientes.keys.toSet(),
         'proveedores': col('proveedores').keys.toSet(),
         'ventas': col('ventas').keys.toSet(),

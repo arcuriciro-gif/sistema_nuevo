@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import '../../sync/cloud_sync_throttle.dart';
+import 'cert_lab_auth.dart';
 import 'cert_lab_cloud.dart';
 import 'cert_lab_engine_manifest.dart';
 import 'cert_lab_models.dart';
@@ -118,9 +120,14 @@ class CertLabWorld {
 
   Future<void> withNode(CertLabNode node, Future<void> Function() fn) async {
     await node.open();
+    CertLabAuth.ensureAdmin();
     try {
       await fn();
+      // Dejar que jobs bg de ProductoService no escriban DB cerrada.
+      CloudSyncThrottle.resetForTests();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
     } finally {
+      CloudSyncThrottle.resetForTests();
       await node.close();
     }
   }

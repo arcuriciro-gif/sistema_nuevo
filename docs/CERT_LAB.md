@@ -2,63 +2,65 @@
 
 | Campo | Valor |
 |---|---|
-| Estado | **OBLIGATORIO** antes de tocar Sync Engine |
+| Estado ERP | **NO CERTIFICADO** |
+| Módulo actual | **Productos** (orden 1) |
 | Código | `lib/core/cert/lab/` |
 | Tests | `test/cert/lab/` |
 | CI | `.github/workflows/cert-lab.yml` |
 
 ## Regla de hierro
 
-1. **Prohibido** modificar el Sync Engine si el Cert Lab no existe o su batería protocolo no corre.
-2. Cuando el lab detecta un rojo: corregís **UNO**, ejecutás **TODA** la batería.
-3. **No se mergea** ningún PR de sync con un escenario rojo.
-4. APK/EXE de sync **solo** tras varias corridas consecutivas verdes (protocolo + contratos).
+1. **Prohibido** modificar el Sync Engine sin evidencia del lab (causa raíz demostrada).
+2. Rojo → corregís **UNO** → re-ejecutás **TODA** la batería.
+3. **No merge** de sync con escenario rojo.
+4. APK/EXE solo tras módulos certificados (20 verdes consecutivos por módulo).
+5. Un rojo en un módulo certificado → estado **revocado**.
 
-## Qué compara
+## Orden obligatorio
 
-Nodos lógicos:
+1. Productos  
+2. Stock  
+3. Ventas  
+4. Compras  
+5. Remitos  
+6. Clientes  
+7. Proveedores  
+8. Cuenta Corriente  
+9. Configuración  
 
-- **Windows** (SQLite)
-- **Android** (SQLite)
-- **Firestore** (simulado en memoria: docs + `stock_ops`)
+No avanzar si el módulo actual tiene una sola diferencia.
 
-Entidades: productos, stock, precios, clientes, proveedores, compras, ventas,
-remitos, cuenta corriente, movimientos, configuración (extensible).
+## Qué usa el lab (honesto)
+
+| Capa | Real / Lab |
+|---|---|
+| `ProductoService` / ledger / outbox SQLite | **REAL** |
+| Oráculo Win ↔ Android ↔ proyección cloud | **REAL comparación** |
+| Firestore SDK / `FirestoreSyncService` push-pull | **NO** (puente lab) |
+| Triple-hop Firebase producción | **NO CERTIFICADO** (`CertLabEngineManifest`) |
+
+El puente lab materializa lo que el outbox real encolaría. Eso certifica dominio + cola + apply peer. **No** sustituye el motor Windows inbound en producción.
 
 ## Informe de fallo
 
-Cada rojo incluye:
+Entidad, dónde, primer evento, archivo/clase/método, SQL, Firestore path, stack.
 
-- entidad
-- dónde diverge
-- primer evento distinto
-- archivo / clase / método
-- path Firestore
-- SQL
-- stacktrace
-
-Artefactos: `/opt/cursor/artifacts/cert-lab/cert_lab_latest.md`
-
-## Cómo correr
+## Comandos
 
 ```bash
-flutter test test/cert/lab/
-# o solo protocolo (sin contratos de motor):
+# Protocolo P0 (sin contrato motor)
 flutter test test/cert/lab/cert_lab_protocol_test.dart
-# batería completa (incluye P0-99 RED hasta certificar inbound Win):
+
+# Productos (ProductoService real) — 1 + 3 consecutivas CI
+flutter test test/cert/lab/cert_lab_productos_test.dart
+
+# Batería completa (P0-99 ROJO hasta inbound Win certificado)
 flutter test test/cert/lab/cert_lab_battery_test.dart
+
+tool/run_cert_lab.sh
 ```
 
-## Manifiesto de motor
+## Definición CERTIFICADO (módulo)
 
-`CertLabEngineManifest` declara capacidades **aún no certificadas**.
-Poner un flag en `true` sin evidencia del lab es fraude de certificación.
-
-## Relación con Sync Engine
-
-El lab **no** llama a `FirestoreSyncService` en P0 protocolo: valida el
-modelo de verdad (ledger + stock_ops + docs) y el oráculo triple.
-
-El escenario `P0-99` falla a propósito hasta que exista evidencia de inbound
-Windows automático. Eso **no** se “arregla” tocando el manifiesto: se arregla
-el motor (cuando esté autorizado) y se demuestra con el lab.
+20 ejecuciones consecutivas verdes, sin diferencias, sin pendientes eternos, sin crashes, sin intervención manual.  
+CI valida 3 consecutivas como gate mínimo; la certificación plena de release exige 20.
