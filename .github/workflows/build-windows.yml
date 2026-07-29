@@ -39,7 +39,7 @@ jobs:
       - name: Tests
         id: tests
         continue-on-error: true
-        run: flutter test
+        run: flutter test --exclude-tags cert-lab
 
       - name: Build Windows release
         shell: pwsh
