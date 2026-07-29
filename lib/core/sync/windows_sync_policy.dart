@@ -101,9 +101,11 @@ class WindowsSyncPolicy {
 
   /// Soft-pull lane.
   ///
-  /// Con [prioritizeStockOps]/convergencia de negocio):
+  /// Con [prioritizeStockOps] (outbox quieto):
   ///   remitos / ventas / stock_ops / compras en rotación densa.
-  /// Sin eso: ~33% productos, resto round-robin.
+  /// Con cola de productos (WhatsApp/listas / import):
+  ///   **1 de cada 3 ticks = stock_ops** (antes ~1/30 → stock diverge horas).
+  ///   1/3 productos, 1/3 resto. Campo: lista WhatsApp ahogaba deltas.
   static String softPullLane(int n, {bool prioritizeStockOps = false}) {
     if (prioritizeStockOps) {
       // Ciclo de 6: negocio primero (campo venta rápida EXE↔APK).
@@ -122,13 +124,19 @@ class WindowsSyncPolicy {
           return (n ~/ 6).isEven ? 'productos_inc' : 'clientes';
       }
     }
-    if (n % 3 == 0) {
-      return (n ~/ 3) % 2 == 0 ? 'productos_inc' : 'productos_cat';
+    // Busy: stock_ops NUNCA se ahoga detrás de productos.
+    if (n % 3 == 0) return 'stock_ops';
+    if (n % 3 == 1) {
+      return (n ~/ 3).isEven ? 'productos_inc' : 'productos_cat';
     }
-    final otherIdx =
-        ((n ~/ 3) * 2 + ((n % 3) - 1)) % softPullOtherLanes.length;
-    return softPullOtherLanes[otherIdx];
+    final others = softPullOtherLanes
+        .where((l) => l != 'stock_ops')
+        .toList(growable: false);
+    return others[(n ~/ 3) % others.length];
   }
+
+  /// Intervalo del pump dedicado de stock_ops en Windows (anti-starvation).
+  static const Duration windowsStockOpsPumpInterval = Duration(seconds: 30);
 
   /// Intervalo soft-pull más corto cuando ya no hay cola de productos.
   static Duration softPullIntervalFor({required int pendingProductos}) {

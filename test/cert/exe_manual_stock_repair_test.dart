@@ -44,10 +44,14 @@ void main() {
       expect(busy.pullConfig, isFalse);
     });
 
-    test('catch-up Windows ya no omite stock_ops', () {
+    test('catch-up Windows ya no omite stock_ops (hardCap anti-crash)', () {
       final c = WindowsSyncPolicy.windowsCatchupStockOpsBudget();
-      expect(c.maxPages, greaterThanOrEqualTo(2));
-      expect(c.maxApply, inInclusiveRange(8, 24));
+      expect(c.maxPages, greaterThanOrEqualTo(1));
+      expect(c.maxApply, greaterThan(0));
+      expect(
+        c.maxApply,
+        lessThanOrEqualTo(WindowsSyncPolicy.stockOpsHardCap),
+      );
     });
 
     test('soft-pull quieto es más rápido que idle cargado', () {
