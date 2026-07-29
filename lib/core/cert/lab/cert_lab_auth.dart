@@ -6,6 +6,8 @@ import '../../sync/cloud_sync_throttle.dart';
 /// Bootstrap de auth/dominio para el laboratorio (código real, sin Firebase).
 class CertLabAuth {
   static void ensureAdmin() {
+    // Lab en lib/: necesita reset aislado entre nodos (misma API que tests).
+    // ignore: invalid_use_of_visible_for_testing_member
     DomainBootstrap.resetForTests();
     DomainBootstrap.ensureInitialized();
     CloudSyncThrottle.resetForTests();

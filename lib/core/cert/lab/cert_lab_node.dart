@@ -36,6 +36,8 @@ class CertLabNode {
   Future<void> open() async {
     CloudSyncThrottle.resetForTests();
     await DatabaseHelper.instance.cerrar();
+    // Lab: DB por nodo (singleton DatabaseHelper). Misma API que tests.
+    // ignore: invalid_use_of_visible_for_testing_member
     await DatabaseHelper.instance.resetForTests(absolutePath: dbPath);
   }
 
