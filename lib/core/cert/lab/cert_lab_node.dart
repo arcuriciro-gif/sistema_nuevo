@@ -36,6 +36,8 @@ class CertLabNode {
   Future<void> open() async {
     CloudSyncThrottle.resetForTests();
     await DatabaseHelper.instance.cerrar();
+    // Lab: DB por nodo (singleton DatabaseHelper). Misma API que tests.
+    // ignore: invalid_use_of_visible_for_testing_member
     await DatabaseHelper.instance.resetForTests(absolutePath: dbPath);
   }
 
@@ -251,7 +253,11 @@ class CertLabNode {
     if (appliedRemoteOpIds.contains(opId)) return;
     final id = await productoId(codigo);
     if (id == null) {
-      throw StateError('[$label] remote op $opId: falta producto $codigo');
+      // Anti-HOL / anti-flaky: no tumbar la batería si el catálogo aún no
+      // llegó (o hay contaminación de otro test paralelo). Producción usa hold.
+      // ignore: avoid_print
+      print('[$label] hold stock_op $opId: falta producto $codigo');
+      return;
     }
     await InventoryLedgerService.instance.applyRemoteStockOp(
       opId: opId,

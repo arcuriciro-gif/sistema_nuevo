@@ -1,3 +1,6 @@
+@Tags(['cert-lab'])
+library;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sistema_nuevo/core/cert/lab/cert_lab.dart';
 

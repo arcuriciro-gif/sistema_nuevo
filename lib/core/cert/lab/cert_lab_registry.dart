@@ -1,5 +1,3 @@
-import 'cert_lab_models.dart';
-
 /// Orden obligatorio de certificación (misión P0).
 enum CertLabModule {
   productos(1, 'Productos'),

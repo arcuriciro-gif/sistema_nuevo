@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'cert_lab_models.dart';
 import 'cert_lab_productos.dart';
 import 'cert_lab_registry.dart';
 import 'cert_lab_remitos_clientes.dart';
