@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/config/backend_config_service.dart';
+import '../../core/config/platform_capabilities.dart';
 import '../../core/events/data_refresh_hub.dart';
 import '../../core/firebase/firebase_auth_usuario_service.dart';
 import '../../core/sync/firestore_sync_service.dart';
 import '../../core/sync/sync_health.dart';
+import '../../core/sync/windows_sync_policy.dart';
 import '../../theme/app_tokens.dart';
 
 enum ShellSyncTone { ok, syncing, offline, error }
@@ -149,6 +151,18 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
         ? 'Al día'
         : 'Última: ${local.hour.toString().padLeft(2, '0')}:'
             '${local.minute.toString().padLeft(2, '0')}';
+    // Freeze Windows: outbox vacío ≠ stock igual al celular.
+    // Campo: badge "Sincronizado" con pruebq 43↔33 / 1127 −2↔4.
+    if (PlatformCapabilities.isWindowsDesktop &&
+        WindowsSyncPolicy.freezeBackgroundForStability) {
+      return (
+        tone: ShellSyncTone.ok,
+        title: 'PC estable',
+        subtitle: detail?.isNotEmpty == true
+            ? detail!
+            : 'Tocá Actualizar ahora para igualar stock',
+      );
+    }
     return (
       tone: ShellSyncTone.ok,
       title: 'Sincronizado',
@@ -295,9 +309,17 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Baja listas, clientes, ventas/remitos y stock de la nube, '
-                  'y sube lo pendiente. Usalo después de cargar una lista, '
-                  'un cliente o una venta si querés ver el cambio ya.',
+                  PlatformCapabilities.isWindowsDesktop &&
+                          WindowsSyncPolicy.freezeBackgroundForStability
+                      ? 'En la PC el fondo está congelado para que el EXE '
+                          'no se cierre solo. Este botón sube pendientes y '
+                          'baja stock de a poco (sin tumbar el proceso). '
+                          'Si pruebq/1127 siguen distintos, tocá otra vez '
+                          'en PC y después en el celular.'
+                      : 'Baja listas, clientes, ventas/remitos y stock de '
+                          'la nube, y sube lo pendiente. Usalo después de '
+                          'cargar una lista, un cliente o una venta si '
+                          'querés ver el cambio ya.',
                   style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                         color: Theme.of(ctx).hintColor,
                       ),

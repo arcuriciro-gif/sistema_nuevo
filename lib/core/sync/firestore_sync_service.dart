@@ -827,6 +827,10 @@ class FirestoreSyncService {
         // Sin soft-pull: este es el único bajador de ventas del celular al PC.
         if (budget.pullStockOnManual && budget.stockRounds > 0) {
           try {
+            // Rebobina una vez (90d) si watermark avanzó de más — campo 1127.
+            try {
+              await _maybeRewindStockOpsWatermarkForConvergence();
+            } catch (_) {}
             await _runStockOpsLane(() async {
               for (var round = 0; round < budget.stockRounds; round++) {
                 syncStatusDetail =
@@ -1214,13 +1218,14 @@ class FirestoreSyncService {
   static const _prefsStockOpsWmRewindV144 = 'stock_ops_wm_rewind_v144';
   static const _prefsStockOpsWmRewindV151 = 'stock_ops_wm_rewind_v151';
   static const _prefsStockOpsWmRewindV153 = 'stock_ops_wm_rewind_v153';
+  static const _prefsStockOpsWmRewindV154 = 'stock_ops_wm_rewind_v154';
 
   /// Rebobina watermark stock_ops (recupera ops perdidas por avance prematuro).
-  /// v1.4.18 / campo: 90 días — divergencia EXE↔APK (1127 −2 vs 4, etc.).
+  /// v1.4.26 / campo: 90 días — pruebq 43↔33, 1127 −2↔4.
   Future<void> _maybeRewindStockOpsWatermarkForConvergence() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(_prefsStockOpsWmRewindV153) == true) return;
+      if (prefs.getBool(_prefsStockOpsWmRewindV154) == true) return;
       final from = DateTime.now()
           .toUtc()
           .subtract(const Duration(days: 90))
@@ -1230,13 +1235,14 @@ class FirestoreSyncService {
         'afterAt': from,
         'v': 'at_v2',
         'rewoundAt': DateTime.now().toUtc().toIso8601String(),
-        'rewoundReason': 'field_stock_parity_v153',
+        'rewoundReason': 'field_stock_parity_v154',
       });
+      await prefs.setBool(_prefsStockOpsWmRewindV154, true);
       await prefs.setBool(_prefsStockOpsWmRewindV153, true);
       await prefs.setBool(_prefsStockOpsWmRewindV151, true);
       await prefs.setBool(_prefsStockOpsWmRewindV144, true);
       await prefs.setBool(_prefsStockOpsWmRewindV142, true);
-      debugPrint('stock_ops watermark: rewind 90d (parity v1.4.18)');
+      debugPrint('stock_ops watermark: rewind 90d (parity v1.4.26)');
     } catch (e) {
       debugPrint('stock_ops watermark rewind: $e');
     }
