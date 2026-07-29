@@ -4,7 +4,9 @@ import 'dart:io';
 import 'cert_lab_models.dart';
 import 'cert_lab_productos.dart';
 import 'cert_lab_registry.dart';
+import 'cert_lab_remitos_clientes.dart';
 import 'cert_lab_runner.dart';
+import 'cert_lab_stock.dart';
 import 'cert_lab_world.dart';
 
 /// Corre un módulo N veces consecutivas. Un rojo → revoca certificación.
@@ -27,9 +29,15 @@ class CertLabConsecutiveRunner {
           ...CertLabBattery.p0().where((s) => !s.id.startsWith('P0-99')),
           ...CertLabProductosScenarios.all(),
         ],
+      CertLabModule.stock => [
+          ...CertLabBattery.p0().where((s) => !s.id.startsWith('P0-99')),
+          ...CertLabStockScenarios.all(),
+        ],
+      CertLabModule.remitos => CertLabRemitosScenarios.all(),
+      CertLabModule.clientes => CertLabClientesScenarios.all(),
       _ => throw StateError(
           'Módulo ${module.title} aún no tiene batería. '
-          'Orden: certificar Productos primero.',
+          'Orden: Productos → Stock → …',
         ),
     };
 

@@ -68,18 +68,35 @@ class WindowsSyncPolicy {
 
   /// Presupuesto de pull stock_ops en Windows (ráfagas controladas).
   ///
-  /// `recentLimit` NUNCA es 0: sin pull reciente, un watermark que avanzó
-  /// de más deja stock divergente para siempre (EXE↔APK).
+  /// Campo: maxApply ≥50 tumbaba el EXE. Techo duro **4**.
+  /// `recentLimit` NUNCA es 0: sin pull reciente, watermark adelantado
+  /// deja stock divergente (EXE↔APK).
+  static const int stockOpsHardCap = 4;
+
   static ({int maxPages, int pageSize, int maxApply, int recentLimit})
       stockOpsPullBudget({required int pendingProductos}) {
     if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
-      return (maxPages: 3, pageSize: 40, maxApply: 60, recentLimit: 120);
+      return (
+        maxPages: 1,
+        pageSize: 10,
+        maxApply: stockOpsHardCap,
+        recentLimit: 20,
+      );
     }
     if (pendingProductos <= 50) {
-      return (maxPages: 2, pageSize: 25, maxApply: 30, recentLimit: 80);
+      return (
+        maxPages: 1,
+        pageSize: 8,
+        maxApply: 3,
+        recentLimit: 15,
+      );
     }
-    // Subiendo catálogo: watermark chico, pero recientes sí (convergencia).
-    return (maxPages: 1, pageSize: 15, maxApply: 12, recentLimit: 60);
+    return (
+      maxPages: 1,
+      pageSize: 8,
+      maxApply: 2,
+      recentLimit: 12,
+    );
   }
 
   /// Soft-pull lane.
@@ -134,6 +151,8 @@ class WindowsSyncPolicy {
   /// Campo 1.4.12: la ráfaga negocio+clientes+stock+drain en un solo gesto
   /// seguía tumbando el .exe. Ahora: **stock primero**, micro-rondas con
   /// yield, negocio mínimo, sin página grande de clientes.
+  ///
+  /// `stockMaxApply` nunca supera [stockOpsHardCap] (misma causa raíz).
   static ({
     int negocioLimit,
     int clientesPage,
@@ -148,7 +167,7 @@ class WindowsSyncPolicy {
     bool pullClientes,
     bool pullConfig,
   }) manualRefreshBudgetWindows({required int pendingProductos}) {
-    // Anti-crash: maxApply por ronda chico + más rondas + recentLimit alto.
+    // Anti-crash: maxApply por ronda ≤ hardCap + más rondas + recentLimit.
     // Subir maxApply a 50 tumbaba el .exe (regresión vs 1.4.12).
     if (pendingProductos >= 50) {
       return (
@@ -156,9 +175,9 @@ class WindowsSyncPolicy {
         clientesPage: 0,
         stockMaxPages: 1,
         stockPageSize: 12,
-        stockMaxApply: 4,
+        stockMaxApply: stockOpsHardCap,
         stockRecentLimit: 25,
-        stockRounds: 3,
+        stockRounds: 5,
         stockMicroBatch: 2,
         yieldMs: 220,
         schedulerTicks: 1,
@@ -172,9 +191,9 @@ class WindowsSyncPolicy {
         clientesPage: 0,
         stockMaxPages: 2,
         stockPageSize: 15,
-        stockMaxApply: 5,
+        stockMaxApply: stockOpsHardCap,
         stockRecentLimit: 35,
-        stockRounds: 4,
+        stockRounds: 5,
         stockMicroBatch: 2,
         yieldMs: 180,
         schedulerTicks: 1,
@@ -187,7 +206,7 @@ class WindowsSyncPolicy {
       clientesPage: 0,
       stockMaxPages: 2,
       stockPageSize: 15,
-      stockMaxApply: 6,
+      stockMaxApply: stockOpsHardCap,
       stockRecentLimit: 40,
       stockRounds: 5,
       stockMicroBatch: 3,
@@ -201,7 +220,7 @@ class WindowsSyncPolicy {
   /// Catch-up inicial Windows: suficiente para converger sin ráfaga letal.
   static ({int maxPages, int pageSize, int maxApply})
       windowsCatchupStockOpsBudget() =>
-          (maxPages: 2, pageSize: 25, maxApply: 20);
+          (maxPages: 1, pageSize: 10, maxApply: stockOpsHardCap);
 
   /// Plan de drain del outbox Windows (scheduler v2).
   ///

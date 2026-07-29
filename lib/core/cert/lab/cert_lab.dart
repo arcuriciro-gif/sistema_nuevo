@@ -12,5 +12,7 @@ export 'cert_lab_node.dart';
 export 'cert_lab_oracle.dart';
 export 'cert_lab_productos.dart';
 export 'cert_lab_registry.dart';
+export 'cert_lab_remitos_clientes.dart';
 export 'cert_lab_runner.dart';
+export 'cert_lab_stock.dart';
 export 'cert_lab_world.dart';

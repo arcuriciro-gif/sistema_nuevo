@@ -502,7 +502,48 @@ class CertLabBridge {
     });
   }
 
+  /// Publica stock_ops del outbox SQLite aunque Firebase los haya marcado
+  /// fail/dead (en lab no hay Firebase App).
+  Future<void> _publishOutboxStockOpsRegardlessOfStatus(CertLabNode node) async {
+    final db = await DatabaseHelper.instance.database;
+    final rows = await db.query(
+      'sync_outbox',
+      where: "entity_type = 'stock_op' AND status != ?",
+      whereArgs: [SyncOutboxStatus.acked],
+      limit: 100,
+    );
+    for (final row in rows) {
+      final opId = row['op_id']?.toString() ?? '';
+      if (opId.isEmpty) continue;
+      Map<String, dynamic> payload = {};
+      final raw = row['payload']?.toString();
+      if (raw != null && raw.isNotEmpty) {
+        try {
+          payload = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+        } catch (_) {}
+      }
+      final codigo = payload['codigo']?.toString() ?? '';
+      final delta = (payload['delta'] as num?)?.toInt() ?? 0;
+      final realOpId =
+          payload['opId']?.toString() ?? opId.replaceFirst('stock_op:', '');
+      if (codigo.isNotEmpty && delta != 0 && !cloud.hasStockOp(realOpId)) {
+        cloud.putStockOp(
+          opId: realOpId,
+          codigo: codigo,
+          delta: delta,
+          documentType: payload['documentType']?.toString(),
+          documentId: payload['documentId']?.toString(),
+          origin: node.id.name,
+        );
+      }
+      await SyncOutbox.instance.ack(opId);
+    }
+  }
+
   Future<void> _flushRealOutbox(CertLabNode node) async {
+    // Lab: sin Firebase el drain real marca fail/dead. Reabrir + leer
+    // payload de dead/pending para publicar al cloud del oráculo.
+    await _publishOutboxStockOpsRegardlessOfStatus(node);
     final claimed = await SyncOutbox.instance.claimBatch(
       limit: 50,
       entityTypes: const ['stock_op', 'producto'],

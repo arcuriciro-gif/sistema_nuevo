@@ -170,10 +170,12 @@ void main() {
       );
     });
 
-    test('budget stock_ops crece solo con cola quieta', () {
+    test('budget stock_ops ≤ hardCap y crece solo con cola quieta', () {
       final quiet = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 0);
       final busy = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 200);
       expect(quiet.maxApply, greaterThan(busy.maxApply));
+      expect(quiet.maxApply, lessThanOrEqualTo(WindowsSyncPolicy.stockOpsHardCap));
+      expect(busy.maxApply, lessThanOrEqualTo(WindowsSyncPolicy.stockOpsHardCap));
       expect(quiet.recentLimit, greaterThan(0));
       // Nunca 0: sin recientes el watermark truncado deja stock divergente.
       expect(busy.recentLimit, greaterThan(0));
@@ -183,7 +185,10 @@ void main() {
       final m = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 0,
       );
-      expect(m.stockMaxApply, lessThanOrEqualTo(6));
+      expect(
+        m.stockMaxApply,
+        lessThanOrEqualTo(WindowsSyncPolicy.stockOpsHardCap),
+      );
       expect(m.stockRecentLimit, lessThanOrEqualTo(40));
       expect(m.stockRounds, greaterThanOrEqualTo(2));
       expect(m.stockMicroBatch, lessThanOrEqualTo(4));
@@ -191,7 +196,7 @@ void main() {
       expect(m.negocioLimit, lessThanOrEqualTo(12));
       expect(m.pullClientes, isFalse);
       expect(m.yieldMs, greaterThanOrEqualTo(100));
-      // Total por gesto: rondas × maxApply + recent (convergencia sin ráfaga).
+      // Total por gesto: rondas × maxApply (convergencia sin ráfaga letal).
       expect(m.stockRounds * m.stockMaxApply, greaterThanOrEqualTo(20));
       final busy = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 80,
@@ -200,8 +205,11 @@ void main() {
       expect(busy.stockRounds, lessThanOrEqualTo(m.stockRounds));
       final catchup = WindowsSyncPolicy.windowsCatchupStockOpsBudget();
       expect(catchup.maxApply, greaterThan(0));
-      expect(catchup.maxApply, lessThanOrEqualTo(24));
-      expect(catchup.maxPages, greaterThanOrEqualTo(2));
+      expect(
+        catchup.maxApply,
+        lessThanOrEqualTo(WindowsSyncPolicy.stockOpsHardCap),
+      );
+      expect(catchup.maxPages, greaterThanOrEqualTo(1));
     });
   });
 }

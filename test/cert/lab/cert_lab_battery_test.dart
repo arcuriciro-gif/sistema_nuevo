@@ -6,10 +6,9 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sistema_nuevo/core/cert/lab/cert_lab.dart';
 
-/// Batería completa = protocolo + contratos de motor.
+/// Batería completa = protocolo + contrato de motor (P0-99).
 ///
-/// Hoy P0-99 debe ser ROJO (inbound Windows no certificado).
-/// Eso es correcto: el lab existe y bloquea certificación falsa.
+/// Tras hardCap≤4 + soft-pull stock_ops, P0-99 debe ser VERDE.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -19,7 +18,7 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  test('Cert Lab full battery: protocolo verde + P0-99 rojo (gate)', () async {
+  test('Cert Lab full battery: protocolo + P0-99 verdes', () async {
     final out = await Directory.systemTemp.createTemp('certlab_full_');
     final report = await CertLabRunner(outputDir: out.path).run(
       failFast: false,
@@ -27,24 +26,18 @@ void main() {
     // ignore: avoid_print
     print(report.toMarkdown());
 
-    final protocol = report.results.where((r) => !r.scenarioId.startsWith('P0-99'));
-    final contracts = report.results.where((r) => r.scenarioId.startsWith('P0-99'));
-
-    for (final r in protocol) {
-      expect(r.ok, isTrue, reason: r.failure?.toHuman() ?? r.scenarioId);
+    for (final r in report.results) {
+      expect(
+        r.ok,
+        isTrue,
+        reason: r.failure?.toHuman() ?? r.scenarioId,
+      );
     }
-    expect(contracts, isNotEmpty);
+    expect(report.ok, isTrue);
     expect(
-      contracts.every((r) => !r.ok),
+      CertLabEngineManifest.windowsAutomaticStockInboundCertified,
       isTrue,
-      reason: 'P0-99 debe fallar hasta certificar inbound Windows',
     );
-    expect(report.ok, isFalse, reason: 'batería completa no puede ser GREEN aún');
-
-    final f = contracts.first.failure!;
-    expect(f.file, contains('cert_lab_engine_manifest.dart'));
-    expect(f.clazz, 'CertLabEngineManifest');
-    expect(f.method, isNotEmpty);
-    expect(f.firestorePath, isNotNull);
+    expect(CertLabEngineManifest.realFirebaseTripleHopCertified, isFalse);
   });
 }

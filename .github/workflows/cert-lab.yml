@@ -28,6 +28,10 @@ jobs:
         run: flutter test test/cert/lab/cert_lab_protocol_test.dart test/cert/lab/cert_lab_oracle_test.dart
       - name: Run Cert Lab Productos (real ProductoService)
         run: flutter test test/cert/lab/cert_lab_productos_test.dart
+      - name: Run Cert Lab Stock (RemitoService real)
+        run: flutter test test/cert/lab/cert_lab_stock_test.dart
+      - name: Run Cert Lab Remitos + Clientes
+        run: flutter test test/cert/lab/cert_lab_remitos_clientes_test.dart
       - name: Upload report if present
         if: always()
         uses: actions/upload-artifact@v4
@@ -37,7 +41,7 @@ jobs:
           if-no-files-found: ignore
 
   cert-lab-full-report:
-    name: Cert Lab full (informe; P0-99 puede ser ROJO)
+    name: Cert Lab full (protocolo + P0-99 inbound)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -49,3 +53,5 @@ jobs:
       - run: flutter pub get
       - name: Run Cert Lab full battery
         run: flutter test test/cert/lab/cert_lab_battery_test.dart
+      - name: Windows policy hardCap
+        run: flutter test test/windows_sync_fast_safe_test.dart

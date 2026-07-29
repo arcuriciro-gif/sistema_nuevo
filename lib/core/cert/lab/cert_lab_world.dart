@@ -458,31 +458,10 @@ class CertLabBattery {
               'Contrato motor: Windows inbound stock automático certificado',
           tags: const ['engine', 'contract', 'gate'],
           run: (w) async {
-            // No modifica Sync Engine. Lee manifiesto del lab.
-            if (!CertLabEngineManifest.windowsAutomaticStockInboundCertified) {
-              throw CertLabContractException(
-                CertLabFailure(
-                  scenarioId: 'P0-99-engine-contract-windows-inbound',
-                  entity: CertLabEntity.stock,
-                  where: 'CertLabEngineManifest.windowsAutomaticStockInboundCertified',
-                  message:
-                      'Capacidad no certificada: Windows no demuestra recepción '
-                      'automática de stock_ops (campo: pruebq/1127 divergentes; '
-                      'freeze/manual-only en ramas de estabilización).',
-                  expected:
-                      'windowsAutomaticStockInboundCertified == true '
-                      'con P0-01..P0-10 verdes + evidencia de campo',
-                  actual: 'windowsAutomaticStockInboundCertified == false',
-                  file: 'lib/core/cert/lab/cert_lab_engine_manifest.dart',
-                  clazz: 'CertLabEngineManifest',
-                  method: 'windowsAutomaticStockInboundCertified',
-                  firestorePath: 'tenants/{tenant}/stock_ops/{opId}',
-                  hint:
-                      'Laboratorio listo. Cuando se autorice tocar el Sync Engine, '
-                      'corregir UNO: inbound Windows seguro. Luego poner este flag '
-                      'en true SOLO con evidencia. Hasta entonces: CERT_LAB_RED.',
-                ),
-              );
+            // Lee WindowsSyncPolicy (no inventa flags). Rojo = check concreto.
+            final failure = CertLabEngineManifest.p099FailureOrNull();
+            if (failure != null) {
+              throw CertLabContractException(failure);
             }
           },
         ),

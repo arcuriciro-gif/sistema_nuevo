@@ -2,8 +2,8 @@
 
 | Campo | Valor |
 |---|---|
-| Estado ERP | **NO CERTIFICADO** |
-| Módulo actual | **Productos** (orden 1) |
+| Estado ERP | **NO CERTIFICADO** (faltan Ventas/Compras/Proveedores/CC/Config + triple-hop Firebase) |
+| Módulos con batería | Productos, Stock, Remitos, Clientes |
 | Código | `lib/core/cert/lab/` |
 | Tests | `test/cert/lab/` |
 | CI | `.github/workflows/cert-lab.yml` |
@@ -34,12 +34,18 @@ No avanzar si el módulo actual tiene una sola diferencia.
 
 | Capa | Real / Lab |
 |---|---|
-| `ProductoService` / ledger / outbox SQLite | **REAL** |
+| `ProductoService` / `RemitoService` / ledger / outbox SQLite | **REAL** |
 | Oráculo Win ↔ Android ↔ proyección cloud | **REAL comparación** |
 | Firestore SDK / `FirestoreSyncService` push-pull | **NO** (puente lab) |
-| Triple-hop Firebase producción | **NO CERTIFICADO** (`CertLabEngineManifest`) |
+| Triple-hop Firebase producción | **NO CERTIFICADO** (`realFirebaseTripleHopCertified`) |
+| Windows inbound soft-pull `stock_ops` hardCap≤4 | **Contrato P0-99** (lee `WindowsSyncPolicy`) |
 
-El puente lab materializa lo que el outbox real encolaría. Eso certifica dominio + cola + apply peer. **No** sustituye el motor Windows inbound en producción.
+El puente lab materializa lo que el outbox real encolaría. Eso certifica dominio + cola + apply peer. **No** sustituye el triple-hop Firebase de producción.
+
+## Causa raíz P0-99 (evidencia)
+
+`maxApply` agresivo (≥50–60) en pull/catch-up de `stock_ops` cerraba el EXE ~2 min post-login.  
+Fix único: `WindowsSyncPolicy.stockOpsHardCap = 4` en pull, catch-up y Actualizar ahora. Soft-pull sigue incluyendo `stock_ops`.
 
 ## Informe de fallo
 
@@ -51,10 +57,12 @@ Entidad, dónde, primer evento, archivo/clase/método, SQL, Firestore path, stac
 # Protocolo P0 (sin contrato motor)
 flutter test test/cert/lab/cert_lab_protocol_test.dart
 
-# Productos (ProductoService real) — 1 + 3 consecutivas CI
+# Productos / Stock / Remitos+Clientes
 flutter test test/cert/lab/cert_lab_productos_test.dart
+flutter test test/cert/lab/cert_lab_stock_test.dart
+flutter test test/cert/lab/cert_lab_remitos_clientes_test.dart
 
-# Batería completa (P0-99 ROJO hasta inbound Win certificado)
+# Batería completa (incluye P0-99)
 flutter test test/cert/lab/cert_lab_battery_test.dart
 
 tool/run_cert_lab.sh
