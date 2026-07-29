@@ -444,6 +444,98 @@ class SyncOutbox {
     );
   }
 
+  /// IDs locales que usa el Benchmark lab (no son filas reales de negocio).
+  ///
+  /// Campo: `productos_500_claim` encolaba 500 upserts `producto:800001+`
+  /// y **no los ACK-eaba** → Panel en AMARILLO con Pending=500 / L3=500.
+  static const int labProductoLocalIdMin = 800000;
+  static const int labProductoLocalIdMax = 899999;
+  static const int labVentaLocalIdMin = 900000;
+  static const int labVentaLocalIdMax = 999999;
+
+  /// ACK de basura del Benchmark lab (pending/inflight/dead).
+  /// Idempotente. No toca ops de negocio reales.
+  Future<int> ackLabBenchmarkGarbage() async {
+    final db = await _db;
+    final ahora = DateTime.now().toUtc().toIso8601String();
+    var n = 0;
+    n += await db.update(
+      'sync_outbox',
+      {
+        'status': SyncOutboxStatus.acked,
+        'updated_at': ahora,
+        'last_error': 'lab_benchmark_cleanup',
+        'next_attempt_at': null,
+      },
+      where: 'status IN (?, ?, ?) AND entity_type = ? '
+          'AND entity_local_id >= ? AND entity_local_id <= ?',
+      whereArgs: [
+        SyncOutboxStatus.pending,
+        SyncOutboxStatus.inflight,
+        SyncOutboxStatus.dead,
+        'producto',
+        labProductoLocalIdMin,
+        labProductoLocalIdMax,
+      ],
+    );
+    n += await db.update(
+      'sync_outbox',
+      {
+        'status': SyncOutboxStatus.acked,
+        'updated_at': ahora,
+        'last_error': 'lab_benchmark_cleanup',
+        'next_attempt_at': null,
+      },
+      where: 'status IN (?, ?, ?) AND entity_type = ? '
+          'AND entity_local_id >= ? AND entity_local_id <= ?',
+      whereArgs: [
+        SyncOutboxStatus.pending,
+        SyncOutboxStatus.inflight,
+        SyncOutboxStatus.dead,
+        'venta',
+        labVentaLocalIdMin,
+        labVentaLocalIdMax,
+      ],
+    );
+    // ventas_bench también usa op_id upsert:venta:bench_* (si quedó a medias).
+    n += await db.rawUpdate(
+      '''
+UPDATE sync_outbox
+SET status = ?, updated_at = ?, last_error = ?, next_attempt_at = NULL
+WHERE status IN (?, ?, ?)
+  AND (op_id LIKE 'upsert:venta:bench_%' OR op_id LIKE 'upsert:producto:bench_%')
+''',
+      [
+        SyncOutboxStatus.acked,
+        ahora,
+        'lab_benchmark_cleanup',
+        SyncOutboxStatus.pending,
+        SyncOutboxStatus.inflight,
+        SyncOutboxStatus.dead,
+      ],
+    );
+    // productos_500_claim también encola venta localId 800001 (fuera del rango lab venta).
+    n += await db.update(
+      'sync_outbox',
+      {
+        'status': SyncOutboxStatus.acked,
+        'updated_at': ahora,
+        'last_error': 'lab_benchmark_cleanup',
+        'next_attempt_at': null,
+      },
+      where: 'status IN (?, ?, ?) AND entity_type = ? AND entity_local_id = ? '
+          "AND op_id = 'upsert:venta:800001'",
+      whereArgs: [
+        SyncOutboxStatus.pending,
+        SyncOutboxStatus.inflight,
+        SyncOutboxStatus.dead,
+        'venta',
+        800001,
+      ],
+    );
+    return n;
+  }
+
   /// Libera backoff de ops pending (p. ej. productos stuck con intentos 0
   /// tras reinstall / cuarentena). Usado por "Actualizar ahora".
   Future<int> clearBackoffPending({String? entityType}) async {

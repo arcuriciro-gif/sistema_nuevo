@@ -38,29 +38,42 @@ class SyncBenchmarkRunner {
     bool includeVentas1000 = true,
   }) async {
     final scenarios = <String, Map<String, dynamic>>{};
-    scenarios['ventas_100'] = await _benchVentas(100);
-    if (includeVentas1000) {
-      scenarios['ventas_1000'] = await _benchVentas(1000);
+    var cleaned = 0;
+    try {
+      scenarios['ventas_100'] = await _benchVentas(100);
+      if (includeVentas1000) {
+        scenarios['ventas_1000'] = await _benchVentas(1000);
+      }
+      if (includeHeavy) {
+        scenarios['productos_10000_claim'] = await _benchProductosClaim(10000);
+      } else {
+        scenarios['productos_500_claim'] = await _benchProductosClaim(500);
+      }
+      scenarios['sla_snapshot'] = Map<String, dynamic>.from(
+        SyncSlaMonitor.instance.snapshot(),
+      );
+    } finally {
+      // Campo: sin esto el lab dejaba 500 productos pending → Panel AMARILLO.
+      cleaned = await SyncOutbox.instance.ackLabBenchmarkGarbage();
+      cleaned += await SyncOutbox.instance.ackOrphanUpserts();
     }
-    if (includeHeavy) {
-      scenarios['productos_10000_claim'] = await _benchProductosClaim(10000);
-    } else {
-      scenarios['productos_500_claim'] = await _benchProductosClaim(500);
-    }
-    scenarios['sla_snapshot'] = Map<String, dynamic>.from(
-      SyncSlaMonitor.instance.snapshot(),
-    );
 
     SyncFlightRecorder.instance.record(
       kind: 'benchmark',
       message: 'completed',
-      data: {'scenarios': scenarios.keys.toList()},
+      data: {
+        'scenarios': scenarios.keys.toList(),
+        'labCleanupAcked': cleaned,
+      },
     );
 
     return SyncBenchmarkReport({
       'at': DateTime.now().toUtc().toIso8601String(),
       'note':
-          'LAB: mide enqueue+claim+ack local. Hop Firestore/otro dispositivo requiere piloto.',
+          'LAB: mide enqueue+claim+ack local. NO mide sync PC↔celular. '
+          'Hop Firestore requiere piloto. Basura lab se limpia al terminar '
+          '(acked=$cleaned).',
+      'labCleanupAcked': cleaned,
       'scenarios': scenarios,
       'dashboard':
           await SyncObservabilityHub.instance.dashboardSnapshot(light: true),
@@ -72,14 +85,15 @@ class SyncBenchmarkRunner {
     final lat = <int>[];
     for (var i = 1; i <= n; i++) {
       final opId = 'upsert:venta:bench_${n}_$i';
+      final localId = SyncOutbox.labVentaLocalIdMin + i;
       SyncObservabilityHub.instance.onEnqueue(
         opId: opId,
         entityType: 'venta',
-        localId: 900000 + i,
+        localId: localId,
       );
       await SyncOutbox.instance.enqueueUpsert(
         entityType: 'venta',
-        localId: 900000 + i,
+        localId: localId,
       );
       final t0 = Stopwatch()..start();
       final claimed = await SyncOutbox.instance.claimBatch(
@@ -113,16 +127,17 @@ class SyncBenchmarkRunner {
 
   Future<Map<String, dynamic>> _benchProductosClaim(int n) async {
     final sw = Stopwatch()..start();
-    for (var i = 1; i <= n; i++) {
+    final capped = n.clamp(1, 500);
+    for (var i = 1; i <= capped; i++) {
       await SyncOutbox.instance.enqueueUpsert(
         entityType: 'producto',
-        localId: 800000 + i,
+        localId: SyncOutbox.labProductoLocalIdMin + i,
         forceBackground: true,
       );
     }
     await SyncOutbox.instance.enqueueUpsert(
       entityType: 'venta',
-      localId: 800001,
+      localId: SyncOutbox.labVentaLocalIdMin,
     );
     final bd = await SyncOutbox.instance.pendingBreakdown();
     final claimed = await SyncScheduler.instance.claimForTick(
@@ -130,8 +145,9 @@ class SyncBenchmarkRunner {
       isWindows: false,
     );
     sw.stop();
+    // Devolver claimed a pending limpio vía cleanup global (finally del run).
     return {
-      'n_productos': n,
+      'n_productos': capped,
       'first_claim_type':
           claimed.isEmpty ? null : claimed.first['entity_type'],
       'elapsed_ms': sw.elapsedMilliseconds,

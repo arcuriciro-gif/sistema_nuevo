@@ -749,6 +749,7 @@ class FirestoreSyncService {
           try {
             syncStatusDetail = 'Subiendo pendientes…';
             DataRefreshHub.instance.notifyTodo();
+            await SyncOutbox.instance.ackLabBenchmarkGarbage();
             await SyncOutbox.instance.ackOrphanUpserts();
             await SyncOutbox.instance
                 .clearBackoffPending(entityType: 'producto');
@@ -846,6 +847,20 @@ class FirestoreSyncService {
           'ms=${sw.elapsedMilliseconds}',
         );
       } else {
+        // 1.4.25: limpiar basura del Benchmark lab antes de pull/push real.
+        try {
+          final lab = await SyncOutbox.instance.ackLabBenchmarkGarbage();
+          if (lab > 0) {
+            debugPrint('actualizarAhora mobile: lab garbage acked=$lab');
+          }
+          await SyncOutbox.instance.ackOrphanUpserts();
+          await SyncOutbox.instance.clearBackoffPending();
+          SyncCircuitBreaker.instance.forceClose(
+            reason: 'actualizar_ahora_mobile_heal',
+          );
+        } catch (e) {
+          debugPrint('actualizarAhora mobile heal: $e');
+        }
         try {
           try {
             await _maybeRewindStockOpsWatermarkForConvergence();
@@ -881,6 +896,12 @@ class FirestoreSyncService {
         if (_puedeEscribirRemoto) {
           try {
             await SyncScheduler.instance.ensureRestored();
+            // Drain real de cola (productos L3) — el lab no hace esto.
+            await _procesarOutboxDrain(
+              maxBatches: 4,
+              claimLimit: 8,
+              entityTypes: const ['producto', 'proveedor', 'stock_op'],
+            );
             await _procesarSchedulerTicks(windows: false);
           } catch (e) {
             debugPrint('actualizarAhora drain: $e');

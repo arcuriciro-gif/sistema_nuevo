@@ -230,10 +230,25 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
           ),
         ]),
         _section('Sincronización', [
-          _row('Salud certificable', sync.isCertifiableHealthy ? 'OK' : 'ATENCIÓN'),
+          _row(
+            'Salud certificable',
+            sync.isCertifiableHealthy
+                ? 'OK'
+                : sync.pending >= 500
+                    ? 'ATENCIÓN (cola ≥500 — ¿Benchmark lab?)'
+                    : sync.pendingL1 > 0
+                        ? 'ATENCIÓN (hay L1 crítico)'
+                        : 'ATENCIÓN',
+          ),
           _row('Indicador', sync.healthColor.toUpperCase()),
           _row('Pending / Inflight / Dead',
               '${sync.pending} / ${sync.inflight} / ${sync.dead}'),
+          _row(
+            'Pending por tipo',
+            sync.pendingBreakdownLabel.isEmpty
+                ? '—'
+                : sync.pendingBreakdownLabel,
+          ),
           _row('L1 crítico / L2 alto',
               '${sync.pendingL1} / ${sync.pendingL2}'),
           _row('L3 normal / L4 background',

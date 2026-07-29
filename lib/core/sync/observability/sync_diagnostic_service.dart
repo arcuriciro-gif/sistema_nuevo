@@ -61,6 +61,12 @@ class SyncDiagnosticService {
   Future<SyncDiagnosticReport> diagnose() async {
     final findings = <String>[];
     final actions = <String>[];
+
+    // Primero limpiar basura del Benchmark lab (si el usuario corrió el lab
+    // y quedó Pending=500 / L3=500, esto lo explica y lo cura).
+    final labCleaned = await SyncOutbox.instance.ackLabBenchmarkGarbage();
+    final orphans = await SyncOutbox.instance.ackOrphanUpserts();
+
     final health = await SyncHealthService.instance.snapshot();
     final counts = await SyncOutbox.instance.counts();
     final byLane = await SyncOutbox.instance.pendingByLane();
@@ -75,6 +81,20 @@ class SyncDiagnosticService {
     final flight = SyncFlightRecorder.instance.dumpJson(n: 30);
     final dash = await SyncObservabilityHub.instance.dashboardSnapshot();
 
+    if (labCleaned > 0) {
+      findings.add(
+        'Se limpiaron $labCleaned ops fantasma del Benchmark lab '
+        '(no eran sync real PC↔celular).',
+      );
+      actions.add(
+        'El Benchmark lab mide cola local; no digas que "antes sync '
+        'andaba" por un lab verde. Mirá Pending real y stock en ambos.',
+      );
+    }
+    if (orphans > 0) {
+      findings.add('ACK de $orphans upserts huérfanos (fila local inexistente).');
+    }
+
     if (!health.firebaseReady) {
       findings.add('Firebase no listo (firebaseReady=false).');
       actions.add('Revisar login nube / Configuración → sincronización.');
@@ -86,6 +106,16 @@ class SyncDiagnosticService {
     if (health.pendingL1 > 0) {
       findings.add('Cola L1 crítica con ${health.pendingL1} pendientes.');
       actions.add('Priorizar red; Turbo debería estar OFF (focused).');
+    }
+    if (health.pendingL3 >= 50) {
+      final que = SyncOutbox.formatBreakdown(health.pendingByType);
+      findings.add(
+        'Cola L3/fondo con ${health.pendingL3} pendientes'
+        '${que.isEmpty ? '' : ': $que'}.',
+      );
+      actions.add(
+        'Tocá Actualizar ahora (no Benchmark lab). Lab verde ≠ cola vacía.',
+      );
     }
     if (health.dead > 0) {
       findings.add('${health.dead} ops en estado dead.');
@@ -111,7 +141,9 @@ class SyncDiagnosticService {
     }
     if (findings.isEmpty) {
       findings.add('Sin anomalías detectadas en este ciclo.');
-      actions.add('Continuar monitoreo; correr Benchmark si hay duda de carga.');
+      actions.add(
+        'Continuar monitoreo. Benchmark lab = solo local; no vacía cola real.',
+      );
     }
 
     final ok = health.healthColor != 'rojo' &&
@@ -133,6 +165,8 @@ class SyncDiagnosticService {
         'sla': sla,
         'schedulerState': state?.mode,
         'heal': heal,
+        'labCleanupAcked': labCleaned,
+        'orphanUpsertsAcked': orphans,
         'locks': locks,
         'flightTail': flight,
         'dashboard': dash,
