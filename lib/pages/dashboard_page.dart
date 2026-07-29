@@ -2,6 +2,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
+import '../core/inventory/stock_kpi.dart';
 import '../models/producto.dart';
 import '../services/analytics_service.dart';
 import '../services/branding_service.dart';
@@ -114,8 +115,7 @@ class _DashboardPageState extends State<DashboardPage> {
     for (final p in productos) {
       stock += p.precio * p.stock;
       if (p.stock <= 5) criticos++;
-      // Incluye negativos: mismos criterios que Inicio / Productos.
-      if (p.stock <= 0) {
+      if (StockKpi.sinStock(p.stock)) {
         sinStockCount++;
         agotados.add(p);
       }

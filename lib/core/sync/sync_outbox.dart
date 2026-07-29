@@ -677,6 +677,7 @@ GROUP BY l
     int minAttempts = 3,
     String? onlyLastErrorContains,
     Future<bool> Function(String remoteOpId)? proveCloudApplied,
+    int limit = 300,
   }) async {
     final db = await _db;
     final rows = await db.query(
@@ -690,7 +691,7 @@ GROUP BY l
       ],
       where: "entity_type = 'stock_op' AND status IN (?, ?)",
       whereArgs: [SyncOutboxStatus.pending, SyncOutboxStatus.inflight],
-      limit: 300,
+      limit: limit,
     );
     var n = 0;
     final ahora = DateTime.now().toUtc().toIso8601String();

@@ -232,8 +232,22 @@ Future<IntegrityScanReport> scanAndPersist({int productLimit = 2000}) async {
   Future<({int count, List<IntegrityAlarm> alarms})> _scanNegativeStock() async {
     final db = await DatabaseHelper.instance.database;
     final rows = await db.rawQuery(
-      'SELECT id, codigo, stock FROM productos WHERE stock < 0 ORDER BY stock ASC LIMIT 200',
+      '''
+      SELECT id, codigo, stock FROM productos
+      WHERE stock < 0
+        AND (deleted_at IS NULL OR deleted_at = '')
+      ORDER BY stock ASC
+      LIMIT 200
+      ''',
     );
+    final countRows = await db.rawQuery(
+      '''
+      SELECT COUNT(*) c FROM productos
+      WHERE stock < 0
+        AND (deleted_at IS NULL OR deleted_at = '')
+      ''',
+    );
+    final totalCount = (countRows.first['c'] as num?)?.toInt() ?? rows.length;
     final alarms = <IntegrityAlarm>[];
     final permitir = IntegrityPolicy.instance.permitirStockNegativo;
     if (!permitir) {
@@ -253,7 +267,7 @@ Future<IntegrityScanReport> scanAndPersist({int productLimit = 2000}) async {
         );
       }
     }
-    return (count: rows.length, alarms: alarms);
+    return (count: totalCount, alarms: alarms);
   }
 
   Future<({int checked, List<IntegrityAlarm> alarms})> _scanCuentaCorriente() async {
