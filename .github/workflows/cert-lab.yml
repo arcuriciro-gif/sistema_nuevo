@@ -1,0 +1,49 @@
+name: Cert Lab ERP
+
+# Gate obligatorio: el laboratorio debe existir y el protocolo P0 debe pasar.
+# La batería completa (con contratos de motor) puede tener ROJO hasta certificar
+# capacidades — se corre en job aparte sin fallar el gate de existencia.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'cursor/**'
+  pull_request:
+
+jobs:
+  cert-lab-protocol:
+    name: Cert Lab protocolo P0 (GREEN obligatorio)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Run Cert Lab protocolo
+        run: flutter test test/cert/lab/cert_lab_protocol_test.dart
+      - name: Upload report if present
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cert-lab-protocol
+          path: /opt/cursor/artifacts/cert-lab/
+          if-no-files-found: ignore
+
+  cert-lab-full-report:
+    name: Cert Lab full (informe; P0-99 puede ser ROJO)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Run Cert Lab full battery
+        run: flutter test test/cert/lab/cert_lab_battery_test.dart
