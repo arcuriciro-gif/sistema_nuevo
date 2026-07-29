@@ -742,9 +742,8 @@ class FirestoreSyncService {
         );
         var pushedHint = 0;
 
-        // 1.4.20 ULTRA-SAFE: Actualizar ahora = SOLO PUSH.
-        // El pull de stock (≤4/tick) lo hace soft-pull en background.
-        // Cualquier pull stacked acá tumba el .exe (campo 1.4.18–19).
+        // Push primero (APK necesita stock_ops del EXE), luego micro-rondas
+        // de pull (freeze=ON ⇒ no hay soft-pull/listeners que bajen stock).
         if (_puedeEscribirRemoto) {
           try {
             syncStatusDetail = 'Subiendo pendientes…';
@@ -824,18 +823,40 @@ class FirestoreSyncService {
           }
         }
 
-        // Micro-pull opcional: 2 ops máx (no rondas, no repair, no negocio).
-        if (budget.pullStockOnManual) {
+        // Micro-rondas: ≤2 ops/ronda + yield. Alterna recientes / watermark.
+        // Sin soft-pull: este es el único bajador de ventas del celular al PC.
+        if (budget.pullStockOnManual && budget.stockRounds > 0) {
           try {
-            syncStatusDetail = 'Bajando 2 movimientos de stock…';
-            DataRefreshHub.instance.notifyTodo();
             await _runStockOpsLane(() async {
-              await _pullStockOpsRecientes(
-                limit: budget.stockRecentLimit,
-                maxApply: budget.stockMaxApply,
-                microBatchSize: 1,
-                yieldMs: budget.yieldMs,
-              );
+              for (var round = 0; round < budget.stockRounds; round++) {
+                syncStatusDetail =
+                    'Bajando stock (${round + 1}/${budget.stockRounds})…';
+                DataRefreshHub.instance.notifyTodo();
+                if (round.isEven) {
+                  await _pullStockOpsRecientes(
+                    limit: budget.stockRecentLimit,
+                    maxApply: budget.stockMaxApply,
+                    microBatchSize: budget.stockMicroBatch,
+                    yieldMs: budget.yieldMs,
+                  );
+                } else {
+                  await _pullStockOpsRemotas(
+                    maxPages: budget.stockMaxPages,
+                    pageSize: budget.stockPageSize,
+                    maxApply: budget.stockMaxApply,
+                    microBatchSize: budget.stockMicroBatch,
+                    yieldMs: budget.yieldMs,
+                  );
+                  await _sweepStockOpsHolds(limit: 2);
+                }
+                await Future<void>.delayed(
+                  Duration(milliseconds: budget.yieldMs),
+                );
+              }
+              try {
+                await InventoryLedgerService.instance
+                    .repararProyeccionesDivergentes(limit: 8);
+              } catch (_) {}
             });
           } catch (e) {
             debugPrint('actualizarAhora micro-pull: $e');
@@ -843,8 +864,8 @@ class FirestoreSyncService {
         }
 
         debugPrint(
-          'actualizarAhora Windows PUSH-ONLY done hint=$pushedHint '
-          'ms=${sw.elapsedMilliseconds}',
+          'actualizarAhora Windows push+microRounds=${budget.stockRounds} '
+          'hint=$pushedHint ms=${sw.elapsedMilliseconds}',
         );
       } else {
         // 1.4.25: limpiar basura del Benchmark lab antes de pull/push real.

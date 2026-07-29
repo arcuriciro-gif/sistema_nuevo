@@ -7,7 +7,7 @@ class WindowsSyncPolicy {
   /// Campo 2026-07-28: el EXE se cerraba solo ~2 min después del login
   /// (listeners de negocio + soft-pull + primer drain post-cuarentena).
   /// Con esto en true: solo outbox chico; sin snapshots Firestore ni soft-pull.
-  /// Actualizar ahora sigue pudiendo PUSH pendientes a mano.
+  /// Actualizar ahora = PUSH + micro-rondas de stock_ops (maxApply≤2).
   static const bool freezeBackgroundForStability = true;
 
   /// Tras login: solo absorber outbox local; sin Firebase de colección.
@@ -164,9 +164,10 @@ class WindowsSyncPolicy {
 
   /// Presupuesto de "Actualizar ahora" en Windows.
   ///
-  /// Campo 1.4.20: el gesto manual **solo PUSH** (productos + stock_ops).
-  /// El pull de stock lo hace soft-pull de a ≤4. Cualquier pull grande
-  /// en el botón tumbaba el .exe (1.4.18 ráfaga / 1.4.19 aún stacked).
+  /// Con `freezeBackgroundForStability` el soft-pull/listeners están OFF:
+  /// este gesto es el **único** canal de bajada de stock_ops al PC.
+  /// Micro-rondas de maxApply≤2 + yield (techo total ≤40 < crash ≥50).
+  /// Sin config, sin negocio, sin reactivar soft-pull.
   static ({
     int negocioLimit,
     int clientesPage,
@@ -182,7 +183,8 @@ class WindowsSyncPolicy {
     bool pullConfig,
     bool pullStockOnManual,
   }) manualRefreshBudgetWindows({required int pendingProductos}) {
-    // Push-only + micro-pull opcional (2 ops). Sin rondas, sin config, sin negocio.
+    // Push + N micro-rondas (≤2 ops c/u). Total ≤40 aplica/gesto.
+    // pendingProductos no agranda el pull (anti-crash); solo el push drena.
     return (
       negocioLimit: 0,
       clientesPage: 0,
@@ -190,13 +192,13 @@ class WindowsSyncPolicy {
       stockPageSize: 8,
       stockMaxApply: 2,
       stockRecentLimit: 8,
-      stockRounds: 0,
+      stockRounds: 20, // 20×2=40 < umbral crash histórico ≥50
       stockMicroBatch: 1,
       yieldMs: 200,
       schedulerTicks: 1,
       pullClientes: false,
       pullConfig: false,
-      pullStockOnManual: true, // una sola pasada maxApply=2
+      pullStockOnManual: true,
     );
   }
 

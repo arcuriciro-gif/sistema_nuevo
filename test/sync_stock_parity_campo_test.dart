@@ -28,13 +28,16 @@ void main() {
         lessThan(pasos.indexOf('pull_recientes_applied')));
   });
 
-  test('Windows Actualizar ahora: push-only (no maxApply 250 ni 60)', () {
+  test('Windows Actualizar ahora: micro-rondas ≤2 (no maxApply 250 ni 60)', () {
     // Regresión 1.4.18 ráfaga + 1.4.19 soft-pull 60 con 5 pending.
     const winManualMax = 2;
     const winSoftMax = 4;
     const banned = 60;
     expect(winManualMax, lessThan(banned));
     expect(winSoftMax, lessThan(banned));
+    // Techo total del gesto < umbral crash histórico.
+    const rounds = 20;
+    expect(rounds * winManualMax, lessThan(50));
   });
 
   test('KPI sin stock: negativos no son stock==0 (explica 2884≠6+2866)', () {

@@ -21,18 +21,19 @@ void main() {
   });
 
   group('EXE manual refresh hardening 1.4.20', () {
-    test('presupuesto push-only: sin rondas de pull, sin clientes', () {
+    test('presupuesto micro-rondas: maxApply≤2, total<50, sin clientes', () {
       final b = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 0,
       );
-      expect(b.stockRounds, equals(0));
+      expect(b.stockRounds, greaterThan(0));
       expect(b.stockMaxApply, lessThanOrEqualTo(2));
+      expect(b.stockRounds * b.stockMaxApply, lessThan(50));
       expect(b.pullClientes, isFalse);
       expect(b.negocioLimit, equals(0));
       expect(b.pullConfig, isFalse);
     });
 
-    test('con cola de productos sigue push-only (anti-crash)', () {
+    test('con cola de productos no agranda el pull (anti-crash)', () {
       final quiet = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 0,
       );
@@ -40,7 +41,7 @@ void main() {
         pendingProductos: 100,
       );
       expect(busy.stockMaxApply, lessThanOrEqualTo(quiet.stockMaxApply));
-      expect(busy.stockRounds, equals(0));
+      expect(busy.stockRounds * busy.stockMaxApply, lessThan(50));
       expect(busy.pullConfig, isFalse);
     });
 

@@ -12,9 +12,10 @@ void main() {
     expect(b.maxApply, lessThan(50));
   });
 
-  test('Actualizar ahora: push-only (stockRounds=0, maxApply≤2)', () {
+  test('Actualizar ahora: micro-rondas maxApply≤2 (sin soft-pull)', () {
     final m = WindowsSyncPolicy.manualRefreshBudgetWindows(pendingProductos: 5);
-    expect(m.stockRounds, 0);
+    expect(m.stockRounds, greaterThan(0));
+    expect(m.stockRounds * m.stockMaxApply, lessThan(50));
     expect(m.stockMaxApply, lessThanOrEqualTo(2));
     expect(m.negocioLimit, 0);
     expect(m.pullConfig, isFalse);
@@ -25,9 +26,9 @@ void main() {
       'push_productos',
       'push_stock_ops',
       'push_docs',
-      'micro_pull_2',
+      'micro_rounds_maxApply_2',
     ];
     expect(fases.first, 'push_productos');
-    expect(fases.last, 'micro_pull_2');
+    expect(fases.last, 'micro_rounds_maxApply_2');
   });
 }

@@ -193,12 +193,13 @@ void main() {
       expect(busy.maxApply, lessThanOrEqualTo(quiet.maxApply));
     });
 
-    test('Actualizar ahora Windows: push-only ultra-safe 1.4.20', () {
+    test('Actualizar ahora Windows: micro-rondas maxApply≤2 (freeze-safe)', () {
       final m = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 0,
       );
       expect(m.stockMaxApply, lessThanOrEqualTo(2));
-      expect(m.stockRounds, equals(0));
+      expect(m.stockRounds, greaterThan(0));
+      expect(m.stockRounds * m.stockMaxApply, lessThan(50));
       expect(m.pullStockOnManual, isTrue);
       expect(m.negocioLimit, equals(0));
       expect(m.pullClientes, isFalse);
@@ -208,7 +209,7 @@ void main() {
         pendingProductos: 80,
       );
       expect(busy.stockMaxApply, lessThanOrEqualTo(2));
-      expect(busy.stockRounds, equals(0));
+      expect(busy.stockRounds * busy.stockMaxApply, lessThan(50));
       final catchup = WindowsSyncPolicy.windowsCatchupStockOpsBudget();
       expect(catchup.maxApply, greaterThan(0));
       expect(catchup.maxApply, lessThanOrEqualTo(4));

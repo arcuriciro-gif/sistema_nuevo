@@ -56,12 +56,11 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
       final r = await FirestoreSyncService.instance
           .actualizarAhora()
           .timeout(
-            // Windows: varias micro-rondas de stock; 90s cortaba mid-apply.
-            // 1.4.20: push-only → 60s alcanza.
-            const Duration(seconds: 60),
+            // Windows freeze: push + ~20 micro-rondas stock (maxApply≤2).
+            const Duration(seconds: 120),
             onTimeout: () => {
               'ok': false,
-              'error': 'timeout_60s',
+              'error': 'timeout_120s',
             },
           );
       if (!mounted) return;
@@ -70,7 +69,7 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
         SnackBar(
           content: Text(
             ok
-                ? 'Pendientes subidos (${r['ms']} ms). El stock sigue bajando solo en segundo plano.'
+                ? 'Actualizado (${r['ms']} ms). Si un SKU sigue distinto, tocá de nuevo.'
                 : 'No se pudo actualizar: ${r['error'] ?? 'error'}',
           ),
         ),
