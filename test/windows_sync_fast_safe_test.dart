@@ -39,13 +39,28 @@ void main() {
         WindowsSyncPolicy.quarantineForBacklog(pendingProductos: 500).inSeconds,
         lessThanOrEqualTo(12),
       );
-      expect(
-        WindowsSyncPolicy.quarantineForBacklog(pendingProductos: 0).inSeconds,
-        WindowsSyncPolicy.quarantineAfterLogin.inSeconds,
-      );
+      // Con freeze la cuarentena fija es corta (8s), no la de quarantineAfterLogin.
+      if (!WindowsSyncPolicy.freezeBackgroundForStability) {
+        expect(
+          WindowsSyncPolicy.quarantineForBacklog(pendingProductos: 0).inSeconds,
+          WindowsSyncPolicy.quarantineAfterLogin.inSeconds,
+        );
+      }
     });
 
     test('pump/pull más frecuentes para convergencia negocio', () {
+      // Con freeze: pump más lento a propósito (anti-crash).
+      if (WindowsSyncPolicy.freezeBackgroundForStability) {
+        expect(
+          WindowsSyncPolicy.outboxPumpInterval.inSeconds,
+          lessThanOrEqualTo(60),
+        );
+        expect(
+          WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 0).inHours,
+          greaterThanOrEqualTo(24),
+        );
+        return;
+      }
       expect(
         WindowsSyncPolicy.outboxPumpInterval.inSeconds,
         lessThanOrEqualTo(40),
@@ -157,16 +172,24 @@ void main() {
         WindowsSyncPolicy.recentBusinessDocsLimit(pendingProductos: 0),
         greaterThan(0),
       );
-      expect(
-        WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 0).inSeconds,
-        lessThan(WindowsSyncPolicy.softPullInterval.inSeconds),
-      );
+      if (WindowsSyncPolicy.freezeBackgroundForStability) {
+        expect(
+          WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 0).inHours,
+          greaterThanOrEqualTo(24),
+        );
+      } else {
+        expect(
+          WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 0).inSeconds,
+          lessThan(WindowsSyncPolicy.softPullInterval.inSeconds),
+        );
+      }
     });
 
     test('Windows habilita listeners solo de negocio (no productos)', () {
+      // Congelado: listeners OFF (snapshot inicial tumbaba EXE ~2 min).
       expect(
         WindowsSyncPolicy.enableBusinessDocListeners(isWindowsDesktop: true),
-        isTrue,
+        isFalse,
       );
       expect(
         WindowsSyncPolicy.windowsBusinessListenerCollections,

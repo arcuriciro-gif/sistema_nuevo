@@ -209,9 +209,11 @@ class FirestoreSyncService {
         await _migrateLegacyColasToOutbox();
       }
       await _cargarWatermarksPersistidos();
-      // 1.4.2: una sola vez rebobina watermark stock_ops 72h para recuperar
-      // ops perdidas por avance prematuro (truncate/pending_apply).
-      await _maybeRewindStockOpsWatermarkForConvergence();
+      // Rewind stock_ops: en Windows NO al boot (ráfaga + soft-pull tumbaba).
+      // Mobile sí; Windows en Actualizar ahora.
+      if (!windows) {
+        await _maybeRewindStockOpsWatermarkForConvergence();
+      }
       SyncHealthService.instance.firebaseReady = true;
       SyncHealthService.instance.canWrite = _puedeEscribirRemoto;
       syncStatusLabel = 'Sincronizando…';
@@ -289,7 +291,8 @@ class FirestoreSyncService {
           CloudSyncThrottle.enqueue(() async {
             try {
               await _cargarColasPersistidas();
-              await _maybeRewindStockOpsWatermarkForConvergence();
+              // NO rewind watermark en boot: + seed + soft-pull = ráfaga letal.
+              // Rewind queda en Actualizar ahora.
               syncStatusDetail = 'Revisando cola local…';
               DataRefreshHub.instance.notifyTodo();
               // Solo stock MUERTO/reclaim eterno — NO borrar pending frescos
@@ -319,12 +322,11 @@ class FirestoreSyncService {
                   'poisonForce=${recovered.forceRequeued}',
                 );
               }
-              // Histórico sin ledger → seed hasta vaciar (G4). Lotes chicos.
+              // NO seedUntilDone en boot Windows: 2861×txn tumbaba el EXE
+              // ~1–2 min post-login (ver log BOOT restart). Seed chico;
+              // el resto va por Panel técnico / Actualizar ahora.
               try {
-                await LegacyLedgerMigration.instance.seedUntilDone(
-                  batchSize: 400,
-                  maxBatches: 20,
-                );
+                await LegacyLedgerMigration.instance.seedMissing(limit: 40);
               } catch (e) {
                 debugPrint('LegacyLedgerMigration boot: $e');
               }
@@ -560,7 +562,7 @@ class FirestoreSyncService {
 
           // Windows: encolar remitos/ventas locales que nunca subieron
           // (si no, el APK queda en ventas $0 con stock casi OK).
-          if (windows) {
+          if (windows && !WindowsSyncPolicy.freezeBackgroundForStability) {
             await _microCatchupDocsWindows();
           }
 
@@ -694,7 +696,9 @@ class FirestoreSyncService {
     } finally {
       _actualizarAhoraBusy = false;
       // Reanudar soft-pull si lo pausamos (intervalo según cola).
+      // Congelado: soft-pull OFF — no rearmar el pump que tumbaba el EXE.
       if (windows &&
+          !WindowsSyncPolicy.freezeBackgroundForStability &&
           _windowsPumpsActivos &&
           _puedeEscribirRemoto &&
           _pullPump == null &&
@@ -737,6 +741,19 @@ class FirestoreSyncService {
           pendingProductos: pendingProd,
         );
         var stockAppliedHint = 0;
+
+        // Rewind diferido del boot (boot no lo hace: tumbaba el EXE).
+        try {
+          await _maybeRewindStockOpsWatermarkForConvergence();
+        } catch (e) {
+          debugPrint('actualizarAhora rewind: $e');
+        }
+        // Seed ledger chico bajo demanda (boot solo hace 40).
+        try {
+          await LegacyLedgerMigration.instance.seedMissing(limit: 200);
+        } catch (e) {
+          debugPrint('actualizarAhora ledger seed: $e');
+        }
 
         // Fase 1 — STOCK primero (convergencia EXE↔APK).
         try {
@@ -1055,6 +1072,30 @@ class FirestoreSyncService {
       DataRefreshHub.instance.notifyTodo();
       await Future<void>.delayed(const Duration(seconds: 5));
       authOk = _puedeEscribirRemoto;
+    }
+
+    // Congelado: sin listeners, sin soft-pull, sin stock_ops pump, sin
+    // micro-catchup. Campo: eso cerraba el EXE ~1–2 min post-login.
+    // Solo drain chico de outbox; convergencia stock = Actualizar ahora.
+    if (WindowsSyncPolicy.freezeBackgroundForStability) {
+      await CloudSyncThrottle.enqueue(() async {
+        if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+        await SyncOutbox.instance.ackOrphanUpserts();
+        await _procesarOutboxDrain(
+          maxBatches: 1,
+          claimLimit: 3,
+          entityTypes: const ['proveedor', 'producto', 'stock_op'],
+        );
+        final breakdown = await SyncOutbox.instance.pendingBreakdown();
+        final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
+        syncStatusLabel = 'En la nube (modo estable PC)';
+        syncStatusDetail = pending > 0
+            ? '$pending pendientes — tocá Actualizar ahora'
+            : 'Tocá Actualizar ahora para igualar stock';
+        DataRefreshHub.instance.notifyTodo();
+      }, tag: 'primerDrainPostCuarentenaFreeze');
+      _iniciarOutboxPump();
+      return;
     }
 
     // Arrancar pump igual: cada tick chequéa Auth; no dejar cola huérfana.
