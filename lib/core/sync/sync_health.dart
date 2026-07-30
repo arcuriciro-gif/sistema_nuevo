@@ -1,4 +1,3 @@
-import 'scheduler/sync_metrics_history_store.dart';
 import 'scheduler/sync_priority.dart';
 import 'scheduler/sync_scheduler.dart';
 import 'scheduler/sync_scheduler_metrics.dart';
@@ -61,7 +60,7 @@ class SyncHealthSnapshot {
   final Map<String, dynamic> engine;
   final double? avgSyncMs;
   final String healthColor;
-  final List<SyncMetricsSample> history24h;
+  final List<Map<String, dynamic>> history24h;
 
   String get pendingBreakdownLabel =>
       SyncOutbox.formatBreakdown(pendingByType);
@@ -161,10 +160,7 @@ class SyncHealthService {
       pendingBackground = levels.l3 + levels.l4;
     }
 
-    List<SyncMetricsSample> history = const [];
-    try {
-      history = await SyncMetricsHistoryStore.instance.last24h(limit: 48);
-    } catch (_) {}
+    const List<Map<String, dynamic>> history = [];
 
     final engine = SyncScheduler.instance.engineSnapshot();
     final avgLat = SyncSchedulerMetrics.instance.avgCriticalLatencyMs ?? 0;

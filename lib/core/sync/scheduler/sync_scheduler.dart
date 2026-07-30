@@ -1,49 +1,23 @@
 import '../sync_outbox.dart';
-import 'adaptive_sync_controller.dart';
-import 'entity_lock_registry.dart';
-import 'scheduler_state_store.dart';
 import 'sync_auto_healer.dart';
-import 'sync_metrics_history_store.dart';
 import 'sync_priority.dart';
 import 'sync_scheduler_metrics.dart';
-import 'sync_scheduler_policy.dart';
-import 'turbo_mode_controller.dart';
-import 'package:flutter/foundation.dart';
 
-/// Sync Engine 2.0 — scheduler inteligente con Turbo, preemption y adaptación.
-///
-/// No ejecuta Firebase aquí: planifica claims. El pump de FirestoreSyncService
-/// ejecuta, mide latencia y llama [shouldPreempt] entre ops de fondo.
+/// Scheduler mínimo: claim por prioridad + auto-heal.
+/// Sin Turbo / Adaptive / locks / state store.
 class SyncScheduler {
   SyncScheduler._();
   static final SyncScheduler instance = SyncScheduler._();
 
   final metrics = SyncSchedulerMetrics.instance;
-  final turbo = TurboModeController.instance;
-  final adaptive = AdaptiveSyncController.instance;
-  final locks = EntityLockRegistry.instance;
   final healer = SyncAutoHealer.instance;
 
   String lastMode = 'idle';
-  bool _restored = false;
-  DateTime? _lastHistorySampleAt;
 
-  /// Restaura adaptive/turbo desde SQLite (una vez por proceso).
   Future<void> ensureRestored() async {
-    if (_restored) return;
-    _restored = true;
-    try {
-      final s = await SchedulerStateStore.instance.load();
-      if (s == null) return;
-      adaptive.batchL1 = s.adaptiveBatchL1;
-      adaptive.batchBackground = s.adaptiveBatchBg;
-      adaptive.emaLatencyMs = s.lastFirestoreLatencyMs;
-      lastMode = s.mode;
-      turbo.active = s.turboActive;
-    } catch (_) {}
+    // Compat API: no hay estado turbo/adaptive que restaurar.
   }
 
-  /// Cuenta pendientes por nivel a partir del breakdown de entity_type.
   static ({int l1, int l2, int l3, int l4}) countLevels(
     Map<String, int> breakdown,
   ) {
@@ -63,76 +37,28 @@ class SyncScheduler {
     return (l1: l1, l2: l2, l3: l3, l4: l4);
   }
 
-  SyncSchedulerPlan planFromBreakdown(
-    Map<String, int> breakdown, {
-    required bool isWindows,
-  }) {
-    final counts = countLevels(breakdown);
-    final levels = turbo.evaluate(
-      pendingL1: counts.l1,
-      pendingL2: counts.l2,
-      pendingL3: counts.l3,
-      pendingL4: counts.l4,
-      isWindows: isWindows,
-    );
-    lastMode = levels.mode;
-    metrics.recordTick(critical: levels.l1 + levels.l2 > 0);
-    if (levels.l3 + levels.l4 > 0) {
-      metrics.recordTick(critical: false);
-    }
-    metrics.recordTurbo(levels.turboActive);
-    return SyncSchedulerPlan(
-      criticalClaim: levels.l1 + levels.l2,
-      backgroundClaim: levels.l3 + levels.l4,
-      criticalTypes: SyncSchedulerPolicy.criticalEntityTypes,
-      backgroundTypes: SyncSchedulerPolicy.backgroundEntityTypes,
-      turboActive: levels.turboActive,
-      levelClaims: levels,
-    );
-  }
-
-  /// Claim fijo: prioridad outbox (venta/stock antes que productos).
-  /// Sin Turbo/Adaptive — una sola regla fácil de entender.
+  /// Claim fijo: venta/stock/remito antes que productos.
   Future<List<Map<String, dynamic>>> claimForTick({
     required Map<String, int> breakdown,
     required bool isWindows,
   }) async {
-    await ensureRestored();
-    // breakdown se conserva en la firma (callers / tests).
     final _ = breakdown;
+    lastMode = 'fixed';
     final claimed = await SyncOutbox.instance.claimBatch(
       limit: isWindows ? 8 : 20,
       orderByPriority: true,
     );
-    try {
-      await SchedulerStateStore.instance.save(
-        mode: lastMode,
-        turboActive: false,
-        adaptiveBatchL1: adaptive.batchL1,
-        adaptiveBatchBg: adaptive.batchBackground,
-        lastFirestoreLatencyMs: adaptive.emaLatencyMs,
-        checkpoint: {
-          'claimed': claimed.length,
-          'turbo': false,
-          'fixed': true,
-        },
-      );
-    } catch (_) {}
+    metrics.recordTick(critical: claimed.any((o) {
+      final t = o['entity_type']?.toString() ?? '';
+      return SyncPriority.isCriticalEntity(t);
+    }));
     return claimed;
   }
 
-  /// ¿Hay que abortar el lote de fondo? (venta/stock llegó).
   Future<bool> shouldPreempt() async {
     final bd = await SyncOutbox.instance.pendingBreakdown();
     final counts = countLevels(bd);
-    if (SyncSchedulerPolicy.shouldPreemptBackground(pendingL1: counts.l1)) {
-      turbo.preemptionCount++;
-      turbo.lastPreemptAt = DateTime.now().toUtc();
-      turbo.active = false;
-      metrics.recordPreempt();
-      return true;
-    }
-    return false;
+    return counts.l1 > 0;
   }
 
   Future<void> recordOpResult({
@@ -142,59 +68,23 @@ class SyncScheduler {
     required bool firestoreOk,
   }) async {
     final critical = SyncPriority.isCriticalEntity(entityType);
-    adaptive.recordSample(latencyMs: latencyMs, error: error);
     if (error) {
       metrics.recordFail(critical: critical);
     } else {
       metrics.recordSuccess(critical: critical, latencyMs: latencyMs);
     }
-    // Sample historial ~1/min.
-    final now = DateTime.now().toUtc();
-    if (_lastHistorySampleAt == null ||
-        now.difference(_lastHistorySampleAt!) > const Duration(minutes: 1)) {
-      _lastHistorySampleAt = now;
-      try {
-        final bd = await SyncOutbox.instance.pendingBreakdown();
-        final c = countLevels(bd);
-        await SyncMetricsHistoryStore.instance.record(
-          SyncMetricsSample(
-            at: now.toIso8601String(),
-            pendingL1: c.l1,
-            pendingL2: c.l2,
-            pendingL3: c.l3,
-            pendingL4: c.l4,
-            opsPerMin: metrics.opsPerMinuteCritical() ?? 0,
-            avgLatencyMs: adaptive.emaLatencyMs,
-            maxLatencyMs: (metrics.maxCriticalLatencyMs ?? 0).toDouble(),
-            errors: adaptive.consecutiveErrors,
-            turbo: turbo.active,
-            firestoreOk: firestoreOk,
-          ),
-        );
-      } catch (_) {}
-    }
   }
 
-  Future<void> runAutoHeal() => healer.heal();
+  Future<Map<String, int>> runAutoHeal({
+    Duration staleInflight = const Duration(minutes: 3),
+  }) =>
+      healer.heal(staleInflight: staleInflight);
 
   Map<String, dynamic> engineSnapshot() => {
         'mode': lastMode,
-        'turbo': turbo.snapshot(),
-        'adaptive': adaptive.snapshot(),
-        'metrics': metrics.snapshot(),
+        'turbo': {'active': false},
+        'adaptive': const <String, dynamic>{},
         'healer': healer.snapshot(),
-        'locksHeld': locks.heldCount,
+        'metrics': metrics.snapshot(),
       };
-
-  @visibleForTesting
-  void resetForTests() {
-    _restored = false;
-    lastMode = 'idle';
-    _lastHistorySampleAt = null;
-    metrics.resetForTests();
-    turbo.resetForTests();
-    adaptive.resetForTests();
-    healer.resetForTests();
-    locks.resetForTests();
-  }
 }

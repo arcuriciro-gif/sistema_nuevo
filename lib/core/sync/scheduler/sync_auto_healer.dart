@@ -1,7 +1,6 @@
 import '../sync_outbox.dart';
-import 'scheduler_state_store.dart';
 
-/// Auto-healing del Sync Engine: recupera colas congeladas sin intervención.
+/// Auto-healing: recupera inflight huérfanos / orphans / dead stock.
 class SyncAutoHealer {
   SyncAutoHealer._();
   static final SyncAutoHealer instance = SyncAutoHealer._();
@@ -13,7 +12,6 @@ class SyncAutoHealer {
   DateTime? lastHealAt;
   String? lastHealDetail;
 
-  /// Ejecuta un ciclo de recuperación (idempotente, seguro).
   Future<Map<String, int>> heal({
     Duration staleInflight = const Duration(minutes: 3),
   }) async {
@@ -35,30 +33,15 @@ class SyncAutoHealer {
     deadStockRequeued += dead;
     out['deadStockRequeued'] = dead;
 
-    // Poison explícito: reabrir con grace (gestión completa de dead queue).
     final poison = await SyncOutbox.instance.forceRequeuePoisonStockOps(
       limit: 20,
     );
     deadStockRequeued += poison;
     out['poisonForceRequeued'] = poison;
 
-    // Persistir modo recovering si hubo trabajo.
-    if (reclaimed + orphans + dead > 0) {
-      lastHealDetail =
-          'reclaimed=$reclaimed orphans=$orphans deadStock=$dead';
-      try {
-        await SchedulerStateStore.instance.save(
-          mode: 'recovering',
-          turboActive: false,
-          adaptiveBatchL1: 8,
-          adaptiveBatchBg: 12,
-          lastFirestoreLatencyMs: 0,
-          checkpoint: {'heal': lastHealDetail, 'at': lastHealAt!.toIso8601String()},
-        );
-      } catch (_) {}
-    } else {
-      lastHealDetail = 'noop';
-    }
+    lastHealDetail = reclaimed + orphans + dead + poison > 0
+        ? 'reclaimed=$reclaimed orphans=$orphans deadStock=$dead poison=$poison'
+        : 'noop';
     return out;
   }
 
