@@ -143,7 +143,7 @@ class _InicioPageState extends State<InicioPage> {
         ...remitos.take(3).map(
               (r) => {
                 'tipo': 'remito',
-                'titulo': 'Remito ${r['numero'] ?? ''}',
+                'titulo': 'Comprobante ${r['numero'] ?? ''}',
                 'detalle': r['clienteNombre'] ?? '',
                 'cuando': r['fecha'] ?? r['fechaCreacion'],
                 'monto': r['total'],
@@ -223,9 +223,9 @@ class _InicioPageState extends State<InicioPage> {
                         onTap: () => _go('Clientes'),
                       ),
                       ErpQuickAction(
-                        label: 'Remito',
+                        label: 'Comprobante',
                         icon: Icons.description_rounded,
-                        onTap: () => _go('Remitos'),
+                        onTap: () => _go('Comprobantes'),
                       ),
                       ErpQuickAction(
                         label: 'Compra',
@@ -267,7 +267,7 @@ class _InicioPageState extends State<InicioPage> {
                             value: _money(_ventasDia),
                             icon: Icons.payments_rounded,
                             accent: cs.primary,
-                            onTap: () => _go('Ventas / Facturas'),
+                            onTap: () => _go('Comprobantes'),
                           ),
                           ErpKpiTile(
                             title: 'Ganancia estimada',
@@ -332,7 +332,7 @@ class _InicioPageState extends State<InicioPage> {
                           _money((d['total'] as num?) ?? 0),
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
-                        onTap: () => _go('Ventas / Facturas'),
+                        onTap: () => _go('Comprobantes'),
                       ),
                     ),
                   const SizedBox(height: 16),
@@ -347,8 +347,8 @@ class _InicioPageState extends State<InicioPage> {
                     };
                     final destino = switch (a['tipo']) {
                       'compra' => 'Compras',
-                      'remito' => 'Remitos',
-                      'venta' => 'Ventas / Facturas',
+                      'remito' => 'Comprobantes',
+                      'venta' => 'Comprobantes',
                       _ => null,
                     };
                     return Card(

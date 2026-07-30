@@ -105,7 +105,7 @@ class MoneyLedgerService {
       accountType: 'cliente_cc',
       accountId: '$clienteId',
       delta: monto.abs(),
-      reason: e.payload['motivo']?.toString() ?? 'Remito a cuenta',
+      reason: e.payload['motivo']?.toString() ?? 'Comprobante a cuenta',
       documentType: 'remito',
       documentId: e.payload['remitoId']?.toString(),
     );
@@ -122,7 +122,7 @@ class MoneyLedgerService {
       accountType: 'cliente_cc',
       accountId: '$clienteId',
       delta: -monto.abs(),
-      reason: e.payload['motivo']?.toString() ?? 'Remito CC revertido',
+      reason: e.payload['motivo']?.toString() ?? 'Comprobante CC revertido',
       documentType: 'remito',
       documentId: e.payload['remitoId']?.toString(),
     );
@@ -139,7 +139,7 @@ class MoneyLedgerService {
       accountType: 'cliente_cc',
       accountId: '$clienteId',
       delta: -monto.abs(),
-      reason: e.payload['motivo']?.toString() ?? 'Remito cobrado',
+      reason: e.payload['motivo']?.toString() ?? 'Comprobante cobrado',
       documentType: 'remito',
       documentId: e.payload['remitoId']?.toString(),
     );

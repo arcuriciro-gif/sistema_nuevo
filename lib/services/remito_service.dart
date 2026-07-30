@@ -192,13 +192,13 @@ class RemitoService {
               'clienteId': clienteIdInt,
               'remitoId': id,
               'total': remito.total,
-              'motivo': 'Remito ${remito.numero} a cuenta',
+              'motivo': 'Comprobante ${remito.numero} a cuenta',
             },
           ),
           accountType: 'cliente_cc',
           accountId: '$clienteIdInt',
           delta: remito.total.abs(),
-          reason: 'Remito ${remito.numero} a cuenta',
+          reason: 'Comprobante ${remito.numero} a cuenta',
           documentType: 'remito',
           documentId: '$id',
         );
@@ -375,7 +375,7 @@ class RemitoService {
                 'clienteId': clienteId,
                 'remitoId': id,
                 'total': delta,
-                'motivo': 'Remito $numero cobrado',
+                'motivo': 'Comprobante $numero cobrado',
               },
             ),
           );
@@ -531,13 +531,13 @@ class RemitoService {
               'clienteId': clienteId,
               'remitoId': id,
               'total': saldoPendiente,
-              'motivo': 'Remito ${numero ?? id} anulado (saldo pendiente)',
+              'motivo': 'Comprobante ${numero ?? id} anulado (saldo pendiente)',
             },
           ),
           accountType: 'cliente_cc',
           accountId: '$clienteId',
           delta: -saldoPendiente.abs(),
-          reason: 'Remito ${numero ?? id} anulado (saldo pendiente)',
+          reason: 'Comprobante ${numero ?? id} anulado (saldo pendiente)',
           documentType: 'remito',
           documentId: '$id',
         );
@@ -584,7 +584,7 @@ class RemitoService {
         limit: 1,
       );
       if (remitos.isEmpty) {
-        throw StateError('Remito no encontrado');
+        throw StateError('Comprobante no encontrado');
       }
       final remito = remitos.first;
       if (remito['estado'] != 'anulado') {

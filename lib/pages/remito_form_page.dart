@@ -380,7 +380,7 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
     final accion = await showDialog<String>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Remito guardado'),
+        title: const Text('Comprobante guardado'),
         content: const Text(
           'El PDF quedó archivado por cliente (disponible en el celular).\n'
           '¿Querés imprimir o compartir ahora?',
@@ -509,10 +509,10 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
       if (!mounted) return;
       setState(() => guardando = false);
       final msg = estadoPagoPreview == 'cobrado'
-          ? 'Remito cobrado. No suma a cuenta corriente.'
+          ? 'Comprobante cobrado. No suma a cuenta corriente.'
           : estadoPagoPreview == 'parcial'
-              ? 'Remito parcial. Saldo \$${saldoPendiente.toStringAsFixed(2)} en CC.'
-              : 'Remito pendiente. Total en cuenta corriente.';
+              ? 'Comprobante parcial. Saldo \$${saldoPendiente.toStringAsFixed(2)} en CC.'
+              : 'Comprobante pendiente. Total en cuenta corriente.';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       // PDF en background: no pelear con sync Firebase (crash Windows).
       unawaited(_imprimirOCompartirRemito(remito, detalles, remitoId));
@@ -522,7 +522,7 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
       if (!mounted) return;
       setState(() => guardando = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo guardar el remito: $e')),
+        SnackBar(content: Text('No se pudo guardar el comprobante: $e')),
       );
     }
   }
@@ -532,7 +532,7 @@ class _RemitoFormPageState extends State<RemitoFormPage> {
     final descuentoCliente = clienteSeleccionado?.descuento ?? 0;
 
     return Scaffold(
-      appBar: buildModuleAppBar(context, title: 'Nuevo Remito'),
+      appBar: buildModuleAppBar(context, title: 'Nuevo comprobante'),
       body: cargando
           ? const Center(child: CircularProgressIndicator())
           : Column(

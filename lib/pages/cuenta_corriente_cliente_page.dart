@@ -131,7 +131,7 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
           controller: _tabs,
           tabs: const [
             Tab(text: 'Ventas'),
-            Tab(text: 'Remitos'),
+            Tab(text: 'Comprobantes'),
             Tab(text: 'Pagos'),
           ],
         ),
@@ -330,7 +330,7 @@ class _CuentaCorrienteClientePageState extends State<CuentaCorrienteClientePage>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Remito ${r['numero'] ?? ''}',
+                          'Comprobante ${r['numero'] ?? ''}',
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                         const SizedBox(height: 4),

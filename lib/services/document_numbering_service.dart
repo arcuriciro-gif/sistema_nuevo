@@ -72,11 +72,14 @@ class DocumentNumberingService {
       case 'comprobante_interno':
         return 'Comprobante interno';
       case 'remito':
-        return 'Remito / Ticket';
+        return 'Comprobante';
       default:
         return tipo;
     }
   }
+
+  /// Tipos visibles en Configuración (producto pyme).
+  static const tiposVisibles = ['remito'];
 
   static List<String> get tipos => _defaults.keys.toList();
 }

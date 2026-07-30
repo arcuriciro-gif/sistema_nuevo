@@ -551,7 +551,7 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
         builder: (ctx) => AlertDialog(
           title: const Text('Venta registrada'),
           content: Text(
-            'Remito $numero · Total \$${totalVenta.toStringAsFixed(2)}\n'
+            'Comprobante $numero · Total \$${totalVenta.toStringAsFixed(2)}\n'
             'Pago: ${remito.estadoPago}'
             '${remito.saldoPendiente > 0.009 ? ' · CC \$${remito.saldoPendiente.toStringAsFixed(2)}' : ''}\n'
             'Guardado en este equipo'
@@ -592,7 +592,7 @@ class _VentaRapidaPageState extends State<VentaRapidaPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Venta registrada · Remito $numero · Total \$${totalVenta.toStringAsFixed(2)}',
+              'Venta registrada · Comprobante $numero · Total \$${totalVenta.toStringAsFixed(2)}',
             ),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 4),

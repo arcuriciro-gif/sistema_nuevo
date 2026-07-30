@@ -79,12 +79,12 @@ class Pago {
 
   String get comprobanteLabel {
     if (remitoNumero != null && remitoNumero!.isNotEmpty) {
-      return 'Remito $remitoNumero';
+      return 'Comprobante $remitoNumero';
     }
     if (ventaNumero != null && ventaNumero!.isNotEmpty) {
       return 'Comp. $ventaNumero';
     }
-    if (remitoId != null) return 'Remito #$remitoId';
+    if (remitoId != null) return 'Comprobante #$remitoId';
     if (ventaId != null) return 'Comp. #$ventaId';
     return 'Pago';
   }

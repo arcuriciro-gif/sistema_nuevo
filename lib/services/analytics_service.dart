@@ -117,7 +117,7 @@ class AnalyticsService {
           r.total AS total,
           r.estado AS estado,
           'remito' AS tipo,
-          'Remito' AS tipoLabel,
+          'Comprobante' AS tipoLabel,
           r.clienteId AS clienteId,
           c.nombre AS clienteNombre,
           COALESCE(r.fechaCreacion, r.fecha) AS ordenFecha
@@ -139,7 +139,7 @@ class AnalyticsService {
             WHEN 'factura_c' THEN 'Factura C'
             WHEN 'nota_entrega' THEN 'Nota de entrega'
             WHEN 'comprobante_interno' THEN 'Comprobante interno'
-            WHEN 'remito' THEN 'Remito'
+            WHEN 'remito' THEN 'Comprobante'
             ELSE v.tipo
           END AS tipoLabel,
           v.clienteId AS clienteId,
