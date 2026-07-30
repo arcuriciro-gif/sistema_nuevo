@@ -82,8 +82,6 @@ class SyncScheduler {
 
   Map<String, dynamic> engineSnapshot() => {
         'mode': lastMode,
-        'turbo': {'active': false},
-        'adaptive': const <String, dynamic>{},
         'healer': healer.snapshot(),
         'metrics': metrics.snapshot(),
       };

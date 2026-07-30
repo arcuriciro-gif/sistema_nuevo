@@ -118,8 +118,6 @@ class SyncObservabilityHub {
     final health = await SyncHealthService.instance.snapshot();
     final engine = SyncScheduler.instance.engineSnapshot();
     final metrics = (engine['metrics'] as Map?) ?? const {};
-    final adaptive = (engine['adaptive'] as Map?) ?? const {};
-    final turbo = (engine['turbo'] as Map?) ?? const {};
 
     int? oldestAgeSec;
     try {
@@ -166,18 +164,10 @@ class SyncObservabilityHub {
       'conflicts24h': health.conflicts24h,
       'firebaseReady': health.firebaseReady,
       'canWrite': health.canWrite,
-      'latencyAvgMs': (metrics['avgCriticalLatencyMs'] as num?)?.round() ??
-          (adaptive['emaLatencyMs'] as num?)?.round(),
+      'latencyAvgMs': (metrics['avgCriticalLatencyMs'] as num?)?.round(),
       'latencyP95Ms': slaSnap['globalP95Ms'],
       'throughputOpsPerMin': metrics['opsPerMinuteCritical'],
-      'workers': {
-        'l1': adaptive['workerSlotsCritical'] ?? 1,
-        'l2': adaptive['workerSlotsCritical'] ?? 1,
-        'l3': adaptive['workerSlotsBackground'] ?? 1,
-        'l4': adaptive['workerSlotsBackground'] ?? 1,
-      },
-      'turbo': turbo,
-      'adaptive': adaptive,
+      'workers': const {'l1': 1, 'l2': 1, 'l3': 1, 'l4': 1},
       'circuitBreaker': circuit.snapshot(),
       'circuit': circuit.snapshot(),
       'sla': slaSnap,
