@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/document_numbering_service.dart';
 import '../theme/module_app_bar.dart';
 
-/// Configuración de numeración de documentos (Factura B, remitos, etc.).
+/// Configuración de numeración de documentos (comprobantes).
 class DocumentosConfigPage extends StatefulWidget {
   const DocumentosConfigPage({super.key});
 
@@ -20,7 +20,7 @@ class _DocumentosConfigPageState extends State<DocumentosConfigPage> {
   void initState() {
     super.initState();
     final numbering = DocumentNumberingService.instance;
-    for (final tipo in DocumentNumberingService.tipos) {
+    for (final tipo in DocumentNumberingService.tiposVisibles) {
       _prefijos[tipo] = TextEditingController(text: numbering.prefijo(tipo));
       _proximos[tipo] = TextEditingController(
         text: '${numbering.proximoForzado(tipo)}',
@@ -43,7 +43,7 @@ class _DocumentosConfigPageState extends State<DocumentosConfigPage> {
     setState(() => _guardando = true);
     final prefsMap = <String, String>{};
     final nextMap = <String, int>{};
-    for (final tipo in DocumentNumberingService.tipos) {
+    for (final tipo in DocumentNumberingService.tiposVisibles) {
       prefsMap[tipo] = _prefijos[tipo]!.text.trim();
       nextMap[tipo] = int.tryParse(_proximos[tipo]!.text.trim()) ?? 0;
     }
@@ -77,7 +77,7 @@ class _DocumentosConfigPageState extends State<DocumentosConfigPage> {
             '(0 = seguir el correlativo automático).',
           ),
           const SizedBox(height: 12),
-          ...DocumentNumberingService.tipos.map((tipo) {
+          ...DocumentNumberingService.tiposVisibles.map((tipo) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Row(

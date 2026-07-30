@@ -14,15 +14,14 @@ class ShellMenuEntry {
 }
 
 /// Debe mantenerse en sync con `_items` de `main_shell.dart`.
-/// Menú pyme: vender, stock, precios, compras — sin AFIP/WA/CRM/analítica extra.
+/// Menú pyme: vender, stock, precios, compras — sin factura/AFIP/WA/CRM.
 const List<ShellMenuEntry> kShellMenuCatalog = [
   ShellMenuEntry(id: 'dashboard|Inicio', title: 'Inicio', icon: Icons.home_rounded),
   ShellMenuEntry(id: 'remitos|Venta Rápida', title: 'Venta Rápida', icon: Icons.point_of_sale_rounded),
   ShellMenuEntry(id: 'productos|Productos', title: 'Productos', icon: Icons.inventory_2_rounded),
   ShellMenuEntry(id: 'productos|Papelera', title: 'Papelera', icon: Icons.delete_outline_rounded),
   ShellMenuEntry(id: 'productos|Categorías', title: 'Categorías', icon: Icons.category_rounded),
-  ShellMenuEntry(id: 'remitos|Ventas / Facturas', title: 'Ventas / Facturas', icon: Icons.receipt_long_rounded),
-  ShellMenuEntry(id: 'remitos|Remitos', title: 'Remitos', icon: Icons.description_rounded),
+  ShellMenuEntry(id: 'remitos|Comprobantes', title: 'Comprobantes', icon: Icons.description_rounded),
   ShellMenuEntry(id: 'compras|Compras', title: 'Compras', icon: Icons.shopping_cart_rounded),
   ShellMenuEntry(id: 'stock|Stock', title: 'Stock', icon: Icons.warehouse_rounded),
   ShellMenuEntry(id: 'productos|Importar Productos', title: 'Importar Productos', icon: Icons.upload_file_rounded),

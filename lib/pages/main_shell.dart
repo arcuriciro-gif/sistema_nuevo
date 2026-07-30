@@ -45,7 +45,6 @@ import 'reportes_page.dart';
 import 'scanner_page.dart';
 import 'stock_page.dart';
 import 'usuarios_page.dart';
-import 'ventas_page.dart';
 import 'venta_rapida_page.dart';
 import '../core/utils/media_path.dart';
 
@@ -64,8 +63,7 @@ String _seccionDeTitulo(String title) {
     case 'Inicio':
       return 'Inicio';
     case 'Venta Rápida':
-    case 'Ventas / Facturas':
-    case 'Remitos':
+    case 'Comprobantes':
     case 'Compras':
       return 'Operaciones';
     case 'Productos':
@@ -346,17 +344,11 @@ class _MainShellState extends State<MainShell> {
           builder: () => const CategoriasPage(),
         ),
         _ShellItem(
-          icon: Icons.receipt_long_rounded,
-          title: 'Ventas / Facturas',
-          modulo: 'remitos',
-          builder: () => const VentasPage(),
-          quickAccess: true,
-        ),
-        _ShellItem(
           icon: Icons.description_rounded,
-          title: 'Remitos',
+          title: 'Comprobantes',
           modulo: 'remitos',
           builder: () => const RemitosPage(),
+          quickAccess: true,
         ),
         _ShellItem(
           icon: Icons.shopping_cart_rounded,
@@ -683,7 +675,7 @@ class _MainShellState extends State<MainShell> {
         const SingleActivator(LogicalKeyboardKey.digit4, control: true): () =>
             _irAModulo('Comunicaciones'),
         const SingleActivator(LogicalKeyboardKey.digit5, control: true): () =>
-            _irAModulo('Ventas / Facturas'),
+            _irAModulo('Comprobantes'),
         const SingleActivator(LogicalKeyboardKey.keyH, control: true): () {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(

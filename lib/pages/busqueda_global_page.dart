@@ -32,7 +32,7 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
     'Clientes': [],
     'Ventas': [],
     'Proveedores': [],
-    'Remitos': [],
+    'Comprobantes': [],
     'Compras': [],
   };
 
@@ -162,7 +162,7 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
       _resultados['Clientes'] = clientes;
       _resultados['Ventas'] = ventas;
       _resultados['Proveedores'] = proveedores;
-      _resultados['Remitos'] = remitos;
+      _resultados['Comprobantes'] = remitos;
       _resultados['Compras'] = compras;
       _cargando = false;
     });
@@ -176,9 +176,9 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
   String? _moduloShell(String categoria) {
     return switch (categoria) {
       'Clientes' => 'Clientes',
-      'Ventas' => 'Ventas / Facturas',
+      'Ventas' => 'Comprobantes',
       'Proveedores' => 'Proveedores',
-      'Remitos' => 'Remitos',
+      'Comprobantes' => 'Comprobantes',
       'Compras' => 'Compras',
       'Productos' => 'Productos',
       _ => null,
@@ -215,7 +215,7 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
       'Proveedores' => (item['nombre'] ?? 'Proveedor').toString(),
       'Ventas' =>
         '${(item['tipo'] ?? 'Venta').toString().toUpperCase()} ${item['numero'] ?? ''}',
-      'Remitos' => 'Remito ${item['numero'] ?? ''}',
+      'Comprobantes' => 'Comprobante ${item['numero'] ?? ''}',
       'Compras' => 'Compra ${item['numero'] ?? ''}',
       _ => categoria,
     };
@@ -327,7 +327,7 @@ class _BusquedaGlobalPageState extends State<BusquedaGlobalPage> {
                                           'Tel: ${item['telefono'] ?? '-'} • Email: ${item['email'] ?? '-'}',
                                         'Ventas' =>
                                           'Cliente: ${'${item['clienteNombre'] ?? ''} ${item['clienteApellido'] ?? ''}'.trim().isEmpty ? 'Sin cliente' : '${item['clienteNombre'] ?? ''} ${item['clienteApellido'] ?? ''}'.trim()} • Total: \$${((item['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
-                                        'Remitos' =>
+                                        'Comprobantes' =>
                                           'Cliente: ${item['clienteNombre'] ?? 'Sin cliente'} • Total: \$${((item['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
                                         _ =>
                                           'Proveedor: ${item['proveedorNombre'] ?? 'Sin proveedor'} • Total: \$${((item['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',

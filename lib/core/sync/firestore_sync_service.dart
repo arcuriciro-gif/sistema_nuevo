@@ -3819,7 +3819,7 @@ class FirestoreSyncService {
     }
     if (!_puedeEscribirRemoto) {
       syncStatusDetail =
-          'Remito guardado acá. Falta sesión de nube para enviarlo.';
+          'Comprobante guardado acá. Falta sesión de nube para enviarlo.';
       if (desdeOutbox) {
         throw StateError('Sin sesión de nube para subir remito $remitoId');
       }
