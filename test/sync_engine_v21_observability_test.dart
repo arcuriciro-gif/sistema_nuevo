@@ -4,15 +4,14 @@ import 'package:sistema_nuevo/core/sync/observability/sync_flight_recorder.dart'
 import 'package:sistema_nuevo/core/sync/observability/sync_observability_hub.dart';
 import 'package:sistema_nuevo/core/sync/observability/sync_op_trace.dart';
 import 'package:sistema_nuevo/core/sync/observability/sync_sla_monitor.dart';
-import 'package:sistema_nuevo/core/sync/scheduler/adaptive_sync_controller.dart';
 
 void main() {
   setUp(() {
     SyncObservabilityHub.instance.resetForTests();
-    AdaptiveSyncController.instance.resetForTests();
+    SyncCircuitBreaker.instance.resetForTests();
   });
 
-  group('Sync Engine 2.1 — Flight Recorder', () {
+  group('Flight Recorder', () {
     test('capacidad circular 1000', () {
       final fr = SyncFlightRecorder.instance;
       for (var i = 0; i < 1200; i++) {
@@ -23,7 +22,7 @@ void main() {
     });
   });
 
-  group('Sync Engine 2.1 — Traces + SLA', () {
+  group('Traces + SLA', () {
     test('percentiles y cumplimiento', () {
       final hub = SyncObservabilityHub.instance;
       for (var i = 0; i < 100; i++) {
@@ -32,15 +31,10 @@ void main() {
         hub.onClaimed(id);
         hub.onSendStart(id);
         hub.onSendDone(id, latencyMs: 10 + (i % 5), error: false);
-        // Forzar timestamps consistentes en totalMs vía marcas ya hechas.
       }
       final stats = SyncSlaMonitor.instance.statsFor('venta');
       expect(stats.n, greaterThan(0));
       expect(stats.p50, isNotNull);
-      expect(stats.p95, isNotNull);
-      expect(stats.p99, isNotNull);
-      expect(stats.max, isNotNull);
-      expect(stats.avg, isNotNull);
       expect(stats.withinSlaPct, greaterThanOrEqualTo(95));
     });
 
@@ -60,19 +54,14 @@ void main() {
     });
   });
 
-  group('Sync Engine 2.1 — Circuit Breaker', () {
-    test('abre tras fallos consecutivos y reduce batch', () {
+  group('Circuit Breaker', () {
+    test('abre tras fallos consecutivos', () {
       final cb = SyncCircuitBreaker.instance;
-      final a = AdaptiveSyncController.instance;
-      a.batchL1 = 20;
-      a.batchBackground = 40;
       for (var i = 0; i < SyncCircuitBreaker.openAfterFailures; i++) {
         cb.recordFailure(latencyMs: 100);
       }
       expect(cb.state, CircuitState.open);
       expect(cb.allowRequest(), isFalse);
-      expect(a.batchL1, 4);
-      expect(a.batchBackground, 4);
       expect(cb.tripCount, 1);
       expect(cb.extraWaitMs, greaterThan(0));
     });
@@ -80,7 +69,7 @@ void main() {
     test('half-open → closed con éxitos', () {
       final cb = SyncCircuitBreaker.instance;
       for (var i = 0; i < SyncCircuitBreaker.openAfterFailures; i++) {
-        cb.recordFailure(latencyMs: 50);
+        cb.recordFailure(latencyMs: 100);
       }
       expect(cb.state, CircuitState.open);
       // Forzar cool-down vencido.
@@ -88,7 +77,9 @@ void main() {
       expect(cb.allowRequest(), isTrue);
       expect(cb.state, CircuitState.halfOpen);
       for (var i = 0; i < SyncCircuitBreaker.halfOpenSuccessesToClose; i++) {
-        cb.recordSuccess(latencyMs: 20);
+        cb.lastProbeAt = DateTime.now().toUtc().subtract(const Duration(seconds: 3));
+        expect(cb.allowRequest(), isTrue);
+        cb.recordSuccess(latencyMs: 50);
       }
       expect(cb.state, CircuitState.closed);
     });

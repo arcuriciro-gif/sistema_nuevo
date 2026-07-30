@@ -22,7 +22,6 @@ import 'cloud_sync_throttle.dart';
 import 'observability/sync_circuit_breaker.dart';
 import 'observability/sync_observability_hub.dart';
 import 'observability/sync_path_logger.dart';
-import 'scheduler/entity_lock_registry.dart';
 import 'scheduler/sync_priority.dart';
 import 'scheduler/sync_scheduler.dart';
 import 'sync_background.dart';
@@ -540,7 +539,6 @@ class FirestoreSyncService {
           await SyncScheduler.instance.ensureRestored();
           await SyncScheduler.instance.runAutoHeal();
           await SyncOutbox.instance.ackOrphanUpserts();
-          await SyncOutbox.instance.ackStockOpsYaHechas(_stockOpsHechas);
           if (windows) {
             await SyncOutbox.instance.purgeStuckStockOps(
               minAttempts: 8,
@@ -1618,8 +1616,7 @@ class FirestoreSyncService {
       }
       consideredValid++;
       // Dedupe durable (local-origin o remote ya aplicado).
-      if (_stockOpsHechas.contains(opId) ||
-          await StockOpsAppliedStore.instance.contains(opId)) {
+      if (await StockOpsAppliedStore.instance.contains(opId)) {
         // Ya aplicada: si estaba en holds, liberar.
         await StockOpsPullHoldStore.instance.remove(opId);
         continue;
@@ -1668,14 +1665,12 @@ class FirestoreSyncService {
       yieldMs: yieldMs,
     );
     for (final op in batch) {
-      _stockOpsHechas.add(op.opId);
       await StockOpsPullHoldStore.instance.remove(op.opId);
     }
     if (n > 0) {
       debugPrint('stock_ops inbound: $n aplicadas');
       DataRefreshHub.instance.notifyStock();
       DataRefreshHub.instance.notifyProductos();
-      await _persistirStockOpsHechas();
     }
     return (
       applied: n,
@@ -2075,7 +2070,7 @@ class FirestoreSyncService {
     await _ejecutarClaimedOps(batch);
   }
 
-  /// Scheduler 2.0: ticks con Turbo + preemption mid-batch.
+  /// Drain outbox por prioridad (claim fijo).
   Future<void> _procesarSchedulerTicks({required bool windows}) async {
     final ticks = windows ? 3 : 8;
     for (var i = 0; i < ticks; i++) {
@@ -2086,10 +2081,7 @@ class FirestoreSyncService {
         isWindows: windows,
       );
       if (claimed.isEmpty) break;
-      final turbo = SyncScheduler.instance.turbo.active;
-      final yieldMs = windows
-          ? (turbo ? 40 : 80)
-          : (turbo ? 0 : 20);
+      final yieldMs = windows ? 80 : 20;
       final preempted = await _ejecutarClaimedOps(
         claimed,
         yieldMs: yieldMs,
@@ -2112,7 +2104,7 @@ class FirestoreSyncService {
     }
   }
 
-  /// Ejecuta ops con entity-lock y preemption si aparece L1 durante fondo.
+  /// Ejecuta ops claimed; preempt si aparece L1 durante fondo.
   /// Retorna true si preemptó.
   Future<bool> _ejecutarClaimedOps(
     List<Map<String, dynamic>> batch, {
@@ -2125,8 +2117,6 @@ class FirestoreSyncService {
       final opId = op['op_id']?.toString() ?? '';
       if (opId.isEmpty) continue;
       final entityType = op['entity_type']?.toString() ?? '';
-      final localId = op['entity_local_id']?.toString() ??
-          op['entity_remote_id']?.toString();
       final isBg = !SyncPriority.isCriticalEntity(entityType);
 
       // Preemption: si estamos en fondo y llegó venta/stock, abortar lote.
@@ -2156,15 +2146,6 @@ class FirestoreSyncService {
         break;
       }
 
-      final lockOk = EntityLockRegistry.instance.tryAcquire(
-        entityType,
-        localId,
-      );
-      if (!lockOk) {
-        await SyncOutbox.instance.fail(opId, 'entity_locked');
-        continue;
-      }
-
       final sw = Stopwatch()..start();
       var error = false;
       try {
@@ -2181,7 +2162,6 @@ class FirestoreSyncService {
             error: false,
           );
         } catch (_) {}
-        _syncMemoryColaTrasAck(op);
         final waitCb = SyncCircuitBreaker.instance.extraWaitMs;
         final totalYield = yieldMs + waitCb;
         if (totalYield > 0) {
@@ -2200,7 +2180,6 @@ class FirestoreSyncService {
         } catch (_) {}
         debugPrint('Outbox fail $opId: $e');
       } finally {
-        EntityLockRegistry.instance.release(entityType, localId);
         await SyncScheduler.instance.recordOpResult(
           entityType: entityType,
           latencyMs: sw.elapsedMilliseconds,
@@ -2243,31 +2222,6 @@ class FirestoreSyncService {
     }
   }
 
-  void _syncMemoryColaTrasAck(Map<String, dynamic> op) {
-    final type = op['entity_type']?.toString() ?? '';
-    final localId = (op['entity_local_id'] as num?)?.toInt();
-    if (localId == null) return;
-    switch (type) {
-      case 'cliente':
-        _colaClientes.remove(localId);
-        unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
-      case 'proveedor':
-        _colaProveedores.remove(localId);
-        unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
-      case 'producto':
-        _colaProductos.remove(localId);
-        unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
-      case 'venta':
-        _colaVentas.remove(localId);
-        unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
-      case 'remito':
-        _colaRemitos.remove(localId);
-        unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
-      case 'compra':
-        _colaCompras.remove(localId);
-        unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
-    }
-  }
 
   Future<void> _ejecutarOutboxOp(Map<String, dynamic> op) async {
     final type = op['entity_type']?.toString() ?? '';
@@ -2362,10 +2316,7 @@ class FirestoreSyncService {
         codigo: codigo,
         delta: delta,
       );
-      if (!_stockOpsHechas.contains(opId)) {
-        _stockOpsHechas.add(opId);
-        await _persistirStockOpsHechas();
-      }
+
     } on TimeoutException {
       throw StateError('stock_op timeout Windows ($opId)');
     }
@@ -2895,8 +2846,6 @@ class FirestoreSyncService {
       return false;
     }
   }
-  static const _prefsStockOpsHechas = 'sync_stock_ops_hechas_v2';
-  final Set<String> _stockOpsHechas = {};
   bool _productosSnapshotInicial = true;
 
   static const _colsCliente = {
@@ -3079,9 +3028,6 @@ class FirestoreSyncService {
       _colaStockOps
         ..clear()
         ..addAll(prefs.getStringList(_prefsColaStockOps) ?? const []);
-      _stockOpsHechas
-        ..clear()
-        ..addAll(prefs.getStringList(_prefsStockOpsHechas) ?? const []);
     } catch (_) {}
   }
 
@@ -3121,25 +3067,7 @@ class FirestoreSyncService {
     await _persistirCola(_prefsColaCompras, _colaCompras);
   }
 
-  Future<void> _persistirColaStockOps() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(_prefsColaStockOps, List<String>.from(_colaStockOps));
-    } catch (_) {}
-  }
 
-  Future<void> _persistirStockOpsHechas() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      // Conservar las últimas N para no crecer sin límite.
-      final list = _stockOpsHechas.toList();
-      final trimmed = list.length > 500 ? list.sublist(list.length - 500) : list;
-      _stockOpsHechas
-        ..clear()
-        ..addAll(trimmed);
-      await prefs.setStringList(_prefsStockOpsHechas, trimmed);
-    } catch (_) {}
-  }
 
   Future<String> asegurarSyncIdCliente(int clienteId) async {
     final db = await DatabaseHelper.instance.database;
@@ -3356,7 +3284,6 @@ class FirestoreSyncService {
     final codigo = rows.first['codigo']?.toString().trim() ?? '';
     if (codigo.isEmpty) return;
 
-    final token = '$idOp|$codigo|$delta';
     // Dedupe inbound durable (NO es prueba de ACK en nube).
     await StockOpsAppliedStore.instance.mark(
       opId: idOp,
@@ -3364,10 +3291,6 @@ class FirestoreSyncService {
       codigo: codigo,
       delta: delta,
     );
-    if (!_stockOpsHechas.contains(idOp)) {
-      _stockOpsHechas.add(idOp);
-      await _persistirStockOpsHechas();
-    }
     if (!alreadyEnqueuedInTxn) {
       await SyncOutbox.instance.enqueueStockOp(
         opId: idOp,
@@ -3377,11 +3300,6 @@ class FirestoreSyncService {
         documentId: documentId,
       );
     }
-    if (!_colaStockOps.contains(token)) {
-      _colaStockOps.add(token);
-      await _persistirColaStockOps();
-    }
-
     // Windows: disparo safe (sin txn). ACK solo si cloud applied.
     if (PlatformCapabilities.isWindowsDesktop) {
       syncInBackground(
@@ -3401,8 +3319,6 @@ class FirestoreSyncService {
               throw StateError('stock_op $idOp sin prueba applied en nube');
             }
             await SyncOutbox.instance.ack('stock_op:$idOp');
-            _colaStockOps.remove(token);
-            await _persistirColaStockOps();
             debugPrint('Windows stock_op OK $idOp Δ$delta $codigo');
           } catch (e) {
             debugPrint('Windows stock_op fail (reintento pump): $e');
@@ -3423,43 +3339,14 @@ class FirestoreSyncService {
   Future<void> flushStockOpsPendientes() => _flushColaStockOps();
 
   Future<void> _flushColaStockOps() async {
-    // Migrar tokens legacy prefs → outbox (idempotente).
-    for (final token in List<String>.from(_colaStockOps)) {
-      final parts = token.split('|');
-      if (parts.length < 3) {
-        _colaStockOps.remove(token);
-        continue;
-      }
-      final opId = parts[0];
-      final codigo = parts[1];
-      final delta = int.tryParse(parts[2]) ?? 0;
-      if (opId.isEmpty || codigo.isEmpty || delta == 0) {
-        _colaStockOps.remove(token);
-        continue;
-      }
-      await SyncOutbox.instance.enqueueStockOp(
-        opId: opId,
-        codigo: codigo,
-        delta: delta,
-      );
-      _colaStockOps.remove(token);
-    }
-    await _persistirColaStockOps();
-
-    if (!_puedeEscribirRemoto) return;
-    try {
-      final windows = PlatformCapabilities.isWindowsDesktop;
-      await _procesarOutboxBatch(limit: windows ? 6 : 40);
-      if (windows) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        await _remote.reconcilizarStockOpsPendientes(limit: 5);
-      } else {
-        await _remote.reconcilizarStockOpsPendientes(limit: 30);
-      }
-    } catch (e) {
-      debugPrint('Flush stock ops: $e');
-    }
+    // Solo outbox (colas prefs legacy ya no se escriben).
+    await _procesarOutboxDrain(
+      maxBatches: 3,
+      claimLimit: 8,
+      entityTypes: const ['stock_op'],
+    );
   }
+
 
   void _onProductosSnapshot(QuerySnapshot<Map<String, dynamic>> snap) {
     try {
@@ -3509,8 +3396,6 @@ class FirestoreSyncService {
           .enqueueUpsert(entityType: 'cliente', localId: clienteId);
     }
     if (!_puedeEscribirRemoto) {
-      _colaClientes.add(clienteId);
-      unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
       syncStatusDetail =
           'Cliente guardado acá. Falta sesión de nube para enviarlo a la PC.';
       debugPrint('subirCliente: sin sesión, en cola id=$clienteId');
@@ -3556,8 +3441,6 @@ class FirestoreSyncService {
             if (!desdeOutbox) {
               await SyncOutbox.instance.ack('upsert:cliente:$clienteId');
             }
-            _colaClientes.remove(clienteId);
-            unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
             return;
           }
         }
@@ -3572,11 +3455,7 @@ class FirestoreSyncService {
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:cliente:$clienteId');
       }
-      _colaClientes.remove(clienteId);
-      unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
     } catch (e) {
-      _colaClientes.add(clienteId);
-      unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
       if (!desdeOutbox) {
         await SyncOutbox.instance.fail('upsert:cliente:$clienteId', e);
       }
@@ -3618,8 +3497,6 @@ class FirestoreSyncService {
           .enqueueUpsert(entityType: 'proveedor', localId: proveedorId);
     }
     if (!_puedeEscribirRemoto) {
-      _colaProveedores.add(proveedorId);
-      unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
       syncStatusDetail =
           'Proveedor guardado acá. Falta sesión de nube para enviarlo.';
       debugPrint('subirProveedor: sin sesión, en cola id=$proveedorId');
@@ -3672,8 +3549,6 @@ class FirestoreSyncService {
             if (!desdeOutbox) {
               await SyncOutbox.instance.ack('upsert:proveedor:$proveedorId');
             }
-            _colaProveedores.remove(proveedorId);
-            unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
             return;
           }
         }
@@ -3682,11 +3557,7 @@ class FirestoreSyncService {
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:proveedor:$proveedorId');
       }
-      _colaProveedores.remove(proveedorId);
-      unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
     } catch (e) {
-      _colaProveedores.add(proveedorId);
-      unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
       if (!desdeOutbox) {
         await SyncOutbox.instance.fail('upsert:proveedor:$proveedorId', e);
       }
@@ -3724,8 +3595,6 @@ class FirestoreSyncService {
           .enqueueUpsert(entityType: 'compra', localId: compraId);
     }
     if (!_puedeEscribirRemoto) {
-      _colaCompras.add(compraId);
-      unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
       syncStatusDetail =
           'Compra guardada acá. Falta sesión de nube para enviarla.';
       if (desdeOutbox) {
@@ -3785,11 +3654,7 @@ class FirestoreSyncService {
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:compra:$compraId');
       }
-      _colaCompras.remove(compraId);
-      unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
     } catch (e) {
-      _colaCompras.add(compraId);
-      unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
       if (!desdeOutbox) {
         await SyncOutbox.instance.fail('upsert:compra:$compraId', e);
       }
@@ -3816,8 +3681,6 @@ class FirestoreSyncService {
           .enqueueUpsert(entityType: 'venta', localId: ventaId);
     }
     if (!_puedeEscribirRemoto) {
-      _colaVentas.add(ventaId);
-      unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
       syncStatusDetail =
           'Venta guardada acá. Falta sesión de nube para enviarla.';
       if (desdeOutbox) {
@@ -3884,11 +3747,7 @@ class FirestoreSyncService {
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:venta:$ventaId');
       }
-      _colaVentas.remove(ventaId);
-      unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
     } catch (e) {
-      _colaVentas.add(ventaId);
-      unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
       if (!desdeOutbox) {
         await SyncOutbox.instance.fail('upsert:venta:$ventaId', e);
       }
@@ -4018,8 +3877,6 @@ class FirestoreSyncService {
           .enqueueUpsert(entityType: 'remito', localId: remitoId);
     }
     if (!_puedeEscribirRemoto) {
-      _colaRemitos.add(remitoId);
-      unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
       syncStatusDetail =
           'Remito guardado acá. Falta sesión de nube para enviarlo.';
       if (desdeOutbox) {
@@ -4076,11 +3933,7 @@ class FirestoreSyncService {
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:remito:$remitoId');
       }
-      _colaRemitos.remove(remitoId);
-      unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
     } catch (e) {
-      _colaRemitos.add(remitoId);
-      unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
       if (!desdeOutbox) {
         await SyncOutbox.instance.fail('upsert:remito:$remitoId', e);
       }
@@ -4104,8 +3957,6 @@ class FirestoreSyncService {
       );
     }
     if (!_puedeEscribirRemoto) {
-      _colaProductos.add(productoId);
-      unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
       return;
     }
     try {
@@ -4179,8 +4030,6 @@ class FirestoreSyncService {
               if (!desdeOutbox) {
                 await SyncOutbox.instance.ack('upsert:producto:$productoId');
               }
-              _colaProductos.remove(productoId);
-              unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
               return;
             }
           }
@@ -4192,11 +4041,7 @@ class FirestoreSyncService {
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:producto:$productoId');
       }
-      _colaProductos.remove(productoId);
-      unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
     } catch (e) {
-      _colaProductos.add(productoId);
-      unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
       if (!desdeOutbox) {
         await SyncOutbox.instance.fail('upsert:producto:$productoId', e);
       }
@@ -4273,7 +4118,6 @@ class FirestoreSyncService {
               if (existentes.isNotEmpty) {
                 final id = (existentes.first['id'] as num?)?.toInt();
                 if (id != null &&
-                    !_colaClientes.contains(id) &&
                     !await SyncOutbox.instance
                         .hasPendingLocalId('cliente', id)) {
                   await db.delete('clientes', where: 'id = ?', whereArgs: [id]);
@@ -4389,7 +4233,6 @@ class FirestoreSyncService {
               if (existentes.isNotEmpty) {
                 final id = (existentes.first['id'] as num?)?.toInt();
                 if (id != null &&
-                    !_colaProveedores.contains(id) &&
                     !await SyncOutbox.instance
                         .hasPendingLocalId('proveedor', id)) {
                   await db.delete(
@@ -4489,7 +4332,6 @@ class FirestoreSyncService {
           if (existentes.isNotEmpty) {
             final id = (existentes.first['id'] as num?)?.toInt();
             if (id != null &&
-                !_colaCompras.contains(id) &&
                 !await SyncOutbox.instance.hasPendingLocalId('compra', id)) {
               await _reversoLocalAntesDeTombstone(
                 documentType: 'compra',
@@ -4772,7 +4614,6 @@ class FirestoreSyncService {
           if (rows.isNotEmpty) {
             final id = (rows.first['id'] as num?)?.toInt();
             if (id != null &&
-                !_colaRemitos.contains(id) &&
                 !await SyncOutbox.instance.hasPendingLocalId('remito', id)) {
               await _reversoLocalAntesDeTombstone(
                 documentType: 'remito',
@@ -5047,7 +4888,6 @@ class FirestoreSyncService {
             if (existentes.isNotEmpty) {
               final id = (existentes.first['id'] as num?)?.toInt();
               if (id != null &&
-                  !_colaVentas.contains(id) &&
                   !await SyncOutbox.instance.hasPendingLocalId('venta', id)) {
                 await _reversoLocalAntesDeTombstone(
                   documentType: 'venta',
@@ -5301,15 +5141,15 @@ class FirestoreSyncService {
 
           // Hard-delete remoto (tombstone): borrar fila local, no soft-delete.
           if (producto.esTombstoneRemoto) {
-            if (local?.id != null &&
-                !_colaProductos.contains(local!.id) &&
+            final localId = local?.id;
+            if (localId != null &&
                 !await SyncOutbox.instance
-                    .hasPendingLocalId('producto', local.id!)) {
+                    .hasPendingLocalId('producto', localId)) {
               huboCambios = true;
               batch.delete(
                 'productos',
                 where: 'id = ?',
-                whereArgs: [local.id],
+                whereArgs: [localId],
               );
             }
             continue;

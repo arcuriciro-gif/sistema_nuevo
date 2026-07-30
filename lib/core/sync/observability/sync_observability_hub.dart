@@ -3,7 +3,6 @@ import 'dart:async' show unawaited;
 import 'package:sqflite/sqflite.dart';
 
 import '../../../database/database_helper.dart';
-import '../scheduler/sync_metrics_history_store.dart';
 import '../scheduler/sync_scheduler.dart';
 import '../sync_health.dart';
 import 'sync_circuit_breaker.dart';
@@ -228,63 +227,13 @@ class SyncObservabilityHub {
   }
 
   Future<Map<String, dynamic>> _historyWindows() async {
-    Map<String, dynamic> summarize(List<SyncMetricsSample> rows) {
-      if (rows.isEmpty) {
-        return {
-          'n': 0,
-          'avgLatencyMs': null,
-          'maxLatencyMs': null,
-          'sumErrors': 0,
-          'avgPendingL1': null,
-          'avgOpsPerMin': null,
-          'maxPendingTotal': null,
-        };
-      }
-      var lat = 0.0;
-      var maxLat = 0.0;
-      var err = 0;
-      var pend = 0.0;
-      var ops = 0.0;
-      var maxPend = 0;
-      for (final r in rows) {
-        lat += r.avgLatencyMs;
-        if (r.maxLatencyMs > maxLat) maxLat = r.maxLatencyMs;
-        err += r.errors;
-        final p = r.pendingL1 + r.pendingL2 + r.pendingL3 + r.pendingL4;
-        pend += r.pendingL1.toDouble();
-        ops += r.opsPerMin;
-        if (p > maxPend) maxPend = p;
-      }
-      final n = rows.length;
-      return {
-        'n': n,
-        'avgLatencyMs': lat / n,
-        'maxLatencyMs': maxLat,
-        'sumErrors': err,
-        'avgPendingL1': pend / n,
-        'avgOpsPerMin': ops / n,
-        'maxPendingTotal': maxPend,
-      };
-    }
-
-    try {
-      // Límites bajos: panel no debe leer miles de filas al abrir.
-      final h1 = await SyncMetricsHistoryStore.instance.lastHours(1, limit: 60);
-      final h24 = await SyncMetricsHistoryStore.instance.last24h(limit: 120);
-      final h7 = await SyncMetricsHistoryStore.instance.last7d(limit: 200);
-      return {
-        'last1h': summarize(h1),
-        'last24h': summarize(h24),
-        'last7d': summarize(h7),
-      };
-    } catch (_) {
-      return {
-        'last1h': {'n': 0},
-        'last24h': {'n': 0},
-        'last7d': {'n': 0},
-      };
-    }
+    return {
+      'last1h': {'n': 0},
+      'last24h': {'n': 0},
+      'last7d': {'n': 0},
+    };
   }
+
 
   Future<void> _persistTrace(String opId) async {
     if (_persistBusy) return;
