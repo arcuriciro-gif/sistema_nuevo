@@ -375,9 +375,6 @@ class FirestoreSyncService {
       }
       await _vaciarColasYSubirPendientes();
       _iniciarOutboxPump();
-      // Stock del .exe → Firestore → APK: hay que seguir tirando stock_ops
-      // (el listener de productos ignora stock absoluto).
-      _iniciarStockOpsPullMobile();
 
       final health = await SyncHealthService.instance.snapshot();
       if (health.dead > 0) {
@@ -524,24 +521,27 @@ class FirestoreSyncService {
     );
   }
 
+  int _unifiedPumpTick = 0;
+
   void _iniciarOutboxPump() {
     _outboxPump?.cancel();
+    // Un solo timer: inbound stock + drain outbox + soft docs.
+    // Los pumps paralelos (_pullPump / _stockOpsPullPump) quedan apagados.
     final windows = PlatformCapabilities.isWindowsDesktop;
     final intervalo = windows
         ? WindowsSyncPolicy.outboxPumpInterval
         : const Duration(seconds: 40);
     _outboxPump = Timer.periodic(intervalo, (_) {
       if (!_puedeEscribirRemoto) return;
+      if (windows && !_windowsPumpsActivos) return;
+      if (_actualizarAhoraBusy) return;
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
-          // Sync Engine 2.0: auto-heal + restore adaptive/turbo.
           await SyncScheduler.instance.ensureRestored();
           await SyncScheduler.instance.runAutoHeal();
-          // Limpieza barata antes de Firebase.
           await SyncOutbox.instance.ackOrphanUpserts();
           await SyncOutbox.instance.ackStockOpsYaHechas(_stockOpsHechas);
           if (windows) {
-            // Solo reclaim eternos; NUNCA borrar stock pending fresco.
             await SyncOutbox.instance.purgeStuckStockOps(
               minAttempts: 8,
               onlyLastErrorContains: 'reclaimed_stale_inflight',
@@ -549,61 +549,47 @@ class FirestoreSyncService {
               proveCloudApplied: null,
             );
           }
-
-          // Tras un crash quedan ops "inflight" huérfanas: recuperarlas.
-          // Si ya pasaron maxAttempts → dead (corta loop reclaim).
           await SyncOutbox.instance.reclaimStaleInflight(
             olderThan: windows
                 ? WindowsSyncPolicy.reclaimStaleInflightAfter
                 : const Duration(minutes: 5),
           );
-
-          // Windows: encolar remitos/ventas locales que nunca subieron
-          // (si no, el APK queda en ventas $0 con stock casi OK).
           if (windows) {
             await _microCatchupDocsWindows();
           }
 
+          // 1) Inbound stock_ops siempre (hardCap) — no esperar outbox vacío.
+          try {
+            await _tickInboundStockOps(windows: windows);
+          } catch (e) {
+            debugPrint('unifiedPump stock_ops: $e');
+          }
+
+          // 2) Outbound drain
           var pending = await SyncOutbox.instance.countByStatus(
             SyncOutboxStatus.pending,
           );
-          final inflight = await SyncOutbox.instance.countByStatus(
-            SyncOutboxStatus.inflight,
-          );
 
-          if (pending == 0 && inflight == 0) {
-            // Outbox quieto: NO tirar pull+notifyTodo cada tick (pantallazo UI).
-            // Soft-pull / "Actualizar ahora" / listeners cubren bajada.
-            // Apply methods ya notifican si hubo cambios reales.
-            final nextLabel = windows
-                ? 'En la nube (modo estable PC)'
-                : 'En la nube';
-            if (syncStatusLabel != nextLabel || syncStatusDetail != null) {
-              syncStatusLabel = nextLabel;
-              syncStatusDetail = null;
-              // Solo badge/status — sin reload de todas las páginas.
-              SyncHealthService.instance.recordCycle(durationMs: 0);
-            }
-            return;
+          if (pending > 0) {
+            syncStatusDetail = '$pending pendientes…';
+            await _procesarSchedulerTicks(windows: windows);
+            pending = await SyncOutbox.instance.countByStatus(
+              SyncOutboxStatus.pending,
+            );
           }
 
-          if (pending == 0 && inflight > 0) {
-            // Aún en vuelo o trabadas recientes: no spamear drain.
-            final nextDetail = '$inflight en curso';
-            if (syncStatusLabel != 'Sincronizando…' ||
-                syncStatusDetail != nextDetail) {
-              syncStatusLabel = 'Sincronizando…';
-              syncStatusDetail = nextDetail;
+          // 3) Soft docs (catálogo/negocio) — un lane por tick en Windows.
+          try {
+            if (windows && !_softPullBusy) {
+              await _pullSuaveWindows();
+            } else if (!windows && _unifiedPumpTick.isEven) {
+              await _tickInboundDocsMobile();
             }
-            return;
+          } catch (e) {
+            debugPrint('unifiedPump soft: $e');
           }
+          _unifiedPumpTick++;
 
-          syncStatusDetail = '$pending pendientes…';
-          // Scheduler v2: crítico nunca espera detrás de import/masivos.
-          await _procesarSchedulerTicks(windows: windows);
-          pending = await SyncOutbox.instance.countByStatus(
-            SyncOutboxStatus.pending,
-          );
           final leftInflight = await SyncOutbox.instance.countByStatus(
             SyncOutboxStatus.inflight,
           );
@@ -626,7 +612,6 @@ class FirestoreSyncService {
               syncStatusDetail = '$leftInflight en curso';
             }
           }
-          // Notificar UI solo si cambió el estado o hubo drain real.
           if (prevLabel != syncStatusLabel || prevDetail != syncStatusDetail) {
             DataRefreshHub.instance.notifyTodo();
           }
@@ -634,6 +619,53 @@ class FirestoreSyncService {
         tag: 'outboxPump',
       );
     });
+  }
+
+  /// Pull stock_ops acotado (mismo hardCap anti-crash Windows).
+  Future<void> _tickInboundStockOps({required bool windows}) async {
+    if (_softPullBusy) return;
+    await _runStockOpsLane(() async {
+      if (windows) {
+        final breakdown = await SyncOutbox.instance.pendingBreakdown();
+        final pendingProd = breakdown['producto'] ?? 0;
+        final budget = WindowsSyncPolicy.stockOpsPullBudget(
+          pendingProductos: pendingProd,
+        );
+        await _pullStockOpsRemotas(
+          maxPages: budget.maxPages,
+          pageSize: budget.pageSize,
+          maxApply: budget.maxApply,
+          microBatchSize: 2,
+          yieldMs: 150,
+        );
+        if (budget.recentLimit > 0) {
+          await _pullStockOpsRecientes(
+            limit: budget.recentLimit,
+            maxApply: budget.maxApply,
+          );
+        }
+        return;
+      }
+      await _pullStockOpsRemotas(maxPages: 2, pageSize: 40, maxApply: 20);
+      await _pullStockOpsRecientes(limit: 60, maxApply: 20);
+    });
+  }
+
+  Future<void> _tickInboundDocsMobile() async {
+    try {
+      final rem = await _remitosCol
+          .orderBy('actualizadoEn', descending: true)
+          .limit(20)
+          .get();
+      if (rem.docs.isNotEmpty) await _aplicarRemitosRemotos(rem);
+      final ven = await _ventasCol
+          .orderBy('actualizadoEn', descending: true)
+          .limit(20)
+          .get();
+      if (ven.docs.isNotEmpty) await _aplicarVentasRemotas(ven);
+    } catch (e) {
+      debugPrint('unifiedPump docs mobile: $e');
+    }
   }
 
   bool _actualizarAhoraBusy = false;
@@ -670,17 +702,9 @@ class FirestoreSyncService {
     _actualizarAhoraBusy = true;
     final sw = Stopwatch()..start();
     final windows = PlatformCapabilities.isWindowsDesktop;
-    var pullWasPaused = false;
     try {
       syncStatusLabel = 'Sincronizando…';
       syncStatusDetail = 'Actualización manual…';
-
-      // Pausar soft-pull mientras corre el manual (evita doble apply).
-      if (windows && _pullPump != null) {
-        _pullPump?.cancel();
-        _pullPump = null;
-        pullWasPaused = true;
-      }
 
       Map<String, dynamic> result = {'ok': false};
       await CloudSyncThrottle.enqueueBackground(() async {
@@ -693,37 +717,9 @@ class FirestoreSyncService {
       return {'ok': false, 'error': e.toString()};
     } finally {
       _actualizarAhoraBusy = false;
-      // Reanudar soft-pull si lo pausamos (intervalo según cola).
-      if (windows &&
-          _windowsPumpsActivos &&
-          _puedeEscribirRemoto &&
-          _pullPump == null &&
-          pullWasPaused) {
-        unawaited(_restartSoftPullPumpWindows());
-      }
     }
   }
 
-  Future<void> _restartSoftPullPumpWindows() async {
-    if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
-    _pullPump?.cancel();
-    final breakdown = await SyncOutbox.instance.pendingBreakdown();
-    final pendingProd = breakdown['producto'] ?? 0;
-    final interval = WindowsSyncPolicy.softPullIntervalFor(
-      pendingProductos: pendingProd,
-    );
-    _pullPump = Timer.periodic(interval, (_) {
-      if (!_puedeEscribirRemoto || _actualizarAhoraBusy || _softPullBusy) {
-        return;
-      }
-      syncInBackground(
-        CloudSyncThrottle.enqueue(() async {
-          await _pullSuaveWindows();
-        }, tag: 'pullPumpWindows'),
-        tag: 'pullPumpWindows',
-      );
-    });
-  }
 
   Future<Map<String, dynamic>> _actualizarAhoraBody({
     required bool windows,
@@ -1060,11 +1056,9 @@ class FirestoreSyncService {
     // Arrancar pump igual: cada tick chequéa Auth; no dejar cola huérfana.
     _iniciarOutboxPump();
     // Listeners de negocio (remitos/ventas/clientes/compras) — sync en segundos.
-    // Productos siguen por soft-pull (no snapshot de 3k docs).
+    // Productos + stock_ops: pump unificado (outbox).
     if (authOk) {
       _iniciarListenersNegocioWindows();
-      // Stock_ops dedicado: no depende del round-robin de productos.
-      _iniciarStockOpsPullMobile();
     }
 
     if (!authOk) {
@@ -1134,10 +1128,7 @@ class FirestoreSyncService {
       );
     });
 
-    Future<void>.delayed(const Duration(seconds: 25), () {
-      if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
-      unawaited(_restartSoftPullPumpWindows());
-    });
+    // Soft-pull ya corre en el pump unificado (no timer paralelo).
   }
 
   static const _wmProductosDoc = 'pull_productos_doc';
@@ -1147,40 +1138,17 @@ class FirestoreSyncService {
   static const _wmVentasDoc = 'pull_ventas_doc';
   static const _wmRemitosDoc = 'pull_remitos_doc';
   static const _wmStockOpsDoc = 'pull_stock_ops_doc';
-  static const _prefsStockOpsWmRewindV142 = 'stock_ops_wm_rewind_v142';
-  static const _prefsStockOpsWmRewindV144 = 'stock_ops_wm_rewind_v144';
-  static const _prefsStockOpsWmRewindV151 = 'stock_ops_wm_rewind_v151';
-  static const _prefsStockOpsWmRewindV154 = 'stock_ops_wm_rewind_v154';
-
   /// Rebobina watermark stock_ops (recupera ops perdidas por avance prematuro
   /// o por starvation Windows tras cola de productos / WhatsApp-listas).
   /// v1.4.27: una sola vez — 30 días.
   Future<void> _maybeRewindStockOpsWatermarkForConvergence() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(_prefsStockOpsWmRewindV154) == true) return;
-      final from = DateTime.now()
-          .toUtc()
-          .subtract(const Duration(days: 30))
-          .toIso8601String();
-      await SyncWatermarkStore.instance.saveMap(_wmStockOpsDoc, {
-        'afterDocId': '',
-        'afterAt': from,
-        'v': 'at_v2',
-        'rewoundAt': DateTime.now().toUtc().toIso8601String(),
-        'rewoundReason': 'field_divergence_v154_starvation',
-      });
-      await prefs.setBool(_prefsStockOpsWmRewindV154, true);
-      await prefs.setBool(_prefsStockOpsWmRewindV151, true);
-      await prefs.setBool(_prefsStockOpsWmRewindV144, true);
-      await prefs.setBool(_prefsStockOpsWmRewindV142, true);
-      debugPrint('stock_ops watermark: rewind 30d (convergencia v1.4.27)');
-    } catch (e) {
-      debugPrint('stock_ops watermark rewind: $e');
-    }
+    // Fase 3: NO rebobinar watermark.
+    // El rewind de 30 días re-aplicaba historia y empeoraba stock.
+    // Convergencia = push outbox + pull stock_ops acotado (hardCap).
+    return;
   }
 
-  /// Una página por colección (sin `.get()` completo — A2).
+
   Future<QuerySnapshot<Map<String, dynamic>>> _pullPaginaPorDocId(
     CollectionReference<Map<String, dynamic>> col, {
     required String watermarkKey,
@@ -1576,69 +1544,6 @@ class FirestoreSyncService {
   /// Windows tenía solo soft-pull round-robin: con cola de productos
   /// (WhatsApp/listas) stock_ops caía a ~1/30 ticks → diverge horas.
   /// Pump dedicado con [WindowsSyncPolicy.stockOpsHardCap] (anti-crash).
-  void _iniciarStockOpsPullMobile() {
-    _stockOpsPullPump?.cancel();
-    final windows = PlatformCapabilities.isWindowsDesktop;
-    final interval = windows
-        ? WindowsSyncPolicy.windowsStockOpsPumpInterval
-        : const Duration(seconds: 45);
-    _stockOpsPullPump = Timer.periodic(interval, (_) {
-      if (!_puedeEscribirRemoto) return;
-      if (windows) {
-        if (!_windowsPumpsActivos) return;
-        if (_softPullBusy || _actualizarAhoraBusy) return;
-      }
-      syncInBackground(
-        () async {
-          try {
-            if (windows) {
-              final breakdown = await SyncOutbox.instance.pendingBreakdown();
-              final pendingProd = breakdown['producto'] ?? 0;
-              final budget = WindowsSyncPolicy.stockOpsPullBudget(
-                pendingProductos: pendingProd,
-              );
-              await _runStockOpsLane(() async {
-                await _pullStockOpsRemotas(
-                  maxPages: budget.maxPages,
-                  pageSize: budget.pageSize,
-                  maxApply: budget.maxApply,
-                  microBatchSize: 2,
-                  yieldMs: 150,
-                );
-                if (budget.recentLimit > 0) {
-                  await _pullStockOpsRecientes(
-                    limit: budget.recentLimit,
-                    maxApply: budget.maxApply,
-                  );
-                }
-              });
-              return;
-            }
-            await _pullStockOpsRemotas(maxPages: 3, pageSize: 50);
-            await _pullStockOpsRecientes(limit: 80);
-            // Red de seguridad docs: venta rápida del EXE debe verse acá.
-            try {
-              final rem = await _remitosCol
-                  .orderBy('actualizadoEn', descending: true)
-                  .limit(30)
-                  .get();
-              if (rem.docs.isNotEmpty) await _aplicarRemitosRemotos(rem);
-              final ven = await _ventasCol
-                  .orderBy('actualizadoEn', descending: true)
-                  .limit(30)
-                  .get();
-              if (ven.docs.isNotEmpty) await _aplicarVentasRemotas(ven);
-            } catch (e) {
-              debugPrint('Pull docs recientes mobile: $e');
-            }
-          } catch (e) {
-            debugPrint('Pull stock_ops pump: $e');
-          }
-        }(),
-        tag: windows ? 'stockOpsPullWindows' : 'stockOpsPullMobile',
-      );
-    });
-  }
 
   /// Aplica una lista de docs stock_ops al ledger (sin re-upload).
   Future<

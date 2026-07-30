@@ -91,59 +91,33 @@ class SyncScheduler {
     );
   }
 
-  /// Claim por niveles según Turbo / focused.
+  /// Claim fijo: prioridad outbox (venta/stock antes que productos).
+  /// Sin Turbo/Adaptive — una sola regla fácil de entender.
   Future<List<Map<String, dynamic>>> claimForTick({
     required Map<String, int> breakdown,
     required bool isWindows,
   }) async {
     await ensureRestored();
-    final plan = planFromBreakdown(breakdown, isWindows: isWindows);
-    final levels = plan.levelClaims;
-    final claimed = <Map<String, dynamic>>[];
-
-    Future<void> claim(List<String> types, int limit) async {
-      if (limit <= 0 || types.isEmpty) return;
-      final batch = await SyncOutbox.instance.claimBatch(
-        limit: limit,
-        entityTypes: types,
-        orderByPriority: true,
-      );
-      claimed.addAll(batch);
-    }
-
-    if (levels != null) {
-      await claim(SyncSchedulerPolicy.level1Types, levels.l1);
-      await claim(SyncSchedulerPolicy.level2Types, levels.l2);
-      await claim(SyncSchedulerPolicy.level3Types, levels.l3);
-      await claim(SyncSchedulerPolicy.level4Types, levels.l4);
-    } else {
-      if (plan.criticalClaim > 0) {
-        await claim(plan.criticalTypes, plan.criticalClaim);
-      }
-      if (plan.backgroundClaim > 0) {
-        await claim(plan.backgroundTypes, plan.backgroundClaim);
-      }
-    }
-
-    // Persistencia del checkpoint del tick.
+    // breakdown se conserva en la firma (callers / tests).
+    final _ = breakdown;
+    final claimed = await SyncOutbox.instance.claimBatch(
+      limit: isWindows ? 8 : 20,
+      orderByPriority: true,
+    );
     try {
       await SchedulerStateStore.instance.save(
         mode: lastMode,
-        turboActive: plan.turboActive,
+        turboActive: false,
         adaptiveBatchL1: adaptive.batchL1,
         adaptiveBatchBg: adaptive.batchBackground,
         lastFirestoreLatencyMs: adaptive.emaLatencyMs,
         checkpoint: {
           'claimed': claimed.length,
-          'turbo': plan.turboActive,
-          'l1': levels?.l1,
-          'l2': levels?.l2,
-          'l3': levels?.l3,
-          'l4': levels?.l4,
+          'turbo': false,
+          'fixed': true,
         },
       );
     } catch (_) {}
-
     return claimed;
   }
 

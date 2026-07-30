@@ -35,6 +35,13 @@ class InventoryLedgerService {
     bus.subscribe(DomainEventType.ajusteInventario, _onAjuste);
   }
 
+  /// Id cloud de stock_op: device + event + producto (evita colisión multi-caja).
+  static String stockOpCloudId(DomainEvent event, int productoId) {
+    final d = (event.deviceId ?? '').trim();
+    final prefix = d.isEmpty ? 'local' : d;
+    return '${prefix}_${event.eventId}_$productoId';
+  }
+
   void resetForTests() {
     _registered = false;
   }
@@ -227,7 +234,7 @@ class InventoryLedgerService {
 
       // Outbox + dedupe durable en la MISMA TX que el ledger (no post-commit).
       if (enqueueOutboundStockOps) {
-        final cloudOpId = '${event.eventId}_${line.productoId}';
+        final cloudOpId = stockOpCloudId(event, line.productoId);
         final codCloud = (codigo ?? '').trim();
         // G2: sin código no hay clave cloud → rechazar TX (no perder op en silencio).
         if (codCloud.isEmpty) {
@@ -529,7 +536,7 @@ class InventoryLedgerService {
         final windows = PlatformCapabilities.isWindowsDesktop;
         for (final line in lines) {
           final delta = sign * line.cantidad.abs();
-          final opId = '${event.eventId}_${line.productoId}';
+          final opId = stockOpCloudId(event, line.productoId);
           await FirestoreSyncService.instance.ajustarStockEnNube(
             productoId: line.productoId,
             delta: delta,
