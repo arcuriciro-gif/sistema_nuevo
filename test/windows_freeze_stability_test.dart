@@ -23,6 +23,10 @@ void main() {
       WindowsSyncPolicy.outboxPumpInterval.inSeconds,
       greaterThanOrEqualTo(40),
     );
+    // Convergencia crítica SÍ existe (papelera + stock acotado).
+    final b = WindowsSyncPolicy.criticalConvergenceBudget();
+    expect(b.stockMaxApply, lessThanOrEqualTo(WindowsSyncPolicy.stockOpsHardCap));
+    expect(b.productosRecientes, greaterThan(0));
   });
 
   test('stockOpsHardCap sigue ≤4 para Actualizar ahora', () {

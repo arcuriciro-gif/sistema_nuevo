@@ -161,6 +161,24 @@ class WindowsSyncPolicy {
     return softPullInterval;
   }
 
+  /// Convergencia crítica congelada: productos recientes + stock_ops chico.
+  /// Sin listeners / soft-pull / seed masivo (eso tumbaba el EXE).
+  static const Duration criticalConvergenceInterval = Duration(seconds: 90);
+
+  static ({
+    int productosRecientes,
+    int productosCatalogoPage,
+    int stockMaxApply,
+    int stockRecentLimit,
+    int yieldMs,
+  }) criticalConvergenceBudget() => (
+        productosRecientes: 20,
+        productosCatalogoPage: 12,
+        stockMaxApply: 2,
+        stockRecentLimit: 15,
+        yieldMs: 180,
+      );
+
   /// Cuántos docs recientes tirar por `actualizadoEn` (idempotente).
   static int recentBusinessDocsLimit({required int pendingProductos}) {
     if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {

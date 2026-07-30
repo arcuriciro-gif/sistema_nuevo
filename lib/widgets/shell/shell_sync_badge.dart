@@ -158,7 +158,8 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
         ? 'Al día'
         : 'Última: ${local.hour.toString().padLeft(2, '0')}:'
             '${local.minute.toString().padLeft(2, '0')}';
-    // Freeze Windows: outbox vacío ≠ stock igual al celular.
+    // Freeze Windows: outbox vacío ≠ stock/papelera igual al celular.
+    // Pero hay sync suave de convergencia — no mentir con "solo Actualizar".
     if (PlatformCapabilities.isWindowsDesktop &&
         WindowsSyncPolicy.freezeBackgroundForStability) {
       return (
@@ -166,7 +167,7 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
         title: 'PC estable',
         subtitle: detail?.isNotEmpty == true
             ? detail!
-            : 'Tocá Actualizar ahora para igualar stock',
+            : 'Papelera + stock en sync suave',
       );
     }
     return (
@@ -317,10 +318,10 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
                 Text(
                   PlatformCapabilities.isWindowsDesktop &&
                           WindowsSyncPolicy.freezeBackgroundForStability
-                      ? 'En la PC el fondo está congelado para que el EXE '
-                          'no se cierre solo. Este botón sube pendientes y '
-                          'baja stock de a poco. Si el stock sigue distinto '
-                          'al celular, tocá otra vez acá y después en el APK.'
+                      ? 'La PC baja papelera y stock de a poco (sin '
+                          'cerrar el EXE). Tocá este botón para forzar '
+                          'una ronda ya. Si falta algo, tocá otra vez '
+                          'acá y después en el celular.'
                       : 'Baja listas, clientes, ventas/remitos y stock de '
                           'la nube, y sube lo pendiente. Usalo después de '
                           'cargar una lista, un cliente o una venta si '

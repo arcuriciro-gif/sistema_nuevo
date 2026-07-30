@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../core/config/platform_capabilities.dart';
 import '../core/events/data_refresh_hub.dart';
+import '../core/sync/firestore_sync_service.dart';
 import '../models/producto.dart';
 import '../services/producto_service.dart';
 import '../theme/app_visuals.dart';
@@ -23,6 +27,14 @@ class _PapeleraProductosPageState extends State<PapeleraProductosPage> {
     super.initState();
     DataRefreshHub.instance.addListener(_onRefresh);
     _cargar();
+    // Al abrir papelera: forzar una ronda de sync (EXE↔APK).
+    if (PlatformCapabilities.isWindowsDesktop) {
+      unawaited(() async {
+        try {
+          await FirestoreSyncService.instance.actualizarAhora();
+        } catch (_) {}
+      }());
+    }
   }
 
   void _onRefresh() {

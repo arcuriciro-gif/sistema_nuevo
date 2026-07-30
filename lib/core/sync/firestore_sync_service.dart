@@ -130,6 +130,8 @@ class FirestoreSyncService {
   /// APK/móvil: pull periódico de stock_ops (no hay listener; el stock
   /// remoto en productos se ignora — R6/R7: autoridad = ledger/stock_ops).
   Timer? _stockOpsPullPump;
+  /// Windows congelado: papelera + stock_ops acotado (sin soft-pull masivo).
+  Timer? _criticalConvergencePump;
   /// Evita doble start() en Windows (auth + shell reconectan a la vez).
   bool _windowsBootInProgress = false;
   bool _windowsPumpsActivos = false;
@@ -804,6 +806,20 @@ class FirestoreSyncService {
           debugPrint('actualizarAhora reparación: $e');
         }
 
+        // Fase 1c — productos recientes (papelera / restores / altas).
+        try {
+          final recientes = await _remote.obtenerRecientes(limit: 40);
+          if (recientes.isNotEmpty) {
+            await _aplicarProductosRemotos(recientes);
+          }
+          await Future<void>.delayed(
+            Duration(milliseconds: budget.yieldMs),
+          );
+          await _pullProductosCatalogoWindows(maxPages: 1, pageSize: 20);
+        } catch (e) {
+          debugPrint('actualizarAhora productos: $e');
+        }
+
         // Fase 2 — config liviana (opcional).
         if (budget.pullConfig) {
           try {
@@ -1038,6 +1054,81 @@ class FirestoreSyncService {
     );
   }
 
+  /// Convergencia crítica bajo freeze: papelera + stock sin tumbar el EXE.
+  ///
+  /// Cada ~90s: 20 productos recientes + 1 página catálogo + stock_ops≤2.
+  /// Serializado por CloudSyncThrottle; sin listeners ni soft-pull masivo.
+  void _iniciarConvergenciaCriticaWindows() {
+    _criticalConvergencePump?.cancel();
+    if (!WindowsSyncPolicy.freezeBackgroundForStability) return;
+    // Primera corrida a los 15s (después del drain inicial).
+    Future<void>.delayed(const Duration(seconds: 15), () {
+      if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+      syncInBackground(
+        CloudSyncThrottle.enqueue(
+          _tickConvergenciaCriticaWindows,
+          tag: 'criticalConvergenceWin',
+        ),
+        tag: 'criticalConvergenceWin',
+      );
+    });
+    _criticalConvergencePump = Timer.periodic(
+      WindowsSyncPolicy.criticalConvergenceInterval,
+      (_) {
+        if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+        if (_actualizarAhoraBusy || _softPullBusy) return;
+        syncInBackground(
+          CloudSyncThrottle.enqueue(
+            _tickConvergenciaCriticaWindows,
+            tag: 'criticalConvergenceWin',
+          ),
+          tag: 'criticalConvergenceWin',
+        );
+      },
+    );
+  }
+
+  Future<void> _tickConvergenciaCriticaWindows() async {
+    if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+    final b = WindowsSyncPolicy.criticalConvergenceBudget();
+    try {
+      // 1) Productos recientes (papelera / restore / edits).
+      final recientes = await _remote.obtenerRecientes(
+        limit: b.productosRecientes,
+      );
+      if (recientes.isNotEmpty) {
+        await _aplicarProductosRemotos(recientes);
+      }
+      await Future<void>.delayed(Duration(milliseconds: b.yieldMs));
+
+      // 2) Una página de catálogo (cobertura eventual de los ~3k).
+      await _pullProductosCatalogoWindows(
+        maxPages: 1,
+        pageSize: b.productosCatalogoPage,
+      );
+      await Future<void>.delayed(Duration(milliseconds: b.yieldMs));
+
+      // 3) Stock_ops micro (hardCap 2).
+      await _runStockOpsLane(() async {
+        await _pullStockOpsRemotas(
+          maxPages: 1,
+          pageSize: 8,
+          maxApply: b.stockMaxApply,
+          microBatchSize: 1,
+          yieldMs: b.yieldMs,
+        );
+        await _pullStockOpsRecientes(
+          limit: b.stockRecentLimit,
+          maxApply: b.stockMaxApply,
+          microBatchSize: 1,
+          yieldMs: b.yieldMs,
+        );
+      });
+    } catch (e) {
+      debugPrint('Convergencia crítica Windows: $e');
+    }
+  }
+
   /// Evita quedar eterno en "arranque 45s" con 0 intentos.
   Future<void> _bootWindowsPumpsConRetry() async {
     final breakdown0 = await SyncOutbox.instance.pendingBreakdown();
@@ -1074,9 +1165,8 @@ class FirestoreSyncService {
       authOk = _puedeEscribirRemoto;
     }
 
-    // Congelado: sin listeners, sin soft-pull, sin stock_ops pump, sin
-    // micro-catchup. Campo: eso cerraba el EXE ~1–2 min post-login.
-    // Solo drain chico de outbox; convergencia stock = Actualizar ahora.
+    // Congelado: sin listeners masivos / soft-pull round-robin.
+    // Sí: outbox chico + convergencia crítica acotada (papelera + stock).
     if (WindowsSyncPolicy.freezeBackgroundForStability) {
       await CloudSyncThrottle.enqueue(() async {
         if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
@@ -1090,11 +1180,14 @@ class FirestoreSyncService {
         final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
         syncStatusLabel = 'En la nube (modo estable PC)';
         syncStatusDetail = pending > 0
-            ? '$pending pendientes — tocá Actualizar ahora'
-            : 'Tocá Actualizar ahora para igualar stock';
+            ? '$pending pendientes — sync suave activo'
+            : 'Sync suave activo (papelera + stock)';
         DataRefreshHub.instance.notifyTodo();
       }, tag: 'primerDrainPostCuarentenaFreeze');
       _iniciarOutboxPump();
+      if (authOk) {
+        _iniciarConvergenciaCriticaWindows();
+      }
       return;
     }
 
@@ -2705,6 +2798,8 @@ class FirestoreSyncService {
     _pullPump = null;
     _stockOpsPullPump?.cancel();
     _stockOpsPullPump = null;
+    _criticalConvergencePump?.cancel();
+    _criticalConvergencePump = null;
     await _productosSub?.cancel();
     await _usuariosSub?.cancel();
     await _brandingSub?.cancel();
@@ -4299,6 +4394,18 @@ class FirestoreSyncService {
           if (remoto != null) {
             final remTs = _parseUtc(remoto.actualizadoEn);
             final locTs = _parseUtc(producto.actualizadoEn);
+            // Papelera/restore SIEMPRE sube aunque el LWW de catálogo pierda
+            // (stock_ops remotos bumpaban actualizadoEn y el delete se ACK-eaba
+            // sin subir → papelera EXE≠APK).
+            if (producto.estaEliminado != remoto.estaEliminado) {
+              await _remote.actualizarDeletedAtOnly(producto);
+              if (!desdeOutbox) {
+                await SyncOutbox.instance.ack('upsert:producto:$productoId');
+              }
+              _colaProductos.remove(productoId);
+              unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
+              return;
+            }
             if (remTs != null &&
                 locTs != null &&
                 remTs.isAfter(locTs) &&
@@ -5454,10 +5561,16 @@ class FirestoreSyncService {
           final locTs = _parseUtc(local?.actualizadoEn);
           final remTs = _parseUtc(producto.actualizadoEn);
 
+          // Outbox local pendiente: no aplicar deleted_at remoto (pisaría
+          // un soft-delete/restore local aún no subido).
+          final pendingLocal = local?.id != null &&
+              (await SyncOutbox.instance
+                      .hasPendingLocalId('producto', local!.id!) ||
+                  _colaProductos.contains(local.id));
+
           // Soft-delete/restore es independiente del LWW de catálogo.
-          // stock_ops (antes) y edits locales bumpaban actualizadoEn y
-          // bloqueaban deleted_at remoto → totales 2884 vs 2883.
           if (local != null &&
+              !pendingLocal &&
               producto.estaEliminado != local.estaEliminado) {
             huboCambios = true;
             batch.update(
@@ -5469,7 +5582,6 @@ class FirestoreSyncService {
               where: 'id = ?',
               whereArgs: [local.id],
             );
-            // Seguir: si local es más viejo también mergeamos metadata.
           }
 
           // R6/R7: stock local (ledger / stock_ops) es autoridad.
@@ -5499,10 +5611,8 @@ class FirestoreSyncService {
           if (local != null && _productoSinCambiosRelevantes(local, merged)) {
             continue;
           }
-          // Si hay ops/outbox pendientes del producto, no pisar metadata stock.
-          if (local?.id != null &&
-              await SyncOutbox.instance
-                  .hasPendingLocalId('producto', local!.id!)) {
+          // Si hay ops/outbox pendientes del producto, no pisar metadata.
+          if (pendingLocal) {
             continue;
           }
           huboCambios = true;
