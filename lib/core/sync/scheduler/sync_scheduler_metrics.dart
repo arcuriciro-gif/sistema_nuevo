@@ -10,8 +10,6 @@ class SyncSchedulerMetrics {
   int coalescedOps = 0;
   int criticalTicks = 0;
   int backgroundTicks = 0;
-  int turboTicks = 0;
-  int preemptCount = 0;
 
   final List<int> _criticalLatenciesMs = [];
   final List<int> _backgroundLatenciesMs = [];
@@ -60,12 +58,6 @@ class SyncSchedulerMetrics {
     }
   }
 
-  void recordTurbo(bool active) {
-    if (active) turboTicks++;
-  }
-
-  void recordPreempt() => preemptCount++;
-
   double? get avgCriticalLatencyMs => _avg(_criticalLatenciesMs);
   double? get avgBackgroundLatencyMs => _avg(_backgroundLatenciesMs);
   int? get maxCriticalLatencyMs => _max(_criticalLatenciesMs);
@@ -88,8 +80,6 @@ class SyncSchedulerMetrics {
         'coalescedOps': coalescedOps,
         'criticalTicks': criticalTicks,
         'backgroundTicks': backgroundTicks,
-        'turboTicks': turboTicks,
-        'preemptCount': preemptCount,
         'avgCriticalLatencyMs': avgCriticalLatencyMs,
         'avgBackgroundLatencyMs': avgBackgroundLatencyMs,
         'maxCriticalLatencyMs': maxCriticalLatencyMs,
@@ -108,8 +98,6 @@ class SyncSchedulerMetrics {
     coalescedOps = 0;
     criticalTicks = 0;
     backgroundTicks = 0;
-    turboTicks = 0;
-    preemptCount = 0;
     _criticalLatenciesMs.clear();
     _backgroundLatenciesMs.clear();
     lastCriticalAt = null;

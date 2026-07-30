@@ -108,27 +108,12 @@ class FirestoreSyncService {
   /// Números de remito ya vistos en la nube (borrado remoto → borrar local).
   final Set<String> _remitosConfirmadosEnNube = {};
 
-  /// Entidades creadas/editadas sin sesión de nube (colas persistentes).
-  final Set<int> _colaClientes = {};
-  final Set<int> _colaProveedores = {};
-  final Set<int> _colaVentas = {};
-  final Set<int> _colaRemitos = {};
-  final Set<int> _colaProductos = {};
-  final Set<int> _colaCompras = {};
-  /// Deltas de stock pendientes: "opId|codigo|delta"
-  final List<String> _colaStockOps = [];
-
   /// Último estado legible para la UI (sin carteles rojos agresivos).
   String syncStatusLabel = 'Local';
   String? syncStatusDetail;
 
   /// Reintento suave de outbox mientras la nube está activa (EXE→APK).
   Timer? _outboxPump;
-  /// Windows: pull periódico (sin listeners pesados que tumban el .exe).
-  Timer? _pullPump;
-  /// APK/móvil: pull periódico de stock_ops (no hay listener; el stock
-  /// remoto en productos se ignora — R6/R7: autoridad = ledger/stock_ops).
-  Timer? _stockOpsPullPump;
   /// Evita doble start() en Windows (auth + shell reconectan a la vez).
   bool _windowsBootInProgress = false;
   bool _windowsPumpsActivos = false;
@@ -189,7 +174,6 @@ class FirestoreSyncService {
       // stop() limpia flags Windows; reponer boot si aplica.
       if (windows) _windowsBootInProgress = true;
 
-      await _cargarColasPersistidas();
       // Trazabilidad E2E: cada hop lleva deviceId + tenant.
       SyncPathLogger.instance.configure(
         deviceId:
@@ -205,7 +189,7 @@ class FirestoreSyncService {
       );
       if (!windows) {
         await SyncOutbox.instance.reclaimStaleInflight();
-        await _migrateLegacyColasToOutbox();
+        await _migrateLegacyPrefsColasOnce();
       }
       await _cargarWatermarksPersistidos();
       // 1.4.2: una sola vez rebobina watermark stock_ops 72h para recuperar
@@ -287,7 +271,6 @@ class FirestoreSyncService {
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
             try {
-              await _cargarColasPersistidas();
               await _maybeRewindStockOpsWatermarkForConvergence();
               syncStatusDetail = 'Revisando cola local…';
               DataRefreshHub.instance.notifyTodo();
@@ -330,9 +313,7 @@ class FirestoreSyncService {
               await SyncOutbox.instance.reclaimStaleInflight(
                 olderThan: WindowsSyncPolicy.reclaimStaleInflightAfter,
               );
-              await _migrateLegacyColasToOutbox();
-              await _volcarColasLegacyAOutboxSeguro();
-              await _limpiarColasLegacyPrefs();
+              await _migrateLegacyPrefsColasOnce();
               final orphans = await SyncOutbox.instance.ackOrphanUpserts();
               if (orphans > 0) {
                 debugPrint('Outbox: ACK $orphans huérfanos');
@@ -525,7 +506,6 @@ class FirestoreSyncService {
   void _iniciarOutboxPump() {
     _outboxPump?.cancel();
     // Un solo timer: inbound stock + drain outbox + soft docs.
-    // Los pumps paralelos (_pullPump / _stockOpsPullPump) quedan apagados.
     final windows = PlatformCapabilities.isWindowsDesktop;
     final intervalo = windows
         ? WindowsSyncPolicy.outboxPumpInterval
@@ -1008,7 +988,6 @@ class FirestoreSyncService {
   /// Windows: pumps tras cuarentena corta; reintenta si Auth aún no listo.
   void _iniciarPumpsWindows() {
     _windowsPumpsActivos = true;
-    _pullPump?.cancel();
     syncInBackground(
       _bootWindowsPumpsConRetry(),
       tag: 'bootWindowsPumps',
@@ -1985,11 +1964,8 @@ class FirestoreSyncService {
     final sw = Stopwatch()..start();
     String? cycleError;
     try {
-      await _cargarColasPersistidas();
       await SyncOutbox.instance.reclaimStaleInflight();
-      await _migrateLegacyColasToOutbox();
-      await _volcarColasLegacyAOutboxSeguro();
-      await _limpiarColasLegacyPrefs();
+      await _migrateLegacyPrefsColasOnce();
 
       if (!_puedeEscribirRemoto) {
         SyncHealthService.instance.canWrite = false;
@@ -2449,22 +2425,74 @@ class FirestoreSyncService {
     return (rows.first['id'] as num?)?.toInt();
   }
 
-  Future<void> _migrateLegacyColasToOutbox() async {
+  /// One-shot: prefs legacy → SyncOutbox, luego borra las keys.
+  /// Outbox SQLite es la única cola en runtime.
+  Future<void> _migrateLegacyPrefsColasOnce() async {
     final prefs = await SharedPreferences.getInstance();
-    const flag = 'sync_outbox_migrated_v1';
+    const flag = 'sync_outbox_migrated_v2';
     if (prefs.getBool(flag) == true) return;
-    await SyncOutbox.instance
-        .migrateLegacyIdSet(entityType: 'cliente', ids: _colaClientes);
-    await SyncOutbox.instance
-        .migrateLegacyIdSet(entityType: 'proveedor', ids: _colaProveedores);
-    await SyncOutbox.instance
-        .migrateLegacyIdSet(entityType: 'producto', ids: _colaProductos);
-    await SyncOutbox.instance
-        .migrateLegacyIdSet(entityType: 'venta', ids: _colaVentas);
-    await SyncOutbox.instance
-        .migrateLegacyIdSet(entityType: 'remito', ids: _colaRemitos);
-    await SyncOutbox.instance
-        .migrateLegacyIdSet(entityType: 'compra', ids: _colaCompras);
+
+    Set<int> readIds(String key) {
+      final out = <int>{};
+      for (final s in prefs.getStringList(key) ?? const []) {
+        final id = int.tryParse(s);
+        if (id != null) out.add(id);
+      }
+      return out;
+    }
+
+    await SyncOutbox.instance.migrateLegacyIdSet(
+      entityType: 'cliente',
+      ids: readIds(_prefsColaClientes),
+    );
+    await SyncOutbox.instance.migrateLegacyIdSet(
+      entityType: 'proveedor',
+      ids: readIds(_prefsColaProveedores),
+    );
+    await SyncOutbox.instance.migrateLegacyIdSet(
+      entityType: 'producto',
+      ids: readIds(_prefsColaProductos),
+    );
+    await SyncOutbox.instance.migrateLegacyIdSet(
+      entityType: 'venta',
+      ids: readIds(_prefsColaVentas),
+    );
+    await SyncOutbox.instance.migrateLegacyIdSet(
+      entityType: 'remito',
+      ids: readIds(_prefsColaRemitos),
+    );
+    await SyncOutbox.instance.migrateLegacyIdSet(
+      entityType: 'compra',
+      ids: readIds(_prefsColaCompras),
+    );
+
+    for (final token in prefs.getStringList(_prefsColaStockOps) ?? const []) {
+      final parts = token.split('|');
+      if (parts.length < 3) continue;
+      final opId = parts[0];
+      final codigo = parts[1];
+      final delta = int.tryParse(parts[2]) ?? 0;
+      if (opId.isEmpty || codigo.isEmpty || delta == 0) continue;
+      await SyncOutbox.instance.enqueueStockOp(
+        opId: opId,
+        codigo: codigo,
+        delta: delta,
+      );
+    }
+
+    for (final key in [
+      _prefsColaClientes,
+      _prefsColaProveedores,
+      _prefsColaProductos,
+      _prefsColaVentas,
+      _prefsColaRemitos,
+      _prefsColaCompras,
+      _prefsColaStockOps,
+      'sync_stock_ops_hechas_v2',
+      'sync_outbox_migrated_v1',
+    ]) {
+      await prefs.remove(key);
+    }
     await prefs.setBool(flag, true);
   }
 
@@ -2516,10 +2544,6 @@ class FirestoreSyncService {
     _outboxDrainTickWindows = 0;
     _outboxPump?.cancel();
     _outboxPump = null;
-    _pullPump?.cancel();
-    _pullPump = null;
-    _stockOpsPullPump?.cancel();
-    _stockOpsPullPump = null;
     await _productosSub?.cancel();
     await _usuariosSub?.cancel();
     await _brandingSub?.cancel();
@@ -2820,6 +2844,7 @@ class FirestoreSyncService {
         FirebaseAuthUsuarioService.instance.uidActual != null;
   }
 
+  // Prefs legacy (solo lectura one-shot → outbox).
   static const _prefsColaClientes = 'sync_cola_clientes_ids';
   static const _prefsColaProveedores = 'sync_cola_proveedores_ids';
   static const _prefsColaProductos = 'sync_cola_productos_ids';
@@ -2981,91 +3006,7 @@ class FirestoreSyncService {
     return out;
   }
 
-  Future<void> _persistirCola(String key, Set<int> ids) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(
-        key,
-        ids.map((e) => e.toString()).toList(),
-      );
-    } catch (_) {}
-  }
 
-  Future<void> _cargarColasPersistidas() async {
-    try {
-      // Siempre resetear memoria: si no, acumula IDs fantasma entre start().
-      _colaClientes.clear();
-      _colaProveedores.clear();
-      _colaProductos.clear();
-      _colaVentas.clear();
-      _colaRemitos.clear();
-      _colaCompras.clear();
-      final prefs = await SharedPreferences.getInstance();
-      for (final s in prefs.getStringList(_prefsColaClientes) ?? const []) {
-        final id = int.tryParse(s);
-        if (id != null) _colaClientes.add(id);
-      }
-      for (final s in prefs.getStringList(_prefsColaProveedores) ?? const []) {
-        final id = int.tryParse(s);
-        if (id != null) _colaProveedores.add(id);
-      }
-      for (final s in prefs.getStringList(_prefsColaProductos) ?? const []) {
-        final id = int.tryParse(s);
-        if (id != null) _colaProductos.add(id);
-      }
-      for (final s in prefs.getStringList(_prefsColaVentas) ?? const []) {
-        final id = int.tryParse(s);
-        if (id != null) _colaVentas.add(id);
-      }
-      for (final s in prefs.getStringList(_prefsColaRemitos) ?? const []) {
-        final id = int.tryParse(s);
-        if (id != null) _colaRemitos.add(id);
-      }
-      for (final s in prefs.getStringList(_prefsColaCompras) ?? const []) {
-        final id = int.tryParse(s);
-        if (id != null) _colaCompras.add(id);
-      }
-      _colaStockOps
-        ..clear()
-        ..addAll(prefs.getStringList(_prefsColaStockOps) ?? const []);
-    } catch (_) {}
-  }
-
-  /// Absorbe prefs/colas → outbox sin reabrir ops ya `acked`.
-  Future<void> _volcarColasLegacyAOutboxSeguro() async {
-    Future<void> dump(String type, Set<int> ids) async {
-      for (final id in ids) {
-        await SyncOutbox.instance.enqueueUpsert(
-          entityType: type,
-          localId: id,
-          reopenAcked: false,
-        );
-      }
-    }
-
-    await dump('cliente', _colaClientes);
-    await dump('proveedor', _colaProveedores);
-    await dump('producto', _colaProductos);
-    await dump('venta', _colaVentas);
-    await dump('remito', _colaRemitos);
-    await dump('compra', _colaCompras);
-  }
-
-  /// Outbox es la fuente de verdad; limpia prefs legacy para no reabrir fantasmas.
-  Future<void> _limpiarColasLegacyPrefs() async {
-    _colaClientes.clear();
-    _colaProveedores.clear();
-    _colaProductos.clear();
-    _colaVentas.clear();
-    _colaRemitos.clear();
-    _colaCompras.clear();
-    await _persistirCola(_prefsColaClientes, _colaClientes);
-    await _persistirCola(_prefsColaProveedores, _colaProveedores);
-    await _persistirCola(_prefsColaProductos, _colaProductos);
-    await _persistirCola(_prefsColaVentas, _colaVentas);
-    await _persistirCola(_prefsColaRemitos, _colaRemitos);
-    await _persistirCola(_prefsColaCompras, _colaCompras);
-  }
 
 
 

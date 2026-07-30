@@ -485,7 +485,7 @@ class SyncOutbox {
     );
   }
 
-  /// Reencola inmediato sin backoff (preemption Turbo → L1).
+  /// Reencola inmediato sin backoff (preemption L1).
   /// Decrementa attempts para no castigar ops interrumpidas.
   Future<void> requeueImmediate(String opId, {String reason = 'preempted'}) async {
     final db = await _db;

@@ -272,30 +272,8 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
           _row('Puede escribir', sync.canWrite ? 'sí' : 'no'),
           _row('Último error', sync.lastError ?? '—'),
         ]),
-        _section('Sync Engine 2.0', [
+        _section('Sync engine', [
           _row('Modo', '${sync.engine['mode'] ?? '—'}'),
-          _row(
-            'Turbo',
-            ((sync.engine['turbo'] as Map?)?['turboActive'] == true)
-                ? 'ACTIVO'
-                : 'off',
-          ),
-          _row(
-            'Preemptions',
-            '${(sync.engine['turbo'] as Map?)?['preemptionCount'] ?? 0}',
-          ),
-          _row(
-            'Batch L1 / fondo (adaptativo)',
-            '${(sync.engine['adaptive'] as Map?)?['batchL1'] ?? '—'} / '
-            '${(sync.engine['adaptive'] as Map?)?['batchBackground'] ?? '—'}',
-          ),
-          _row(
-            'EMA latencia',
-            sync.engine['adaptive'] == null ||
-                    (sync.engine['adaptive'] as Map)['emaLatencyMs'] == null
-                ? '—'
-                : '${((sync.engine['adaptive'] as Map)['emaLatencyMs'] as num).toStringAsFixed(0)} ms',
-          ),
           _row(
             'Auto-heals',
             '${(sync.engine['healer'] as Map?)?['healsRun'] ?? 0}',
@@ -305,7 +283,6 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
             (sync.engine['healer'] as Map?)?['lastHealDetail']?.toString() ??
                 '—',
           ),
-          _row('Locks entidad', '${sync.engine['locksHeld'] ?? 0}'),
           _row('Muestras 24h', '${sync.history24h.length}'),
         ]),
         if (_dash != null) ...[
@@ -362,10 +339,6 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
                   '${((d['workers'] as Map?)?['l2'] ?? 0)}/'
                   '${((d['workers'] as Map?)?['l3'] ?? 0)}/'
                   '${((d['workers'] as Map?)?['l4'] ?? 0)}'),
-              _row(
-                'Turbo',
-                ((d['turbo'] as Map?)?['turboActive'] == true) ? 'ACTIVO' : 'off',
-              ),
               _row('Circuit breaker',
                   '${cb['state'] ?? '—'} (trips=${cb['tripCount'] ?? 0}, wait=${cb['extraWaitMs'] ?? 0}ms)'),
               _row('RSS memoria',
@@ -420,8 +393,6 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
             '${sync.scheduler['backgroundFails'] ?? 0}',
           ),
           _row('Coalesced ops', '${sync.scheduler['coalescedOps'] ?? 0}'),
-          _row('Turbo ticks / preempts',
-              '${sync.scheduler['turboTicks'] ?? 0} / ${sync.scheduler['preemptCount'] ?? 0}'),
           _row(
             'Latencia avg crítico',
             sync.scheduler['avgCriticalLatencyMs'] == null
