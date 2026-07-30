@@ -25,10 +25,14 @@ void main() {
     );
     expect(
       SidebarPreferenciasService.instance.estaVisible('compras|Compras'),
-      isFalse,
+      isTrue,
     );
     expect(
       SidebarPreferenciasService.instance.estaVisible('reportes|Reportes'),
+      isFalse,
+    );
+    expect(
+      SidebarPreferenciasService.instance.estaVisible('usuarios|Usuarios'),
       isFalse,
     );
   });

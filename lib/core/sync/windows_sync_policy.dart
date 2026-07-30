@@ -230,53 +230,6 @@ class WindowsSyncPolicy {
       windowsCatchupStockOpsBudget() =>
           (maxPages: 1, pageSize: 10, maxApply: stockOpsHardCap);
 
-  /// Plan de drain del outbox Windows (scheduler v2).
-  ///
-  /// **Crítico primero:** ventas/remitos/stock/clientes nunca esperan detrás
-  /// de miles de productos de importación. El fondo (productos) solo corre
-  /// con cupo residual o cuando no hay críticos.
-  static List<({List<String> types, int claim})> outboxDrainPlan({
-    required Map<String, int> breakdown,
-    required int tick,
-  }) {
-    final nCritDocs = (breakdown['venta'] ?? 0) +
-        (breakdown['remito'] ?? 0) +
-        (breakdown['compra'] ?? 0) +
-        (breakdown['cliente'] ?? 0) +
-        (breakdown['proveedor'] ?? 0);
-    final nStock = breakdown['stock_op'] ?? 0;
-    final nProd = breakdown['producto'] ?? 0;
-    final plan = <({List<String> types, int claim})>[];
-
-    if (nCritDocs > 0) {
-      plan.add((
-        types: const ['venta', 'remito', 'compra', 'cliente', 'proveedor'],
-        claim: nCritDocs.clamp(1, 10),
-      ));
-    }
-    if (nStock > 0) {
-      plan.add((
-        types: const ['stock_op'],
-        claim: nStock.clamp(1, 8),
-      ));
-    }
-    // Fondo: solo si no hay críticos, o cupo mínimo residual.
-    if (nProd > 0) {
-      final bgClaim = (nCritDocs + nStock) == 0
-          ? nProd.clamp(1, 6)
-          : 1;
-      plan.add((
-        types: const ['producto'],
-        claim: bgClaim,
-      ));
-    }
-    // tick se conserva por compat API / métricas de rotación.
-    if (plan.isEmpty && tick >= 0) {
-      return plan;
-    }
-    return plan;
-  }
-
   /// En Windows el masivo (análisis de lista) solo encola outbox.
   static bool bulkSoloEncolar({required bool isWindowsDesktop}) =>
       isWindowsDesktop;

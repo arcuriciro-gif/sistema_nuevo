@@ -12,7 +12,7 @@ import '../models/venta_item.dart';
 import '../core/security/authorization_service.dart';
 import '../core/utils/busqueda_texto.dart';
 import '../core/utils/cuit.dart';
-import '../services/afip_service.dart';
+
 import '../services/branding_service.dart';
 import '../services/cliente_service.dart';
 import '../services/cuenta_corriente_service.dart';
@@ -203,19 +203,21 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
 
   double get _baseImponible => _subtotal - _descuento;
 
+  /// Precios de lista se tratan como IVA incluido (sin módulo AFIP).
+  static const bool _preciosIncluyenIva = true;
+
   double get _iva {
     // Factura B/C: IVA incluido en precio (no discriminar).
     if (widget.tipo != 'factura_a') return 0;
-    // Factura A: si los precios ya incluyen IVA, desagregar; si no, sumar 21%.
-    if (AfipConfigService.instance.preciosIncluyenIva) {
+    // Factura A: desagregar 21% del precio con IVA incluido.
+    if (_preciosIncluyenIva) {
       return _baseImponible - (_baseImponible / 1.21);
     }
     return _baseImponible * 0.21;
   }
 
   double get _total {
-    if (widget.tipo == 'factura_a' &&
-        AfipConfigService.instance.preciosIncluyenIva) {
+    if (widget.tipo == 'factura_a' && _preciosIncluyenIva) {
       return _baseImponible;
     }
     return _baseImponible + _iva;
@@ -290,49 +292,6 @@ class _VentaFacturaPageState extends State<VentaFacturaPage> {
         estadoPago: _estadoPagoPreview,
         observaciones: _obsCtrl.text.trim(),
       );
-
-      if (venta.esFactura) {
-        final afip = await AfipService.instance.autorizarFactura(
-          tipo: widget.tipo,
-          numero: numero,
-          total: _total,
-          clienteCuit: _clienteSeleccionado?.cuit,
-        );
-        // AFIP activado: no confirmar sin CAE real.
-        if (AfipConfigService.instance.enabled &&
-            (!afip.ok || (afip.cae == null || afip.cae!.trim().isEmpty))) {
-          if (mounted) {
-            setState(() => _finalizando = false);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(afip.mensaje),
-                duration: const Duration(seconds: 6),
-              ),
-            );
-          }
-          return;
-        }
-        venta = Venta(
-          tipo: venta.tipo,
-          numero: venta.numero,
-          clienteId: venta.clienteId,
-          fecha: venta.fecha,
-          fechaVencimiento: venta.fechaVencimiento,
-          subtotal: venta.subtotal,
-          descuento: venta.descuento,
-          iva: venta.iva,
-          total: venta.total,
-          totalPagado: venta.totalPagado,
-          saldoPendiente: venta.saldoPendiente,
-          estado: venta.estado,
-          estadoPago: venta.estadoPago,
-          estadoAfip: afip.estado,
-          cae: afip.cae ?? '',
-          caeVencimiento: afip.caeVencimiento,
-          puntoVenta: AfipConfigService.instance.puntoVenta,
-          observaciones: venta.observaciones,
-        );
-      }
 
       final items = _carrito
           .map(
