@@ -2230,7 +2230,21 @@ class FirestoreSyncService {
       case 'proveedor':
         await subirProveedor(localId, forzar: true, desdeOutbox: true);
       case 'producto':
-        await subirProductoPorId(localId, desdeOutbox: true);
+        var clearDeletedAt = false;
+        try {
+          final raw = op['payload']?.toString();
+          if (raw != null && raw.isNotEmpty) {
+            final decoded = jsonDecode(raw);
+            if (decoded is Map && decoded['clearDeletedAt'] == true) {
+              clearDeletedAt = true;
+            }
+          }
+        } catch (_) {}
+        await subirProductoPorId(
+          localId,
+          desdeOutbox: true,
+          clearDeletedAt: clearDeletedAt,
+        );
       case 'venta':
         await subirVenta(localId, desdeOutbox: true);
       case 'remito':
@@ -3889,12 +3903,15 @@ class FirestoreSyncService {
     bool forzar = false,
     bool desdeOutbox = false,
     bool forceBackground = false,
+    bool clearDeletedAt = false,
+    Map<String, dynamic>? outboxPayload,
   }) async {
     if (!desdeOutbox) {
       await SyncOutbox.instance.enqueueUpsert(
         entityType: 'producto',
         localId: productoId,
         forceBackground: forceBackground,
+        payload: clearDeletedAt ? {'clearDeletedAt': true} : outboxPayload,
       );
     }
     if (!_puedeEscribirRemoto) {
@@ -3978,7 +3995,13 @@ class FirestoreSyncService {
       }
 
       // Hardening: jamás stock absoluto en upload de producto.
-      await _remote.actualizarSinStock(producto);
+      // clearDeletedAt solo al restaurar (evita revivir papelera ajena).
+      final clearTrash = clearDeletedAt ||
+          (outboxPayload?['clearDeletedAt'] == true);
+      await _remote.actualizarSinStock(
+        producto,
+        clearDeletedAt: clearTrash && !producto.estaEliminado,
+      );
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:producto:$productoId');
       }
@@ -5065,7 +5088,17 @@ class FirestoreSyncService {
 
   Future<void> _aplicarProductosRemotos(List<Producto> remotos) async {
     if (_sincronizando) {
-      _productosPendientes = remotos;
+      // Merge by codigo — no descartar soft-deletes de un batch anterior.
+      final byCode = <String, Producto>{
+        for (final p in _productosPendientes ?? const <Producto>[])
+          if (p.codigo.trim().isNotEmpty) p.codigo.trim(): p,
+      };
+      for (final p in remotos) {
+        final c = p.codigo.trim();
+        if (c.isEmpty) continue;
+        byCode[c] = p;
+      }
+      _productosPendientes = byCode.values.toList(growable: false);
       return;
     }
     _sincronizando = true;
@@ -5110,6 +5143,9 @@ class FirestoreSyncService {
               {
                 'deleted_at':
                     producto.estaEliminado ? producto.deletedAt : null,
+                // Alinear reloj local para no re-subir como “más nuevo”.
+                if ((producto.actualizadoEn ?? '').isNotEmpty)
+                  'actualizadoEn': producto.actualizadoEn,
               },
               where: 'id = ?',
               whereArgs: [local.id],

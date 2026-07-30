@@ -26,7 +26,7 @@ class WindowsSyncPolicy {
   static const Duration outboxPumpInterval = Duration(seconds: 25);
 
   /// Soft-pull: convergencia catálogo/stock (no sustituye listeners de negocio).
-  static const Duration softPullInterval = Duration(seconds: 60);
+  static const Duration softPullInterval = Duration(seconds: 45);
 
   /// Listeners Firestore en Windows SOLO para colecciones chicas de negocio.
   /// Productos/branding/Storage siguen OFF (eran los que tumbaban el .exe).
@@ -101,34 +101,24 @@ class WindowsSyncPolicy {
 
   /// Soft-pull lane.
   ///
-  /// Con [prioritizeStockOps] (outbox quieto):
-  ///   remitos / ventas / stock_ops / compras en rotación densa.
-  /// Con cola de productos (WhatsApp/listas / import):
-  ///   **1 de cada 3 ticks = stock_ops** (antes ~1/30 → stock diverge horas).
-  ///   1/3 productos, 1/3 resto. Campo: lista WhatsApp ahogaba deltas.
+  /// Campo papelera/conteos: productos_inc debe ir denso (antes ~1/12 ticks).
+  /// Ciclo de 4 quieto: stock / productos / negocio / productos.
   static String softPullLane(int n, {bool prioritizeStockOps = false}) {
     if (prioritizeStockOps) {
-      // Ciclo de 6: negocio primero (campo venta rápida EXE↔APK).
-      switch (n % 6) {
+      switch (n % 4) {
         case 0:
-          return 'remitos';
+          return 'stock_ops';
         case 1:
-          return 'ventas';
+          return 'productos_inc';
         case 2:
-          return 'stock_ops';
-        case 3:
-          return 'compras';
-        case 4:
-          return 'stock_ops';
+          return 'remitos';
         default:
-          return (n ~/ 6).isEven ? 'productos_inc' : 'clientes';
+          return 'productos_inc';
       }
     }
     // Busy: stock_ops NUNCA se ahoga detrás de productos.
     if (n % 3 == 0) return 'stock_ops';
-    if (n % 3 == 1) {
-      return (n ~/ 3).isEven ? 'productos_inc' : 'productos_cat';
-    }
+    if (n % 3 == 1) return 'productos_inc';
     final others = softPullOtherLanes
         .where((l) => l != 'stock_ops')
         .toList(growable: false);
@@ -141,7 +131,7 @@ class WindowsSyncPolicy {
   /// Intervalo soft-pull más corto cuando ya no hay cola de productos.
   static Duration softPullIntervalFor({required int pendingProductos}) {
     if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
-      return const Duration(seconds: 20);
+      return const Duration(seconds: 12);
     }
     return softPullInterval;
   }

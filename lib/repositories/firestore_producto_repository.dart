@@ -164,8 +164,23 @@ class FirestoreProductoRepository implements ProductoRepository {
   }
 
   /// Sube metadata sin pisar stock absoluto (los deltas van por [ajustarStock]).
-  Future<int> actualizarSinStock(Producto producto) async {
+  ///
+  /// [clearDeletedAt]: solo en restauración desde papelera. En updates normales
+  /// de productos activos NO se escribe `deleted_at` (ni null): un merge con
+  /// null revivía soft-deletes en el otro dispositivo (papelera EXE≠APK).
+  Future<int> actualizarSinStock(
+    Producto producto, {
+    bool clearDeletedAt = false,
+  }) async {
     final data = producto.toFirestore()..remove('stock');
+    if (producto.estaEliminado) {
+      // Soft-delete: deleted_at viaja en el payload.
+    } else {
+      data.remove('deleted_at');
+      if (clearDeletedAt) {
+        data['deleted_at'] = FieldValue.delete();
+      }
+    }
     await _collection.doc(_docId(producto)).set(data, SetOptions(merge: true));
     return 1;
   }
@@ -358,7 +373,7 @@ class FirestoreProductoRepository implements ProductoRepository {
       {
         'codigo': cod,
         'stock': FieldValue.increment(delta),
-        'actualizadoEn': ahora,
+        // No bump actualizadoEn: pelea con LWW de soft-delete/papelera.
         'ultimaStockOp': opId,
       },
       SetOptions(merge: true),
@@ -421,7 +436,7 @@ class FirestoreProductoRepository implements ProductoRepository {
           {
             'codigo': cod,
             'stock': FieldValue.increment(delta),
-            'actualizadoEn': ahora,
+            // No bump actualizadoEn: pelea con LWW de soft-delete/papelera.
             'ultimaStockOp': opId,
           },
           SetOptions(merge: true),

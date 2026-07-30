@@ -98,7 +98,7 @@ void main() {
       );
     });
 
-    test('con outbox quieto prioriza negocio (remitos/ventas/stock_ops)', () {
+    test('con outbox quieto prioriza stock + productos (papelera/conteos)', () {
       expect(
         WindowsSyncPolicy.prioritizeBusinessConvergence(pendingProductos: 0),
         isTrue,
@@ -115,16 +115,18 @@ void main() {
         12,
         (i) => WindowsSyncPolicy.softPullLane(i, prioritizeStockOps: true),
       );
-      expect(lanes.where((l) => l == 'remitos').length, greaterThanOrEqualTo(2));
-      expect(lanes.where((l) => l == 'ventas').length, greaterThanOrEqualTo(2));
-      expect(lanes.where((l) => l == 'stock_ops').length, greaterThanOrEqualTo(2));
+      expect(lanes.where((l) => l == 'stock_ops').length, greaterThanOrEqualTo(3));
+      expect(
+        lanes.where((l) => l == 'productos_inc').length,
+        greaterThanOrEqualTo(5),
+      );
       expect(
         WindowsSyncPolicy.softPullLane(0, prioritizeStockOps: true),
-        'remitos',
+        'stock_ops',
       );
       expect(
         WindowsSyncPolicy.softPullLane(1, prioritizeStockOps: true),
-        'ventas',
+        'productos_inc',
       );
       expect(
         WindowsSyncPolicy.recentBusinessDocsLimit(pendingProductos: 0),
