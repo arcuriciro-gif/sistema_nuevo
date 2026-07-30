@@ -8,7 +8,6 @@ import '../core/integrity/integrity_reconcile_service.dart';
 import '../core/integrity/legacy_ledger_migration.dart';
 import '../core/ops/technical_health_service.dart';
 import '../core/security/authorization_service.dart';
-import '../core/sync/observability/sync_benchmark_runner.dart';
 import '../core/sync/observability/sync_diagnostic_service.dart';
 import '../core/sync/observability/sync_observability_hub.dart';
 import '../services/auth_service.dart';
@@ -117,27 +116,6 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Diagnóstico falló: $e')),
-      );
-    }
-  }
-
-  Future<void> _benchmark() async {
-    setState(() => _busy = true);
-    try {
-      final report = await SyncBenchmarkRunner.instance.run();
-      if (!mounted) return;
-      setState(() => _busy = false);
-      await Clipboard.setData(ClipboardData(text: report.toMarkdown()));
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Benchmark listo — markdown en portapapeles')),
-      );
-      await _cargar();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Benchmark falló: $e')),
       );
     }
   }
@@ -417,11 +395,6 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
                     onPressed: _busy ? null : _diagnosticar,
                     icon: const Icon(Icons.troubleshoot_outlined),
                     label: const Text('Diagnosticar Sincronización'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : _benchmark,
-                    icon: const Icon(Icons.speed_outlined),
-                    label: const Text('Benchmark lab'),
                   ),
                 ],
               ),

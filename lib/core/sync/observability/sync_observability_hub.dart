@@ -1,6 +1,5 @@
 import 'dart:async' show unawaited;
 
-import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../../database/database_helper.dart';
@@ -11,7 +10,6 @@ import 'sync_circuit_breaker.dart';
 import 'sync_flight_recorder.dart';
 import 'sync_op_trace.dart';
 import 'sync_path_logger.dart';
-import 'sync_process_rss.dart';
 import 'sync_sla_monitor.dart';
 
 /// Fachada Sync Engine 2.1 — observabilidad sin cambiar el scheduler core.
@@ -135,12 +133,7 @@ class SyncObservabilityHub {
       }
     } catch (_) {}
 
-    int? rss;
-    try {
-      if (!kIsWeb) rss = readProcessRssBytes();
-    } catch (_) {
-      rss = null;
-    }
+    const int? rss = null;
 
     final slaSnap = _slaDashboard();
     final history = light

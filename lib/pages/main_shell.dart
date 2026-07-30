@@ -2,57 +2,42 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/auth_service.dart';
+import '../services/cuenta_corriente_service.dart';
+import '../core/events/data_refresh_hub.dart';
 import '../services/auto_backup_service.dart';
 import '../services/branding_service.dart';
 import '../services/comunicaciones_service.dart';
-import '../services/cuenta_corriente_service.dart';
 import '../services/permisos_service.dart';
 import '../services/sidebar_preferencias_service.dart';
-import '../core/events/data_refresh_hub.dart';
 import '../core/comms/local_notification_service.dart';
 import '../core/comms/fcm_push_service.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/config/platform_capabilities.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/sync/sync_background.dart';
-import '../services/crm_automations_service.dart';
-import '../services/crm_reminder_service.dart';
 import '../theme/app_tokens.dart';
 import '../theme/layout_constants.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/media_avatar.dart';
 import '../widgets/empresa_onboarding_dialog.dart';
 import '../widgets/shell/shell_sync_badge.dart';
-import 'archivo_pdfs_page.dart';
-import 'auditoria_page.dart';
 import 'backup_page.dart';
 import 'busqueda_global_page.dart';
 import 'categorias_page.dart';
-import 'centro_importaciones_page.dart';
-import 'chat_page.dart';
 import 'clientes_page.dart';
-import '../models/chat_conversacion.dart';
 import 'clientes_deudores_page.dart';
-import 'crm_lite_page.dart';
-import 'whatsapp_business_page.dart';
 import 'comparacion_page.dart';
 import 'compras_page.dart';
-import 'comunicaciones_page.dart';
 import 'configuracion_page.dart';
-import 'dashboard_page.dart';
 import 'panel_tecnico_page.dart';
-import 'etiquetas_page.dart';
 import 'inicio_page.dart';
 import 'importacion_page.dart';
-import 'inteligencia_comercial_page.dart';
 import 'listas_precio_page.dart';
 import 'login_page.dart';
-import 'manual_usuario_page.dart';
 import 'notificaciones_page.dart';
 import 'papelera_productos_page.dart';
 import 'perfil_usuario_page.dart';
 import 'permisos_page.dart';
-import 'primeros_pasos_page.dart';
 import 'productos_page.dart';
 import 'proveedores_page.dart';
 import 'remitos_page.dart';
@@ -80,9 +65,6 @@ String _seccionDeTitulo(String title) {
       return 'Inicio';
     case 'Venta Rápida':
     case 'Ventas / Facturas':
-    case 'Presupuestos':
-    case 'Entregas (sin factura)':
-    case 'Tickets internos':
     case 'Remitos':
     case 'Compras':
       return 'Operaciones';
@@ -90,25 +72,16 @@ String _seccionDeTitulo(String title) {
     case 'Papelera':
     case 'Categorías':
     case 'Stock':
-    case 'Importaciones':
     case 'Importar Productos':
-    case 'Etiquetas':
     case 'Listas de Precios':
     case 'Comparador de listas':
       return 'Inventario';
     case 'Clientes':
-    case 'Seguimiento':
-    case 'Archivo PDF':
     case 'Cuenta corriente':
     case 'Proveedores':
-    case 'Comunicaciones':
       return 'Clientes';
-    case 'Dashboard':
     case 'Reportes':
-    case 'Inteligencia Comercial':
       return 'Análisis';
-    case 'WhatsApp Business':
-      return 'Clientes';
     default:
       return 'Administración';
   }
@@ -214,58 +187,17 @@ class _MainShellState extends State<MainShell> {
       }
       if (mounted) await EmpresaOnboardingDialog.mostrarSiHaceFalta(context);
       if (mounted) await _ofrecerActivarNubeSiHaceFalta();
-      // Windows: CRM puede pegar red/notif al login — deferir un poco.
-      final crmDelay = PlatformCapabilities.isWindowsDesktop
-          ? const Duration(seconds: 8)
-          : Duration.zero;
-      if (crmDelay > Duration.zero) {
-        await Future<void>.delayed(crmDelay);
-      }
-      if (!mounted) return;
-      // Automatizaciones CRM (1/día) y luego aviso de agenda.
-      try {
-        await CrmAutomationsService.instance.ejecutar();
-      } catch (e) {
-        debugPrint('CRM automations: $e');
-      }
-      try {
-        await CrmReminderService.instance.revisarYNotificar();
-      } catch (e) {
-        debugPrint('CRM reminder: $e');
-      }
     });
   }
 
   Future<void> _onNotificationTap(String payload) async {
     if (!mounted) return;
     final p = payload.trim();
-    if (p == 'notif' || p.startsWith('notif:')) {
+    if (p == 'notif' || p.startsWith('notif:') || p == 'chat' || p.startsWith('chat:') ||
+        p == 'crm:seguimiento' || p.startsWith('crm:')) {
       await Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const NotificacionesPage()),
       );
-      return;
-    }
-    if (p == 'crm:seguimiento' || p.startsWith('crm:')) {
-      _irAModulo('Seguimiento');
-      return;
-    }
-    if (p == 'chat' || p.startsWith('chat:')) {
-      final id = p.startsWith('chat:') ? p.substring(5).trim() : '';
-      _irAModulo('Comunicaciones');
-      if (id.isEmpty) return;
-      await ComunicacionesService.instance.refrescar();
-      ChatConversacion? conv;
-      for (final c in ComunicacionesService.instance.conversaciones) {
-        if (c.id == id) {
-          conv = c;
-          break;
-        }
-      }
-      if (conv != null && mounted) {
-        await Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => ChatPage(conversacion: conv!)),
-        );
-      }
     }
   }
 
@@ -402,19 +334,6 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
-          icon: Icons.forum_rounded,
-          title: 'Comunicaciones',
-          modulo: 'comunicaciones',
-          builder: () => const ComunicacionesPage(),
-          quickAccess: true,
-        ),
-        _ShellItem(
-          icon: Icons.query_stats_rounded,
-          title: 'Dashboard',
-          modulo: 'dashboard',
-          builder: () => DashboardPage(onIrA: _irAModulo),
-        ),
-        _ShellItem(
           icon: Icons.delete_outline_rounded,
           title: 'Papelera',
           modulo: 'productos',
@@ -434,55 +353,10 @@ class _MainShellState extends State<MainShell> {
           quickAccess: true,
         ),
         _ShellItem(
-          icon: Icons.request_quote_rounded,
-          title: 'Presupuestos',
+          icon: Icons.description_rounded,
+          title: 'Remitos',
           modulo: 'remitos',
-          builder: () => const VentasPage(
-            titulo: 'Presupuestos',
-            tipos: {'presupuesto': 'Presupuesto'},
-          ),
-        ),
-        _ShellItem(
-          icon: Icons.local_shipping_outlined,
-          title: 'Entregas (sin factura)',
-          modulo: 'remitos',
-          builder: () => const VentasPage(
-            titulo: 'Entregas (sin factura)',
-            tipos: {'nota_entrega': 'Entrega sin factura'},
-          ),
-        ),
-        _ShellItem(
-          icon: Icons.article_outlined,
-          title: 'Tickets internos',
-          modulo: 'remitos',
-          builder: () => const VentasPage(
-            titulo: 'Tickets internos',
-            tipos: {'comprobante_interno': 'Ticket interno'},
-          ),
-        ),
-        _ShellItem(
-          icon: Icons.compare_arrows_rounded,
-          title: 'Comparador de listas',
-          modulo: 'listas_precios',
-          builder: () => const ComparacionPage(),
-        ),
-        _ShellItem(
-          icon: Icons.hub_rounded,
-          title: 'Importaciones',
-          modulo: 'productos',
-          builder: () => const CentroImportacionesPage(),
-        ),
-        _ShellItem(
-          icon: Icons.upload_file_rounded,
-          title: 'Importar Productos',
-          modulo: 'productos',
-          builder: () => const ImportacionPage(),
-        ),
-        _ShellItem(
-          icon: Icons.warehouse_rounded,
-          title: 'Stock',
-          modulo: 'stock',
-          builder: () => const StockPage(),
+          builder: () => const RemitosPage(),
         ),
         _ShellItem(
           icon: Icons.shopping_cart_rounded,
@@ -491,34 +365,35 @@ class _MainShellState extends State<MainShell> {
           builder: () => const ComprasPage(),
         ),
         _ShellItem(
-          icon: Icons.description_rounded,
-          title: 'Remitos',
-          modulo: 'remitos',
-          builder: () => const RemitosPage(),
+          icon: Icons.warehouse_rounded,
+          title: 'Stock',
+          modulo: 'stock',
+          builder: () => const StockPage(),
+          quickAccess: true,
+        ),
+        _ShellItem(
+          icon: Icons.upload_file_rounded,
+          title: 'Importar Productos',
+          modulo: 'productos',
+          builder: () => const ImportacionPage(),
+        ),
+        _ShellItem(
+          icon: Icons.sell_rounded,
+          title: 'Listas de Precios',
+          modulo: 'listas_precios',
+          builder: () => const ListasPrecioPage(),
+        ),
+        _ShellItem(
+          icon: Icons.compare_arrows_rounded,
+          title: 'Comparador de listas',
+          modulo: 'listas_precios',
+          builder: () => const ComparacionPage(),
         ),
         _ShellItem(
           icon: Icons.groups_rounded,
           title: 'Clientes',
           modulo: 'clientes',
           builder: () => const ClientesPage(),
-        ),
-        _ShellItem(
-          icon: Icons.handshake_rounded,
-          title: 'Seguimiento',
-          modulo: 'clientes',
-          builder: () => const CrmLitePage(),
-        ),
-        _ShellItem(
-          icon: Icons.chat_rounded,
-          title: 'WhatsApp Business',
-          modulo: 'comunicaciones',
-          builder: () => const WhatsappBusinessPage(),
-        ),
-        _ShellItem(
-          icon: Icons.folder_shared_rounded,
-          title: 'Archivo PDF',
-          modulo: 'clientes',
-          builder: () => const ArchivoPdfsPage(),
         ),
         _ShellItem(
           icon: Icons.account_balance_wallet_rounded,
@@ -533,34 +408,10 @@ class _MainShellState extends State<MainShell> {
           builder: () => const ProveedoresPage(),
         ),
         _ShellItem(
-          icon: Icons.sell_rounded,
-          title: 'Listas de Precios',
-          modulo: 'listas_precios',
-          builder: () => const ListasPrecioPage(),
-        ),
-        _ShellItem(
           icon: Icons.bar_chart_rounded,
           title: 'Reportes',
           modulo: 'reportes',
           builder: () => const ReportesPage(),
-        ),
-        _ShellItem(
-          icon: Icons.insights_rounded,
-          title: 'Inteligencia Comercial',
-          modulo: 'reportes',
-          builder: () => const InteligenciaComercialPage(),
-        ),
-        _ShellItem(
-          icon: Icons.label_rounded,
-          title: 'Etiquetas',
-          modulo: 'etiquetas',
-          builder: () => const EtiquetasPage(),
-        ),
-        _ShellItem(
-          icon: Icons.history_edu_rounded,
-          title: 'Auditoría',
-          modulo: 'auditoria',
-          builder: () => const AuditoriaPage(),
         ),
         _ShellItem(
           icon: Icons.manage_accounts_rounded,
@@ -592,18 +443,6 @@ class _MainShellState extends State<MainShell> {
           modulo: 'auditoria',
           builder: () => const PanelTecnicoPage(),
           soloAdmin: true,
-        ),
-        _ShellItem(
-          icon: Icons.route_rounded,
-          title: 'Primeros pasos',
-          modulo: 'dashboard',
-          builder: () => PrimerosPasosPage(onIrA: _irAModulo),
-        ),
-        _ShellItem(
-          icon: Icons.menu_book_rounded,
-          title: 'Manual de usuario',
-          modulo: 'dashboard',
-          builder: () => const ManualUsuarioPage(),
         ),
         _ShellItem(
           icon: Icons.settings_rounded,
@@ -1146,13 +985,11 @@ class _SidebarContent extends StatefulWidget {
 
 class _SidebarContentState extends State<_SidebarContent> {
   final Set<String> _colapsadas = {};
-  int _crmBadge = 0;
 
   @override
   void initState() {
     super.initState();
     DataRefreshHub.instance.addListener(_onDatos);
-    _cargarCrmBadge();
   }
 
   @override
@@ -1161,15 +998,8 @@ class _SidebarContentState extends State<_SidebarContent> {
     super.dispose();
   }
 
-  void _onDatos() => _cargarCrmBadge();
-
-  Future<void> _cargarCrmBadge() async {
-    try {
-      await CrmReminderService.instance.refrescarConteos();
-      final n = CrmReminderService.instance.vencidos +
-          CrmReminderService.instance.hoy;
-      if (mounted && n != _crmBadge) setState(() => _crmBadge = n);
-    } catch (_) {}
+  void _onDatos() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -1256,7 +1086,7 @@ class _SidebarContentState extends State<_SidebarContent> {
                           selected: selected,
                           selectedBg: selectedBg,
                           selectedFg: selectedFg,
-                          badge: e.item.title == 'Seguimiento' ? _crmBadge : 0,
+                          badge: 0,
                           onTap: () => onTap(e.index),
                         );
                       })
@@ -1313,7 +1143,7 @@ class _SidebarContentState extends State<_SidebarContent> {
                             selectedBg: selectedBg,
                             selectedFg: selectedFg,
                             badge:
-                                e.item.title == 'Seguimiento' ? _crmBadge : 0,
+                                0,
                             onTap: () => onTap(e.index),
                           );
                         }),

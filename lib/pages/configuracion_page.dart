@@ -1206,7 +1206,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                           );
                         },
                         icon: const Icon(Icons.numbers_rounded),
-                        label: const Text('Numeración y AFIP/ARCA'),
+                        label: const Text('Numeración de documentos'),
                       ),
                     ),
                     const SizedBox(height: 16),

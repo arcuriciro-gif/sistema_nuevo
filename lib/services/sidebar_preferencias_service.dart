@@ -24,8 +24,13 @@ class SidebarPreferenciasService extends ChangeNotifier {
     'remitos|Venta Rápida',
     'productos|Productos',
     'remitos|Ventas / Facturas',
+    'remitos|Remitos',
+    'compras|Compras',
     'stock|Stock',
+    'listas_precios|Listas de Precios',
+    'listas_precios|Comparador de listas',
     'clientes|Clientes',
+    'proveedores|Proveedores',
     'dashboard|Mi perfil',
     'configuracion|Configuración',
   };

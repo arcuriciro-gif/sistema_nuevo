@@ -8,10 +8,8 @@ import '../services/auth_service.dart';
 import '../services/branding_service.dart';
 import '../services/compra_service.dart';
 import '../services/cuenta_corriente_service.dart';
-import '../services/crm_reminder_service.dart';
 import '../services/producto_service.dart';
 import '../services/remito_service.dart';
-import '../theme/app_tokens.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/erp/erp_kpi_tile.dart';
 import '../widgets/erp/erp_quick_action_bar.dart';
@@ -48,8 +46,6 @@ class _InicioPageState extends State<InicioPage> {
   int _criticos = 0;
   int _clientesDeuda = 0;
   double _deudaTotal = 0;
-  int _agendaVencidos = 0;
-  int _agendaHoy = 0;
   List<Map<String, dynamic>> _ultimosDocs = [];
   List<Map<String, dynamic>> _actividad = [];
   bool _cargando = true;
@@ -124,9 +120,6 @@ class _InicioPageState extends State<InicioPage> {
 
     // Remitos recientes también en “últimos movimientos”.
     final remitos = await _remitoService.obtenerTodosConCliente();
-    await CrmReminderService.instance.refrescarConteos();
-    final agendaVencidos = CrmReminderService.instance.vencidos;
-    final agendaHoy = CrmReminderService.instance.hoy;
 
     if (!mounted) return;
     setState(() {
@@ -137,8 +130,6 @@ class _InicioPageState extends State<InicioPage> {
       _criticos = criticos;
       _clientesDeuda = resumenCc.clientesConDeuda;
       _deudaTotal = resumenCc.montoTotalPendiente;
-      _agendaVencidos = agendaVencidos;
-      _agendaHoy = agendaHoy;
       _ultimosDocs = docs.take(6).toList();
       _actividad = [
         {
@@ -213,49 +204,6 @@ class _InicioPageState extends State<InicioPage> {
                       const ShellSyncBadge(),
                     ],
                   ),
-                  if (_agendaVencidos > 0 || _agendaHoy > 0) ...[
-                    const SizedBox(height: 12),
-                    Material(
-                      color: (_agendaVencidos > 0
-                              ? AppTokens.danger
-                              : AppTokens.syncWarn)
-                          .withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-                      child: InkWell(
-                        onTap: () => _go('Seguimiento'),
-                        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 12,
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.event_available_rounded,
-                                color: _agendaVencidos > 0
-                                    ? AppTokens.danger
-                                    : AppTokens.syncWarn,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  _agendaVencidos > 0
-                                      ? 'Agenda: $_agendaVencidos vencido(s)'
-                                          '${_agendaHoy > 0 ? ' · $_agendaHoy para hoy' : ''}'
-                                      : 'Agenda: $_agendaHoy seguimiento(s) para hoy',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              const Icon(Icons.chevron_right_rounded),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
                   const SizedBox(height: 16),
                   ErpQuickActionBar(
                     actions: [
@@ -275,9 +223,9 @@ class _InicioPageState extends State<InicioPage> {
                         onTap: () => _go('Clientes'),
                       ),
                       ErpQuickAction(
-                        label: 'Seguimiento',
-                        icon: Icons.handshake_rounded,
-                        onTap: () => _go('Seguimiento'),
+                        label: 'Remito',
+                        icon: Icons.description_rounded,
+                        onTap: () => _go('Remitos'),
                       ),
                       ErpQuickAction(
                         label: 'Compra',
@@ -326,14 +274,14 @@ class _InicioPageState extends State<InicioPage> {
                             value: _money(_gananciaDia),
                             icon: Icons.trending_up_rounded,
                             accent: Colors.green.shade700,
-                            onTap: () => _go('Dashboard'),
+                            onTap: () => _go('Reportes'),
                           ),
                           ErpKpiTile(
                             title: 'Ventas del mes',
                             value: _money(_ventasMes),
                             icon: Icons.calendar_month_rounded,
                             accent: cs.secondary,
-                            onTap: () => _go('Dashboard'),
+                            onTap: () => _go('Reportes'),
                           ),
                           ErpKpiTile(
                             title: 'Clientes con deuda',

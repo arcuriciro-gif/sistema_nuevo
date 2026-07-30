@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/cliente.dart';
-import '../plugins/whatsapp/whatsapp_business_service.dart';
 import 'comentarios_internos_sheet.dart';
 
-/// Acciones rápidas de seguimiento comercial (multi-tenant, sin sync).
+/// Acciones rápidas de cliente (teléfono / WhatsApp deeplink / notas).
 class ClienteAccionesCrm extends StatelessWidget {
   const ClienteAccionesCrm({
     super.key,
@@ -22,19 +20,22 @@ class ClienteAccionesCrm extends StatelessWidget {
   final bool compact;
 
   static String digitosTelefono(String raw) =>
-      WhatsappBusinessService.instance.normalizarTelefono(raw);
+      raw.replaceAll(RegExp(r'\D'), '');
 
-  static String? canalWhatsApp(Cliente c) =>
-      WhatsappBusinessService.instance.telefonoDeCliente(c);
+  static String? canalWhatsApp(Cliente c) {
+    for (final raw in [c.whatsapp, c.telefono]) {
+      final d = digitosTelefono(raw);
+      if (d.length >= 8) return d;
+    }
+    return null;
+  }
 
   static Future<void> abrirWhatsApp(
     BuildContext context,
     Cliente cliente, {
     String? mensaje,
   }) async {
-    final svc = WhatsappBusinessService.instance;
-    await svc.cargar();
-    final digits = svc.telefonoDeCliente(cliente);
+    final digits = canalWhatsApp(cliente);
     if (digits == null) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -44,29 +45,16 @@ class ClienteAccionesCrm extends StatelessWidget {
       );
       return;
     }
-    final r = await svc.enviarACliente(
-      cliente: cliente,
-      mensaje: mensaje ?? '',
+    final uri = Uri.parse(
+      mensaje == null || mensaje.trim().isEmpty
+          ? 'https://wa.me/$digits'
+          : 'https://wa.me/$digits?text=${Uri.encodeComponent(mensaje)}',
     );
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!context.mounted) return;
-    if (!r.ok) {
-      if (r.deeplink != null) {
-        await Clipboard.setData(ClipboardData(text: r.deeplink.toString()));
-      }
-      if (!context.mounted) return;
+    if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(r.error ?? 'No se pudo contactar por WhatsApp')),
-      );
-      return;
-    }
-    if (r.modo == WhatsappSendMode.api || r.modo == WhatsappSendMode.template) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'WhatsApp API · enviado'
-            '${r.waMessageId == null || r.waMessageId!.isEmpty ? '' : ' (${r.waMessageId})'}',
-          ),
-        ),
+        const SnackBar(content: Text('No se pudo abrir WhatsApp')),
       );
     }
   }

@@ -3,7 +3,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:sistema_nuevo/core/utils/cuit.dart';
 import 'package:sistema_nuevo/models/usuario.dart';
-import 'package:sistema_nuevo/services/afip_service.dart';
 import 'package:sistema_nuevo/services/auth_service.dart';
 
 void main() {
@@ -60,23 +59,4 @@ void main() {
     });
   });
 
-  group('AFIP gate', () {
-    test('con AFIP enabled sin certs → ok false sin CAE', () async {
-      await AfipConfigService.instance.guardar(
-        enabled: true,
-        ambiente: 'homo',
-        puntoVenta: 1,
-        cuitEmisor: '20123456786',
-        certPath: '',
-        keyPath: '',
-      );
-      final r = await AfipService.instance.autorizarFactura(
-        tipo: 'factura_b',
-        numero: 'B-1',
-        total: 100,
-      );
-      expect(r.ok, isFalse);
-      expect(r.cae, isNull);
-    });
-  });
 }
