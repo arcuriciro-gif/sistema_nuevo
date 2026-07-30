@@ -502,6 +502,7 @@ class FirestoreSyncService {
   }
 
   int _unifiedPumpTick = 0;
+  DateTime? _lastSoftPullAt;
 
   void _iniciarOutboxPump() {
     _outboxPump?.cancel();
@@ -517,22 +518,26 @@ class FirestoreSyncService {
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
           await SyncScheduler.instance.ensureRestored();
-          await SyncScheduler.instance.runAutoHeal();
-          await SyncOutbox.instance.ackOrphanUpserts();
-          if (windows) {
-            await SyncOutbox.instance.purgeStuckStockOps(
-              minAttempts: 8,
-              onlyLastErrorContains: 'reclaimed_stale_inflight',
-              limit: 20,
-              proveCloudApplied: null,
+          // Windows: heal/purge cada 3 ticks (cada tick era pesado → crash).
+          final doHeal = !windows || (_unifiedPumpTick % 3 == 0);
+          if (doHeal) {
+            await SyncScheduler.instance.runAutoHeal();
+            await SyncOutbox.instance.ackOrphanUpserts();
+            if (windows) {
+              await SyncOutbox.instance.purgeStuckStockOps(
+                minAttempts: 8,
+                onlyLastErrorContains: 'reclaimed_stale_inflight',
+                limit: 12,
+                proveCloudApplied: null,
+              );
+            }
+            await SyncOutbox.instance.reclaimStaleInflight(
+              olderThan: windows
+                  ? WindowsSyncPolicy.reclaimStaleInflightAfter
+                  : const Duration(minutes: 5),
             );
           }
-          await SyncOutbox.instance.reclaimStaleInflight(
-            olderThan: windows
-                ? WindowsSyncPolicy.reclaimStaleInflightAfter
-                : const Duration(minutes: 5),
-          );
-          if (windows) {
+          if (windows && _unifiedPumpTick % 2 == 0) {
             await _microCatchupDocsWindows();
           }
 
@@ -556,7 +561,7 @@ class FirestoreSyncService {
             );
           }
 
-          // 3) Soft docs (catálogo/negocio) — un lane por tick en Windows.
+          // 3) Soft docs — respetar intervalo anti-crash en Windows.
           try {
             if (windows && !_softPullBusy) {
               await _pullSuaveWindows();
@@ -1094,7 +1099,11 @@ class FirestoreSyncService {
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
           try {
-            await _pullProductosIncrementalWindows(maxPages: 2, pageSize: 25);
+            final primer = WindowsSyncPolicy.windowsPrimerPullProductos();
+            await _pullProductosIncrementalWindows(
+              maxPages: primer.maxPages,
+              pageSize: primer.pageSize,
+            );
             await _pullConfigWindowsLane('listas');
             await _pullConfigWindowsLane('branding_text');
           } catch (e) {
@@ -1196,19 +1205,34 @@ class FirestoreSyncService {
   }
 
   Future<void> _pullSuaveWindowsBody() async {
-    const page = 15;
+    final page = WindowsSyncPolicy.softPullProductosPageSize;
     final tick = _softPullTickWindows;
-    _softPullTickWindows++;
     final breakdown = await SyncOutbox.instance.pendingBreakdown();
     final pendingProd = breakdown['producto'] ?? 0;
+
+    // Si hay mucha cola de subida, drenar primero (no sumar pull).
+    if (pendingProd >= WindowsSyncPolicy.softPullSkipIfPendingProductos) {
+      return;
+    }
+
+    final minGap = WindowsSyncPolicy.softPullIntervalFor(
+      pendingProductos: pendingProd,
+    );
+    final last = _lastSoftPullAt;
+    if (last != null && DateTime.now().difference(last) < minGap) {
+      return;
+    }
+    _lastSoftPullAt = DateTime.now();
+    _softPullTickWindows++;
+
     final prioritize = WindowsSyncPolicy.prioritizeBusinessConvergence(
       pendingProductos: pendingProd,
     );
-    // Siempre (si quieto): tirón de remitos/ventas recientes antes del lane.
+    // Negocio reciente solo 1 de cada 3 soft-pulls (anti-crash).
     final recentLimit = WindowsSyncPolicy.recentBusinessDocsLimit(
       pendingProductos: pendingProd,
     );
-    if (recentLimit > 0 && tick % 2 == 0) {
+    if (recentLimit > 0 && tick % 3 == 0) {
       await _pullNegocioRecienteWindows(limit: recentLimit);
     }
     final lane = WindowsSyncPolicy.softPullLane(

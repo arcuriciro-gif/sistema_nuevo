@@ -98,7 +98,7 @@ void main() {
       );
     });
 
-    test('con outbox quieto prioriza stock + productos (papelera/conteos)', () {
+    test('con outbox quieto prioriza stock + productos sin ráfaga', () {
       expect(
         WindowsSyncPolicy.prioritizeBusinessConvergence(pendingProductos: 0),
         isTrue,
@@ -115,10 +115,14 @@ void main() {
         12,
         (i) => WindowsSyncPolicy.softPullLane(i, prioritizeStockOps: true),
       );
-      expect(lanes.where((l) => l == 'stock_ops').length, greaterThanOrEqualTo(3));
+      expect(lanes.where((l) => l == 'stock_ops').length, greaterThanOrEqualTo(2));
       expect(
         lanes.where((l) => l == 'productos_inc').length,
-        greaterThanOrEqualTo(5),
+        greaterThanOrEqualTo(2),
+      );
+      expect(
+        lanes.where((l) => l == 'productos_inc').length,
+        lessThanOrEqualTo(6),
       );
       expect(
         WindowsSyncPolicy.softPullLane(0, prioritizeStockOps: true),
@@ -134,7 +138,11 @@ void main() {
       );
       expect(
         WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 0).inSeconds,
-        lessThan(WindowsSyncPolicy.softPullInterval.inSeconds),
+        lessThanOrEqualTo(WindowsSyncPolicy.softPullInterval.inSeconds),
+      );
+      expect(
+        WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 0).inSeconds,
+        greaterThanOrEqualTo(25),
       );
     });
 
@@ -183,8 +191,9 @@ void main() {
       expect(m.negocioLimit, lessThanOrEqualTo(12));
       expect(m.pullClientes, isFalse);
       expect(m.yieldMs, greaterThanOrEqualTo(100));
-      // Total por gesto: rondas × maxApply (convergencia sin ráfaga letal).
-      expect(m.stockRounds * m.stockMaxApply, greaterThanOrEqualTo(20));
+      // Total por gesto acotado (anti-crash).
+      expect(m.stockRounds * m.stockMaxApply, lessThanOrEqualTo(24));
+      expect(m.stockRounds * m.stockMaxApply, greaterThanOrEqualTo(8));
       final busy = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 80,
       );
