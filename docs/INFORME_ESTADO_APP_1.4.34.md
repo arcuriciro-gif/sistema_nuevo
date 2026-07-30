@@ -9,7 +9,7 @@
 
 ## 1. Veredicto en una frase
 
-La app ya está recortada a un **ERP pyme para vender suelas** (productos, stock, Factura B / Remito, compras, precios, sync simple). El código tip es ~**13 300 LOC** más chico que `main`. Falta **mergear el stack de PRs** y **validar en campo** EXE+APK.
+La app ya está recortada a un **ERP pyme para vender suelas** (productos, stock, Factura B / Remito, compras, precios, sync simple). El código tip es ~**13 300 LOC** más chico que `main`. Falta **mergear el stack de PRs** y superar la **[validación final de campo](VALIDACION_FINAL_CAMPO.md)** (jornada real). Compilar/tests **no** alcanzan.
 
 ---
 
@@ -42,7 +42,7 @@ La app ya está recortada a un **ERP pyme para vender suelas** (productos, stock
 ### Capacidades que **sí** cubre (misión CTO)
 
 - Productos: listar, buscar, fotos, stock, precios, proveedor, listas  
-- Factura B + Remito con descuento de stock  
+- Factura B (documento + CC; **no** mueve stock) + Remito / Venta Rápida (**sí** descuentan stock)  
 - Compras que suman stock  
 - Mismo stock en dispositivos (vía `stock_ops` + ledger)  
 - Sync de precios / catálogo  
@@ -118,17 +118,18 @@ Nota: #113 (Fase 1) quedó absorbida dentro de #114; se puede cerrar al mergear 
 
 ## 7. Checklist de campo (aceptación)
 
-Con **EXE + APK mismos `1.4.34+92`**, tenant `tata_stock`:
+**Documento oficial (gate):** [`VALIDACION_FINAL_CAMPO.md`](VALIDACION_FINAL_CAMPO.md) — jornada completa PC + 2–3 Android.
 
-1. Remito en un dispositivo → stock baja en el otro  
-2. Cambio de precio → llega al otro  
-3. Offline → online: pendientes salen de outbox  
-4. Fotos de producto suben / se ven  
-5. Comparador de listas usable  
-6. EXE estable **≥ 10 min** post-login (sin freeze)
+Resumen mínimo tip `1.4.34+92` / `tata_stock`:
 
-Si eso pasa → el ERP tip está **listo para usar como pyme**.  
-Si algo falla → solo arreglar esa causa; **no** reintroducir Turbo/AFIP/labs.
+1. Remito → stock idéntico en todos  
+2. Precios idénticos tras ≥50 cambios  
+3. Offline ≥2 h → outbox vacía, sin duplicados  
+4. Fotos sync (sobre todo APK↔APK)  
+5. Comparador como herramienta de **decisión** (hoy incompleto en código — ver §3 del gate)  
+6. EXE estable **toda la jornada**
+
+Si falla → estabilizar; **no** features nuevas.
 
 ---
 
@@ -149,5 +150,6 @@ Si algo falla → solo arreglar esa causa; **no** reintroducir Turbo/AFIP/labs.
 | ¿Qué dejó de ser? | Suite AFIP/CRM/lab + sync “enterprise” |
 | ¿Está en `main`? | **No** — tip en PRs #114–#117 |
 | ¿Cuánto se achicó? | ~**−13 k LOC** `lib/` vs `main` |
-| ¿Qué falta para “listo”? | Merge + prueba campo EXE/APK |
-| ¿Seguir agregando features? | **No** — estabilizar y mergear |
+| ¿Qué falta para “listo”? | Jornada PASS ([VALIDACION_FINAL_CAMPO](VALIDACION_FINAL_CAMPO.md)) + merge |
+| ¿Comparador listo? | **No** — faltan eliminados / multi-proveedor / márgenes / PVP / ganancia |
+| ¿Seguir agregando features? | **No** — jornada + estabilizar gaps del gate |
