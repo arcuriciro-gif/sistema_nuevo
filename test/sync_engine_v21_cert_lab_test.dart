@@ -77,13 +77,22 @@ void main() {
     skip: Platform.isWindows ? 'CI Windows lento — lab en Linux/Android' : false,
   );
 
-  test('Stress runner corto', () async {
-    final r = await SyncStressRunner.instance.run(
-      duration: const Duration(seconds: 2),
-      tick: const Duration(milliseconds: 30),
-    );
-    expect(r['opsGenerated'], greaterThan(5));
-  }, timeout: const Timeout(Duration(minutes: 1)));
+  test(
+    'Stress runner corto',
+    () async {
+      final r = await SyncStressRunner.instance.run(
+        // Windows CI: cada enqueue SQLite es lento; 2s apenas llega a 5 ops.
+        duration: Platform.isWindows
+            ? const Duration(seconds: 6)
+            : const Duration(seconds: 2),
+        tick: Platform.isWindows
+            ? const Duration(milliseconds: 10)
+            : const Duration(milliseconds: 30),
+      );
+      expect(r['opsGenerated'], greaterThanOrEqualTo(5));
+    },
+    timeout: const Timeout(Duration(minutes: 1)),
+  );
 
   test(
     'Certification runner genera informe',

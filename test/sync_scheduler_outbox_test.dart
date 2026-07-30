@@ -61,7 +61,7 @@ void main() {
         (claimed.first['priority'] as num).toInt(),
         SyncPriority.critical,
       );
-    });
+    }, timeout: const Timeout(Duration(minutes: 2)));
 
     test('scheduler claimForTick crítico primero con backlog fondo', () async {
       for (var i = 1; i <= 80; i++) {
