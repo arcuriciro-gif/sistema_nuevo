@@ -1,6 +1,8 @@
 /// Política de sync en Windows desktop: cuarentena al login + sync eventual.
 ///
-/// Prioridad: que el .exe no se caiga. La sync converge después, sin ráfagas.
+/// Prioridad #1: que el .exe no se caiga.
+/// Prioridad #2: convergencia de stock + papelera + comprobantes.
+/// Nunca subir hardCap ni reactivar listeners de productos (crash histórico).
 class WindowsSyncPolicy {
   WindowsSyncPolicy._();
 
@@ -19,14 +21,14 @@ class WindowsSyncPolicy {
   static const Duration throttleDelayNormal = Duration(milliseconds: 600);
 
   /// Delay corto para acción de usuario (1 producto / remito / cliente).
-  /// Objetivo: reflejar en el otro dispositivo en segundos, no minutos.
   static const Duration throttleDelayInteractive = Duration(milliseconds: 50);
 
-  /// Outbox pump (tras cuarentena): micro-lotes más frecuentes.
-  static const Duration outboxPumpInterval = Duration(seconds: 25);
+  /// Outbox pump (tras cuarentena): micro-lotes.
+  /// 1.4.37: no bajar de 30s — stack heal+stock+soft cada 25s tumbaba EXE.
+  static const Duration outboxPumpInterval = Duration(seconds: 30);
 
-  /// Soft-pull: convergencia catálogo/stock (no sustituye listeners de negocio).
-  static const Duration softPullInterval = Duration(seconds: 45);
+  /// Soft-pull mínimo entre corridas (el pump unificado debe respetarlo).
+  static const Duration softPullInterval = Duration(seconds: 60);
 
   /// Listeners Firestore en Windows SOLO para colecciones chicas de negocio.
   /// Productos/branding/Storage siguen OFF (eran los que tumbaban el .exe).
@@ -57,8 +59,7 @@ class WindowsSyncPolicy {
     'branding_text',
   ];
 
-  /// Con cola de upload chica, priorizar convergencia de negocio + stock
-  /// (remitos/ventas/stock_ops). Campo: venta rápida EXE↔APK no cruzaba.
+  /// Con cola de upload chica, priorizar convergencia de negocio + stock.
   static bool prioritizeBusinessConvergence({required int pendingProductos}) =>
       pendingProductos <= 5;
 
@@ -69,9 +70,13 @@ class WindowsSyncPolicy {
   /// Presupuesto de pull stock_ops en Windows (ráfagas controladas).
   ///
   /// Campo: maxApply ≥50 tumbaba el EXE. Techo duro **4**.
-  /// `recentLimit` NUNCA es 0: sin pull reciente, watermark adelantado
-  /// deja stock divergente (EXE↔APK).
   static const int stockOpsHardCap = 4;
+
+  /// Página de productos en soft-pull Windows (anti-crash).
+  static const int softPullProductosPageSize = 8;
+
+  /// Si hay muchos pending de upload, no soft-pull (drenar primero).
+  static const int softPullSkipIfPendingProductos = 30;
 
   static ({int maxPages, int pageSize, int maxApply, int recentLimit})
       stockOpsPullBudget({required int pendingProductos}) {
@@ -80,7 +85,7 @@ class WindowsSyncPolicy {
         maxPages: 1,
         pageSize: 10,
         maxApply: stockOpsHardCap,
-        recentLimit: 20,
+        recentLimit: 16,
       );
     }
     if (pendingProductos <= 50) {
@@ -88,35 +93,39 @@ class WindowsSyncPolicy {
         maxPages: 1,
         pageSize: 8,
         maxApply: 3,
-        recentLimit: 15,
+        recentLimit: 12,
       );
     }
     return (
       maxPages: 1,
       pageSize: 8,
       maxApply: 2,
-      recentLimit: 12,
+      recentLimit: 10,
     );
   }
 
   /// Soft-pull lane.
   ///
-  /// Campo papelera/conteos: productos_inc debe ir denso (antes ~1/12 ticks).
-  /// Ciclo de 4 quieto: stock / productos / negocio / productos.
+  /// Ciclo quieto de 6 (anti-crash): stock / productos / remitos /
+  /// stock / ventas / productos → papelera converge sin ráfaga.
   static String softPullLane(int n, {bool prioritizeStockOps = false}) {
     if (prioritizeStockOps) {
-      switch (n % 4) {
+      switch (n % 6) {
         case 0:
           return 'stock_ops';
         case 1:
           return 'productos_inc';
         case 2:
           return 'remitos';
+        case 3:
+          return 'stock_ops';
+        case 4:
+          return 'ventas';
         default:
           return 'productos_inc';
       }
     }
-    // Busy: stock_ops NUNCA se ahoga detrás de productos.
+    // Busy: stock_ops 1/3; productos 1/3; resto 1/3.
     if (n % 3 == 0) return 'stock_ops';
     if (n % 3 == 1) return 'productos_inc';
     final others = softPullOtherLanes
@@ -128,10 +137,10 @@ class WindowsSyncPolicy {
   /// Intervalo del pump dedicado de stock_ops en Windows (anti-starvation).
   static const Duration windowsStockOpsPumpInterval = Duration(seconds: 30);
 
-  /// Intervalo soft-pull más corto cuando ya no hay cola de productos.
+  /// Intervalo soft-pull cuando la outbox de productos está quieta.
   static Duration softPullIntervalFor({required int pendingProductos}) {
     if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
-      return const Duration(seconds: 12);
+      return const Duration(seconds: 30);
     }
     return softPullInterval;
   }
@@ -139,18 +148,12 @@ class WindowsSyncPolicy {
   /// Cuántos docs recientes tirar por `actualizadoEn` (idempotente).
   static int recentBusinessDocsLimit({required int pendingProductos}) {
     if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
-      return 25;
+      return 12;
     }
     return 0;
   }
 
   /// Presupuesto de "Actualizar ahora" en Windows.
-  ///
-  /// Campo 1.4.12: la ráfaga negocio+clientes+stock+drain en un solo gesto
-  /// seguía tumbando el .exe. Ahora: **stock primero**, micro-rondas con
-  /// yield, negocio mínimo, sin página grande de clientes.
-  ///
-  /// `stockMaxApply` nunca supera [stockOpsHardCap] (misma causa raíz).
   static ({
     int negocioLimit,
     int clientesPage,
@@ -165,8 +168,6 @@ class WindowsSyncPolicy {
     bool pullClientes,
     bool pullConfig,
   }) manualRefreshBudgetWindows({required int pendingProductos}) {
-    // Anti-crash: maxApply por ronda ≤ hardCap + más rondas + recentLimit.
-    // Subir maxApply a 50 tumbaba el .exe (regresión vs 1.4.12).
     if (pendingProductos >= 50) {
       return (
         negocioLimit: 5,
@@ -174,8 +175,8 @@ class WindowsSyncPolicy {
         stockMaxPages: 1,
         stockPageSize: 12,
         stockMaxApply: stockOpsHardCap,
-        stockRecentLimit: 25,
-        stockRounds: 5,
+        stockRecentLimit: 20,
+        stockRounds: 4,
         stockMicroBatch: 2,
         yieldMs: 220,
         schedulerTicks: 1,
@@ -187,11 +188,11 @@ class WindowsSyncPolicy {
       return (
         negocioLimit: 8,
         clientesPage: 0,
-        stockMaxPages: 2,
-        stockPageSize: 15,
+        stockMaxPages: 1,
+        stockPageSize: 12,
         stockMaxApply: stockOpsHardCap,
-        stockRecentLimit: 35,
-        stockRounds: 5,
+        stockRecentLimit: 24,
+        stockRounds: 4,
         stockMicroBatch: 2,
         yieldMs: 180,
         schedulerTicks: 1,
@@ -200,15 +201,15 @@ class WindowsSyncPolicy {
       );
     }
     return (
-      negocioLimit: 10,
+      negocioLimit: 8,
       clientesPage: 0,
-      stockMaxPages: 2,
-      stockPageSize: 15,
+      stockMaxPages: 1,
+      stockPageSize: 12,
       stockMaxApply: stockOpsHardCap,
-      stockRecentLimit: 40,
-      stockRounds: 5,
-      stockMicroBatch: 3,
-      yieldMs: 140,
+      stockRecentLimit: 24,
+      stockRounds: 4,
+      stockMicroBatch: 2,
+      yieldMs: 160,
       schedulerTicks: 1,
       pullClientes: false,
       pullConfig: true,
@@ -219,6 +220,10 @@ class WindowsSyncPolicy {
   static ({int maxPages, int pageSize, int maxApply})
       windowsCatchupStockOpsBudget() =>
           (maxPages: 1, pageSize: 10, maxApply: stockOpsHardCap);
+
+  /// Primer pull productos post-cuarentena (antes 2×25 tumbaba).
+  static ({int maxPages, int pageSize}) windowsPrimerPullProductos() =>
+      (maxPages: 1, pageSize: softPullProductosPageSize);
 
   /// En Windows el masivo (análisis de lista) solo encola outbox.
   static bool bulkSoloEncolar({required bool isWindowsDesktop}) =>
