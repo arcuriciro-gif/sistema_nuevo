@@ -57,6 +57,12 @@ void main() {
     test('soft-pull quieto es más rápido que idle cargado', () {
       final quiet = WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 0);
       final busy = WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 80);
+      if (WindowsSyncPolicy.freezeBackgroundForStability) {
+        // Soft-pull congelado: ambos en 24h (pump no arranca).
+        expect(quiet.inHours, greaterThanOrEqualTo(24));
+        expect(busy.inHours, greaterThanOrEqualTo(24));
+        return;
+      }
       expect(quiet.inSeconds, lessThan(busy.inSeconds));
     });
   });

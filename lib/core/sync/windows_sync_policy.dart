@@ -4,12 +4,20 @@
 class WindowsSyncPolicy {
   WindowsSyncPolicy._();
 
+  /// Campo: el EXE se cerraba solo ~1–2 min después del login
+  /// (seed ledger masivo + listeners + soft-pull + stock_ops pump).
+  /// true = solo outbox chico; stock/convergencia con "Actualizar ahora".
+  static const bool freezeBackgroundForStability = true;
+
   /// Tras login: solo absorber outbox local; sin Firebase de colección.
   static const Duration quarantineAfterLogin = Duration(seconds: 20);
 
   /// Si hay mucha cola de productos, acortar cuarentena (no dejar
   /// "arranque 45s" con 500 pending y 0 intentos).
   static Duration quarantineForBacklog({required int pendingProductos}) {
+    if (freezeBackgroundForStability) {
+      return const Duration(seconds: 8);
+    }
     if (pendingProductos >= 50) return const Duration(seconds: 10);
     if (pendingProductos >= 10) return const Duration(seconds: 15);
     return quarantineAfterLogin;
@@ -23,15 +31,18 @@ class WindowsSyncPolicy {
   static const Duration throttleDelayInteractive = Duration(milliseconds: 50);
 
   /// Outbox pump (tras cuarentena): micro-lotes más frecuentes.
-  static const Duration outboxPumpInterval = Duration(seconds: 25);
+  static Duration get outboxPumpInterval => freezeBackgroundForStability
+      ? const Duration(seconds: 45)
+      : const Duration(seconds: 25);
 
   /// Soft-pull: convergencia catálogo/stock (no sustituye listeners de negocio).
   static const Duration softPullInterval = Duration(seconds: 60);
 
   /// Listeners Firestore en Windows SOLO para colecciones chicas de negocio.
   /// Productos/branding/Storage siguen OFF (eran los que tumbaban el .exe).
+  /// Congelado: OFF — el snapshot inicial de remitos/ventas tumbaba a los ~2 min.
   static bool enableBusinessDocListeners({required bool isWindowsDesktop}) =>
-      isWindowsDesktop;
+      isWindowsDesktop && !freezeBackgroundForStability;
 
   static const List<String> windowsBusinessListenerCollections = [
     'remitos',
@@ -140,11 +151,33 @@ class WindowsSyncPolicy {
 
   /// Intervalo soft-pull más corto cuando ya no hay cola de productos.
   static Duration softPullIntervalFor({required int pendingProductos}) {
+    if (freezeBackgroundForStability) {
+      // Soft-pull OFF de facto (pump no se arranca); valor por si alguien llama.
+      return const Duration(hours: 24);
+    }
     if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
       return const Duration(seconds: 20);
     }
     return softPullInterval;
   }
+
+  /// Convergencia crítica congelada: productos recientes + stock_ops chico.
+  /// Sin listeners / soft-pull / seed masivo (eso tumbaba el EXE).
+  static const Duration criticalConvergenceInterval = Duration(seconds: 90);
+
+  static ({
+    int productosRecientes,
+    int productosCatalogoPage,
+    int stockMaxApply,
+    int stockRecentLimit,
+    int yieldMs,
+  }) criticalConvergenceBudget() => (
+        productosRecientes: 20,
+        productosCatalogoPage: 12,
+        stockMaxApply: 2,
+        stockRecentLimit: 15,
+        yieldMs: 180,
+      );
 
   /// Cuántos docs recientes tirar por `actualizadoEn` (idempotente).
   static int recentBusinessDocsLimit({required int pendingProductos}) {

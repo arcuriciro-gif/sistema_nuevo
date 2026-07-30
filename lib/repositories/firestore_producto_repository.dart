@@ -166,8 +166,42 @@ class FirestoreProductoRepository implements ProductoRepository {
   /// Sube metadata sin pisar stock absoluto (los deltas van por [ajustarStock]).
   Future<int> actualizarSinStock(Producto producto) async {
     final data = producto.toFirestore()..remove('stock');
+    // Restore: borrar AMBAS claves (snake + camel). Si queda `deletedAt`
+    // camelCase, fromFirestore lo rehidrata y el peer sigue en papelera.
+    if (!producto.estaEliminado) {
+      data['deleted_at'] = null;
+      data['deletedAt'] = FieldValue.delete();
+    }
     await _collection.doc(_docId(producto)).set(data, SetOptions(merge: true));
     return 1;
+  }
+
+  /// Solo estado de papelera (delete/restore), sin pisar precio/foto.
+  Future<void> actualizarDeletedAtOnly(Producto producto) async {
+    final cod = _docId(producto);
+    if (cod.isEmpty) return;
+    final data = <String, dynamic>{
+      'actualizadoEn': producto.actualizadoEn ??
+          DateTime.now().toUtc().toIso8601String(),
+    };
+    if (producto.estaEliminado) {
+      data['deleted_at'] = producto.deletedAt;
+    } else {
+      data['deleted_at'] = null;
+      data['deletedAt'] = FieldValue.delete();
+    }
+    await _collection.doc(cod).set(data, SetOptions(merge: true));
+  }
+
+  /// Últimos N productos por `actualizadoEn` (papelera / restores / edits).
+  Future<List<Producto>> obtenerRecientes({int limit = 20}) async {
+    final snap = await _collection
+        .orderBy('actualizadoEn', descending: true)
+        .limit(limit)
+        .get();
+    return snap.docs
+        .map((doc) => Producto.fromFirestore(doc.data(), docId: doc.id))
+        .toList(growable: false);
   }
 
   /// Ajuste de stock en la nube (Capacidad 6).
