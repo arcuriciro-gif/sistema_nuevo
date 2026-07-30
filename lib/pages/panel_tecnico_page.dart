@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../core/integrity/integrity_policy.dart';
 import '../core/integrity/integrity_reconcile_service.dart';
+import '../core/integrity/legacy_ledger_migration.dart';
 import '../core/ops/technical_health_service.dart';
 import '../core/security/authorization_service.dart';
 import '../core/sync/observability/sync_benchmark_runner.dart';
@@ -28,6 +29,7 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
   String? _error;
   bool _loading = false;
   bool _scanning = false;
+  bool _seedingLedger = false;
   bool _busy = false;
   String? _diagText;
 
@@ -164,6 +166,37 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
       setState(() => _scanning = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error al escanear: $e')),
+      );
+    }
+  }
+
+  Future<void> _seedLegacyLedger() async {
+    setState(() => _seedingLedger = true);
+    try {
+      final n = await LegacyLedgerMigration.instance.seedUntilDone(
+        batchSize: 500,
+        maxBatches: 40,
+      );
+      final missing = await LegacyLedgerMigration.instance.countMissing();
+      final report =
+          await IntegrityReconcileService.instance.scanAndPersist();
+      if (!mounted) return;
+      setState(() {
+        _integrity = report;
+        _seedingLedger = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ledger seed: $n productos. Restan sin ledger: $missing',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _seedingLedger = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Seed ledger falló: $e')),
       );
     }
   }
@@ -473,19 +506,37 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
                 : (integrity.ok ? '0 (OK)' : '${integrity.alarms.length}'),
           ),
           const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton.icon(
-              onPressed: _scanning ? null : _escanearIntegridad,
-              icon: _scanning
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.fact_check_outlined),
-              label: Text(_scanning ? 'Escaneando…' : 'Escanear integridad'),
-            ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: _scanning ? null : _escanearIntegridad,
+                icon: _scanning
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.fact_check_outlined),
+                label: Text(_scanning ? 'Escaneando…' : 'Escanear integridad'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _seedingLedger ? null : _seedLegacyLedger,
+                icon: _seedingLedger
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.storage_outlined),
+                label: Text(
+                  _seedingLedger
+                      ? 'Sembrando ledger…'
+                      : 'Cerrar legacy → ledger',
+                ),
+              ),
+            ],
           ),
           if (integrity != null && integrity.alarms.isNotEmpty) ...[
             const SizedBox(height: 12),

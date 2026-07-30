@@ -6,6 +6,7 @@ import '../../core/config/backend_config_service.dart';
 import '../../core/events/data_refresh_hub.dart';
 import '../../core/firebase/firebase_auth_usuario_service.dart';
 import '../../core/sync/firestore_sync_service.dart';
+import '../../core/sync/stock_ops_pull_hold_store.dart';
 import '../../core/sync/sync_health.dart';
 import '../../theme/app_tokens.dart';
 
@@ -25,6 +26,7 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
   SyncHealthSnapshot? _health;
   Timer? _poll;
   bool _actualizando = false;
+  int _stockHolds = 0;
 
   @override
   void initState() {
@@ -45,7 +47,16 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
   Future<void> _refrescar() async {
     try {
       final h = await SyncHealthService.instance.snapshot();
-      if (mounted) setState(() => _health = h);
+      var holds = 0;
+      try {
+        holds = await StockOpsPullHoldStore.instance.count();
+      } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _health = h;
+          _stockHolds = holds;
+        });
+      }
     } catch (_) {}
   }
 
@@ -116,18 +127,21 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
     if (lower.contains('sincronizando') ||
         pending > 0 ||
         inflight > 0 ||
-        _actualizando) {
+        _actualizando ||
+        _stockHolds > 0) {
       final que = _health?.pendingBreakdownLabel ?? '';
       return (
         tone: ShellSyncTone.syncing,
         title: _actualizando ? 'Actualizando' : 'Sincronizando',
         subtitle: _actualizando
             ? 'Actualización manual…'
-            : pending > 0
-                ? (que.isEmpty
-                    ? '$pending cambios pendientes'
-                    : '$pending pendientes: $que')
-                : (detail ?? 'Actualizando…'),
+            : _stockHolds > 0 && pending == 0 && inflight == 0
+                ? '$_stockHolds stock_ops en espera (producto faltante)'
+                : pending > 0
+                    ? (que.isEmpty
+                        ? '$pending cambios pendientes'
+                        : '$pending pendientes: $que')
+                    : (detail ?? 'Actualizando…'),
       );
     }
     if (dead > 0 || lower.contains('error')) {

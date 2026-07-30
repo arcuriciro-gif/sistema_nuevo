@@ -67,6 +67,26 @@ LIMIT ?
     return n;
   }
 
+  /// Corre lotes hasta `countMissing == 0` o tope de batches.
+  /// Cierra el residual de campo (~2861 sin ledger) en un arranque.
+  Future<int> seedUntilDone({
+    int batchSize = 500,
+    int maxBatches = 30,
+  }) async {
+    var total = 0;
+    for (var i = 0; i < maxBatches; i++) {
+      final missing = await countMissing();
+      if (missing == 0) break;
+      final n = await seedMissing(limit: batchSize);
+      total += n;
+      if (n == 0) break;
+    }
+    if (total > 0) {
+      debugPrint('LegacyLedgerMigration: seedUntilDone total=$total');
+    }
+    return total;
+  }
+
   /// Inserta snapshot ledger sin tocar proyección.
   Future<bool> seedOneInTxn(
     DatabaseExecutor txn, {

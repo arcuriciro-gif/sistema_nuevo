@@ -182,9 +182,12 @@ class InventoryLedgerService {
       final delta = sign * line.cantidad.abs();
       final stockAfter = stockBefore + delta;
 
+      // NO tocar actualizadoEn: es LWW de catálogo (precio/delete).
+      // Campo: stock_ops bumpaban actualizadoEn → upload producto pisaba
+      // deleted_at remoto → 2884 vs 2883 entre dispositivos.
       final updated = await txn.rawUpdate(
-        'UPDATE productos SET stock = stock + ?, actualizadoEn = ? WHERE id = ?',
-        [delta, DateTime.now().toUtc().toIso8601String(), line.productoId],
+        'UPDATE productos SET stock = stock + ? WHERE id = ?',
+        [delta, line.productoId],
       );
       if (updated != 1) {
         throw StateError(
@@ -353,7 +356,6 @@ class InventoryLedgerService {
       [limit],
     );
     var repaired = 0;
-    final now = DateTime.now().toUtc().toIso8601String();
     for (final row in productIds) {
       final id = (row['id'] as num?)?.toInt();
       if (id == null) continue;
@@ -385,7 +387,7 @@ class InventoryLedgerService {
       if (actual == expected) continue;
       await db.update(
         'productos',
-        {'stock': expected, 'actualizadoEn': now},
+        {'stock': expected},
         where: 'id = ?',
         whereArgs: [id],
       );
@@ -514,7 +516,11 @@ class InventoryLedgerService {
     return (r.first['s'] as num?)?.toInt() ?? 0;
   }
 
-  /// Tras commit local: solo dispara flush/upload (outbox ya encolado en TX).
+  /// Tras commit local: flush de stock_ops (outbox ya encolado en TX).
+  ///
+  /// NUNCA subir el documento producto acá: el catálogo no cambió.
+  /// Campo: subirProducto tras Δstock reescribía actualizadoEn+deleted_at
+  /// y “revivía” SKUs borrados en el otro dispositivo (2884↔2883).
   void enqueueCloudAfterApply(DomainEvent event, {required int sign}) {
     final lines = _linesFrom(event);
     if (lines.isEmpty) return;
@@ -524,7 +530,6 @@ class InventoryLedgerService {
         for (final line in lines) {
           final delta = sign * line.cantidad.abs();
           final opId = '${event.eventId}_${line.productoId}';
-          // Outbox ya insertado en applyInTxn; acá solo flush / metadata.
           await FirestoreSyncService.instance.ajustarStockEnNube(
             productoId: line.productoId,
             delta: delta,
@@ -534,15 +539,6 @@ class InventoryLedgerService {
             documentId: event.payload['documentId']?.toString(),
             alreadyEnqueuedInTxn: true,
           );
-          if (!windows) {
-            await FirestoreSyncService.instance
-                .subirProductoPorId(line.productoId);
-          } else {
-            await SyncOutbox.instance.enqueueUpsert(
-              entityType: 'producto',
-              localId: line.productoId,
-            );
-          }
         }
       }, tag: 'InventoryLedger cloud'),
       tag: 'InventoryLedger cloud',

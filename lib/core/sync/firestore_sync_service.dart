@@ -284,21 +284,26 @@ class FirestoreSyncService {
       // Sin micro-drain, sin SafeMode, sin listeners, sin Storage.
       if (windows) {
         syncStatusLabel = 'Sincronizando…';
-        syncStatusDetail = 'Limpiando cola stock trabada…';
+        syncStatusDetail = 'Arranque seguro…';
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
             try {
               await _cargarColasPersistidas();
               await _maybeRewindStockOpsWatermarkForConvergence();
+              syncStatusDetail = 'Revisando cola local…';
+              DataRefreshHub.instance.notifyTodo();
               // Solo stock MUERTO/reclaim eterno — NO borrar pending frescos
               // (si no, el stock del .exe nunca llega al APK).
+              // Boot: sin proveCloudApplied (N queries Firestore colgaban el
+              // badge en "Limpiando cola…" y abortaban el seed/ledger).
               final purged = await SyncOutbox.instance.purgeStuckStockOps(
                 minAttempts: 5,
                 onlyLastErrorContains: 'reclaimed_stale_inflight',
-                proveCloudApplied: (remoteOpId) =>
-                    _remote.stockOpCloudApplied(remoteOpId),
+                limit: 40,
+                proveCloudApplied: null,
               );
               final recovered = await SyncOutbox.instance.recoverDeadStockOps(
+                limit: 8,
                 proveCloudApplied: (remoteOpId) =>
                     _remote.stockOpCloudApplied(remoteOpId),
               );
@@ -314,9 +319,12 @@ class FirestoreSyncService {
                   'poisonForce=${recovered.forceRequeued}',
                 );
               }
-              // Histórico sin ledger → seed idempotente (G4).
+              // Histórico sin ledger → seed hasta vaciar (G4). Lotes chicos.
               try {
-                await LegacyLedgerMigration.instance.seedMissing(limit: 300);
+                await LegacyLedgerMigration.instance.seedUntilDone(
+                  batchSize: 400,
+                  maxBatches: 20,
+                );
               } catch (e) {
                 debugPrint('LegacyLedgerMigration boot: $e');
               }
@@ -354,7 +362,17 @@ class FirestoreSyncService {
       }
 
       // Primero bajar nube, después subir pendientes (evita pisar datos buenos).
+      await _maybeRewindStockOpsWatermarkForConvergence();
       await _pullInicialCatchUp();
+      // Android también debe cerrar legacy→ledger (antes solo Windows boot).
+      try {
+        await LegacyLedgerMigration.instance.seedUntilDone(
+          batchSize: 500,
+          maxBatches: 25,
+        );
+      } catch (e) {
+        debugPrint('LegacyLedgerMigration mobile: $e');
+      }
       await _vaciarColasYSubirPendientes();
       _iniciarOutboxPump();
       // Stock del .exe → Firestore → APK: hay que seguir tirando stock_ops
@@ -527,8 +545,8 @@ class FirestoreSyncService {
             await SyncOutbox.instance.purgeStuckStockOps(
               minAttempts: 8,
               onlyLastErrorContains: 'reclaimed_stale_inflight',
-              proveCloudApplied: (remoteOpId) =>
-                  _remote.stockOpCloudApplied(remoteOpId),
+              limit: 20,
+              proveCloudApplied: null,
             );
           }
 
@@ -5395,6 +5413,24 @@ class FirestoreSyncService {
           final locTs = _parseUtc(local?.actualizadoEn);
           final remTs = _parseUtc(producto.actualizadoEn);
 
+          // Soft-delete/restore es independiente del LWW de catálogo.
+          // stock_ops (antes) y edits locales bumpaban actualizadoEn y
+          // bloqueaban deleted_at remoto → totales 2884 vs 2883.
+          if (local != null &&
+              producto.estaEliminado != local.estaEliminado) {
+            huboCambios = true;
+            batch.update(
+              'productos',
+              {
+                'deleted_at':
+                    producto.estaEliminado ? producto.deletedAt : null,
+              },
+              where: 'id = ?',
+              whereArgs: [local.id],
+            );
+            // Seguir: si local es más viejo también mergeamos metadata.
+          }
+
           // R6/R7: stock local (ledger / stock_ops) es autoridad.
           // Nunca sobrescribir proyección local con stock absoluto remoto.
           if (local != null &&
@@ -5408,6 +5444,8 @@ class FirestoreSyncService {
           var merged = _fusionarProductoRemoto(producto, local);
           if (producto.estaEliminado) {
             merged = merged.copyWith(deletedAt: producto.deletedAt);
+          } else if (local?.estaEliminado == true) {
+            merged = merged.copyWith(clearDeletedAt: true);
           }
           // Producto existente: conservar stock local (fuente = ledger).
           // Producto nuevo: semilla 0 — stock_ops construyen la proyección
