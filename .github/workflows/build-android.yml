@@ -104,7 +104,7 @@ jobs:
           cat Instalador_Android/SHA256SUMS.txt
 
       - name: Subir APK
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: Instalador_Android
           path: Instalador_Android
