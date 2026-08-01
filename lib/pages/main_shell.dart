@@ -116,7 +116,6 @@ class _ShellItem {
   final String modulo;
   final Widget Function() builder;
   final bool quickAccess;
-  final bool soloAdmin;
 
   const _ShellItem({
     required this.icon,
@@ -124,7 +123,6 @@ class _ShellItem {
     required this.modulo,
     required this.builder,
     this.quickAccess = false,
-    this.soloAdmin = false,
   });
 
   /// Id estable para preferencias de barra lateral.
@@ -442,9 +440,7 @@ class _MainShellState extends State<MainShell> {
   List<_ShellItem> get _visibleItems {
     final rol = AuthService.instance.currentUser?.rol ?? 'empleado';
     final prefs = SidebarPreferenciasService.instance;
-    final isAdmin = AuthService.instance.esAdministrador();
     return _items
-        .where((item) => !item.soloAdmin || isAdmin)
         .where((item) => PermisosService.instance.puedeVer(rol, item.modulo))
         .where((item) => prefs.estaVisible(item.preferenciaId))
         .toList();
