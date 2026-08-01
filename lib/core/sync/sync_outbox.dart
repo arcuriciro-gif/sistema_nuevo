@@ -196,6 +196,32 @@ class SyncOutbox {
     );
   }
 
+  /// ¿Hay intención de hard-delete (pending/inflight/acked) para este remoteId?
+  /// Evita que un soft-pull recree en papelera lo que el usuario ya borró definitivo.
+  Future<bool> hasDeleteIntent({
+    required String entityType,
+    required String remoteId,
+  }) async {
+    if (remoteId.isEmpty) return false;
+    final db = await _db;
+    final rows = await db.query(
+      'sync_outbox',
+      columns: ['id'],
+      where:
+          "entity_type = ? AND entity_remote_id = ? AND operation = ? AND status IN (?, ?, ?)",
+      whereArgs: [
+        entityType,
+        remoteId,
+        'delete',
+        SyncOutboxStatus.pending,
+        SyncOutboxStatus.inflight,
+        SyncOutboxStatus.acked,
+      ],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
   /// ¿Hay delete pendiente/inflight para este remoteId?
   Future<bool> hasPendingDelete({
     required String entityType,

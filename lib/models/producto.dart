@@ -164,9 +164,12 @@ class Producto {
     );
   }
 
-  /// Hard-delete remoto: payload tombstone o soft-delete vacío sin catálogo.
+  /// Hard-delete remoto: flag tombstone o soft-delete sin catálogo.
   bool get esTombstoneRemoto =>
-      estaEliminado && descripcion.trim().isEmpty;
+      tombstoneFlag || (estaEliminado && descripcion.trim().isEmpty);
+
+  /// true si Firestore mandó `tombstone: true` (hard-delete).
+  bool tombstoneFlag = false;
 
   Map<String, dynamic> toFirestore() {
     final data = Map<String, dynamic>.from(toMap()..remove('id'));
@@ -199,12 +202,15 @@ class Producto {
     if (map['deleted_at'] == null && map['deletedAt'] != null) {
       map['deleted_at'] = map['deletedAt'];
     }
-    // Hard-delete: sin descripción → peer borra fila local.
-    if (map['tombstone'] == true) {
+    final isTombstone = map['tombstone'] == true;
+    // Hard-delete: forzar descripción vacía (si no, reaparece en papelera).
+    if (isTombstone) {
       map['deleted_at'] ??= DateTime.now().toUtc().toIso8601String();
-      map['descripcion'] ??= '';
+      map['descripcion'] = '';
     }
-    return Producto.fromMap(map);
+    final producto = Producto.fromMap(map);
+    producto.tombstoneFlag = isTombstone;
+    return producto;
   }
 
   Producto copyWith({

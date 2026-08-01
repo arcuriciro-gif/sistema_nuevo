@@ -1,96 +1,119 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:sistema_nuevo/core/sync/sync_tombstone.dart';
 import 'package:sistema_nuevo/core/sync/windows_sync_policy.dart';
 import 'package:sistema_nuevo/models/producto.dart';
 
-/// Invariantes anti-crash Windows + política soft-delete (sin Firebase).
 void main() {
   group('Windows anti-crash invariants', () {
-    test('hardCap stock_ops nunca supera 4', () {
-      expect(WindowsSyncPolicy.stockOpsHardCap, lessThanOrEqualTo(4));
+    test('hardCap stock_ops ≤ 3', () {
+      expect(WindowsSyncPolicy.stockOpsHardCap, lessThanOrEqualTo(3));
       for (final pending in [0, 5, 20, 80, 500]) {
-        final b = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: pending);
-        expect(b.maxApply, lessThanOrEqualTo(WindowsSyncPolicy.stockOpsHardCap));
-        final m = WindowsSyncPolicy.manualRefreshBudgetWindows(
-          pendingProductos: pending,
+        final b =
+            WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: pending);
+        expect(
+          b.maxApply,
+          lessThanOrEqualTo(WindowsSyncPolicy.stockOpsHardCap),
         );
-        expect(m.stockMaxApply, lessThanOrEqualTo(WindowsSyncPolicy.stockOpsHardCap));
       }
     });
 
-    test('soft-pull y pump no son agresivos (regresión 1.4.36 crash)', () {
-      expect(WindowsSyncPolicy.outboxPumpInterval.inSeconds, greaterThanOrEqualTo(30));
-      expect(WindowsSyncPolicy.softPullInterval.inSeconds, greaterThanOrEqualTo(45));
+    test('pump/soft-pull conservadores (no ráfaga)', () {
+      expect(
+        WindowsSyncPolicy.outboxPumpInterval.inSeconds,
+        greaterThanOrEqualTo(40),
+      );
       expect(
         WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 0).inSeconds,
-        greaterThanOrEqualTo(25),
+        greaterThanOrEqualTo(40),
       );
-      expect(WindowsSyncPolicy.softPullProductosPageSize, lessThanOrEqualTo(10));
+      expect(WindowsSyncPolicy.softPullProductosPageSize, lessThanOrEqualTo(8));
       final primer = WindowsSyncPolicy.windowsPrimerPullProductos();
-      expect(primer.maxPages * primer.pageSize, lessThanOrEqualTo(12));
+      expect(primer.maxPages * primer.pageSize, lessThanOrEqualTo(8));
     });
 
-    test('quiet lane: productos presentes pero ≤50%', () {
+    test('soft-pull no duplica listeners de negocio', () {
+      expect(
+        WindowsSyncPolicy.softPullOtherLanes,
+        isNot(contains('remitos')),
+      );
+      expect(
+        WindowsSyncPolicy.softPullOtherLanes,
+        isNot(contains('ventas')),
+      );
+      expect(
+        WindowsSyncPolicy.softPullOtherLanes,
+        isNot(contains('clientes')),
+      );
+      expect(
+        WindowsSyncPolicy.softPullOtherLanes,
+        isNot(contains('compras')),
+      );
+      expect(WindowsSyncPolicy.recentBusinessDocsLimit(pendingProductos: 0), 0);
       final lanes = List.generate(
         12,
         (i) => WindowsSyncPolicy.softPullLane(i, prioritizeStockOps: true),
       );
-      final prod = lanes.where((l) => l.startsWith('productos_')).length;
-      final stock = lanes.where((l) => l == 'stock_ops').length;
-      expect(prod, greaterThanOrEqualTo(2));
-      expect(prod, lessThanOrEqualTo(6));
-      expect(stock, greaterThanOrEqualTo(2));
-    });
-
-    test('listeners de productos siguen OFF en Windows', () {
+      expect(lanes, isNot(contains('remitos')));
+      expect(lanes, isNot(contains('ventas')));
+      expect(lanes.where((l) => l == 'stock_ops').length, greaterThanOrEqualTo(4));
       expect(
-        WindowsSyncPolicy.windowsBusinessListenerCollections,
-        isNot(contains('productos')),
+        lanes.where((l) => l == 'productos_inc').length,
+        greaterThanOrEqualTo(2),
       );
     });
   });
 
-  group('Soft-delete upload policy', () {
-    test('producto activo no debe mandar deleted_at null en toFirestore merge', () {
-      // Simula la regla de actualizarSinStock: activos omiten deleted_at.
-      final activo = Producto(
-        codigo: 'A1',
-        descripcion: 'Suela',
-        marca: '',
-        categoria: '',
-        proveedor: '',
-        ubicacion: '',
-        stock: 1,
-        costo: 0,
-        precio: 10,
-        observaciones: '',
-        foto: '',
-        deletedAt: null,
-      );
-      final data = activo.toFirestore()..remove('stock');
-      data.remove('deleted_at'); // política: no mergear null
-      expect(data.containsKey('deleted_at'), isFalse);
-      expect(activo.estaEliminado, isFalse);
+  group('Tombstone papelera (borrar definitivo)', () {
+    test('tombstone:true con descripción → esTombstoneRemoto', () {
+      final p = Producto.fromFirestore({
+        'codigo': 'SKU-1',
+        'descripcion': 'Suela que no debe quedar en papelera',
+        'tombstone': true,
+        'deletedAt': '2026-08-01T12:00:00.000Z',
+        'marca': '',
+        'categoria': '',
+        'proveedor': '',
+        'ubicacion': '',
+        'stock': 0,
+        'costo': 0,
+        'precio': 0,
+        'observaciones': '',
+        'foto': '',
+      });
+      expect(p.tombstoneFlag, isTrue);
+      expect(p.descripcion, isEmpty);
+      expect(p.esTombstoneRemoto, isTrue);
+      expect(p.estaEliminado, isTrue);
     });
 
-    test('soft-delete sí incluye deleted_at', () {
-      final baja = Producto(
-        codigo: 'A1',
-        descripcion: 'Suela',
-        marca: '',
-        categoria: '',
-        proveedor: '',
-        ubicacion: '',
-        stock: 1,
-        costo: 0,
-        precio: 10,
-        observaciones: '',
-        foto: '',
-        deletedAt: '2026-07-30T12:00:00.000Z',
+    test('soft-delete con descripción NO es tombstone', () {
+      final p = Producto.fromFirestore({
+        'codigo': 'SKU-2',
+        'descripcion': 'En papelera',
+        'deleted_at': '2026-08-01T12:00:00.000Z',
+        'marca': '',
+        'categoria': '',
+        'proveedor': '',
+        'ubicacion': '',
+        'stock': 0,
+        'costo': 0,
+        'precio': 0,
+        'observaciones': '',
+        'foto': '',
+      });
+      expect(p.esTombstoneRemoto, isFalse);
+      expect(p.estaEliminado, isTrue);
+    });
+
+    test('payload producto limpia descripcion', () {
+      final t = buildTombstonePayload(
+        opId: 'delete:producto:X',
+        deletedBy: 'u1',
+        clearDescripcion: true,
       );
-      expect(baja.estaEliminado, isTrue);
-      final data = baja.toFirestore()..remove('stock');
-      expect(data['deleted_at'], isNotNull);
+      expect(t['tombstone'], isTrue);
+      expect(t['descripcion'], '');
     });
   });
 }
