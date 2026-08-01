@@ -518,8 +518,9 @@ class FirestoreSyncService {
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
           await SyncScheduler.instance.ensureRestored();
-          // Windows: heal/purge cada 3 ticks (cada tick era pesado → crash).
-          final doHeal = !windows || (_unifiedPumpTick % 3 == 0);
+          // Windows modo tranquilo: heal raro; micro-catchup aún más raro.
+          final healEvery = windows ? WindowsSyncPolicy.healEveryNTicks : 1;
+          final doHeal = _unifiedPumpTick % healEvery == 0;
           if (doHeal) {
             await SyncScheduler.instance.runAutoHeal();
             await SyncOutbox.instance.ackOrphanUpserts();
@@ -527,7 +528,7 @@ class FirestoreSyncService {
               await SyncOutbox.instance.purgeStuckStockOps(
                 minAttempts: 8,
                 onlyLastErrorContains: 'reclaimed_stale_inflight',
-                limit: 12,
+                limit: 8,
                 proveCloudApplied: null,
               );
             }
@@ -537,7 +538,8 @@ class FirestoreSyncService {
                   : const Duration(minutes: 5),
             );
           }
-          if (windows && _unifiedPumpTick % 2 == 0) {
+          final catchupEvery = WindowsSyncPolicy.microCatchupEveryNTicks;
+          if (windows && _unifiedPumpTick % catchupEvery == 0) {
             await _microCatchupDocsWindows();
           }
 
@@ -561,9 +563,11 @@ class FirestoreSyncService {
             );
           }
 
-          // 3) Soft docs — respetar intervalo anti-crash en Windows.
+          // 3) Soft docs — Windows: solo catálogo/precios (sin stock_ops).
           try {
-            if (windows && !_softPullBusy) {
+            if (windows &&
+                WindowsSyncPolicy.enablePeriodicSoftPull &&
+                !_softPullBusy) {
               await _pullSuaveWindows();
             } else if (!windows && _unifiedPumpTick.isEven) {
               await _tickInboundDocsMobile();
@@ -1275,27 +1279,8 @@ class FirestoreSyncService {
             await _aplicarRemitosRemotos(snap);
           }
         case 'stock_ops':
-          final budget = WindowsSyncPolicy.stockOpsPullBudget(
-            pendingProductos: pendingProd,
-          );
-          await _runStockOpsLane(() async {
-            await _pullStockOpsRemotas(
-              maxPages: budget.maxPages,
-              pageSize: budget.pageSize,
-              maxApply: budget.maxApply,
-              microBatchSize: 3,
-              yieldMs: 120,
-            );
-            if (budget.recentLimit > 0) {
-              await _pullStockOpsRecientes(
-                limit: budget.recentLimit,
-                maxApply: budget.maxApply,
-                microBatchSize: 3,
-                yieldMs: 120,
-              );
-            }
-            await _sweepStockOpsHolds(limit: 8);
-          });
+          // 1.4.39: no-op en soft-pull. Stock lo trae _tickInboundStockOps.
+          break;
         case 'compras':
           final snap = await _pullPaginaPorDocId(
             _comprasCol,

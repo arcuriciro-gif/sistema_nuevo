@@ -1,8 +1,11 @@
-/// Política de sync en Windows desktop: cuarentena al login + sync eventual.
+/// Política de sync en Windows desktop: modo local tranquilo.
 ///
 /// Prioridad #1: que el .exe no se caiga.
-/// Prioridad #2: convergencia de stock + papelera + comprobantes.
-/// Nunca subir hardCap ni reactivar listeners de productos (crash histórico).
+/// Prioridad #2: lo del local — productos/precios, comprobantes, stock, pendientes.
+///
+/// 1.4.39: se corta el trabajo de laboratorio (soft-pull duplicado de stock_ops,
+/// heal/micro-catchup agresivos). El pump unificado ya trae stock_ops; el soft-pull
+/// solo actualiza catálogo/precios de a poco.
 class WindowsSyncPolicy {
   WindowsSyncPolicy._();
 
@@ -18,10 +21,20 @@ class WindowsSyncPolicy {
   static const Duration throttleDelayNormal = Duration(milliseconds: 700);
   static const Duration throttleDelayInteractive = Duration(milliseconds: 80);
 
-  /// 1.4.38: 40s — menos stack concurrente con listeners de negocio.
-  static const Duration outboxPumpInterval = Duration(seconds: 40);
+  /// Pump más espaciado: menos stack concurrente con listeners.
+  static const Duration outboxPumpInterval = Duration(seconds: 50);
 
-  static const Duration softPullInterval = Duration(seconds: 75);
+  /// Catálogo/precios: lento a propósito (no es lab de sync).
+  static const Duration softPullInterval = Duration(seconds: 120);
+
+  /// Soft-pull periódico ON, pero solo catálogo/config (nunca stock_ops).
+  static const bool enablePeriodicSoftPull = true;
+
+  /// Heal/purge cada N ticks del pump (1.4.38 era 3 → aún pesado).
+  static const int healEveryNTicks = 8;
+
+  /// Re-encolar docs recientes: raro (antes cada 2 ticks hinchaba outbox).
+  static const int microCatchupEveryNTicks = 10;
 
   static bool enableBusinessDocListeners({required bool isWindowsDesktop}) =>
       isWindowsDesktop;
@@ -36,10 +49,9 @@ class WindowsSyncPolicy {
 
   static const Duration reclaimStaleInflightAfter = Duration(minutes: 3);
 
-  /// Solo lo que NO tiene listener (productos/stock/config).
+  /// Solo catálogo / listas de precio / branding texto.
+  /// stock_ops lo trae el pump dedicado — NO duplicar aquí.
   static const List<String> softPullOtherLanes = [
-    'stock_ops',
-    'proveedores',
     'listas',
     'categorias',
     'permisos',
@@ -52,12 +64,12 @@ class WindowsSyncPolicy {
   static bool prioritizeStockOpsPull({required int pendingProductos}) =>
       prioritizeBusinessConvergence(pendingProductos: pendingProductos);
 
-  /// Campo: maxApply ≥50 tumbaba el EXE. Techo duro **3** (1.4.38).
+  /// Campo: maxApply ≥50 tumbaba el EXE. Techo duro **3**.
   static const int stockOpsHardCap = 3;
 
-  static const int softPullProductosPageSize = 6;
+  static const int softPullProductosPageSize = 5;
 
-  static const int softPullSkipIfPendingProductos = 20;
+  static const int softPullSkipIfPendingProductos = 15;
 
   static ({int maxPages, int pageSize, int maxApply, int recentLimit})
       stockOpsPullBudget({required int pendingProductos}) {
@@ -66,7 +78,7 @@ class WindowsSyncPolicy {
         maxPages: 1,
         pageSize: 8,
         maxApply: stockOpsHardCap,
-        recentLimit: 12,
+        recentLimit: 10,
       );
     }
     if (pendingProductos <= 50) {
@@ -74,41 +86,33 @@ class WindowsSyncPolicy {
         maxPages: 1,
         pageSize: 6,
         maxApply: 2,
-        recentLimit: 10,
+        recentLimit: 8,
       );
     }
     return (
       maxPages: 1,
       pageSize: 6,
       maxApply: 2,
-      recentLimit: 8,
+      recentLimit: 6,
     );
   }
 
-  /// Soft-pull Windows: NUNCA remitos/ventas/clientes/compras (ya hay listener).
-  /// Ciclo: stock / productos / stock / config.
+  /// Soft-pull Windows: productos/precios + config rara.
+  /// Nunca stock_ops (el pump unificado ya lo hace cada tick).
+  /// Nunca remitos/ventas/clientes/compras (listeners).
   static String softPullLane(int n, {bool prioritizeStockOps = false}) {
     final _ = prioritizeStockOps;
-    switch (n % 4) {
-      case 0:
-        return 'stock_ops';
-      case 1:
-        return 'productos_inc';
-      case 2:
-        return 'stock_ops';
-      default:
-        final others = softPullOtherLanes
-            .where((l) => l != 'stock_ops')
-            .toList(growable: false);
-        return others[(n ~/ 4) % others.length];
-    }
+    // 3 de cada 4: catálogo; 1 de cada 4: config rotativa.
+    if (n % 4 != 3) return 'productos_inc';
+    final others = softPullOtherLanes;
+    return others[(n ~/ 4) % others.length];
   }
 
-  static const Duration windowsStockOpsPumpInterval = Duration(seconds: 40);
+  static const Duration windowsStockOpsPumpInterval = Duration(seconds: 50);
 
   static Duration softPullIntervalFor({required int pendingProductos}) {
     if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
-      return const Duration(seconds: 45);
+      return const Duration(seconds: 90);
     }
     return softPullInterval;
   }
@@ -139,10 +143,10 @@ class WindowsSyncPolicy {
       stockMaxPages: 1,
       stockPageSize: 10,
       stockMaxApply: stockOpsHardCap,
-      stockRecentLimit: 16,
-      stockRounds: 3,
+      stockRecentLimit: 12,
+      stockRounds: 2,
       stockMicroBatch: 2,
-      yieldMs: 200,
+      yieldMs: 220,
       schedulerTicks: 1,
       pullClientes: false,
       pullConfig: pendingProductos < 30,

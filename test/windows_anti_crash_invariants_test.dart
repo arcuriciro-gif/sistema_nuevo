@@ -56,10 +56,15 @@ void main() {
       );
       expect(lanes, isNot(contains('remitos')));
       expect(lanes, isNot(contains('ventas')));
-      expect(lanes.where((l) => l == 'stock_ops').length, greaterThanOrEqualTo(4));
+      // stock_ops solo en pump dedicado — soft-pull no lo duplica.
+      expect(lanes, isNot(contains('stock_ops')));
+      expect(
+        WindowsSyncPolicy.softPullOtherLanes,
+        isNot(contains('stock_ops')),
+      );
       expect(
         lanes.where((l) => l == 'productos_inc').length,
-        greaterThanOrEqualTo(2),
+        greaterThanOrEqualTo(8),
       );
     });
   });

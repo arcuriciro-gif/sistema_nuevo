@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sistema_nuevo/core/sync/windows_sync_policy.dart';
 
 void main() {
-  group('WindowsSyncPolicy — cuarentena', () {
+  group('WindowsSyncPolicy — modo local tranquilo', () {
     test('bulkSoloEncolar solo en Windows', () {
       expect(
         WindowsSyncPolicy.bulkSoloEncolar(isWindowsDesktop: true),
@@ -31,12 +31,14 @@ void main() {
       );
       expect(
         WindowsSyncPolicy.outboxPumpInterval.inSeconds,
-        greaterThanOrEqualTo(40),
+        greaterThanOrEqualTo(45),
       );
       expect(
         WindowsSyncPolicy.softPullInterval.inSeconds,
-        greaterThanOrEqualTo(60),
+        greaterThanOrEqualTo(90),
       );
+      expect(WindowsSyncPolicy.healEveryNTicks, greaterThanOrEqualTo(6));
+      expect(WindowsSyncPolicy.microCatchupEveryNTicks, greaterThanOrEqualTo(8));
     });
 
     test('throttle interactivo es más corto que el normal', () {
@@ -46,19 +48,22 @@ void main() {
       );
     });
 
-    test('soft pull: stock + productos, sin negocio con listener', () {
+    test('soft pull: catálogo/precios, sin stock_ops ni negocio con listener', () {
       final lanes = List.generate(20, (i) => WindowsSyncPolicy.softPullLane(i));
       expect(lanes, isNot(contains('remitos')));
       expect(lanes, isNot(contains('ventas')));
       expect(lanes, isNot(contains('clientes')));
       expect(lanes, isNot(contains('compras')));
-      expect(lanes.where((l) => l == 'stock_ops').length, greaterThanOrEqualTo(8));
+      expect(lanes, isNot(contains('stock_ops')));
       expect(
         lanes.where((l) => l == 'productos_inc').length,
-        greaterThanOrEqualTo(4),
+        greaterThanOrEqualTo(12),
       );
-      expect(WindowsSyncPolicy.softPullLane(0), 'stock_ops');
-      expect(WindowsSyncPolicy.softPullLane(1), 'productos_inc');
+      expect(WindowsSyncPolicy.softPullLane(0), 'productos_inc');
+      expect(
+        WindowsSyncPolicy.softPullOtherLanes,
+        isNot(contains('stock_ops')),
+      );
     });
 
     test('soft pull incluye config (listas/permisos/branding texto)', () {
@@ -69,12 +74,11 @@ void main() {
           'categorias',
           'permisos',
           'branding_text',
-          'stock_ops',
         ]),
       );
     });
 
-    test('con outbox quieto prioriza stock + productos sin ráfaga', () {
+    test('con outbox quieto prioriza catálogo sin ráfaga de stock', () {
       expect(
         WindowsSyncPolicy.prioritizeBusinessConvergence(pendingProductos: 0),
         isTrue,
@@ -83,15 +87,15 @@ void main() {
         12,
         (i) => WindowsSyncPolicy.softPullLane(i, prioritizeStockOps: true),
       );
-      expect(lanes.where((l) => l == 'stock_ops').length, greaterThanOrEqualTo(4));
+      expect(lanes, isNot(contains('stock_ops')));
       expect(
         lanes.where((l) => l == 'productos_inc').length,
-        greaterThanOrEqualTo(2),
+        greaterThanOrEqualTo(8),
       );
       expect(WindowsSyncPolicy.recentBusinessDocsLimit(pendingProductos: 0), 0);
       expect(
         WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 0).inSeconds,
-        greaterThanOrEqualTo(40),
+        greaterThanOrEqualTo(80),
       );
     });
 
