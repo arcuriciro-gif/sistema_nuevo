@@ -2368,7 +2368,11 @@ class FirestoreSyncService {
         }, SetOptions(merge: true));
       case 'producto':
         await _col('productos').doc(remoteId).set({
-          ...tombstone,
+          ...buildTombstonePayload(
+            opId: opId,
+            deletedBy: uid,
+            clearDescripcion: true,
+          ),
           'codigo': remoteId,
         }, SetOptions(merge: true));
       default:
@@ -5150,6 +5154,17 @@ class FirestoreSyncService {
                 whereArgs: [localId],
               );
             }
+            continue;
+          }
+
+          // Usuario borró definitivo acá: no recrear en papelera desde un
+          // soft-delete viejo de la nube (carrera Windows tombstone async).
+          if (local == null &&
+              producto.estaEliminado &&
+              await SyncOutbox.instance.hasDeleteIntent(
+                entityType: 'producto',
+                remoteId: producto.codigo.trim(),
+              )) {
             continue;
           }
 
