@@ -2,10 +2,11 @@
 ///
 /// Prioridad #1 absoluta: que el .exe no se caiga.
 ///
-/// 1.4.42 — modo **solo salida**:
+/// 1.4.42 — modo **solo salida** en background.
+/// 1.4.44 — «Actualizar ahora» también micro (antes tumbaba el EXE).
 /// - Background: únicamente drenar outbox local → nube.
 /// - Inbound (comprobantes/stock/productos del celular): SOLO con
-///   «Actualizar ahora» o al login mínimo (sin pull automático).
+///   «Actualizar ahora» en dosis mínimas (2 comprobantes / 1 stock / 2 productos).
 /// - Sin listeners, soft-pull, heal, micro-catchup, poll remitos, stock_ops
 ///   periódico ni migración ledger pesada al boot.
 class WindowsSyncPolicy {
@@ -122,20 +123,28 @@ class WindowsSyncPolicy {
     int schedulerTicks,
     bool pullClientes,
     bool pullConfig,
+    int productosPageSize,
+    bool repararProyeccion,
+    bool reconcilizarStockOps,
   }) manualRefreshBudgetWindows({required int pendingProductos}) {
+    final _ = pendingProductos;
+    // 1.4.44: micro absoluto — el refresh manual tumbaba el EXE.
     return (
-      negocioLimit: 4,
+      negocioLimit: 2,
       clientesPage: 0,
       stockMaxPages: 1,
-      stockPageSize: 6,
-      stockMaxApply: stockOpsHardCap,
-      stockRecentLimit: 4,
+      stockPageSize: 3,
+      stockMaxApply: 1,
+      stockRecentLimit: 3,
       stockRounds: 1,
       stockMicroBatch: 1,
-      yieldMs: 300,
+      yieldMs: 400,
       schedulerTicks: 1,
       pullClientes: false,
-      pullConfig: pendingProductos < 15,
+      pullConfig: false,
+      productosPageSize: 2,
+      repararProyeccion: false,
+      reconcilizarStockOps: false,
     );
   }
 

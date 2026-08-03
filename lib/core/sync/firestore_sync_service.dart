@@ -799,127 +799,74 @@ class FirestoreSyncService {
           pendingProductos: pendingProd,
         );
         var stockAppliedHint = 0;
+        final pause = () => Future<void>.delayed(
+              Duration(milliseconds: budget.yieldMs),
+            );
 
-        // Fase 1 — STOCK primero (convergencia EXE↔APK).
-        try {
+        // 1.4.44: UNA cosa chica por fase. Sin reconcile / sin repair masivo.
+
+        // Fase 0 — subir cola local (lo más seguro).
+        if (_puedeEscribirRemoto) {
           try {
-            await _remote.reconcilizarStockOpsPendientes(limit: 6);
-          } catch (e) {
-            debugPrint('actualizarAhora reconcilizar: $e');
-          }
-          await _runStockOpsLane(() async {
-            for (var round = 0; round < budget.stockRounds; round++) {
-              await _pullStockOpsRemotas(
-                maxPages: budget.stockMaxPages,
-                pageSize: budget.stockPageSize,
-                maxApply: budget.stockMaxApply,
-                microBatchSize: budget.stockMicroBatch,
-                yieldMs: budget.yieldMs,
+            await SyncScheduler.instance.ensureRestored();
+            final bd = await SyncOutbox.instance.pendingBreakdown();
+            if (bd.isNotEmpty) {
+              final claimed = await SyncScheduler.instance.claimForTick(
+                breakdown: bd,
+                isWindows: true,
               );
-              await Future<void>.delayed(
-                Duration(milliseconds: budget.yieldMs),
-              );
-              await _pullStockOpsRecientes(
-                limit: budget.stockRecentLimit,
-                maxApply: budget.stockMaxApply,
-                microBatchSize: budget.stockMicroBatch,
-                yieldMs: budget.yieldMs,
-              );
-              await Future<void>.delayed(
-                Duration(milliseconds: budget.yieldMs),
-              );
-              stockAppliedHint += await _sweepStockOpsHolds(limit: 4);
-              await Future<void>.delayed(
-                Duration(milliseconds: budget.yieldMs),
-              );
+              if (claimed.isNotEmpty) {
+                // Máximo 2 ops por click.
+                final slice = claimed.take(2).toList(growable: false);
+                await _ejecutarClaimedOps(
+                  slice,
+                  yieldMs: budget.yieldMs,
+                  allowPreempt: false,
+                );
+              }
             }
+          } catch (e) {
+            debugPrint('actualizarAhora drain: $e');
+          }
+          await pause();
+        }
+
+        // Fase 1 — stock: solo recientes, hardCap 1 (sin remotas + recientes).
+        try {
+          await _runStockOpsLane(() async {
+            await _pullStockOpsRecientes(
+              limit: budget.stockRecentLimit,
+              maxApply: budget.stockMaxApply,
+              microBatchSize: budget.stockMicroBatch,
+              yieldMs: budget.yieldMs,
+            );
+            stockAppliedHint += await _sweepStockOpsHolds(limit: 2);
           });
         } catch (e) {
           debugPrint('actualizarAhora stock_ops: $e');
         }
+        await pause();
 
-        // Fase 1b — proyección local vs ledger (crash mid-apply).
-        try {
-          final repaired = await InventoryLedgerService.instance
-              .repararProyeccionesDivergentes(limit: 60);
-          if (repaired > 0) {
-            debugPrint('actualizarAhora reparación proyección: $repaired');
-          }
-        } catch (e) {
-          debugPrint('actualizarAhora reparación: $e');
-        }
-
-        // Fase 2 — config liviana (opcional).
-        if (budget.pullConfig) {
-          try {
-            await _pullConfigWindowsLane('listas');
-            await Future<void>.delayed(
-              Duration(milliseconds: budget.yieldMs),
-            );
-            await _pullConfigWindowsLane('categorias');
-          } catch (e) {
-            debugPrint('actualizarAhora config: $e');
-          }
-        }
-
-        // Fase 3 — negocio mínimo (no clientes masivos).
+        // Fase 2 — comprobantes recientes (2 docs).
         try {
           await _pullNegocioRecienteWindows(limit: budget.negocioLimit);
         } catch (e) {
           debugPrint('actualizarAhora negocio: $e');
         }
+        await pause();
 
-        // Fase 3b — productos/precios (inbound solo manual en 1.4.42).
+        // Fase 3 — productos/precios (2 docs).
         try {
-          final primer = WindowsSyncPolicy.windowsPrimerPullProductos();
           await _pullProductosIncrementalWindows(
-            maxPages: primer.maxPages,
-            pageSize: primer.pageSize,
+            maxPages: 1,
+            pageSize: budget.productosPageSize,
           );
-          await Future<void>.delayed(Duration(milliseconds: budget.yieldMs));
         } catch (e) {
           debugPrint('actualizarAhora productos: $e');
         }
 
-        if (budget.pullClientes && budget.clientesPage > 0) {
-          try {
-            final page = await _pullPaginaPorDocId(
-              _col('clientes'),
-              watermarkKey: _wmClientesDoc,
-              pageSize: budget.clientesPage,
-            );
-            if (page.docs.isNotEmpty) {
-              await _aplicarClientesRemotos(page);
-            }
-          } catch (e) {
-            debugPrint('actualizarAhora clientes: $e');
-          }
-        }
-
-        // Fase 4 — un tick de outbox (prioriza stock_op / docs).
-        if (_puedeEscribirRemoto) {
-          try {
-            await SyncScheduler.instance.ensureRestored();
-            for (var i = 0; i < budget.schedulerTicks; i++) {
-              final bd = await SyncOutbox.instance.pendingBreakdown();
-              if (bd.isEmpty) break;
-              final claimed = await SyncScheduler.instance.claimForTick(
-                breakdown: bd,
-                isWindows: true,
-              );
-              if (claimed.isEmpty) break;
-              await _ejecutarClaimedOps(
-                claimed,
-                yieldMs: budget.yieldMs,
-                allowPreempt: false,
-              );
-            }
-          } catch (e) {
-            debugPrint('actualizarAhora drain: $e');
-          }
-        }
         debugPrint(
-          'actualizarAhora Windows done stockHint=$stockAppliedHint '
+          'actualizarAhora Windows micro done stockHint=$stockAppliedHint '
           'ms=${sw.elapsedMilliseconds}',
         );
       } else {
