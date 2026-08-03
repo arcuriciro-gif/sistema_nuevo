@@ -271,44 +271,55 @@ class FirestoreSyncService {
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
             try {
-              await _maybeRewindStockOpsWatermarkForConvergence();
               syncStatusDetail = 'Revisando cola local…';
               DataRefreshHub.instance.notifyTodo();
-              // Solo stock MUERTO/reclaim eterno — NO borrar pending frescos
-              // (si no, el stock del .exe nunca llega al APK).
-              // Boot: sin proveCloudApplied (N queries Firestore colgaban el
-              // badge en "Limpiando cola…" y abortaban el seed/ledger).
-              final purged = await SyncOutbox.instance.purgeStuckStockOps(
-                minAttempts: 5,
-                onlyLastErrorContains: 'reclaimed_stale_inflight',
-                limit: 40,
-                proveCloudApplied: null,
-              );
-              final recovered = await SyncOutbox.instance.recoverDeadStockOps(
-                limit: 8,
-                proveCloudApplied: (remoteOpId) =>
-                    _remote.stockOpCloudApplied(remoteOpId),
-              );
-              if (purged > 0 ||
-                  recovered.acked +
-                          recovered.requeued +
-                          recovered.forceRequeued >
-                      0) {
-                debugPrint(
-                  'Outbox Windows: purge=$purged '
-                  'deadAck=${recovered.acked} '
-                  'deadReq=${recovered.requeued} '
-                  'poisonForce=${recovered.forceRequeued}',
+              // 1.4.42: sin recoverDeadStockOps (N gets a Firestore) ni
+              // LegacyLedgerMigration masiva — tumba el EXE al abrir.
+              if (!WindowsSyncPolicy.skipHeavyBootMaintenance) {
+                await _maybeRewindStockOpsWatermarkForConvergence();
+                final purged = await SyncOutbox.instance.purgeStuckStockOps(
+                  minAttempts: 5,
+                  onlyLastErrorContains: 'reclaimed_stale_inflight',
+                  limit: 40,
+                  proveCloudApplied: null,
                 );
-              }
-              // Histórico sin ledger → seed hasta vaciar (G4). Lotes chicos.
-              try {
-                await LegacyLedgerMigration.instance.seedUntilDone(
-                  batchSize: 400,
-                  maxBatches: 20,
+                final recovered = await SyncOutbox.instance.recoverDeadStockOps(
+                  limit: 8,
+                  proveCloudApplied: (remoteOpId) =>
+                      _remote.stockOpCloudApplied(remoteOpId),
                 );
-              } catch (e) {
-                debugPrint('LegacyLedgerMigration boot: $e');
+                if (purged > 0 ||
+                    recovered.acked +
+                            recovered.requeued +
+                            recovered.forceRequeued >
+                        0) {
+                  debugPrint(
+                    'Outbox Windows: purge=$purged '
+                    'deadAck=${recovered.acked} '
+                    'deadReq=${recovered.requeued} '
+                    'poisonForce=${recovered.forceRequeued}',
+                  );
+                }
+                try {
+                  await LegacyLedgerMigration.instance.seedUntilDone(
+                    batchSize: 400,
+                    maxBatches: 20,
+                  );
+                } catch (e) {
+                  debugPrint('LegacyLedgerMigration boot: $e');
+                }
+              } else {
+                // Mantenimiento mínimo local (sin nube).
+                try {
+                  await SyncOutbox.instance.purgeStuckStockOps(
+                    minAttempts: 12,
+                    onlyLastErrorContains: 'reclaimed_stale_inflight',
+                    limit: 5,
+                    proveCloudApplied: null,
+                  );
+                } catch (e) {
+                  debugPrint('Outbox Windows purge liviano: $e');
+                }
               }
               await SyncOutbox.instance.reclaimStaleInflight(
                 olderThan: WindowsSyncPolicy.reclaimStaleInflightAfter,
@@ -325,7 +336,7 @@ class FirestoreSyncService {
                 final que = SyncOutbox.formatBreakdown(breakdown);
                 syncStatusLabel = 'Sincronizando…';
                 syncStatusDetail =
-                    '$pending pendientes: $que (arranque seguro)';
+                    '$pending pendientes: $que (modo estable PC)';
               } else {
                 syncStatusLabel = 'En la nube (modo estable PC)';
                 syncStatusDetail = null;
@@ -519,7 +530,58 @@ class FirestoreSyncService {
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
           await SyncScheduler.instance.ensureRestored();
-          // Windows supervivencia: heal/micro-catchup OFF (0 = nunca).
+
+          // Windows 1.4.42: pump = SOLO subir cola local. Sin inbound.
+          if (windows && WindowsSyncPolicy.outboundOnlyPump) {
+            var pending = await SyncOutbox.instance.countByStatus(
+              SyncOutboxStatus.pending,
+            );
+            if (pending > 0) {
+              syncStatusDetail = '$pending pendientes…';
+              await _procesarSchedulerTicks(windows: true);
+              pending = await SyncOutbox.instance.countByStatus(
+                SyncOutboxStatus.pending,
+              );
+            }
+            // Reclaim muy raro (sin heal/purge/cloud).
+            if (_unifiedPumpTick % 8 == 0) {
+              try {
+                await SyncOutbox.instance.reclaimStaleInflight(
+                  olderThan: WindowsSyncPolicy.reclaimStaleInflightAfter,
+                );
+              } catch (e) {
+                debugPrint('unifiedPump reclaim: $e');
+              }
+            }
+            _unifiedPumpTick++;
+            final leftInflight = await SyncOutbox.instance.countByStatus(
+              SyncOutboxStatus.inflight,
+            );
+            final prevLabel = syncStatusLabel;
+            final prevDetail = syncStatusDetail;
+            if (pending == 0 && leftInflight == 0) {
+              syncStatusLabel = 'En la nube (modo estable PC)';
+              syncStatusDetail = null;
+            } else {
+              syncStatusLabel = 'Sincronizando…';
+              if (pending > 0) {
+                final breakdown = await SyncOutbox.instance.pendingBreakdown();
+                final que = SyncOutbox.formatBreakdown(breakdown);
+                syncStatusDetail = que.isEmpty
+                    ? '$pending pendientes'
+                    : '$pending pendientes: $que';
+              } else {
+                syncStatusDetail = '$leftInflight en curso';
+              }
+            }
+            if (prevLabel != syncStatusLabel ||
+                prevDetail != syncStatusDetail) {
+              DataRefreshHub.instance.notifyTodo();
+            }
+            return;
+          }
+
+          // —— Mobile / Windows legacy (inbound habilitado) ——
           final healEvery = windows ? WindowsSyncPolicy.healEveryNTicks : 1;
           final doHeal = healEvery > 0 && _unifiedPumpTick % healEvery == 0;
           if (doHeal) {
@@ -538,15 +600,6 @@ class FirestoreSyncService {
                   ? WindowsSyncPolicy.reclaimStaleInflightAfter
                   : const Duration(minutes: 5),
             );
-          } else if (windows && _unifiedPumpTick % 6 == 0) {
-            // Solo reclaim liviano cada ~9 min (6*90s) — sin heal/purge.
-            try {
-              await SyncOutbox.instance.reclaimStaleInflight(
-                olderThan: WindowsSyncPolicy.reclaimStaleInflightAfter,
-              );
-            } catch (e) {
-              debugPrint('unifiedPump reclaim: $e');
-            }
           }
           final catchupEvery = WindowsSyncPolicy.microCatchupEveryNTicks;
           if (windows &&
@@ -555,11 +608,11 @@ class FirestoreSyncService {
             await _microCatchupDocsWindows();
           }
 
-          // 1) Inbound stock_ops — no en cada tick (anti-crash).
           final stockEvery = windows
               ? WindowsSyncPolicy.stockOpsEveryNTicks
               : 1;
-          if (stockEvery <= 1 || _unifiedPumpTick % stockEvery == 0) {
+          if (stockEvery > 0 &&
+              (stockEvery <= 1 || _unifiedPumpTick % stockEvery == 0)) {
             try {
               await _tickInboundStockOps(windows: windows);
             } catch (e) {
@@ -567,7 +620,6 @@ class FirestoreSyncService {
             }
           }
 
-          // 1b) Windows sin listeners: poll liviano de comprobantes.
           if (windows &&
               !WindowsSyncPolicy.enableBusinessDocListeners(
                 isWindowsDesktop: true,
@@ -584,7 +636,6 @@ class FirestoreSyncService {
             }
           }
 
-          // 2) Outbound drain
           var pending = await SyncOutbox.instance.countByStatus(
             SyncOutboxStatus.pending,
           );
@@ -597,7 +648,6 @@ class FirestoreSyncService {
             );
           }
 
-          // 3) Soft docs — Windows: OFF por defecto (1.4.41).
           try {
             if (windows &&
                 WindowsSyncPolicy.enablePeriodicSoftPull &&
@@ -822,6 +872,18 @@ class FirestoreSyncService {
           await _pullNegocioRecienteWindows(limit: budget.negocioLimit);
         } catch (e) {
           debugPrint('actualizarAhora negocio: $e');
+        }
+
+        // Fase 3b — productos/precios (inbound solo manual en 1.4.42).
+        try {
+          final primer = WindowsSyncPolicy.windowsPrimerPullProductos();
+          await _pullProductosIncrementalWindows(
+            maxPages: primer.maxPages,
+            pageSize: primer.pageSize,
+          );
+          await Future<void>.delayed(Duration(milliseconds: budget.yieldMs));
+        } catch (e) {
+          debugPrint('actualizarAhora productos: $e');
         }
 
         if (budget.pullClientes && budget.clientesPage > 0) {
@@ -1073,11 +1135,10 @@ class FirestoreSyncService {
       authOk = _puedeEscribirRemoto;
     }
 
-    // Arrancar pump igual: cada tick chequéa Auth; no dejar cola huérfana.
+    // Arrancar pump: solo outbox. Listeners OFF (política).
     _iniciarOutboxPump();
-    // Listeners de negocio (remitos/ventas/clientes/compras) — sync en segundos.
-    // Productos + stock_ops: pump unificado (outbox).
-    if (authOk) {
+    if (authOk &&
+        WindowsSyncPolicy.enableBusinessDocListeners(isWindowsDesktop: true)) {
       _iniciarListenersNegocioWindows();
     }
 
@@ -1092,16 +1153,15 @@ class FirestoreSyncService {
     await CloudSyncThrottle.enqueue(() async {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       await SyncOutbox.instance.ackOrphanUpserts();
-      // 1.4.41: NO micro-catchup al boot (re-encolar tumba EXE).
-      // Productos primero, cupos chicos.
+      // Cupos chicos: subir cola local.
       await _procesarOutboxDrain(
-        maxBatches: 2,
-        claimLimit: 4,
+        maxBatches: 1,
+        claimLimit: 3,
         entityTypes: const ['producto', 'proveedor'],
       );
       await _procesarOutboxDrain(
         maxBatches: 1,
-        claimLimit: 3,
+        claimLimit: 2,
         entityTypes: const [
           'venta',
           'remito',
@@ -1123,35 +1183,39 @@ class FirestoreSyncService {
       DataRefreshHub.instance.notifyTodo();
     }, tag: 'primerDrainPostCuarentena');
 
-    syncInBackground(
-      CloudSyncThrottle.enqueue(
-        _publicarConfigLocalSiHaceFalta,
-        tag: 'publicarConfigPostCuarentena',
-      ),
-      tag: 'publicarConfigPostCuarentena',
-    );
-
-    // Soft-pull / pull productos un poco después del primer drain.
-    Future<void>.delayed(const Duration(seconds: 45), () {
+    // Config texto: diferido y liviano (sin Storage).
+    Future<void>.delayed(const Duration(seconds: 60), () {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       syncInBackground(
-        CloudSyncThrottle.enqueue(() async {
-          try {
-            final primer = WindowsSyncPolicy.windowsPrimerPullProductos();
-            await _pullProductosIncrementalWindows(
-              maxPages: primer.maxPages,
-              pageSize: primer.pageSize,
-            );
-            await _pullConfigWindowsLane('listas');
-          } catch (e) {
-            debugPrint('Primer pull productos/config Windows: $e');
-          }
-        }, tag: 'primerPullProductosWindows'),
-        tag: 'primerPullProductosWindows',
+        CloudSyncThrottle.enqueue(
+          _publicarConfigLocalSiHaceFalta,
+          tag: 'publicarConfigPostCuarentena',
+        ),
+        tag: 'publicarConfigPostCuarentena',
       );
     });
 
-    // Soft-pull ya corre en el pump unificado (no timer paralelo).
+    // 1.4.42: sin primer pull de productos (inbound solo manual).
+    if (!WindowsSyncPolicy.skipPrimerPullProductos) {
+      Future<void>.delayed(const Duration(seconds: 45), () {
+        if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+        syncInBackground(
+          CloudSyncThrottle.enqueue(() async {
+            try {
+              final primer = WindowsSyncPolicy.windowsPrimerPullProductos();
+              await _pullProductosIncrementalWindows(
+                maxPages: primer.maxPages,
+                pageSize: primer.pageSize,
+              );
+              await _pullConfigWindowsLane('listas');
+            } catch (e) {
+              debugPrint('Primer pull productos/config Windows: $e');
+            }
+          }, tag: 'primerPullProductosWindows'),
+          tag: 'primerPullProductosWindows',
+        );
+      });
+    }
   }
 
   static const _wmProductosDoc = 'pull_productos_doc';

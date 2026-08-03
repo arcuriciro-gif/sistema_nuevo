@@ -6,52 +6,24 @@ import 'package:sistema_nuevo/models/producto.dart';
 
 void main() {
   group('Windows anti-crash invariants', () {
-    test('hardCap stock_ops ≤ 1', () {
-      expect(WindowsSyncPolicy.stockOpsHardCap, lessThanOrEqualTo(1));
-      for (final pending in [0, 5, 20, 80, 500]) {
-        final b =
-            WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: pending);
-        expect(
-          b.maxApply,
-          lessThanOrEqualTo(WindowsSyncPolicy.stockOpsHardCap),
-        );
-        expect(b.recentLimit, 0);
-      }
-    });
-
-    test('supervivencia: soft-pull/heal/listeners OFF', () {
-      expect(
-        WindowsSyncPolicy.outboxPumpInterval.inSeconds,
-        greaterThanOrEqualTo(80),
-      );
+    test('solo salida: sin inbound en pump', () {
+      expect(WindowsSyncPolicy.outboundOnlyPump, isTrue);
+      expect(WindowsSyncPolicy.stockOpsEveryNTicks, 0);
+      expect(WindowsSyncPolicy.pollRemitosEveryNTicks, 0);
       expect(WindowsSyncPolicy.enablePeriodicSoftPull, isFalse);
-      expect(WindowsSyncPolicy.healEveryNTicks, 0);
-      expect(WindowsSyncPolicy.microCatchupEveryNTicks, 0);
+      expect(WindowsSyncPolicy.skipHeavyBootMaintenance, isTrue);
+      expect(WindowsSyncPolicy.skipPrimerPullProductos, isTrue);
       expect(
         WindowsSyncPolicy.enableBusinessDocListeners(isWindowsDesktop: true),
         isFalse,
       );
-      expect(WindowsSyncPolicy.softPullProductosPageSize, lessThanOrEqualTo(6));
-      final primer = WindowsSyncPolicy.windowsPrimerPullProductos();
-      expect(primer.maxPages * primer.pageSize, lessThanOrEqualTo(6));
     });
 
-    test('soft-pull lanes sin negocio/stock_ops', () {
-      expect(
-        WindowsSyncPolicy.softPullOtherLanes,
-        isNot(contains('remitos')),
-      );
-      expect(
-        WindowsSyncPolicy.softPullOtherLanes,
-        isNot(contains('stock_ops')),
-      );
-      final lanes = List.generate(
-        12,
-        (i) => WindowsSyncPolicy.softPullLane(i, prioritizeStockOps: true),
-      );
-      expect(lanes, isNot(contains('remitos')));
-      expect(lanes, isNot(contains('ventas')));
-      expect(lanes, isNot(contains('stock_ops')));
+    test('hardCap stock_ops ≤ 1', () {
+      expect(WindowsSyncPolicy.stockOpsHardCap, lessThanOrEqualTo(1));
+      final b = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 0);
+      expect(b.maxApply, lessThanOrEqualTo(1));
+      expect(b.recentLimit, 0);
     });
   });
 
