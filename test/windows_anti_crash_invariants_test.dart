@@ -6,8 +6,8 @@ import 'package:sistema_nuevo/models/producto.dart';
 
 void main() {
   group('Windows anti-crash invariants', () {
-    test('hardCap stock_ops ≤ 3', () {
-      expect(WindowsSyncPolicy.stockOpsHardCap, lessThanOrEqualTo(3));
+    test('hardCap stock_ops ≤ 1', () {
+      expect(WindowsSyncPolicy.stockOpsHardCap, lessThanOrEqualTo(1));
       for (final pending in [0, 5, 20, 80, 500]) {
         final b =
             WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: pending);
@@ -15,57 +15,43 @@ void main() {
           b.maxApply,
           lessThanOrEqualTo(WindowsSyncPolicy.stockOpsHardCap),
         );
+        expect(b.recentLimit, 0);
       }
     });
 
-    test('pump/soft-pull conservadores (no ráfaga)', () {
+    test('supervivencia: soft-pull/heal/listeners OFF', () {
       expect(
         WindowsSyncPolicy.outboxPumpInterval.inSeconds,
-        greaterThanOrEqualTo(40),
+        greaterThanOrEqualTo(80),
       );
+      expect(WindowsSyncPolicy.enablePeriodicSoftPull, isFalse);
+      expect(WindowsSyncPolicy.healEveryNTicks, 0);
+      expect(WindowsSyncPolicy.microCatchupEveryNTicks, 0);
       expect(
-        WindowsSyncPolicy.softPullIntervalFor(pendingProductos: 0).inSeconds,
-        greaterThanOrEqualTo(40),
+        WindowsSyncPolicy.enableBusinessDocListeners(isWindowsDesktop: true),
+        isFalse,
       );
-      expect(WindowsSyncPolicy.softPullProductosPageSize, lessThanOrEqualTo(8));
+      expect(WindowsSyncPolicy.softPullProductosPageSize, lessThanOrEqualTo(6));
       final primer = WindowsSyncPolicy.windowsPrimerPullProductos();
-      expect(primer.maxPages * primer.pageSize, lessThanOrEqualTo(8));
+      expect(primer.maxPages * primer.pageSize, lessThanOrEqualTo(6));
     });
 
-    test('soft-pull no duplica listeners de negocio', () {
+    test('soft-pull lanes sin negocio/stock_ops', () {
       expect(
         WindowsSyncPolicy.softPullOtherLanes,
         isNot(contains('remitos')),
       );
       expect(
         WindowsSyncPolicy.softPullOtherLanes,
-        isNot(contains('ventas')),
+        isNot(contains('stock_ops')),
       );
-      expect(
-        WindowsSyncPolicy.softPullOtherLanes,
-        isNot(contains('clientes')),
-      );
-      expect(
-        WindowsSyncPolicy.softPullOtherLanes,
-        isNot(contains('compras')),
-      );
-      expect(WindowsSyncPolicy.recentBusinessDocsLimit(pendingProductos: 0), 0);
       final lanes = List.generate(
         12,
         (i) => WindowsSyncPolicy.softPullLane(i, prioritizeStockOps: true),
       );
       expect(lanes, isNot(contains('remitos')));
       expect(lanes, isNot(contains('ventas')));
-      // stock_ops solo en pump dedicado — soft-pull no lo duplica.
       expect(lanes, isNot(contains('stock_ops')));
-      expect(
-        WindowsSyncPolicy.softPullOtherLanes,
-        isNot(contains('stock_ops')),
-      );
-      expect(
-        lanes.where((l) => l == 'productos_inc').length,
-        greaterThanOrEqualTo(8),
-      );
     });
   });
 

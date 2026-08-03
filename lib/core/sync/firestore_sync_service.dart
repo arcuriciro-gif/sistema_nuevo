@@ -402,12 +402,13 @@ class FirestoreSyncService {
   }) {
     if (PlatformCapabilities.isWindowsDesktop) {
       // Interactivo: sin demora artificial — la venta/precio debe verse ya.
+      // Cupos chicos: no tumbar EXE al guardar.
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
           await job();
           await _procesarOutboxDrain(
-            maxBatches: 2,
-            claimLimit: 8,
+            maxBatches: 1,
+            claimLimit: 3,
             entityTypes: const [
               'venta',
               'remito',
@@ -518,9 +519,9 @@ class FirestoreSyncService {
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
           await SyncScheduler.instance.ensureRestored();
-          // Windows modo tranquilo: heal raro; micro-catchup aún más raro.
+          // Windows supervivencia: heal/micro-catchup OFF (0 = nunca).
           final healEvery = windows ? WindowsSyncPolicy.healEveryNTicks : 1;
-          final doHeal = _unifiedPumpTick % healEvery == 0;
+          final doHeal = healEvery > 0 && _unifiedPumpTick % healEvery == 0;
           if (doHeal) {
             await SyncScheduler.instance.runAutoHeal();
             await SyncOutbox.instance.ackOrphanUpserts();
@@ -528,7 +529,7 @@ class FirestoreSyncService {
               await SyncOutbox.instance.purgeStuckStockOps(
                 minAttempts: 8,
                 onlyLastErrorContains: 'reclaimed_stale_inflight',
-                limit: 8,
+                limit: 4,
                 proveCloudApplied: null,
               );
             }
@@ -537,17 +538,50 @@ class FirestoreSyncService {
                   ? WindowsSyncPolicy.reclaimStaleInflightAfter
                   : const Duration(minutes: 5),
             );
+          } else if (windows && _unifiedPumpTick % 6 == 0) {
+            // Solo reclaim liviano cada ~9 min (6*90s) — sin heal/purge.
+            try {
+              await SyncOutbox.instance.reclaimStaleInflight(
+                olderThan: WindowsSyncPolicy.reclaimStaleInflightAfter,
+              );
+            } catch (e) {
+              debugPrint('unifiedPump reclaim: $e');
+            }
           }
           final catchupEvery = WindowsSyncPolicy.microCatchupEveryNTicks;
-          if (windows && _unifiedPumpTick % catchupEvery == 0) {
+          if (windows &&
+              catchupEvery > 0 &&
+              _unifiedPumpTick % catchupEvery == 0) {
             await _microCatchupDocsWindows();
           }
 
-          // 1) Inbound stock_ops siempre (hardCap) — no esperar outbox vacío.
-          try {
-            await _tickInboundStockOps(windows: windows);
-          } catch (e) {
-            debugPrint('unifiedPump stock_ops: $e');
+          // 1) Inbound stock_ops — no en cada tick (anti-crash).
+          final stockEvery = windows
+              ? WindowsSyncPolicy.stockOpsEveryNTicks
+              : 1;
+          if (stockEvery <= 1 || _unifiedPumpTick % stockEvery == 0) {
+            try {
+              await _tickInboundStockOps(windows: windows);
+            } catch (e) {
+              debugPrint('unifiedPump stock_ops: $e');
+            }
+          }
+
+          // 1b) Windows sin listeners: poll liviano de comprobantes.
+          if (windows &&
+              !WindowsSyncPolicy.enableBusinessDocListeners(
+                isWindowsDesktop: true,
+              )) {
+            final remEvery = WindowsSyncPolicy.pollRemitosEveryNTicks;
+            if (remEvery > 0 && _unifiedPumpTick % remEvery == 0) {
+              try {
+                await _pullNegocioRecienteWindows(
+                  limit: WindowsSyncPolicy.pollRemitosLimit,
+                );
+              } catch (e) {
+                debugPrint('unifiedPump poll remitos: $e');
+              }
+            }
           }
 
           // 2) Outbound drain
@@ -563,7 +597,7 @@ class FirestoreSyncService {
             );
           }
 
-          // 3) Soft docs — Windows: solo catálogo/precios (sin stock_ops).
+          // 3) Soft docs — Windows: OFF por defecto (1.4.41).
           try {
             if (windows &&
                 WindowsSyncPolicy.enablePeriodicSoftPull &&
@@ -1058,16 +1092,16 @@ class FirestoreSyncService {
     await CloudSyncThrottle.enqueue(() async {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       await SyncOutbox.instance.ackOrphanUpserts();
-      await _microCatchupDocsWindows();
-      // Productos primero (grueso de la cola del screenshot).
+      // 1.4.41: NO micro-catchup al boot (re-encolar tumba EXE).
+      // Productos primero, cupos chicos.
       await _procesarOutboxDrain(
-        maxBatches: 3,
-        claimLimit: 8,
+        maxBatches: 2,
+        claimLimit: 4,
         entityTypes: const ['producto', 'proveedor'],
       );
       await _procesarOutboxDrain(
-        maxBatches: 2,
-        claimLimit: 5,
+        maxBatches: 1,
+        claimLimit: 3,
         entityTypes: const [
           'venta',
           'remito',
@@ -1098,7 +1132,7 @@ class FirestoreSyncService {
     );
 
     // Soft-pull / pull productos un poco después del primer drain.
-    Future<void>.delayed(const Duration(seconds: 20), () {
+    Future<void>.delayed(const Duration(seconds: 45), () {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
@@ -1109,7 +1143,6 @@ class FirestoreSyncService {
               pageSize: primer.pageSize,
             );
             await _pullConfigWindowsLane('listas');
-            await _pullConfigWindowsLane('branding_text');
           } catch (e) {
             debugPrint('Primer pull productos/config Windows: $e');
           }
@@ -1170,8 +1203,8 @@ class FirestoreSyncService {
 
   int _softPullTickWindows = 0;
 
-  /// Remitos/ventas más recientes por `actualizadoEn` (no depende del
-  /// watermark lento por documentId). Idempotente por número.
+  /// Remitos más recientes por `actualizadoEn` (poll liviano Windows).
+  /// No depende de listeners ni watermark lento.
   Future<void> _pullNegocioRecienteWindows({int limit = 25}) async {
     try {
       final rem = await _remitosCol
@@ -1184,17 +1217,8 @@ class FirestoreSyncService {
     } catch (e) {
       debugPrint('pull remitos recientes Windows: $e');
     }
-    try {
-      final ven = await _ventasCol
-          .orderBy('actualizadoEn', descending: true)
-          .limit(limit)
-          .get();
-      if (ven.docs.isNotEmpty) {
-        await _aplicarVentasRemotas(ven);
-      }
-    } catch (e) {
-      debugPrint('pull ventas recientes Windows: $e');
-    }
+    // 1.4.41: no tirar ventas en el poll automático (menos trabajo EXE).
+    // Ventas legacy llegan con "Actualizar ahora" si hace falta.
   }
 
   /// Una sola colección por tick. Con outbox quieto prioriza negocio + stock.
