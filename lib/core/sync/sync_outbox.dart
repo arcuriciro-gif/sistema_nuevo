@@ -694,6 +694,79 @@ GROUP BY l
     return n;
   }
 
+  /// Windows 1.4.43: limpia cola fantasma al abrir (sin cambios del usuario).
+  ///
+  /// - Docs (producto/remito/…): ACK si ya reintentaron bastante o llevan días.
+  /// - stock_op: no ACK a ciegas; si está en bucle reclaim → `dead` (corta el loop).
+  /// No crea pendientes nuevos.
+  Future<int> quietWindowsGhostQueue({
+    int minAttemptsDocs = 3,
+    Duration staleAfter = const Duration(hours: 36),
+    int limit = 250,
+  }) async {
+    final db = await _db;
+    final cutoff = DateTime.now().toUtc().subtract(staleAfter).toIso8601String();
+    final ahora = DateTime.now().toUtc().toIso8601String();
+    final rows = await db.query(
+      'sync_outbox',
+      columns: [
+        'op_id',
+        'entity_type',
+        'attempts',
+        'last_error',
+        'updated_at',
+        'status',
+      ],
+      where: 'status IN (?, ?)',
+      whereArgs: [SyncOutboxStatus.pending, SyncOutboxStatus.inflight],
+      orderBy: 'id ASC',
+      limit: limit,
+    );
+    var n = 0;
+    for (final r in rows) {
+      final opId = r['op_id']?.toString() ?? '';
+      if (opId.isEmpty) continue;
+      final type = r['entity_type']?.toString() ?? '';
+      final attempts = (r['attempts'] as num?)?.toInt() ?? 0;
+      final updatedAt = r['updated_at']?.toString() ?? '';
+      final err = (r['last_error']?.toString() ?? '').toLowerCase();
+      final stale = updatedAt.isNotEmpty && updatedAt.compareTo(cutoff) < 0;
+      final loopErr = err.contains('reclaimed_stale_inflight') ||
+          err.contains('requeued_awaiting_cloud_proof') ||
+          err.contains('circuit_open') ||
+          err.contains('sin sesión') ||
+          err.contains('permission-denied');
+
+      if (type == 'stock_op') {
+        if (attempts >= 8 && (loopErr || stale)) {
+          n += await db.update(
+            'sync_outbox',
+            {
+              'status': SyncOutboxStatus.dead,
+              'updated_at': ahora,
+              'last_error': 'windows_ghost_quieted',
+              'next_attempt_at': null,
+            },
+            where: 'op_id = ? AND status IN (?, ?)',
+            whereArgs: [
+              opId,
+              SyncOutboxStatus.pending,
+              SyncOutboxStatus.inflight,
+            ],
+          );
+        }
+        continue;
+      }
+
+      // Catálogo / comprobantes / clientes: basura de catchup o fallos viejos.
+      if (attempts >= minAttemptsDocs || stale || (attempts >= 1 && loopErr)) {
+        await ack(opId);
+        n++;
+      }
+    }
+    return n;
+  }
+
   /// Stock_ops trabados (reclaim eterno).
   ///
   /// **C6:** NUNCA ACK sin prueba de apply en nube. Sin [proveCloudApplied]

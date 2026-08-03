@@ -309,17 +309,8 @@ class FirestoreSyncService {
                   debugPrint('LegacyLedgerMigration boot: $e');
                 }
               } else {
-                // Mantenimiento mínimo local (sin nube).
-                try {
-                  await SyncOutbox.instance.purgeStuckStockOps(
-                    minAttempts: 12,
-                    onlyLastErrorContains: 'reclaimed_stale_inflight',
-                    limit: 5,
-                    proveCloudApplied: null,
-                  );
-                } catch (e) {
-                  debugPrint('Outbox Windows purge liviano: $e');
-                }
+                // 1.4.43: NO purge sin prove (reencola y deja "pendientes" eternos).
+                // Solo limpiar fantasmas locales.
               }
               await SyncOutbox.instance.reclaimStaleInflight(
                 olderThan: WindowsSyncPolicy.reclaimStaleInflightAfter,
@@ -329,6 +320,10 @@ class FirestoreSyncService {
               if (orphans > 0) {
                 debugPrint('Outbox: ACK $orphans huérfanos');
               }
+              final ghosts = await SyncOutbox.instance.quietWindowsGhostQueue();
+              if (ghosts > 0) {
+                debugPrint('Outbox Windows: quieted $ghosts fantasmas');
+              }
 
               final breakdown = await SyncOutbox.instance.pendingBreakdown();
               final pending = breakdown.values.fold<int>(0, (a, b) => a + b);
@@ -336,7 +331,7 @@ class FirestoreSyncService {
                 final que = SyncOutbox.formatBreakdown(breakdown);
                 syncStatusLabel = 'Sincronizando…';
                 syncStatusDetail =
-                    '$pending pendientes: $que (modo estable PC)';
+                    '$pending por subir: $que';
               } else {
                 syncStatusLabel = 'En la nube (modo estable PC)';
                 syncStatusDetail = null;
@@ -1112,10 +1107,9 @@ class FirestoreSyncService {
       syncStatusLabel = 'En la nube (modo estable PC)';
       syncStatusDetail = null;
     } else {
-      syncStatusLabel = 'Sincronizando…';
-      syncStatusDetail =
-          '$pending0 pendientes: ${SyncOutbox.formatBreakdown(breakdown0)} '
-          '(empieza en ${q.inSeconds}s)';
+      // No asustar: son restos de cola, no "cambios nuevos" del usuario.
+      syncStatusLabel = 'Iniciando…';
+      syncStatusDetail = 'Preparando sync (cola local)…';
     }
     DataRefreshHub.instance.notifyTodo();
 
@@ -1153,7 +1147,8 @@ class FirestoreSyncService {
     await CloudSyncThrottle.enqueue(() async {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       await SyncOutbox.instance.ackOrphanUpserts();
-      // Cupos chicos: subir cola local.
+      await SyncOutbox.instance.quietWindowsGhostQueue();
+      // Cupos chicos: subir cola local real.
       await _procesarOutboxDrain(
         maxBatches: 1,
         claimLimit: 3,
@@ -1175,7 +1170,7 @@ class FirestoreSyncService {
       if (pending > 0) {
         syncStatusLabel = 'Sincronizando…';
         syncStatusDetail =
-            '$pending pendientes: ${SyncOutbox.formatBreakdown(breakdown)}';
+            '$pending por subir: ${SyncOutbox.formatBreakdown(breakdown)}';
       } else {
         syncStatusLabel = 'En la nube (modo estable PC)';
         syncStatusDetail = null;
