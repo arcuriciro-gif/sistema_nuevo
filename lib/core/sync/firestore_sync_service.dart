@@ -799,7 +799,7 @@ class FirestoreSyncService {
           pendingProductos: pendingProd,
         );
         var stockAppliedHint = 0;
-        final pause = () => Future<void>.delayed(
+        Future<void> pause() => Future<void>.delayed(
               Duration(milliseconds: budget.yieldMs),
             );
 
