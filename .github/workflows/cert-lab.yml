@@ -1,8 +1,7 @@
 name: Cert Lab ERP
 
-# Gate obligatorio: el laboratorio debe existir y el protocolo P0 debe pasar.
-# La batería completa (con contratos de motor) puede tener ROJO hasta certificar
-# capacidades — se corre en job aparte sin fallar el gate de existencia.
+# Gate de comprobación del sistema pyme (reemplaza el lab AFIP/CRM borrado).
+# Debe quedar GREEN: sync Windows, stock, outbox, dominio y menú del local.
 
 on:
   workflow_dispatch:
@@ -13,10 +12,10 @@ on:
   pull_request:
 
 jobs:
-  cert-lab-protocol:
+  sistema-pyme-core:
     name: Cert Lab protocolo P0 (GREEN obligatorio)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
@@ -24,26 +23,51 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - name: Run Cert Lab protocolo
-        run: flutter test --tags cert-lab test/cert/lab/cert_lab_protocol_test.dart test/cert/lab/cert_lab_oracle_test.dart
-      - name: Run Cert Lab Productos (real ProductoService)
-        run: flutter test --tags cert-lab test/cert/lab/cert_lab_productos_test.dart
-      - name: Run Cert Lab Stock (RemitoService real)
-        run: flutter test --tags cert-lab test/cert/lab/cert_lab_stock_test.dart
-      - name: Run Cert Lab Remitos + Clientes
-        run: flutter test --tags cert-lab test/cert/lab/cert_lab_remitos_clientes_test.dart
-      - name: Upload report if present
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: cert-lab-protocol
-          path: /opt/cursor/artifacts/cert-lab/
-          if-no-files-found: ignore
+      - name: Windows sync / anti-crash
+        run: |
+          flutter test \
+            test/windows_sync_fast_safe_test.dart \
+            test/windows_anti_crash_invariants_test.dart
+      - name: Sync outbox + stock convergencia
+        run: |
+          flutter test \
+            test/sync_outbox_pending_breakdown_test.dart \
+            test/sync_outbox_reclaim_dead_test.dart \
+            test/sync_outbox_reopen_acked_test.dart \
+            test/sync_scheduler_outbox_test.dart \
+            test/sync_stock_convergence_p0_test.dart \
+            test/stock_ops_integridad_piloto_test.dart \
+            test/stock_ops_watermark_v2_test.dart \
+            test/soft_delete_stock_lww_test.dart \
+            test/stock_kpi_consistencia_test.dart \
+            test/productos_conteo_stock_kpi_test.dart \
+            test/garantias_g1_g6_secuencia_adversa_test.dart \
+            test/forense_stock_ops_idempotencia_test.dart
+      - name: Dominio local (comprobantes / pagos / CC)
+        run: |
+          flutter test \
+            test/pagos_parciales_remito_test.dart \
+            test/cuenta_corriente_remoto_test.dart \
+            test/offline_alta_local_test.dart \
+            test/listas_precio_offline_test.dart \
+            test/ui_modo_menu_test.dart
+      - name: Capacidades 1–9 (regresión)
+        run: |
+          flutter test \
+            test/capacidad1_seguridad_test.dart \
+            test/capacidad2_sync_test.dart \
+            test/capacidad3_dominio_test.dart \
+            test/capacidad4_autorizacion_test.dart \
+            test/capacidad5_backup_test.dart \
+            test/capacidad6_integridad_test.dart \
+            test/capacidad7_deletes_convergencia_test.dart \
+            test/capacidad8_reconciliacion_test.dart \
+            test/capacidad9_catchup_test.dart
 
-  cert-lab-full-report:
+  sistema-pyme-full:
     name: Cert Lab full (protocolo + P0-99 inbound)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
@@ -51,7 +75,7 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - name: Run Cert Lab full battery
-        run: flutter test --tags cert-lab test/cert/lab/cert_lab_battery_test.dart
+      - name: Suite completa (sin tags cert-lab legacy)
+        run: flutter test --exclude-tags cert-lab
       - name: Windows policy hardCap
         run: flutter test test/windows_sync_fast_safe_test.dart
