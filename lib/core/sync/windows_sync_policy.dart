@@ -3,10 +3,9 @@
 /// Prioridad #1 absoluta: que el .exe no se caiga.
 ///
 /// 1.4.42 — modo **solo salida** en background.
-/// 1.4.44 — «Actualizar ahora» también micro (antes tumbaba el EXE).
+/// 1.4.45 — «Actualizar ahora» también push-only (como 1.4.20 en campo).
 /// - Background: únicamente drenar outbox local → nube.
-/// - Inbound (comprobantes/stock/productos del celular): SOLO con
-///   «Actualizar ahora» en dosis mínimas (2 comprobantes / 1 stock / 2 productos).
+/// - Botón PC: limpia fantasmas + sube cola; NO baja de la nube.
 /// - Sin listeners, soft-pull, heal, micro-catchup, poll remitos, stock_ops
 ///   periódico ni migración ledger pesada al boot.
 class WindowsSyncPolicy {
@@ -30,8 +29,12 @@ class WindowsSyncPolicy {
   static const Duration softPullInterval = Duration(seconds: 600);
   static const bool enablePeriodicSoftPull = false;
 
+  /// Solo salida: no traer del cloud en el pump.
+  static const bool outboundOnlyPump = true;
+
   /// «Actualizar ahora» en Windows: SOLO subir cola local (push).
   /// Cualquier pull inbound (stock/productos/remitos) tumba el EXE en campo.
+  /// Aprendizaje de campo 1.4.20 — reconfirmado 1.4.45.
   static const bool manualRefreshPushOnly = true;
 
   static const int healEveryNTicks = 0;
