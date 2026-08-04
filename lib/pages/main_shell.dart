@@ -29,7 +29,6 @@ import 'clientes_deudores_page.dart';
 import 'comparacion_page.dart';
 import 'compras_page.dart';
 import 'configuracion_page.dart';
-import 'panel_tecnico_page.dart';
 import 'inicio_page.dart';
 import 'importacion_page.dart';
 import 'listas_precio_page.dart';
@@ -117,7 +116,6 @@ class _ShellItem {
   final String modulo;
   final Widget Function() builder;
   final bool quickAccess;
-  final bool soloAdmin;
 
   const _ShellItem({
     required this.icon,
@@ -125,7 +123,6 @@ class _ShellItem {
     required this.modulo,
     required this.builder,
     this.quickAccess = false,
-    this.soloAdmin = false,
   });
 
   /// Id estable para preferencias de barra lateral.
@@ -429,13 +426,9 @@ class _MainShellState extends State<MainShell> {
           modulo: 'backup',
           builder: () => const BackupPage(),
         ),
-        _ShellItem(
-          icon: Icons.monitor_heart_rounded,
-          title: 'Panel técnico',
-          modulo: 'auditoria',
-          builder: () => const PanelTecnicoPage(),
-          soloAdmin: true,
-        ),
+        // Panel técnico retirado del menú diario (1.4.39): era lab/diagnóstico,
+        // no operación del local. La página queda en el código por si un
+        // mantenimiento futuro la reabre desde Config.
         _ShellItem(
           icon: Icons.settings_rounded,
           title: 'Configuración',
@@ -447,9 +440,7 @@ class _MainShellState extends State<MainShell> {
   List<_ShellItem> get _visibleItems {
     final rol = AuthService.instance.currentUser?.rol ?? 'empleado';
     final prefs = SidebarPreferenciasService.instance;
-    final isAdmin = AuthService.instance.esAdministrador();
     return _items
-        .where((item) => !item.soloAdmin || isAdmin)
         .where((item) => PermisosService.instance.puedeVer(rol, item.modulo))
         .where((item) => prefs.estaVisible(item.preferenciaId))
         .toList();

@@ -24,6 +24,10 @@ void main() {
       isTrue,
     );
     expect(
+      SidebarPreferenciasService.instance.estaVisible('remitos|Comprobantes'),
+      isTrue,
+    );
+    expect(
       SidebarPreferenciasService.instance.estaVisible('compras|Compras'),
       isTrue,
     );
@@ -33,6 +37,10 @@ void main() {
     );
     expect(
       SidebarPreferenciasService.instance.estaVisible('usuarios|Usuarios'),
+      isFalse,
+    );
+    expect(
+      kShellMenuCatalog.any((e) => e.title == 'Panel técnico'),
       isFalse,
     );
   });

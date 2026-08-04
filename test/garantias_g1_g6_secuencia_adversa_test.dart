@@ -176,10 +176,12 @@ void main() {
       );
       expect(ledger, hasLength(1));
 
+      // stockOpCloudId = local_<eventId>_<productoId> (sin deviceId en tests).
+      final cloudOpId = 'local_compra:9_$id';
       final outbox = await db.query(
         'sync_outbox',
-        where: "op_id = ?",
-        whereArgs: ['stock_op:compra:9_$id'],
+        where: 'op_id = ?',
+        whereArgs: ['stock_op:$cloudOpId'],
       );
       expect(outbox, hasLength(1));
       expect(outbox.first['status'], SyncOutboxStatus.pending);
@@ -187,7 +189,7 @@ void main() {
       final applied = await db.query(
         'stock_ops_applied',
         where: 'op_id = ?',
-        whereArgs: ['compra:9_$id'],
+        whereArgs: [cloudOpId],
       );
       expect(applied, hasLength(1));
       expect(applied.first['origin'], 'local');
