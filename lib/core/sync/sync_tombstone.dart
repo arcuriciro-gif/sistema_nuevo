@@ -23,6 +23,8 @@ Map<String, dynamic> buildTombstonePayload({
     'deletedBy': deletedBy,
     'tombstone': true,
     'opId': opId,
+    // Sin actualizadoEn el pull incremental por timestamp nunca ve el delete.
+    'actualizadoEn': (at ?? DateTime.now().toUtc()).toIso8601String(),
   };
   if (clearDescripcion) {
     payload['descripcion'] = '';

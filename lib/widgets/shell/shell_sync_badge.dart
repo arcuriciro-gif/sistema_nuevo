@@ -67,11 +67,11 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
       final r = await FirestoreSyncService.instance
           .actualizarAhora()
           .timeout(
-            // Windows: varias micro-rondas; 90s cortaba mid-apply.
-            const Duration(seconds: 120),
+            // Windows 1.4.48: botón solo SQLite local.
+            const Duration(seconds: 30),
             onTimeout: () => {
               'ok': false,
-              'error': 'timeout_120s',
+              'error': 'timeout_30s',
             },
           );
       if (!mounted) return;
@@ -85,14 +85,14 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
             ok
                 ? (localOnly
                     ? (pendingLeft == 0
-                        ? 'Pendientes limpios (${r['ms']} ms).'
+                        ? 'Pendientes limpios (${r['ms']} ms). Sync automática activa.'
                         : 'Limpié ${r['quieted'] ?? 0} fantasmas; '
-                            'quedan $pendingLeft.')
+                            'quedan $pendingLeft (la sync automática los sube).')
                     : pushOnly
                         ? (pendingLeft == 0
                             ? 'Cola limpia (${r['ms']} ms).'
                             : 'Subidos ${r['drained'] ?? 0}; quedan $pendingLeft.')
-                        : 'Actualizado (${r['ms']} ms). Sync automática activa.')
+                        : 'Actualizado (${r['ms']} ms).')
                 : 'No se pudo actualizar: ${r['error'] ?? 'error'}',
           ),
         ),
@@ -307,16 +307,16 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
                         : const Icon(Icons.cloud_sync_rounded),
                     label: Text(
                       _actualizando
-                          ? 'Actualizando…'
-                          : 'Actualizar ahora',
+                          ? 'Limpiando…'
+                          : 'Limpiar pendientes',
                     ),
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'La sync es automática (como el 21 jul): ventas, '
-                  'comprobantes y productos se reflejan solos. '
-                  'Este botón es solo un refuerzo opcional.',
+                  'La sync es automática: ventas y productos se alinean solos. '
+                  'Este botón solo limpia pendientes fantasma (no toca la nube: '
+                  'eso tumbaba el EXE). No hace falta usarlo para sincronizar.',
                   style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                         color: Theme.of(ctx).hintColor,
                       ),

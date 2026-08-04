@@ -6,10 +6,11 @@ import 'package:sistema_nuevo/models/producto.dart';
 
 void main() {
   group('Windows anti-crash invariants', () {
-    test('sync automática: listeners + inbound en pump', () {
+    test('sync automática: negocio listeners + productos soft-pull', () {
       expect(WindowsSyncPolicy.outboundOnlyPump, isFalse);
       expect(WindowsSyncPolicy.enablePeriodicSoftPull, isTrue);
-      expect(WindowsSyncPolicy.enableProductosListenerWindows, isTrue);
+      expect(WindowsSyncPolicy.enableProductosListenerWindows, isFalse);
+      expect(WindowsSyncPolicy.manualRefreshLocalOnly, isTrue);
       expect(WindowsSyncPolicy.stockOpsEveryNTicks, greaterThan(0));
       expect(WindowsSyncPolicy.skipPrimerPullProductos, isFalse);
       expect(WindowsSyncPolicy.skipHeavyBootMaintenance, isTrue);
@@ -76,6 +77,7 @@ void main() {
       );
       expect(t['tombstone'], isTrue);
       expect(t['descripcion'], '');
+      expect(t['actualizadoEn'], isNotEmpty);
     });
   });
 }

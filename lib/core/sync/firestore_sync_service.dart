@@ -1162,9 +1162,10 @@ class FirestoreSyncService {
       );
     });
 
-    // 1.4.42: sin primer pull de productos (inbound solo manual).
+    // 1.4.48: primer pull productos (inc + barrido catálogo) para cerrar
+    // diferencias de lista sin el botón manual (que tumba el EXE).
     if (!WindowsSyncPolicy.skipPrimerPullProductos) {
-      Future<void>.delayed(const Duration(seconds: 45), () {
+      Future<void>.delayed(const Duration(seconds: 25), () {
         if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
@@ -1173,6 +1174,11 @@ class FirestoreSyncService {
               await _pullProductosIncrementalWindows(
                 maxPages: primer.maxPages,
                 pageSize: primer.pageSize,
+              );
+              await _pullProductosCatalogoWindows(
+                maxPages: 3,
+                pageSize: primer.pageSize,
+                forceRestart: true,
               );
               await _pullConfigWindowsLane('listas');
             } catch (e) {
@@ -1420,7 +1426,7 @@ class FirestoreSyncService {
       final lastDone = DateTime.tryParse(meta['completedAt']?.toString() ?? '');
       final stale = lastDone == null ||
           DateTime.now().toUtc().difference(lastDone) >
-              const Duration(minutes: 30);
+              WindowsSyncPolicy.catalogSweepRestartAfter;
       if (!stale) return;
       afterId = null;
     }
