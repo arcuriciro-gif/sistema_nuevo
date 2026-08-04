@@ -3380,7 +3380,25 @@ class FirestoreSyncService {
   void _onProductosSnapshot(QuerySnapshot<Map<String, dynamic>> snap) {
     try {
       final List<Producto> lote;
-      if (_productosSnapshotInicial || snap.docChanges.isEmpty) {
+      final windows = PlatformCapabilities.isWindowsDesktop;
+      // Windows 1.4.49: NUNCA aplicar snapshot inicial de miles de docs
+      // (tumbaba el EXE / dejaba lista a medias). Solo docChanges;
+      // el catálogo lo cierra soft-pull + primer pull.
+      if (windows &&
+          WindowsSyncPolicy.skipProductosInitialSnapshotApply &&
+          _productosSnapshotInicial) {
+        _productosSnapshotInicial = false;
+        if (snap.docChanges.isEmpty) return;
+        lote = snap.docChanges
+            .where((c) => c.type != DocumentChangeType.removed)
+            .map((c) {
+              final data = c.doc.data();
+              if (data == null) return null;
+              return Producto.fromFirestore(data, docId: c.doc.id);
+            })
+            .whereType<Producto>()
+            .toList();
+      } else if (_productosSnapshotInicial || snap.docChanges.isEmpty) {
         _productosSnapshotInicial = false;
         lote = snap.docs
             .map((d) => Producto.fromFirestore(d.data(), docId: d.id))
@@ -3396,14 +3414,15 @@ class FirestoreSyncService {
             .whereType<Producto>()
             .toList();
       }
+      // Removed remoto: si es tombstone ya viene en data; si type==removed
+      // y no hay data, no recreamos. Soft-pull/catálogo limpia papelera.
       if (lote.isEmpty) return;
-      // Windows: el snapshot inicial (miles de productos) no debe pelear
-      // con el resto del arranque de sync en el mismo instante.
-      if (PlatformCapabilities.isWindowsDesktop) {
+      if (windows) {
         syncInBackground(
           CloudSyncThrottle.enqueue(
             () => _aplicarProductosRemotos(lote),
             tag: 'productosSnapshot',
+            interactive: true,
           ),
           tag: 'productosSnapshot',
         );
@@ -5197,11 +5216,18 @@ class FirestoreSyncService {
               await _cache.buscarPorCodigoIncluyendoEliminados(producto.codigo);
 
           // Hard-delete remoto (tombstone): borrar fila local, no soft-delete.
+          // Comercio chico: tombstone remoto gana — si hay upsert fantasma
+          // pendiente, lo ACK y borramos (si no, la papelera del EXE nunca
+          // se vacía tras borrar definitivo en el celular).
           if (producto.esTombstoneRemoto) {
             final localId = local?.id;
-            if (localId != null &&
-                !await SyncOutbox.instance
-                    .hasPendingLocalId('producto', localId)) {
+            if (localId != null) {
+              if (await SyncOutbox.instance
+                  .hasPendingLocalId('producto', localId)) {
+                try {
+                  await SyncOutbox.instance.ack('upsert:producto:$localId');
+                } catch (_) {}
+              }
               huboCambios = true;
               batch.delete(
                 'productos',
@@ -5274,11 +5300,19 @@ class FirestoreSyncService {
           if (local != null && _productoSinCambiosRelevantes(local, merged)) {
             continue;
           }
-          // Si hay ops/outbox pendientes del producto, no pisar metadata stock.
+          // Si hay ops/outbox pendientes del producto, no pisar metadata stock
+          // salvo que el remoto sea más nuevo (precio/papelera del celular).
           if (local?.id != null &&
               await SyncOutbox.instance
                   .hasPendingLocalId('producto', local!.id!)) {
-            continue;
+            if (remTs != null &&
+                (locTs == null || remTs.isAfter(locTs))) {
+              try {
+                await SyncOutbox.instance.ack('upsert:producto:${local.id}');
+              } catch (_) {}
+            } else {
+              continue;
+            }
           }
           huboCambios = true;
           codigosTocados.add(producto.codigo.trim());

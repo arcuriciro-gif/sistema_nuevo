@@ -1,25 +1,26 @@
-# Sync 21 jul vs ahora (campo)
+# Sync comercio chico — 1.4.49
 
-## 1.4.48 — qué cambió tras tu prueba
+## Pedido de campo
+Sin actualización manual (cae el EXE). Sync automática simple: productos,
+precios, ventas, comprobantes, fotos. Papelera y “sin stock” alineados.
 
-| Problema | Fix |
+## Referencia estable
+~21 jul (Fase 2 / ~1.2.18): listeners Firestore + outbox liviano.
+Ahí “al instante” funcionaba. Después se agregó motor complejo y el botón.
+
+## 1.4.49
+| Ítem | Comportamiento |
 | --- | --- |
-| Tocaste Actualizar y el EXE se cayó | Botón = **solo limpia fantasmas** (cero Firebase) |
-| Lista de productos distinta PC↔celular | Productos por **soft-pull** (inc + barrido catálogo), no listener 10k |
-| Deletes que no cruzaban | Tombstone ahora lleva `actualizadoEn` |
-| Apply enorme fallaba entero | Apply de productos en lotes de 35 |
+| Botón Actualizar | **Eliminado** de la UI |
+| Ventas / remitos / clientes | Listeners ON |
+| Productos / precios | Listener solo de **cambios** + soft-pull catálogo |
+| Snapshot 10k productos | **No se aplica** en PC (anti-crash) |
+| Papelera | Tombstone remoto borra fila local (aunque haya upsert fantasma) |
+| Fotos | Se ven por URL (subidas desde el celular) |
+| Storage en PC | Sigue OFF (putData tumbaba el EXE) |
 
-## Qué sigue automático
-
-- Listeners: ventas / remitos / clientes / compras → en segundos
-- Soft-pull productos cada ~12–18s + barrido catálogo cada ~8 min
-- Primer pull de productos ~25s después de abrir la PC
-- Stock_ops inbound con techo ≤4
-
-## Cómo probar 1.4.48
-
-1. Instalá EXE + APK.
-2. **No uses el botón** para sincronizar (solo limpia fantasmas).
-3. Esperá ~1–2 minutos con ambos abiertos: la lista debería ir alineándose sola.
-4. Probá una venta: debería verse en el otro dispositivo.
-5. Si el EXE se cae, anotá: ¿al abrir? ¿solo? ¿tras X minutos?
+## Cómo probar
+1. Instalá 1.4.49 en PC y celular.
+2. Esperá ~30–60 s con ambos abiertos.
+3. Vendé / cambiá precio / mandá a papelera / borrá definitivo.
+4. No busques botón de actualizar: no existe.

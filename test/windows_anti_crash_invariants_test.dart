@@ -6,14 +6,14 @@ import 'package:sistema_nuevo/models/producto.dart';
 
 void main() {
   group('Windows anti-crash invariants', () {
-    test('sync automática: negocio listeners + productos soft-pull', () {
+    test('sync simple: listeners + soft-pull; sin snapshot 10k', () {
       expect(WindowsSyncPolicy.outboundOnlyPump, isFalse);
       expect(WindowsSyncPolicy.enablePeriodicSoftPull, isTrue);
-      expect(WindowsSyncPolicy.enableProductosListenerWindows, isFalse);
+      expect(WindowsSyncPolicy.enableProductosListenerWindows, isTrue);
+      expect(WindowsSyncPolicy.skipProductosInitialSnapshotApply, isTrue);
       expect(WindowsSyncPolicy.manualRefreshLocalOnly, isTrue);
       expect(WindowsSyncPolicy.stockOpsEveryNTicks, greaterThan(0));
       expect(WindowsSyncPolicy.skipPrimerPullProductos, isFalse);
-      expect(WindowsSyncPolicy.skipHeavyBootMaintenance, isTrue);
       expect(
         WindowsSyncPolicy.enableBusinessDocListeners(isWindowsDesktop: true),
         isTrue,
