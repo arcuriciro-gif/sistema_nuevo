@@ -440,7 +440,7 @@ class FirestoreSyncService {
     );
   }
 
-  /// Windows: listeners solo de negocio (colecciones chicas). Arrancar
+  /// Windows: listeners automáticos (estilo 21 jul). Arrancar
   /// DESPUÉS de la cuarentena — no en el login frío.
   void _iniciarListenersNegocioWindows() {
     if (!PlatformCapabilities.isWindowsDesktop) return;
@@ -505,9 +505,20 @@ class FirestoreSyncService {
       },
       onError: (Object e) => debugPrint('Listen compras Windows: $e'),
     );
+
+    if (WindowsSyncPolicy.enableProductosListenerWindows) {
+      _productosSub?.cancel();
+      _productosSnapshotInicial = true;
+      _productosSub = _remote.watchSnapshots(limit: 10000).listen(
+        _onProductosSnapshot,
+        onError: (Object e) => debugPrint('Listen productos Windows: $e'),
+      );
+    }
+
     debugPrint(
-      'Windows: listeners negocio ON '
-      '(${WindowsSyncPolicy.windowsBusinessListenerCollections.join(", ")})',
+      'Windows: listeners automáticos ON '
+      '(${WindowsSyncPolicy.windowsBusinessListenerCollections.join(", ")}'
+      '${WindowsSyncPolicy.enableProductosListenerWindows ? ", productos" : ""})',
     );
   }
 
@@ -796,10 +807,12 @@ class FirestoreSyncService {
   }) async {
     try {
       if (windows) {
-        // 1.4.46 — botón PC = SOLO SQLite local (fantasmas).
-        // Pull inbound tumbaba el EXE (1.4.20/1.4.44). Drain Firebase
-        // en el botón también lo tumbaba en campo. El pump (~120s) sube.
-        syncStatusDetail = 'Limpiando pendientes locales…';
+        // 1.4.47 — sync automática ON; el botón es catch-up opcional liviano.
+        final localOnly = WindowsSyncPolicy.manualRefreshLocalOnly;
+        final pushOnly = WindowsSyncPolicy.manualRefreshPushOnly;
+        syncStatusDetail = localOnly
+            ? 'Limpiando pendientes locales…'
+            : 'Actualizando (automático)…';
         DataRefreshHub.instance.notifyTodo();
 
         var quieted = 0;
@@ -812,7 +825,7 @@ class FirestoreSyncService {
         }
 
         var drained = 0;
-        final localOnly = WindowsSyncPolicy.manualRefreshLocalOnly;
+        var pulled = 0;
         if (!localOnly && _puedeEscribirRemoto) {
           try {
             await SyncScheduler.instance.ensureRestored();
@@ -827,40 +840,57 @@ class FirestoreSyncService {
               final slice = claimed.take(2).toList(growable: false);
               await _ejecutarClaimedOps(
                 slice,
-                yieldMs: 450,
+                yieldMs: 300,
                 allowPreempt: false,
               );
               drained += slice.length;
-              await Future<void>.delayed(const Duration(milliseconds: 450));
+              await Future<void>.delayed(const Duration(milliseconds: 250));
             }
           } catch (e) {
             debugPrint('actualizarAhora drain: $e');
+          }
+
+          if (!pushOnly) {
+            try {
+              final budget = WindowsSyncPolicy.manualRefreshBudgetWindows(
+                pendingProductos: 0,
+              );
+              await _pullNegocioRecienteWindows(limit: budget.negocioLimit);
+              await _pullProductosIncrementalWindows(
+                maxPages: 2,
+                pageSize: budget.productosPageSize,
+              );
+              await _tickInboundStockOps(windows: true);
+              pulled = 1;
+            } catch (e) {
+              debugPrint('actualizarAhora inbound: $e');
+            }
           }
         }
 
         final left = await SyncOutbox.instance.pendingBreakdown();
         final pending = left.values.fold<int>(0, (a, b) => a + b);
-        syncStatusLabel = 'En la nube (modo estable PC)';
+        syncStatusLabel = 'En la nube';
         syncStatusDetail = pending == 0
-            ? 'Cola limpia'
-            : localOnly
-                ? '$pending reales por subir (el fondo lo hace solo)'
-                : '$pending por subir: ${SyncOutbox.formatBreakdown(left)}';
+            ? 'Sync automática activa'
+            : '$pending por subir: ${SyncOutbox.formatBreakdown(left)}';
         SyncHealthService.instance.recordCycle(
           durationMs: sw.elapsedMilliseconds,
         );
         DataRefreshHub.instance.notifyTodo();
         debugPrint(
-          'actualizarAhora Windows localOnly=$localOnly quieted=$quieted '
-          'drained=$drained left=$pending ms=${sw.elapsedMilliseconds}',
+          'actualizarAhora Windows localOnly=$localOnly pushOnly=$pushOnly '
+          'quieted=$quieted drained=$drained pulled=$pulled '
+          'left=$pending ms=${sw.elapsedMilliseconds}',
         );
         return {
           'ok': true,
           'windows': true,
-          'pushOnly': true,
+          'pushOnly': pushOnly,
           'localOnly': localOnly,
           'quieted': quieted,
           'drained': drained,
+          'pulled': pulled,
           'pendingLeft': pending,
           'ms': sw.elapsedMilliseconds,
         };
@@ -1071,7 +1101,7 @@ class FirestoreSyncService {
       authOk = _puedeEscribirRemoto;
     }
 
-    // Arrancar pump: solo outbox. Listeners OFF (política).
+    // Arrancar pump + listeners automáticos (estilo 21 jul).
     _iniciarOutboxPump();
     if (authOk &&
         WindowsSyncPolicy.enableBusinessDocListeners(isWindowsDesktop: true)) {

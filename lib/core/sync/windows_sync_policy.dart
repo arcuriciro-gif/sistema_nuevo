@@ -1,51 +1,50 @@
-/// Política de sync en Windows desktop: EXE no se cae.
+/// Política de sync en Windows desktop — **automática simple (estilo 21 jul)**.
 ///
-/// Prioridad #1 absoluta: que el .exe no se caiga.
+/// 1.4.47 — vuelve la sync en segundos que pediste probar:
+/// - Listeners Firestore de negocio (ventas/remitos/clientes/compras) ON.
+/// - Listener de productos ON (solo `docChanges` tras el snapshot inicial).
+/// - Soft-pull + stock_ops inbound ON (techos anti-crash; no ráfagas de 60).
+/// - Pump sube y baja (no solo salida).
+/// - Sin depender del botón manual (como pediste el 21 jul).
 ///
-/// 1.4.42 — modo **solo salida** en background.
-/// 1.4.45 — «Actualizar ahora» push-only (como 1.4.20).
-/// 1.4.46 — botón PC **solo local**: limpia fantasmas en SQLite; cero Firebase.
-///   El drain real lo hace el pump cada ~120s. El botón no debe tumbar el EXE.
-/// - Sin listeners, soft-pull, heal, micro-catchup, poll remitos, stock_ops
-///   periódico ni migración ledger pesada al boot.
+/// Si el EXE se cae, avisá qué estabas haciendo y recortamos de a uno.
 class WindowsSyncPolicy {
   WindowsSyncPolicy._();
 
-  /// Tras login: no tocar Firebase de colección.
-  static const Duration quarantineAfterLogin = Duration(seconds: 35);
+  /// Tras login: breve pausa, luego listeners + pump.
+  static const Duration quarantineAfterLogin = Duration(seconds: 18);
 
   static Duration quarantineForBacklog({required int pendingProductos}) {
-    if (pendingProductos >= 50) return const Duration(seconds: 20);
-    if (pendingProductos >= 10) return const Duration(seconds: 28);
+    if (pendingProductos >= 50) return const Duration(seconds: 10);
+    if (pendingProductos >= 10) return const Duration(seconds: 14);
     return quarantineAfterLogin;
   }
 
-  static const Duration throttleDelayNormal = Duration(milliseconds: 1000);
-  static const Duration throttleDelayInteractive = Duration(milliseconds: 150);
+  static const Duration throttleDelayNormal = Duration(milliseconds: 500);
+  static const Duration throttleDelayInteractive = Duration(milliseconds: 50);
 
-  /// Pump solo para subir cola local.
-  static const Duration outboxPumpInterval = Duration(seconds: 120);
+  /// Pump frecuente: subir cola + soft-pull.
+  static const Duration outboxPumpInterval = Duration(seconds: 30);
 
-  static const Duration softPullInterval = Duration(seconds: 600);
-  static const bool enablePeriodicSoftPull = false;
+  static const Duration softPullInterval = Duration(seconds: 25);
+  static const bool enablePeriodicSoftPull = true;
 
-  /// Solo salida: no traer del cloud en el pump.
-  static const bool outboundOnlyPump = true;
+  /// Sube y baja (como 21 jul). No solo-salida.
+  static const bool outboundOnlyPump = false;
 
-  /// «Actualizar ahora» en Windows: sin pull inbound.
-  /// Aprendizaje de campo 1.4.20 — reconfirmado 1.4.45.
-  static const bool manualRefreshPushOnly = true;
+  /// Botón opcional: soft catch-up liviano (no es el camino principal).
+  static const bool manualRefreshPushOnly = false;
+  static const bool manualRefreshLocalOnly = false;
 
-  /// 1.4.46 — el botón NO escribe a Firebase (ni drain).
-  /// Solo limpia pendientes fantasma locales. Campo: drain en el botón
-  /// también tumbaba el EXE; el pump background se encarga de subir.
-  static const bool manualRefreshLocalOnly = true;
+  static const int healEveryNTicks = 6;
+  static const int microCatchupEveryNTicks = 4;
 
-  static const int healEveryNTicks = 0;
-  static const int microCatchupEveryNTicks = 0;
-
+  /// Listeners de negocio ON — venta/remito en segundos.
   static bool enableBusinessDocListeners({required bool isWindowsDesktop}) =>
-      false;
+      isWindowsDesktop;
+
+  /// También productos (docChanges). Diferencias de catálogo EXE↔APK.
+  static const bool enableProductosListenerWindows = true;
 
   static const List<String> windowsBusinessListenerCollections = [
     'remitos',
@@ -54,22 +53,28 @@ class WindowsSyncPolicy {
     'compras',
   ];
 
-  /// Poll remitos OFF (inbound solo manual).
-  static const int pollRemitosEveryNTicks = 0;
-  static const int pollRemitosLimit = 0;
+  /// Respaldo si listeners fallan.
+  static const int pollRemitosEveryNTicks = 3;
+  static const int pollRemitosLimit = 20;
 
-  /// Stock_ops inbound OFF en pump.
-  static const int stockOpsEveryNTicks = 0;
+  /// Stock_ops inbound cada N ticks del pump.
+  static const int stockOpsEveryNTicks = 2;
 
-  /// Boot: no migración ledger masiva / recover cloud.
+  /// Boot liviano (sin migración ledger masiva que tumba).
   static const bool skipHeavyBootMaintenance = true;
 
-  /// Boot: no pull de productos automático.
-  static const bool skipPrimerPullProductos = true;
+  /// Al arrancar: bajar productos para cerrar diferencias de catálogo.
+  static const bool skipPrimerPullProductos = false;
 
-  static const Duration reclaimStaleInflightAfter = Duration(minutes: 8);
+  static const Duration reclaimStaleInflightAfter = Duration(minutes: 5);
 
   static const List<String> softPullOtherLanes = [
+    'clientes',
+    'ventas',
+    'remitos',
+    'stock_ops',
+    'compras',
+    'proveedores',
     'listas',
     'categorias',
     'permisos',
@@ -82,40 +87,77 @@ class WindowsSyncPolicy {
   static bool prioritizeStockOpsPull({required int pendingProductos}) =>
       prioritizeBusinessConvergence(pendingProductos: pendingProductos);
 
-  static const int stockOpsHardCap = 1;
+  /// Techo duro anti-crash (aprendizaje 1.4.20: 60 tumbaba).
+  static const int stockOpsHardCap = 4;
 
-  static const int softPullProductosPageSize = 4;
+  static const int softPullProductosPageSize = 25;
 
-  static const int softPullSkipIfPendingProductos = 10;
+  static const int softPullSkipIfPendingProductos = 80;
 
   static ({int maxPages, int pageSize, int maxApply, int recentLimit})
       stockOpsPullBudget({required int pendingProductos}) {
-    final _ = pendingProductos;
+    if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
+      return (
+        maxPages: 1,
+        pageSize: 12,
+        maxApply: stockOpsHardCap,
+        recentLimit: 20,
+      );
+    }
+    if (pendingProductos <= 50) {
+      return (
+        maxPages: 1,
+        pageSize: 8,
+        maxApply: 2,
+        recentLimit: 0,
+      );
+    }
     return (
       maxPages: 1,
       pageSize: 4,
-      maxApply: stockOpsHardCap,
+      maxApply: 1,
       recentLimit: 0,
     );
   }
 
   static String softPullLane(int n, {bool prioritizeStockOps = false}) {
-    final _ = prioritizeStockOps;
-    if (n % 4 != 3) return 'productos_inc';
-    final others = softPullOtherLanes;
-    return others[(n ~/ 4) % others.length];
+    if (prioritizeStockOps) {
+      switch (n % 6) {
+        case 0:
+          return 'remitos';
+        case 1:
+          return 'ventas';
+        case 2:
+          return 'stock_ops';
+        case 3:
+          return 'compras';
+        case 4:
+          return 'productos_inc';
+        default:
+          return 'clientes';
+      }
+    }
+    if (n % 3 == 0) {
+      return (n ~/ 3) % 2 == 0 ? 'productos_inc' : 'productos_cat';
+    }
+    final otherIdx =
+        ((n ~/ 3) * 2 + ((n % 3) - 1)) % softPullOtherLanes.length;
+    return softPullOtherLanes[otherIdx];
   }
 
-  static const Duration windowsStockOpsPumpInterval = Duration(seconds: 120);
+  static const Duration windowsStockOpsPumpInterval = Duration(seconds: 45);
 
   static Duration softPullIntervalFor({required int pendingProductos}) {
-    final _ = pendingProductos;
+    if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
+      return const Duration(seconds: 15);
+    }
     return softPullInterval;
   }
 
   static int recentBusinessDocsLimit({required int pendingProductos}) {
-    final _ = pendingProductos;
-    return 0;
+    if (pendingProductos <= 5) return 25;
+    if (pendingProductos <= 30) return 12;
+    return 6;
   }
 
   static ({
@@ -136,21 +178,20 @@ class WindowsSyncPolicy {
     bool reconcilizarStockOps,
   }) manualRefreshBudgetWindows({required int pendingProductos}) {
     final _ = pendingProductos;
-    // 1.4.44: micro absoluto — el refresh manual tumbaba el EXE.
     return (
-      negocioLimit: 2,
-      clientesPage: 0,
+      negocioLimit: 15,
+      clientesPage: 20,
       stockMaxPages: 1,
-      stockPageSize: 3,
-      stockMaxApply: 1,
-      stockRecentLimit: 3,
+      stockPageSize: 12,
+      stockMaxApply: stockOpsHardCap,
+      stockRecentLimit: 20,
       stockRounds: 1,
-      stockMicroBatch: 1,
-      yieldMs: 400,
-      schedulerTicks: 1,
-      pullClientes: false,
-      pullConfig: false,
-      productosPageSize: 2,
+      stockMicroBatch: 2,
+      yieldMs: 200,
+      schedulerTicks: 2,
+      pullClientes: true,
+      pullConfig: true,
+      productosPageSize: 40,
       repararProyeccion: false,
       reconcilizarStockOps: false,
     );
@@ -158,10 +199,10 @@ class WindowsSyncPolicy {
 
   static ({int maxPages, int pageSize, int maxApply})
       windowsCatchupStockOpsBudget() =>
-          (maxPages: 1, pageSize: 4, maxApply: stockOpsHardCap);
+          (maxPages: 1, pageSize: 12, maxApply: stockOpsHardCap);
 
   static ({int maxPages, int pageSize}) windowsPrimerPullProductos() =>
-      (maxPages: 1, pageSize: softPullProductosPageSize);
+      (maxPages: 8, pageSize: 40);
 
   static bool bulkSoloEncolar({required bool isWindowsDesktop}) =>
       isWindowsDesktop;

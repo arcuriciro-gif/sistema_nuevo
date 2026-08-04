@@ -67,11 +67,11 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
       final r = await FirestoreSyncService.instance
           .actualizarAhora()
           .timeout(
-            // Windows 1.4.46: solo SQLite local — no hace falta 150s.
-            const Duration(seconds: 30),
+            // Windows: varias micro-rondas; 90s cortaba mid-apply.
+            const Duration(seconds: 120),
             onTimeout: () => {
               'ok': false,
-              'error': 'timeout_30s',
+              'error': 'timeout_120s',
             },
           );
       if (!mounted) return;
@@ -85,14 +85,14 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
             ok
                 ? (localOnly
                     ? (pendingLeft == 0
-                        ? 'Pendientes limpios (${r['ms']} ms). PC estable.'
+                        ? 'Pendientes limpios (${r['ms']} ms).'
                         : 'Limpié ${r['quieted'] ?? 0} fantasmas; '
-                            'quedan $pendingLeft reales (suben solos en segundo plano).')
+                            'quedan $pendingLeft.')
                     : pushOnly
                         ? (pendingLeft == 0
-                            ? 'Cola limpia (${r['ms']} ms). En PC solo se sube lo local.'
-                            : 'Subidos ${r['drained'] ?? 0}; quedan $pendingLeft por subir.')
-                        : 'Actualizado (${r['ms']} ms). Listas, clientes, ventas y stock.')
+                            ? 'Cola limpia (${r['ms']} ms).'
+                            : 'Subidos ${r['drained'] ?? 0}; quedan $pendingLeft.')
+                        : 'Actualizado (${r['ms']} ms). Sync automática activa.')
                 : 'No se pudo actualizar: ${r['error'] ?? 'error'}',
           ),
         ),
@@ -307,17 +307,16 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
                         : const Icon(Icons.cloud_sync_rounded),
                     label: Text(
                       _actualizando
-                          ? 'Limpiando…'
-                          : 'Limpiar pendientes',
+                          ? 'Actualizando…'
+                          : 'Actualizar ahora',
                     ),
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'En la PC: este botón solo limpia pendientes fantasma '
-                  '(no toca la nube — eso tumbaba el EXE). '
-                  'Lo nuevo se sube solo en segundo plano. '
-                  'En el celular sí baja y sube todo.',
+                  'La sync es automática (como el 21 jul): ventas, '
+                  'comprobantes y productos se reflejan solos. '
+                  'Este botón es solo un refuerzo opcional.',
                   style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                         color: Theme.of(ctx).hintColor,
                       ),

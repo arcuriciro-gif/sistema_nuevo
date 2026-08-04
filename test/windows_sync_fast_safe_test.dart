@@ -3,31 +3,31 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sistema_nuevo/core/sync/windows_sync_policy.dart';
 
 void main() {
-  group('WindowsSyncPolicy — solo salida EXE', () {
-    test('outboundOnlyPump y sin inbound automático', () {
-      expect(WindowsSyncPolicy.outboundOnlyPump, isTrue);
-      expect(WindowsSyncPolicy.enablePeriodicSoftPull, isFalse);
-      expect(WindowsSyncPolicy.healEveryNTicks, 0);
-      expect(WindowsSyncPolicy.microCatchupEveryNTicks, 0);
-      expect(WindowsSyncPolicy.stockOpsEveryNTicks, 0);
-      expect(WindowsSyncPolicy.pollRemitosEveryNTicks, 0);
-      expect(WindowsSyncPolicy.skipHeavyBootMaintenance, isTrue);
-      expect(WindowsSyncPolicy.skipPrimerPullProductos, isTrue);
+  group('WindowsSyncPolicy — sync automática simple (21 jul)', () {
+    test('listeners + soft-pull + inbound ON', () {
+      expect(WindowsSyncPolicy.outboundOnlyPump, isFalse);
+      expect(WindowsSyncPolicy.enablePeriodicSoftPull, isTrue);
+      expect(WindowsSyncPolicy.enableProductosListenerWindows, isTrue);
+      expect(WindowsSyncPolicy.skipPrimerPullProductos, isFalse);
+      expect(WindowsSyncPolicy.stockOpsEveryNTicks, greaterThan(0));
       expect(
         WindowsSyncPolicy.enableBusinessDocListeners(isWindowsDesktop: true),
-        isFalse,
+        isTrue,
       );
     });
 
-    test('pump espaciado + hardCap 1', () {
+    test('pump frecuente para convergencia en segundos', () {
       expect(
         WindowsSyncPolicy.outboxPumpInterval.inSeconds,
-        greaterThanOrEqualTo(100),
+        lessThanOrEqualTo(40),
       );
-      expect(WindowsSyncPolicy.stockOpsHardCap, lessThanOrEqualTo(1));
+      expect(
+        WindowsSyncPolicy.softPullInterval.inSeconds,
+        lessThanOrEqualTo(40),
+      );
       expect(
         WindowsSyncPolicy.quarantineAfterLogin.inSeconds,
-        greaterThanOrEqualTo(30),
+        lessThanOrEqualTo(25),
       );
     });
 
@@ -44,15 +44,21 @@ void main() {
       );
     });
 
-    test('Actualizar ahora Windows: local-only (anti-crash campo)', () {
-      expect(WindowsSyncPolicy.manualRefreshPushOnly, isTrue);
-      expect(WindowsSyncPolicy.manualRefreshLocalOnly, isTrue);
-      expect(WindowsSyncPolicy.outboundOnlyPump, isTrue);
+    test('Actualizar ahora opcional — no es el camino principal', () {
+      expect(WindowsSyncPolicy.manualRefreshPushOnly, isFalse);
+      expect(WindowsSyncPolicy.manualRefreshLocalOnly, isFalse);
+      expect(WindowsSyncPolicy.outboundOnlyPump, isFalse);
       final m = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 0,
       );
-      expect(m.stockMaxApply, lessThanOrEqualTo(1));
-      expect(m.pullClientes, isFalse);
+      expect(m.stockMaxApply, lessThanOrEqualTo(4));
+      expect(m.pullClientes, isTrue);
+    });
+
+    test('hardCap stock_ops ≤ 4 (anti-crash 1.4.20)', () {
+      expect(WindowsSyncPolicy.stockOpsHardCap, lessThanOrEqualTo(4));
+      final b = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 0);
+      expect(b.maxApply, lessThanOrEqualTo(4));
     });
   });
 }

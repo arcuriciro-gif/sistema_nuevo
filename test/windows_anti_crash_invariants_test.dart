@@ -6,25 +6,23 @@ import 'package:sistema_nuevo/models/producto.dart';
 
 void main() {
   group('Windows anti-crash invariants', () {
-    test('solo salida: sin inbound en pump', () {
-      expect(WindowsSyncPolicy.outboundOnlyPump, isTrue);
-      expect(WindowsSyncPolicy.manualRefreshLocalOnly, isTrue);
-      expect(WindowsSyncPolicy.stockOpsEveryNTicks, 0);
-      expect(WindowsSyncPolicy.pollRemitosEveryNTicks, 0);
-      expect(WindowsSyncPolicy.enablePeriodicSoftPull, isFalse);
+    test('sync automática: listeners + inbound en pump', () {
+      expect(WindowsSyncPolicy.outboundOnlyPump, isFalse);
+      expect(WindowsSyncPolicy.enablePeriodicSoftPull, isTrue);
+      expect(WindowsSyncPolicy.enableProductosListenerWindows, isTrue);
+      expect(WindowsSyncPolicy.stockOpsEveryNTicks, greaterThan(0));
+      expect(WindowsSyncPolicy.skipPrimerPullProductos, isFalse);
       expect(WindowsSyncPolicy.skipHeavyBootMaintenance, isTrue);
-      expect(WindowsSyncPolicy.skipPrimerPullProductos, isTrue);
       expect(
         WindowsSyncPolicy.enableBusinessDocListeners(isWindowsDesktop: true),
-        isFalse,
+        isTrue,
       );
     });
 
-    test('hardCap stock_ops ≤ 1', () {
-      expect(WindowsSyncPolicy.stockOpsHardCap, lessThanOrEqualTo(1));
+    test('hardCap stock_ops ≤ 4', () {
+      expect(WindowsSyncPolicy.stockOpsHardCap, lessThanOrEqualTo(4));
       final b = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 0);
-      expect(b.maxApply, lessThanOrEqualTo(1));
-      expect(b.recentLimit, 0);
+      expect(b.maxApply, lessThanOrEqualTo(4));
     });
   });
 
