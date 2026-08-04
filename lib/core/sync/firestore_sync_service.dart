@@ -5161,6 +5161,15 @@ class FirestoreSyncService {
   }
 
   Future<void> _aplicarProductosRemotos(List<Producto> remotos) async {
+    // Windows: lotes chicos — un batch enorme falla entero por un FK/tombstone.
+    if (PlatformCapabilities.isWindowsDesktop && remotos.length > 35) {
+      for (var i = 0; i < remotos.length; i += 35) {
+        final end = (i + 35 < remotos.length) ? i + 35 : remotos.length;
+        await _aplicarProductosRemotos(remotos.sublist(i, end));
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+      }
+      return;
+    }
     if (_sincronizando) {
       // Merge by codigo — no descartar soft-deletes de un batch anterior.
       final byCode = <String, Producto>{
