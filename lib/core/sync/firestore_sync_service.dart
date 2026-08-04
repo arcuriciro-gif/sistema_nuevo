@@ -1199,8 +1199,8 @@ class FirestoreSyncService {
           CloudSyncThrottle.enqueue(() async {
             try {
               await _pullProductosCatalogoWindows(
-                maxPages: 6,
-                pageSize: 50,
+                maxPages: 2,
+                pageSize: 30,
                 forceRestart: true,
               );
               await _reconciliarPapeleraWindows();
@@ -1224,7 +1224,7 @@ class FirestoreSyncService {
       'productos',
       columns: ['id', 'codigo', 'deleted_at'],
       where: "deleted_at IS NOT NULL AND deleted_at != ''",
-      limit: 300,
+      limit: WindowsSyncPolicy.papeleraReconcileLimit,
     );
     var n = 0;
     for (final row in rows) {
@@ -1259,7 +1259,7 @@ class FirestoreSyncService {
       } catch (e) {
         debugPrint('reconciliarPapelera $codigo: $e');
       }
-      await Future<void>.delayed(const Duration(milliseconds: 35));
+      await Future<void>.delayed(const Duration(milliseconds: 80));
     }
     if (n > 0) {
       DataRefreshHub.instance.notifyProductos();

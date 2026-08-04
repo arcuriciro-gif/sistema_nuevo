@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/auth/rol_util.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/firebase/firebase_safe_mode.dart';
@@ -17,11 +18,14 @@ import '../navigation/shell_menu_catalog.dart';
 import '../services/app_log.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
+import '../services/data_wipe_service.dart';
 import '../services/permisos_service.dart';
 import '../services/producto_service.dart';
 import '../services/sidebar_preferencias_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/app_visuals.dart';
 import '../theme/theme_provider.dart';
+import '../widgets/password_confirm_dialog.dart';
 import 'listas_precio_page.dart';
 import 'plantilla_impresion_page.dart';
 import 'documentos_config_page.dart';
@@ -42,6 +46,8 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   bool _modoSeguro = false;
   bool _guardandoTenant = false;
   bool _barraLateralAbierta = false;
+  bool _reiniciando = false;
+  bool _vaciando = false;
   final _tenantCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
 
@@ -624,6 +630,230 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     });
   }
 
+  Future<void> _reiniciarSistema() async {
+    if (!_esAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Solo el administrador puede reiniciar el sistema.'),
+        ),
+      );
+      return;
+    }
+    final cs = Theme.of(context).colorScheme;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Reiniciar sistema'),
+        content: const Text(
+          'Se reinician sync y servicios internos.\n'
+          'NO se borran productos, ventas ni clientes.\n\n'
+          '¿Continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppVisuals.warning(cs),
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Reiniciar servicios'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _reiniciando = true);
+    final r = await DataWipeService.instance.reiniciarServicios();
+    if (!mounted) return;
+    setState(() => _reiniciando = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(r.mensaje),
+        backgroundColor: r.ok ? null : cs.error,
+      ),
+    );
+  }
+
+  Future<void> _accionWipe({
+    required String titulo,
+    required String mensaje,
+    required Future<({bool ok, String mensaje})> Function() accion,
+  }) async {
+    if (!_esAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Solo el administrador puede hacerlo.')),
+      );
+      return;
+    }
+    final ok = await confirmarConClave(
+      context,
+      titulo: titulo,
+      mensaje: mensaje,
+      confirmarLabel: 'Confirmar borrado',
+    );
+    if (!ok || !mounted) return;
+    setState(() => _vaciando = true);
+    final r = await accion();
+    if (!mounted) return;
+    setState(() => _vaciando = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(r.mensaje),
+        backgroundColor: r.ok ? null : Theme.of(context).colorScheme.error,
+      ),
+    );
+  }
+
+  Widget _tarjetaMantenimientoDatos(ThemeData theme, ColorScheme colorScheme) {
+    final user = AuthService.instance.currentUser;
+    if (!_esAdmin) {
+      return Card(
+        child: ListTile(
+          leading: Icon(Icons.lock_outline_rounded,
+              color: colorScheme.onSurfaceVariant),
+          title: const Text('Mantenimiento y datos'),
+          subtitle: Text(
+            'Solo visible para Administrador. '
+            'Tu rol: ${RolUtil.etiqueta(user?.rol ?? '')}.',
+          ),
+        ),
+      );
+    }
+    return Card(
+      elevation: 3,
+      color: colorScheme.errorContainer.withValues(alpha: 0.22),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'MANTENIMIENTO Y DATOS',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.4,
+                color: AppVisuals.danger(colorScheme),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Solo administrador. Reiniciar no borra datos. '
+              'Vaciar / sistema virgen son irreversibles y piden tu contraseña. '
+              'Se conservan usuarios, permisos y branding. '
+              'Si la nube está activa, también se borran en el celular.',
+              style: TextStyle(
+                fontSize: 13,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _reiniciando || _vaciando ? null : _reiniciarSistema,
+              icon: _reiniciando
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.restart_alt_rounded),
+              label: Text(
+                _reiniciando
+                    ? 'Reiniciando…'
+                    : 'Reiniciar sistema (sin borrar datos)',
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text(
+              'DATOS (IRREVERSIBLE)',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: AppVisuals.danger(colorScheme),
+              ),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _vaciando
+                  ? null
+                  : () => _accionWipe(
+                        titulo: 'Vaciar productos',
+                        mensaje:
+                            'Se eliminarán TODOS los productos y movimientos '
+                            'relacionados (local y nube).\n\nIngresá tu contraseña.',
+                        accion: () =>
+                            DataWipeService.instance.vaciarProductos(),
+                      ),
+              icon: const Icon(Icons.inventory_2_outlined),
+              label: const Text('Vaciar productos'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _vaciando
+                  ? null
+                  : () => _accionWipe(
+                        titulo: 'Vaciar clientes',
+                        mensaje:
+                            'Se eliminarán TODOS los clientes y cuentas '
+                            'relacionadas (local y nube).\n\nIngresá tu contraseña.',
+                        accion: () =>
+                            DataWipeService.instance.vaciarClientes(),
+                      ),
+              icon: const Icon(Icons.people_outline_rounded),
+              label: const Text('Vaciar clientes'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _vaciando
+                  ? null
+                  : () => _accionWipe(
+                        titulo: 'Vaciar comprobantes',
+                        mensaje:
+                            'Se eliminarán TODOS los comprobantes/remitos '
+                            '(local y nube).\n\nIngresá tu contraseña.',
+                        accion: () =>
+                            DataWipeService.instance.vaciarComprobantes(),
+                      ),
+              icon: const Icon(Icons.receipt_long_outlined),
+              label: const Text('Vaciar comprobantes'),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.tonalIcon(
+              style: FilledButton.styleFrom(
+                foregroundColor: AppVisuals.danger(colorScheme),
+              ),
+              onPressed: _vaciando
+                  ? null
+                  : () => _accionWipe(
+                        titulo: 'Sistema virgen',
+                        mensaje:
+                            'Se borrarán productos, clientes, ventas, comprobantes, '
+                            'compras y demás datos operativos (local y nube).\n\n'
+                            'Se CONSERVAN usuarios, permisos y branding.\n\n'
+                            'Ingresá tu contraseña de administrador.',
+                        accion: () =>
+                            DataWipeService.instance.sistemaVirgen(),
+                      ),
+              icon: _vaciando
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_forever_rounded),
+              label: Text(
+                _vaciando ? 'Borrando…' : 'Dejar sistema virgen',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -636,6 +866,8 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            _tarjetaMantenimientoDatos(theme, colorScheme),
+            const SizedBox(height: 16),
             // Branding primero; sync va colapsada más abajo (evitar desactivar por error).
             // ── Branding placeholder marker — sync se inserta después del branding ──
             // ── Sincronización / nube (colapsada) ─────────────────

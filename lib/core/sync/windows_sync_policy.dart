@@ -1,46 +1,42 @@
-/// Sync Windows — comercio chico, automática simple (estilo 21 jul).
+/// Sync Windows — comercio chico, automática, sin tumbar el EXE.
 ///
-/// 1.4.49:
-/// - Sin botón manual (tumbaba el EXE).
-/// - Listeners de negocio + productos (solo cambios, no snapshot 10k).
-/// - Soft-pull de catálogo para alinear listas / papelera / sin stock.
-/// - Fotos: URLs desde el celular; PC no sube Storage (estabilidad).
+/// 1.4.51 — el EXE seguía cayendo con sync agresiva:
+/// - Sin listener de productos (solo soft-pull lento).
+/// - Listeners de negocio ON (ventas/comprobantes) con pump espaciado.
+/// - Papelera: reconcile acotado (pocos gets).
+/// - Sin botón manual.
 class WindowsSyncPolicy {
   WindowsSyncPolicy._();
 
-  static const Duration quarantineAfterLogin = Duration(seconds: 12);
+  static const Duration quarantineAfterLogin = Duration(seconds: 28);
 
   static Duration quarantineForBacklog({required int pendingProductos}) {
-    if (pendingProductos >= 50) return const Duration(seconds: 8);
-    if (pendingProductos >= 10) return const Duration(seconds: 10);
+    if (pendingProductos >= 50) return const Duration(seconds: 16);
+    if (pendingProductos >= 10) return const Duration(seconds: 22);
     return quarantineAfterLogin;
   }
 
-  static const Duration throttleDelayNormal = Duration(milliseconds: 400);
-  static const Duration throttleDelayInteractive = Duration(milliseconds: 40);
+  static const Duration throttleDelayNormal = Duration(milliseconds: 700);
+  static const Duration throttleDelayInteractive = Duration(milliseconds: 80);
 
-  static const Duration outboxPumpInterval = Duration(seconds: 20);
+  static const Duration outboxPumpInterval = Duration(seconds: 55);
 
-  static const Duration softPullInterval = Duration(seconds: 12);
+  static const Duration softPullInterval = Duration(seconds: 40);
   static const bool enablePeriodicSoftPull = true;
 
-  /// Sube y baja. Sync automática completa.
   static const bool outboundOnlyPump = false;
 
-  /// Botón removido de la UI; flags por si queda algún caller.
   static const bool manualRefreshPushOnly = true;
   static const bool manualRefreshLocalOnly = true;
 
-  static const int healEveryNTicks = 8;
-  static const int microCatchupEveryNTicks = 3;
+  static const int healEveryNTicks = 10;
+  static const int microCatchupEveryNTicks = 5;
 
   static bool enableBusinessDocListeners({required bool isWindowsDesktop}) =>
       isWindowsDesktop;
 
-  /// Listener productos ON, pero solo `docChanges` (sin apply del snapshot 10k).
-  static const bool enableProductosListenerWindows = true;
-
-  /// No aplicar el snapshot inicial completo (tumbaba / half-apply).
+  /// OFF: el listener de productos seguía contribuyendo a caídas.
+  static const bool enableProductosListenerWindows = false;
   static const bool skipProductosInitialSnapshotApply = true;
 
   static const List<String> windowsBusinessListenerCollections = [
@@ -50,16 +46,19 @@ class WindowsSyncPolicy {
     'compras',
   ];
 
-  static const int pollRemitosEveryNTicks = 2;
-  static const int pollRemitosLimit = 25;
+  static const int pollRemitosEveryNTicks = 4;
+  static const int pollRemitosLimit = 15;
 
-  static const int stockOpsEveryNTicks = 1;
+  static const int stockOpsEveryNTicks = 3;
 
   static const bool skipHeavyBootMaintenance = true;
   static const bool skipPrimerPullProductos = false;
 
-  static const Duration reclaimStaleInflightAfter = Duration(minutes: 5);
-  static const Duration catalogSweepRestartAfter = Duration(minutes: 5);
+  static const Duration reclaimStaleInflightAfter = Duration(minutes: 6);
+  static const Duration catalogSweepRestartAfter = Duration(minutes: 12);
+
+  /// Máx. productos de papelera a consultar por pasada (anti-crash).
+  static const int papeleraReconcileLimit = 25;
 
   static const List<String> softPullOtherLanes = [
     'clientes',
@@ -75,35 +74,34 @@ class WindowsSyncPolicy {
   ];
 
   static bool prioritizeBusinessConvergence({required int pendingProductos}) =>
-      pendingProductos <= 8;
+      pendingProductos <= 5;
 
   static bool prioritizeStockOpsPull({required int pendingProductos}) =>
       prioritizeBusinessConvergence(pendingProductos: pendingProductos);
 
-  static const int stockOpsHardCap = 4;
-  static const int softPullProductosPageSize = 40;
-  static const int softPullSkipIfPendingProductos = 100;
+  static const int stockOpsHardCap = 2;
+  static const int softPullProductosPageSize = 25;
+  static const int softPullSkipIfPendingProductos = 60;
 
   static ({int maxPages, int pageSize, int maxApply, int recentLimit})
       stockOpsPullBudget({required int pendingProductos}) {
     if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
       return (
         maxPages: 1,
-        pageSize: 15,
+        pageSize: 8,
         maxApply: stockOpsHardCap,
-        recentLimit: 30,
+        recentLimit: 12,
       );
     }
     return (
       maxPages: 1,
-      pageSize: 8,
-      maxApply: 2,
+      pageSize: 4,
+      maxApply: 1,
       recentLimit: 0,
     );
   }
 
   static String softPullLane(int n, {bool prioritizeStockOps = false}) {
-    // Comercio chico: mitad del tiempo productos (lista / papelera / precios).
     switch (n % 6) {
       case 0:
         return 'productos_inc';
@@ -120,19 +118,19 @@ class WindowsSyncPolicy {
     }
   }
 
-  static const Duration windowsStockOpsPumpInterval = Duration(seconds: 30);
+  static const Duration windowsStockOpsPumpInterval = Duration(seconds: 60);
 
   static Duration softPullIntervalFor({required int pendingProductos}) {
     if (prioritizeBusinessConvergence(pendingProductos: pendingProductos)) {
-      return const Duration(seconds: 8);
+      return const Duration(seconds: 25);
     }
     return softPullInterval;
   }
 
   static int recentBusinessDocsLimit({required int pendingProductos}) {
-    if (pendingProductos <= 8) return 30;
-    if (pendingProductos <= 40) return 15;
-    return 8;
+    if (pendingProductos <= 5) return 15;
+    if (pendingProductos <= 30) return 8;
+    return 4;
   }
 
   static ({
@@ -174,10 +172,10 @@ class WindowsSyncPolicy {
 
   static ({int maxPages, int pageSize, int maxApply})
       windowsCatchupStockOpsBudget() =>
-          (maxPages: 1, pageSize: 15, maxApply: stockOpsHardCap);
+          (maxPages: 1, pageSize: 8, maxApply: stockOpsHardCap);
 
   static ({int maxPages, int pageSize}) windowsPrimerPullProductos() =>
-      (maxPages: 10, pageSize: 50);
+      (maxPages: 3, pageSize: 30);
 
   static bool bulkSoloEncolar({required bool isWindowsDesktop}) =>
       isWindowsDesktop;
