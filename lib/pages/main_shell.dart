@@ -20,7 +20,6 @@ import '../theme/layout_constants.dart';
 import '../theme/module_app_bar.dart';
 import '../widgets/media_avatar.dart';
 import '../widgets/empresa_onboarding_dialog.dart';
-import '../widgets/shell/shell_sync_badge.dart';
 import 'backup_page.dart';
 import 'busqueda_global_page.dart';
 import 'categorias_page.dart';
@@ -802,10 +801,6 @@ class _MainShellState extends State<MainShell> {
                 icon: const Icon(Icons.home_rounded),
                 onPressed: _irAInicio,
               ),
-              const Padding(
-                padding: EdgeInsets.only(right: 4),
-                child: Center(child: ShellSyncBadge(compact: true)),
-              ),
               IconButton(
                 onPressed: () => _abrirBusqueda(desktop: false),
                 icon: const Icon(Icons.search_rounded),
@@ -1046,11 +1041,6 @@ class _SidebarContentState extends State<_SidebarContent> {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                const SizedBox(height: 10),
-                const Align(
-                  alignment: Alignment.centerLeft,
-                  child: ShellSyncBadge(compact: true),
-                ),
               ],
             ),
           ),
@@ -1358,8 +1348,6 @@ class _TopBar extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          const SizedBox(width: 12),
-          const ShellSyncBadge(),
           const Spacer(),
           IconButton(
             tooltip: 'Configuración',

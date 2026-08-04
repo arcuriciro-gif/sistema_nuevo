@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../core/events/data_refresh_hub.dart';
 import '../core/inventory/stock_kpi.dart';
-import '../core/sync/firestore_sync_service.dart';
 import '../services/analytics_service.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
@@ -14,7 +13,6 @@ import '../theme/module_app_bar.dart';
 import '../widgets/erp/erp_kpi_tile.dart';
 import '../widgets/erp/erp_quick_action_bar.dart';
 import '../widgets/erp/erp_section_header.dart';
-import '../widgets/shell/shell_sync_badge.dart';
 
 /// Centro de Operaciones: info útil para empezar el día (sin gráficos grandes).
 class InicioPage extends StatefulWidget {
@@ -132,13 +130,6 @@ class _InicioPageState extends State<InicioPage> {
       _deudaTotal = resumenCc.montoTotalPendiente;
       _ultimosDocs = docs.take(6).toList();
       _actividad = [
-        {
-          'tipo': 'sync',
-          'titulo': FirestoreSyncService.instance.syncStatusLabel,
-          'detalle': FirestoreSyncService.instance.syncStatusDetail ??
-              'Estado de sincronización',
-          'cuando': DateTime.now().toIso8601String(),
-        },
         ...actividad.take(10),
         ...remitos.take(3).map(
               (r) => {
@@ -201,7 +192,6 @@ class _InicioPageState extends State<InicioPage> {
                           ],
                         ),
                       ),
-                      const ShellSyncBadge(),
                     ],
                   ),
                   const SizedBox(height: 16),

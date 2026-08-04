@@ -1180,6 +1180,10 @@ class FirestoreSyncService {
                 pageSize: primer.pageSize,
                 forceRestart: true,
               );
+              final cleaned = await _reconciliarPapeleraWindows();
+              if (cleaned > 0) {
+                debugPrint('Papelera Windows: reconciliados $cleaned');
+              }
               await _pullConfigWindowsLane('listas');
             } catch (e) {
               debugPrint('Primer pull productos/config Windows: $e');
@@ -1188,7 +1192,81 @@ class FirestoreSyncService {
           tag: 'primerPullProductosWindows',
         );
       });
+      // Segunda pasada: papelera + catálogo (cierra 6 fantasmas de campo).
+      Future<void>.delayed(const Duration(seconds: 55), () {
+        if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+        syncInBackground(
+          CloudSyncThrottle.enqueue(() async {
+            try {
+              await _pullProductosCatalogoWindows(
+                maxPages: 6,
+                pageSize: 50,
+                forceRestart: true,
+              );
+              await _reconciliarPapeleraWindows();
+              await _tickInboundStockOps(windows: true);
+            } catch (e) {
+              debugPrint('Reconcile papelera/stock Windows: $e');
+            }
+          }, tag: 'reconcilePapeleraWindows'),
+          tag: 'reconcilePapeleraWindows',
+        );
+      });
     }
+  }
+
+  /// Papelera EXE vs APK: si en la nube ya no está (tombstone/ausente) o
+  /// volvió a activo, alinear SQLite local. Campo: APK vacía / EXE con 6.
+  Future<int> _reconciliarPapeleraWindows() async {
+    if (!PlatformCapabilities.isWindowsDesktop) return 0;
+    final db = await DatabaseHelper.instance.database;
+    final rows = await db.query(
+      'productos',
+      columns: ['id', 'codigo', 'deleted_at'],
+      where: "deleted_at IS NOT NULL AND deleted_at != ''",
+      limit: 300,
+    );
+    var n = 0;
+    for (final row in rows) {
+      final id = row['id'] as int?;
+      final codigo = (row['codigo']?.toString() ?? '').trim();
+      if (id == null || codigo.isEmpty) continue;
+      try {
+        final remoto = await _remote.buscarPorCodigo(codigo);
+        if (remoto == null || remoto.esTombstoneRemoto) {
+          await db.delete('productos', where: 'id = ?', whereArgs: [id]);
+          try {
+            await SyncOutbox.instance.ack('upsert:producto:$id');
+            await SyncOutbox.instance.ack('delete:producto:$id');
+          } catch (_) {}
+          n++;
+        } else if (!remoto.estaEliminado) {
+          await db.update(
+            'productos',
+            {
+              'deleted_at': null,
+              if ((remoto.actualizadoEn ?? '').isNotEmpty)
+                'actualizadoEn': remoto.actualizadoEn,
+            },
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+          try {
+            await SyncOutbox.instance.ack('upsert:producto:$id');
+          } catch (_) {}
+          n++;
+        }
+      } catch (e) {
+        debugPrint('reconciliarPapelera $codigo: $e');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 35));
+    }
+    if (n > 0) {
+      DataRefreshHub.instance.notifyProductos();
+      DataRefreshHub.instance.notifyStock();
+      DataRefreshHub.instance.notifyTodo();
+    }
+    return n;
   }
 
   static const _wmProductosDoc = 'pull_productos_doc';
@@ -1310,6 +1388,9 @@ class FirestoreSyncService {
           await _pullProductosIncrementalWindows(maxPages: 1, pageSize: page);
         case 'productos_cat':
           await _pullProductosCatalogoWindows(maxPages: 1, pageSize: page);
+          if (tick % 4 == 3) {
+            await _reconciliarPapeleraWindows();
+          }
         case 'clientes':
           final snap = await _pullPaginaPorDocId(
             _clientesCol,
