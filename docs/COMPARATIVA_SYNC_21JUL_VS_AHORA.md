@@ -1,42 +1,25 @@
-# Panel comparativo: sync 21 jul vs ahora
+# Sync 21 jul vs ahora (campo)
 
-> **1.4.47:** se restauró la sync automática simple (listeners + soft-pull)
-> para que pruebes como el 21 jul. Si el EXE se cae, avisá qué estabas haciendo.
+## 1.4.48 — qué cambió tras tu prueba
 
-Referencia de campo (tus palabras, ~21 jul):
+| Problema | Fix |
+| --- | --- |
+| Tocaste Actualizar y el EXE se cayó | Botón = **solo limpia fantasmas** (cero Firebase) |
+| Lista de productos distinta PC↔celular | Productos por **soft-pull** (inc + barrido catálogo), no listener 10k |
+| Deletes que no cruzaban | Tombstone ahora lleva `actualizadoEn` |
+| Apply enorme fallaba entero | Apply de productos en lotes de 35 |
 
-> “envié una a la papelera y se eliminó del otro, creé un producto y se actualizó al instante”
-> “el stock se actualiza en ambos dispositivos”
+## Qué sigue automático
 
----
+- Listeners: ventas / remitos / clientes / compras → en segundos
+- Soft-pull productos cada ~12–18s + barrido catálogo cada ~8 min
+- Primer pull de productos ~25s después de abrir la PC
+- Stock_ops inbound con techo ≤4
 
-## Resumen
+## Cómo probar 1.4.48
 
-| Época | Prioridad | Resultado |
-| --- | --- | --- |
-| **21 jul** | Sync al instante | Productos / ventas / stock en segundos |
-| **1.4.42–1.4.46** | EXE no se cae | PC casi no bajaba nada |
-| **1.4.47 (esta)** | Volver al 21 jul | Listeners + soft-pull ON otra vez |
-
----
-
-## Qué se reactivó en 1.4.47
-
-| Mecanismo | 1.4.46 | 1.4.47 |
-| --- | --- | --- |
-| Listeners ventas/remitos/clientes/compras | OFF | **ON** |
-| Listener productos (docChanges) | OFF | **ON** |
-| Soft-pull periódico | OFF | **ON (~15–25s)** |
-| stock_ops inbound | OFF | **ON (techo ≤4)** |
-| Primer pull productos al abrir | OFF | **ON** |
-| Pump | Solo subir ~120s | Sube y baja ~30s |
-| Botón Actualizar | Solo fantasmas | Opcional (sync es automática) |
-
----
-
-## Cómo probar
-
-1. Instalá EXE + APK **1.4.47**.
-2. Esperá ~20s tras abrir la PC (arranque).
-3. Creá/editá un producto o una venta en un dispositivo → debería verse en el otro en segundos/poco.
-4. Si el EXE se cae, anotá: ¿al abrir? ¿al vender? ¿al tocar Actualizar? ¿después de cuántos minutos?
+1. Instalá EXE + APK.
+2. **No uses el botón** para sincronizar (solo limpia fantasmas).
+3. Esperá ~1–2 minutos con ambos abiertos: la lista debería ir alineándose sola.
+4. Probá una venta: debería verse en el otro dispositivo.
+5. Si el EXE se cae, anotá: ¿al abrir? ¿solo? ¿tras X minutos?
