@@ -44,8 +44,9 @@ void main() {
       );
     });
 
-    test('Actualizar ahora Windows: push-only (anti-crash campo)', () {
+    test('Actualizar ahora Windows: local-only (anti-crash campo)', () {
       expect(WindowsSyncPolicy.manualRefreshPushOnly, isTrue);
+      expect(WindowsSyncPolicy.manualRefreshLocalOnly, isTrue);
       expect(WindowsSyncPolicy.outboundOnlyPump, isTrue);
       final m = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 0,

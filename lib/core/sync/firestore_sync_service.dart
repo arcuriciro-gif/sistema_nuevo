@@ -796,19 +796,24 @@ class FirestoreSyncService {
   }) async {
     try {
       if (windows) {
-        // 1.4.45 — igual que el aprendizaje de 1.4.20: push-only.
-        // Cualquier pull (stock/productos/comprobantes) tumba el EXE.
-        syncStatusDetail = 'Subiendo cola local…';
+        // 1.4.46 — botón PC = SOLO SQLite local (fantasmas).
+        // Pull inbound tumbaba el EXE (1.4.20/1.4.44). Drain Firebase
+        // en el botón también lo tumbaba en campo. El pump (~120s) sube.
+        syncStatusDetail = 'Limpiando pendientes locales…';
         DataRefreshHub.instance.notifyTodo();
 
+        var quieted = 0;
         try {
-          await SyncOutbox.instance.quietWindowsGhostQueue(aggressive: true);
+          quieted = await SyncOutbox.instance.quietWindowsGhostQueue(
+            aggressive: true,
+          );
         } catch (e) {
           debugPrint('actualizarAhora quiet ghosts: $e');
         }
 
         var drained = 0;
-        if (_puedeEscribirRemoto) {
+        final localOnly = WindowsSyncPolicy.manualRefreshLocalOnly;
+        if (!localOnly && _puedeEscribirRemoto) {
           try {
             await SyncScheduler.instance.ensureRestored();
             for (var i = 0; i < 3; i++) {
@@ -838,19 +843,23 @@ class FirestoreSyncService {
         syncStatusLabel = 'En la nube (modo estable PC)';
         syncStatusDetail = pending == 0
             ? 'Cola limpia'
-            : '$pending por subir: ${SyncOutbox.formatBreakdown(left)}';
+            : localOnly
+                ? '$pending reales por subir (el fondo lo hace solo)'
+                : '$pending por subir: ${SyncOutbox.formatBreakdown(left)}';
         SyncHealthService.instance.recordCycle(
           durationMs: sw.elapsedMilliseconds,
         );
         DataRefreshHub.instance.notifyTodo();
         debugPrint(
-          'actualizarAhora Windows push-only drained=$drained '
-          'left=$pending ms=${sw.elapsedMilliseconds}',
+          'actualizarAhora Windows localOnly=$localOnly quieted=$quieted '
+          'drained=$drained left=$pending ms=${sw.elapsedMilliseconds}',
         );
         return {
           'ok': true,
           'windows': true,
           'pushOnly': true,
+          'localOnly': localOnly,
+          'quieted': quieted,
           'drained': drained,
           'pendingLeft': pending,
           'ms': sw.elapsedMilliseconds,

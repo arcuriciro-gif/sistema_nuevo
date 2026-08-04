@@ -3,9 +3,9 @@
 /// Prioridad #1 absoluta: que el .exe no se caiga.
 ///
 /// 1.4.42 — modo **solo salida** en background.
-/// 1.4.45 — «Actualizar ahora» también push-only (como 1.4.20 en campo).
-/// - Background: únicamente drenar outbox local → nube.
-/// - Botón PC: limpia fantasmas + sube cola; NO baja de la nube.
+/// 1.4.45 — «Actualizar ahora» push-only (como 1.4.20).
+/// 1.4.46 — botón PC **solo local**: limpia fantasmas en SQLite; cero Firebase.
+///   El drain real lo hace el pump cada ~120s. El botón no debe tumbar el EXE.
 /// - Sin listeners, soft-pull, heal, micro-catchup, poll remitos, stock_ops
 ///   periódico ni migración ledger pesada al boot.
 class WindowsSyncPolicy {
@@ -32,10 +32,14 @@ class WindowsSyncPolicy {
   /// Solo salida: no traer del cloud en el pump.
   static const bool outboundOnlyPump = true;
 
-  /// «Actualizar ahora» en Windows: SOLO subir cola local (push).
-  /// Cualquier pull inbound (stock/productos/remitos) tumba el EXE en campo.
+  /// «Actualizar ahora» en Windows: sin pull inbound.
   /// Aprendizaje de campo 1.4.20 — reconfirmado 1.4.45.
   static const bool manualRefreshPushOnly = true;
+
+  /// 1.4.46 — el botón NO escribe a Firebase (ni drain).
+  /// Solo limpia pendientes fantasma locales. Campo: drain en el botón
+  /// también tumbaba el EXE; el pump background se encarga de subir.
+  static const bool manualRefreshLocalOnly = true;
 
   static const int healEveryNTicks = 0;
   static const int microCatchupEveryNTicks = 0;

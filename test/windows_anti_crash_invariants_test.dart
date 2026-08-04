@@ -8,6 +8,7 @@ void main() {
   group('Windows anti-crash invariants', () {
     test('solo salida: sin inbound en pump', () {
       expect(WindowsSyncPolicy.outboundOnlyPump, isTrue);
+      expect(WindowsSyncPolicy.manualRefreshLocalOnly, isTrue);
       expect(WindowsSyncPolicy.stockOpsEveryNTicks, 0);
       expect(WindowsSyncPolicy.pollRemitosEveryNTicks, 0);
       expect(WindowsSyncPolicy.enablePeriodicSoftPull, isFalse);
