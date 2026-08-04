@@ -1388,9 +1388,9 @@ class FirestoreSyncService {
           await _pullProductosIncrementalWindows(maxPages: 1, pageSize: page);
         case 'productos_cat':
           await _pullProductosCatalogoWindows(maxPages: 1, pageSize: page);
-          if (tick % 4 == 3) {
-            await _reconciliarPapeleraWindows();
-          }
+          await _reconciliarPapeleraWindows();
+        case 'papelera':
+          await _reconciliarPapeleraWindows();
         case 'clientes':
           final snap = await _pullPaginaPorDocId(
             _clientesCol,
@@ -1421,8 +1421,9 @@ class FirestoreSyncService {
             await _aplicarRemitosRemotos(snap);
           }
         case 'stock_ops':
-          // 1.4.39: no-op en soft-pull. Stock lo trae _tickInboundStockOps.
-          break;
+          // Stock lo trae _tickInboundStockOps; acá alineamos papelera
+          // (fantasmas locales alteran el KPI “sin stock”).
+          await _reconciliarPapeleraWindows();
         case 'compras':
           final snap = await _pullPaginaPorDocId(
             _comprasCol,

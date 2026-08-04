@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../core/auth/rol_util.dart';
 import '../core/config/backend_config_service.dart';
 import '../core/firebase/firebase_auth_usuario_service.dart';
 import '../core/firebase/firebase_safe_mode.dart';
@@ -48,6 +47,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   bool _barraLateralAbierta = false;
   bool _reiniciando = false;
   bool _vaciando = false;
+  bool _zonaPeligroDesbloqueada = false;
   final _tenantCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
 
@@ -630,8 +630,63 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     });
   }
 
-  Future<void> _reiniciarSistema() async {
+  Future<void> _desbloquearZonaPeligro() async {
     if (!_esAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Solo el administrador puede abrir esta zona.'),
+        ),
+      );
+      return;
+    }
+    final ctrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Zona de borrado'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Esta zona puede borrar productos, clientes y comprobantes '
+              '(también en la nube).\n\n'
+              'Para continuar escribí exactamente: BORRAR',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Escribí BORRAR',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (ctrl.text.trim().toUpperCase() != 'BORRAR') return;
+              Navigator.pop(ctx, true);
+            },
+            child: const Text('Abrir zona'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (ok == true && mounted) {
+      setState(() => _zonaPeligroDesbloqueada = true);
+    }
+  }
+
+  Future<void> _reiniciarSistema() async {
+    if (!_esAdmin || !_zonaPeligroDesbloqueada) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Solo el administrador puede reiniciar el sistema.'),
@@ -640,31 +695,16 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       return;
     }
     final cs = Theme.of(context).colorScheme;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Reiniciar sistema'),
-        content: const Text(
+    final ok = await confirmarConClave(
+      context,
+      titulo: 'Reiniciar sistema',
+      mensaje:
           'Se reinician sync y servicios internos.\n'
           'NO se borran productos, ventas ni clientes.\n\n'
-          '¿Continuar?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppVisuals.warning(cs),
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Reiniciar servicios'),
-          ),
-        ],
-      ),
+          'Ingresá tu contraseña de administrador.',
+      confirmarLabel: 'Reiniciar servicios',
     );
-    if (ok != true || !mounted) return;
+    if (!ok || !mounted) return;
     setState(() => _reiniciando = true);
     final r = await DataWipeService.instance.reiniciarServicios();
     if (!mounted) return;
@@ -707,43 +747,43 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     );
   }
 
-  Widget _tarjetaMantenimientoDatos(ThemeData theme, ColorScheme colorScheme) {
-    final user = AuthService.instance.currentUser;
-    if (!_esAdmin) {
-      return Card(
-        child: ListTile(
-          leading: Icon(Icons.lock_outline_rounded,
-              color: colorScheme.onSurfaceVariant),
-          title: const Text('Mantenimiento y datos'),
-          subtitle: Text(
-            'Solo visible para Administrador. '
-            'Tu rol: ${RolUtil.etiqueta(user?.rol ?? '')}.',
-          ),
-        ),
-      );
+  /// Solo aparece tras long-press en la versión + escribir BORRAR.
+  Widget _zonaPeligroDatos(ThemeData theme, ColorScheme colorScheme) {
+    if (!_zonaPeligroDesbloqueada || !_esAdmin) {
+      return const SizedBox.shrink();
     }
     return Card(
-      elevation: 3,
+      elevation: 2,
       color: colorScheme.errorContainer.withValues(alpha: 0.22),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'MANTENIMIENTO Y DATOS',
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.4,
-                color: AppVisuals.danger(colorScheme),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'ZONA OCULTA — DATOS',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.4,
+                      color: AppVisuals.danger(colorScheme),
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () =>
+                      setState(() => _zonaPeligroDesbloqueada = false),
+                  child: const Text('Ocultar'),
+                ),
+              ],
             ),
             const SizedBox(height: 6),
             Text(
-              'Solo administrador. Reiniciar no borra datos. '
-              'Vaciar / sistema virgen son irreversibles y piden tu contraseña. '
-              'Se conservan usuarios, permisos y branding. '
-              'Si la nube está activa, también se borran en el celular.',
+              'Reiniciar no borra datos (pide contraseña). '
+              'Vaciar / sistema virgen son irreversibles y también piden contraseña. '
+              'Se conservan usuarios, permisos y branding.',
               style: TextStyle(
                 fontSize: 13,
                 color: colorScheme.onSurfaceVariant,
@@ -854,6 +894,33 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     );
   }
 
+  /// Pie inocuo: long-press (admin) abre el diálogo BORRAR → zona oculta.
+  Widget _anilloDesbloqueoAdmin(ColorScheme colorScheme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _zonaPeligroDatos(Theme.of(context), colorScheme),
+        if (_zonaPeligroDesbloqueada) const SizedBox(height: 12),
+        Center(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onLongPress: _esAdmin ? _desbloquearZonaPeligro : null,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
+              child: Text(
+                'Tata.Manager v1.4.52',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -866,10 +933,8 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            _tarjetaMantenimientoDatos(theme, colorScheme),
-            const SizedBox(height: 16),
             // Branding primero; sync va colapsada más abajo (evitar desactivar por error).
-            // ── Branding placeholder marker — sync se inserta después del branding ──
+            // Reinicio/wipe: NO visibles — long-press en versión al final.
             // ── Sincronización / nube (colapsada) ─────────────────
             Card(
               elevation: 3,
@@ -1838,6 +1903,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
               ),
             ),
             const SizedBox(height: 16),
+            _anilloDesbloqueoAdmin(colorScheme),
           ],
         ),
       ),

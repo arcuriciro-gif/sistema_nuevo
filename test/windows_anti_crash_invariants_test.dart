@@ -6,7 +6,7 @@ import 'package:sistema_nuevo/models/producto.dart';
 
 void main() {
   group('Windows anti-crash invariants', () {
-    test('sync simple: listeners negocio; sin snapshot productos', () {
+    test('1.4.52: sin listeners; soft-pull ON; stock_ops acotado', () {
       expect(WindowsSyncPolicy.outboundOnlyPump, isFalse);
       expect(WindowsSyncPolicy.enablePeriodicSoftPull, isTrue);
       expect(WindowsSyncPolicy.enableProductosListenerWindows, isFalse);
@@ -15,14 +15,18 @@ void main() {
       expect(WindowsSyncPolicy.stockOpsEveryNTicks, greaterThan(0));
       expect(
         WindowsSyncPolicy.enableBusinessDocListeners(isWindowsDesktop: true),
-        isTrue,
+        isFalse,
       );
+      expect(WindowsSyncPolicy.papeleraReconcileLimit, lessThanOrEqualTo(25));
     });
 
-    test('hardCap stock_ops ≤ 2', () {
+    test('hardCap stock_ops ≤ 3 (idle) / ≤ 2 (normal const)', () {
       expect(WindowsSyncPolicy.stockOpsHardCap, lessThanOrEqualTo(2));
-      final b = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 0);
-      expect(b.maxApply, lessThanOrEqualTo(2));
+      expect(WindowsSyncPolicy.stockOpsHardCapIdle, lessThanOrEqualTo(3));
+      final idle = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 0);
+      expect(idle.maxApply, lessThanOrEqualTo(3));
+      final busy = WindowsSyncPolicy.stockOpsPullBudget(pendingProductos: 40);
+      expect(busy.maxApply, lessThanOrEqualTo(2));
     });
   });
 
