@@ -320,7 +320,10 @@ class FirestoreSyncService {
               if (orphans > 0) {
                 debugPrint('Outbox: ACK $orphans huérfanos');
               }
-              final ghosts = await SyncOutbox.instance.quietWindowsGhostQueue();
+              final ghosts =
+                  await SyncOutbox.instance.quietWindowsGhostQueue(
+                aggressive: true,
+              );
               if (ghosts > 0) {
                 debugPrint('Outbox Windows: quieted $ghosts fantasmas');
               }
@@ -793,82 +796,65 @@ class FirestoreSyncService {
   }) async {
     try {
       if (windows) {
-        final breakdown = await SyncOutbox.instance.pendingBreakdown();
-        final pendingProd = breakdown['producto'] ?? 0;
-        final budget = WindowsSyncPolicy.manualRefreshBudgetWindows(
-          pendingProductos: pendingProd,
-        );
-        var stockAppliedHint = 0;
-        Future<void> pause() => Future<void>.delayed(
-              Duration(milliseconds: budget.yieldMs),
-            );
+        // 1.4.45 — igual que el aprendizaje de 1.4.20: push-only.
+        // Cualquier pull (stock/productos/comprobantes) tumba el EXE.
+        syncStatusDetail = 'Subiendo cola local…';
+        DataRefreshHub.instance.notifyTodo();
 
-        // 1.4.44: UNA cosa chica por fase. Sin reconcile / sin repair masivo.
+        try {
+          await SyncOutbox.instance.quietWindowsGhostQueue(aggressive: true);
+        } catch (e) {
+          debugPrint('actualizarAhora quiet ghosts: $e');
+        }
 
-        // Fase 0 — subir cola local (lo más seguro).
+        var drained = 0;
         if (_puedeEscribirRemoto) {
           try {
             await SyncScheduler.instance.ensureRestored();
-            final bd = await SyncOutbox.instance.pendingBreakdown();
-            if (bd.isNotEmpty) {
+            for (var i = 0; i < 3; i++) {
+              final bd = await SyncOutbox.instance.pendingBreakdown();
+              if (bd.isEmpty) break;
               final claimed = await SyncScheduler.instance.claimForTick(
                 breakdown: bd,
                 isWindows: true,
               );
-              if (claimed.isNotEmpty) {
-                // Máximo 2 ops por click.
-                final slice = claimed.take(2).toList(growable: false);
-                await _ejecutarClaimedOps(
-                  slice,
-                  yieldMs: budget.yieldMs,
-                  allowPreempt: false,
-                );
-              }
+              if (claimed.isEmpty) break;
+              final slice = claimed.take(2).toList(growable: false);
+              await _ejecutarClaimedOps(
+                slice,
+                yieldMs: 450,
+                allowPreempt: false,
+              );
+              drained += slice.length;
+              await Future<void>.delayed(const Duration(milliseconds: 450));
             }
           } catch (e) {
             debugPrint('actualizarAhora drain: $e');
           }
-          await pause();
         }
 
-        // Fase 1 — stock: solo recientes, hardCap 1 (sin remotas + recientes).
-        try {
-          await _runStockOpsLane(() async {
-            await _pullStockOpsRecientes(
-              limit: budget.stockRecentLimit,
-              maxApply: budget.stockMaxApply,
-              microBatchSize: budget.stockMicroBatch,
-              yieldMs: budget.yieldMs,
-            );
-            stockAppliedHint += await _sweepStockOpsHolds(limit: 2);
-          });
-        } catch (e) {
-          debugPrint('actualizarAhora stock_ops: $e');
-        }
-        await pause();
-
-        // Fase 2 — comprobantes recientes (2 docs).
-        try {
-          await _pullNegocioRecienteWindows(limit: budget.negocioLimit);
-        } catch (e) {
-          debugPrint('actualizarAhora negocio: $e');
-        }
-        await pause();
-
-        // Fase 3 — productos/precios (2 docs).
-        try {
-          await _pullProductosIncrementalWindows(
-            maxPages: 1,
-            pageSize: budget.productosPageSize,
-          );
-        } catch (e) {
-          debugPrint('actualizarAhora productos: $e');
-        }
-
-        debugPrint(
-          'actualizarAhora Windows micro done stockHint=$stockAppliedHint '
-          'ms=${sw.elapsedMilliseconds}',
+        final left = await SyncOutbox.instance.pendingBreakdown();
+        final pending = left.values.fold<int>(0, (a, b) => a + b);
+        syncStatusLabel = 'En la nube (modo estable PC)';
+        syncStatusDetail = pending == 0
+            ? 'Cola limpia'
+            : '$pending por subir: ${SyncOutbox.formatBreakdown(left)}';
+        SyncHealthService.instance.recordCycle(
+          durationMs: sw.elapsedMilliseconds,
         );
+        DataRefreshHub.instance.notifyTodo();
+        debugPrint(
+          'actualizarAhora Windows push-only drained=$drained '
+          'left=$pending ms=${sw.elapsedMilliseconds}',
+        );
+        return {
+          'ok': true,
+          'windows': true,
+          'pushOnly': true,
+          'drained': drained,
+          'pendingLeft': pending,
+          'ms': sw.elapsedMilliseconds,
+        };
       } else {
         try {
           try {
@@ -1094,7 +1080,7 @@ class FirestoreSyncService {
     await CloudSyncThrottle.enqueue(() async {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       await SyncOutbox.instance.ackOrphanUpserts();
-      await SyncOutbox.instance.quietWindowsGhostQueue();
+      await SyncOutbox.instance.quietWindowsGhostQueue(aggressive: true);
       // Cupos chicos: subir cola local real.
       await _procesarOutboxDrain(
         maxBatches: 1,

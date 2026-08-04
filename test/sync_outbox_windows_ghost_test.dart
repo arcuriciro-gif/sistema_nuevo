@@ -75,32 +75,40 @@ void main() {
       );
     });
 
-    test('stock_op en loop reclaim → dead (corta bucle)', () async {
-      await SyncOutbox.instance.enqueueStockOp(
-        opId: 'loop-op',
-        codigo: 'ABC',
-        delta: -1,
+    test('aggressive limpia docs viejos y deja fresco intacto', () async {
+      await SyncOutbox.instance.enqueueUpsert(
+        entityType: 'producto',
+        localId: 1,
+        remoteId: 'SKU1',
+      );
+      await SyncOutbox.instance.enqueueUpsert(
+        entityType: 'producto',
+        localId: 2,
+        remoteId: 'SKU2',
       );
       final db = await DatabaseHelper.instance.database;
+      final old = DateTime.now()
+          .toUtc()
+          .subtract(const Duration(hours: 2))
+          .toIso8601String();
       await db.update(
         'sync_outbox',
-        {
-          'attempts': 9,
-          'last_error': 'reclaimed_stale_inflight',
-        },
-        where: 'op_id = ?',
-        whereArgs: ['stock_op:loop-op'],
+        {'attempts': 2, 'updated_at': old, 'last_error': 'circuit_open'},
+        where: "op_id = 'upsert:producto:1'",
       );
-      final n = await SyncOutbox.instance.quietWindowsGhostQueue();
-      expect(n, 1);
-      expect(
-        await SyncOutbox.instance.countByStatus(SyncOutboxStatus.dead),
-        1,
+      // localId 2 queda fresco (attempts 0).
+
+      final n = await SyncOutbox.instance.quietWindowsGhostQueue(
+        aggressive: true,
       );
-      expect(
-        await SyncOutbox.instance.countByStatus(SyncOutboxStatus.pending),
-        0,
+      expect(n, greaterThanOrEqualTo(1));
+      final pending = await db.query(
+        'sync_outbox',
+        where: 'status = ?',
+        whereArgs: [SyncOutboxStatus.pending],
       );
+      expect(pending.length, 1);
+      expect(pending.first['op_id'], 'upsert:producto:2');
     });
   });
 }

@@ -694,18 +694,21 @@ GROUP BY l
     return n;
   }
 
-  /// Windows 1.4.43: limpia cola fantasma al abrir (sin cambios del usuario).
+  /// Windows: limpia cola fantasma al abrir / al botón (sin cambios del usuario).
   ///
-  /// - Docs (producto/remito/…): ACK si ya reintentaron bastante o llevan días.
-  /// - stock_op: no ACK a ciegas; si está en bucle reclaim → `dead` (corta el loop).
-  /// No crea pendientes nuevos.
+  /// [aggressive]: ACK casi toda la cola vieja de docs; stock_op en loop → dead.
   Future<int> quietWindowsGhostQueue({
     int minAttemptsDocs = 3,
     Duration staleAfter = const Duration(hours: 36),
-    int limit = 250,
+    int limit = 400,
+    bool aggressive = false,
   }) async {
     final db = await _db;
-    final cutoff = DateTime.now().toUtc().subtract(staleAfter).toIso8601String();
+    final staleDur =
+        aggressive ? const Duration(minutes: 10) : staleAfter;
+    final minAttempts = aggressive ? 1 : minAttemptsDocs;
+    final cutoff =
+        DateTime.now().toUtc().subtract(staleDur).toIso8601String();
     final ahora = DateTime.now().toUtc().toIso8601String();
     final rows = await db.query(
       'sync_outbox',
@@ -735,10 +738,14 @@ GROUP BY l
           err.contains('requeued_awaiting_cloud_proof') ||
           err.contains('circuit_open') ||
           err.contains('sin sesión') ||
-          err.contains('permission-denied');
+          err.contains('permission-denied') ||
+          err.contains('windows_ghost');
 
       if (type == 'stock_op') {
-        if (attempts >= 8 && (loopErr || stale)) {
+        final kill = aggressive
+            ? (attempts >= 3 || loopErr || stale)
+            : (attempts >= 8 && (loopErr || stale));
+        if (kill) {
           n += await db.update(
             'sync_outbox',
             {
@@ -758,8 +765,14 @@ GROUP BY l
         continue;
       }
 
-      // Catálogo / comprobantes / clientes: basura de catchup o fallos viejos.
-      if (attempts >= minAttemptsDocs || stale || (attempts >= 1 && loopErr)) {
+      // Docs: en agresivo, ACK todo lo que no sea fresco (<10 min y 0 attempts).
+      final freshUntouched = !stale && attempts == 0 && err.isEmpty;
+      if (aggressive && !freshUntouched) {
+        await ack(opId);
+        n++;
+        continue;
+      }
+      if (attempts >= minAttempts || stale || (attempts >= 1 && loopErr)) {
         await ack(opId);
         n++;
       }

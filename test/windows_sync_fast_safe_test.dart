@@ -44,19 +44,14 @@ void main() {
       );
     });
 
-    test('Actualizar ahora Windows: micro absoluto anti-crash', () {
+    test('Actualizar ahora Windows: push-only (anti-crash campo)', () {
+      expect(WindowsSyncPolicy.manualRefreshPushOnly, isTrue);
+      expect(WindowsSyncPolicy.outboundOnlyPump, isTrue);
       final m = WindowsSyncPolicy.manualRefreshBudgetWindows(
         pendingProductos: 0,
       );
       expect(m.stockMaxApply, lessThanOrEqualTo(1));
-      expect(m.stockRounds, lessThanOrEqualTo(1));
-      expect(m.negocioLimit, lessThanOrEqualTo(2));
-      expect(m.productosPageSize, lessThanOrEqualTo(2));
       expect(m.pullClientes, isFalse);
-      expect(m.pullConfig, isFalse);
-      expect(m.repararProyeccion, isFalse);
-      expect(m.reconcilizarStockOps, isFalse);
-      expect(m.yieldMs, greaterThanOrEqualTo(350));
     });
   });
 }

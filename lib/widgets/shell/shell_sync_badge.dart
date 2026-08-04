@@ -76,11 +76,17 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
           );
       if (!mounted) return;
       final ok = r['ok'] == true;
+      final pushOnly = r['pushOnly'] == true;
+      final pendingLeft = r['pendingLeft'];
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             ok
-                ? 'Actualizado (${r['ms']} ms). Listas, clientes, ventas y stock.'
+                ? (pushOnly
+                    ? (pendingLeft == 0
+                        ? 'Cola limpia (${r['ms']} ms). En PC solo se sube lo local.'
+                        : 'Subidos ${r['drained'] ?? 0}; quedan $pendingLeft por subir.')
+                    : 'Actualizado (${r['ms']} ms). Listas, clientes, ventas y stock.')
                 : 'No se pudo actualizar: ${r['error'] ?? 'error'}',
           ),
         ),
@@ -295,16 +301,16 @@ class _ShellSyncBadgeState extends State<ShellSyncBadge> {
                         : const Icon(Icons.cloud_sync_rounded),
                     label: Text(
                       _actualizando
-                          ? 'Actualizando…'
-                          : 'Actualizar ahora',
+                          ? 'Subiendo…'
+                          : 'Subir cola / limpiar',
                     ),
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Baja listas, clientes, ventas/remitos y stock de la nube, '
-                  'y sube lo pendiente. Usalo después de cargar una lista, '
-                  'un cliente o una venta si querés ver el cambio ya.',
+                  'En la PC: solo sube lo local y limpia pendientes viejos '
+                  '(no baja de la nube — eso tumbaba el EXE). '
+                  'En el celular sí baja y sube todo.',
                   style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                         color: Theme.of(ctx).hintColor,
                       ),

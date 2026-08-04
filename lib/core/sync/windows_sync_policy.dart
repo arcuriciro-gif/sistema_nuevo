@@ -30,8 +30,9 @@ class WindowsSyncPolicy {
   static const Duration softPullInterval = Duration(seconds: 600);
   static const bool enablePeriodicSoftPull = false;
 
-  /// Solo salida: no traer del cloud en el pump.
-  static const bool outboundOnlyPump = true;
+  /// «Actualizar ahora» en Windows: SOLO subir cola local (push).
+  /// Cualquier pull inbound (stock/productos/remitos) tumba el EXE en campo.
+  static const bool manualRefreshPushOnly = true;
 
   static const int healEveryNTicks = 0;
   static const int microCatchupEveryNTicks = 0;
