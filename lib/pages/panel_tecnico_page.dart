@@ -8,7 +8,6 @@ import '../core/integrity/integrity_reconcile_service.dart';
 import '../core/integrity/legacy_ledger_migration.dart';
 import '../core/ops/technical_health_service.dart';
 import '../core/security/authorization_service.dart';
-import '../core/sync/observability/sync_benchmark_runner.dart';
 import '../core/sync/observability/sync_diagnostic_service.dart';
 import '../core/sync/observability/sync_observability_hub.dart';
 import '../services/auth_service.dart';
@@ -117,27 +116,6 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Diagnóstico falló: $e')),
-      );
-    }
-  }
-
-  Future<void> _benchmark() async {
-    setState(() => _busy = true);
-    try {
-      final report = await SyncBenchmarkRunner.instance.run();
-      if (!mounted) return;
-      setState(() => _busy = false);
-      await Clipboard.setData(ClipboardData(text: report.toMarkdown()));
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Benchmark listo — markdown en portapapeles')),
-      );
-      await _cargar();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Benchmark falló: $e')),
       );
     }
   }
@@ -294,30 +272,8 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
           _row('Puede escribir', sync.canWrite ? 'sí' : 'no'),
           _row('Último error', sync.lastError ?? '—'),
         ]),
-        _section('Sync Engine 2.0', [
+        _section('Sync engine', [
           _row('Modo', '${sync.engine['mode'] ?? '—'}'),
-          _row(
-            'Turbo',
-            ((sync.engine['turbo'] as Map?)?['turboActive'] == true)
-                ? 'ACTIVO'
-                : 'off',
-          ),
-          _row(
-            'Preemptions',
-            '${(sync.engine['turbo'] as Map?)?['preemptionCount'] ?? 0}',
-          ),
-          _row(
-            'Batch L1 / fondo (adaptativo)',
-            '${(sync.engine['adaptive'] as Map?)?['batchL1'] ?? '—'} / '
-            '${(sync.engine['adaptive'] as Map?)?['batchBackground'] ?? '—'}',
-          ),
-          _row(
-            'EMA latencia',
-            sync.engine['adaptive'] == null ||
-                    (sync.engine['adaptive'] as Map)['emaLatencyMs'] == null
-                ? '—'
-                : '${((sync.engine['adaptive'] as Map)['emaLatencyMs'] as num).toStringAsFixed(0)} ms',
-          ),
           _row(
             'Auto-heals',
             '${(sync.engine['healer'] as Map?)?['healsRun'] ?? 0}',
@@ -327,7 +283,6 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
             (sync.engine['healer'] as Map?)?['lastHealDetail']?.toString() ??
                 '—',
           ),
-          _row('Locks entidad', '${sync.engine['locksHeld'] ?? 0}'),
           _row('Muestras 24h', '${sync.history24h.length}'),
         ]),
         if (_dash != null) ...[
@@ -384,10 +339,6 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
                   '${((d['workers'] as Map?)?['l2'] ?? 0)}/'
                   '${((d['workers'] as Map?)?['l3'] ?? 0)}/'
                   '${((d['workers'] as Map?)?['l4'] ?? 0)}'),
-              _row(
-                'Turbo',
-                ((d['turbo'] as Map?)?['turboActive'] == true) ? 'ACTIVO' : 'off',
-              ),
               _row('Circuit breaker',
                   '${cb['state'] ?? '—'} (trips=${cb['tripCount'] ?? 0}, wait=${cb['extraWaitMs'] ?? 0}ms)'),
               _row('RSS memoria',
@@ -418,11 +369,6 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
                     icon: const Icon(Icons.troubleshoot_outlined),
                     label: const Text('Diagnosticar Sincronización'),
                   ),
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : _benchmark,
-                    icon: const Icon(Icons.speed_outlined),
-                    label: const Text('Benchmark lab'),
-                  ),
                 ],
               ),
               if (_diagText != null) ...[
@@ -447,8 +393,6 @@ class _PanelTecnicoPageState extends State<PanelTecnicoPage> {
             '${sync.scheduler['backgroundFails'] ?? 0}',
           ),
           _row('Coalesced ops', '${sync.scheduler['coalescedOps'] ?? 0}'),
-          _row('Turbo ticks / preempts',
-              '${sync.scheduler['turboTicks'] ?? 0} / ${sync.scheduler['preemptCount'] ?? 0}'),
           _row(
             'Latencia avg crítico',
             sync.scheduler['avgCriticalLatencyMs'] == null

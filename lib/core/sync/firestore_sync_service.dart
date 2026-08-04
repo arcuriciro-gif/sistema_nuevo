@@ -22,7 +22,6 @@ import 'cloud_sync_throttle.dart';
 import 'observability/sync_circuit_breaker.dart';
 import 'observability/sync_observability_hub.dart';
 import 'observability/sync_path_logger.dart';
-import 'scheduler/entity_lock_registry.dart';
 import 'scheduler/sync_priority.dart';
 import 'scheduler/sync_scheduler.dart';
 import 'sync_background.dart';
@@ -109,27 +108,12 @@ class FirestoreSyncService {
   /// Números de remito ya vistos en la nube (borrado remoto → borrar local).
   final Set<String> _remitosConfirmadosEnNube = {};
 
-  /// Entidades creadas/editadas sin sesión de nube (colas persistentes).
-  final Set<int> _colaClientes = {};
-  final Set<int> _colaProveedores = {};
-  final Set<int> _colaVentas = {};
-  final Set<int> _colaRemitos = {};
-  final Set<int> _colaProductos = {};
-  final Set<int> _colaCompras = {};
-  /// Deltas de stock pendientes: "opId|codigo|delta"
-  final List<String> _colaStockOps = [];
-
   /// Último estado legible para la UI (sin carteles rojos agresivos).
   String syncStatusLabel = 'Local';
   String? syncStatusDetail;
 
   /// Reintento suave de outbox mientras la nube está activa (EXE→APK).
   Timer? _outboxPump;
-  /// Windows: pull periódico (sin listeners pesados que tumban el .exe).
-  Timer? _pullPump;
-  /// APK/móvil: pull periódico de stock_ops (no hay listener; el stock
-  /// remoto en productos se ignora — R6/R7: autoridad = ledger/stock_ops).
-  Timer? _stockOpsPullPump;
   /// Evita doble start() en Windows (auth + shell reconectan a la vez).
   bool _windowsBootInProgress = false;
   bool _windowsPumpsActivos = false;
@@ -190,7 +174,6 @@ class FirestoreSyncService {
       // stop() limpia flags Windows; reponer boot si aplica.
       if (windows) _windowsBootInProgress = true;
 
-      await _cargarColasPersistidas();
       // Trazabilidad E2E: cada hop lleva deviceId + tenant.
       SyncPathLogger.instance.configure(
         deviceId:
@@ -206,7 +189,7 @@ class FirestoreSyncService {
       );
       if (!windows) {
         await SyncOutbox.instance.reclaimStaleInflight();
-        await _migrateLegacyColasToOutbox();
+        await _migrateLegacyPrefsColasOnce();
       }
       await _cargarWatermarksPersistidos();
       // 1.4.2: una sola vez rebobina watermark stock_ops 72h para recuperar
@@ -288,55 +271,61 @@ class FirestoreSyncService {
         syncInBackground(
           CloudSyncThrottle.enqueue(() async {
             try {
-              await _cargarColasPersistidas();
-              await _maybeRewindStockOpsWatermarkForConvergence();
               syncStatusDetail = 'Revisando cola local…';
               DataRefreshHub.instance.notifyTodo();
-              // Solo stock MUERTO/reclaim eterno — NO borrar pending frescos
-              // (si no, el stock del .exe nunca llega al APK).
-              // Boot: sin proveCloudApplied (N queries Firestore colgaban el
-              // badge en "Limpiando cola…" y abortaban el seed/ledger).
-              final purged = await SyncOutbox.instance.purgeStuckStockOps(
-                minAttempts: 5,
-                onlyLastErrorContains: 'reclaimed_stale_inflight',
-                limit: 40,
-                proveCloudApplied: null,
-              );
-              final recovered = await SyncOutbox.instance.recoverDeadStockOps(
-                limit: 8,
-                proveCloudApplied: (remoteOpId) =>
-                    _remote.stockOpCloudApplied(remoteOpId),
-              );
-              if (purged > 0 ||
-                  recovered.acked +
-                          recovered.requeued +
-                          recovered.forceRequeued >
-                      0) {
-                debugPrint(
-                  'Outbox Windows: purge=$purged '
-                  'deadAck=${recovered.acked} '
-                  'deadReq=${recovered.requeued} '
-                  'poisonForce=${recovered.forceRequeued}',
+              // 1.4.42: sin recoverDeadStockOps (N gets a Firestore) ni
+              // LegacyLedgerMigration masiva — tumba el EXE al abrir.
+              if (!WindowsSyncPolicy.skipHeavyBootMaintenance) {
+                await _maybeRewindStockOpsWatermarkForConvergence();
+                final purged = await SyncOutbox.instance.purgeStuckStockOps(
+                  minAttempts: 5,
+                  onlyLastErrorContains: 'reclaimed_stale_inflight',
+                  limit: 40,
+                  proveCloudApplied: null,
                 );
-              }
-              // Histórico sin ledger → seed hasta vaciar (G4). Lotes chicos.
-              try {
-                await LegacyLedgerMigration.instance.seedUntilDone(
-                  batchSize: 400,
-                  maxBatches: 20,
+                final recovered = await SyncOutbox.instance.recoverDeadStockOps(
+                  limit: 8,
+                  proveCloudApplied: (remoteOpId) =>
+                      _remote.stockOpCloudApplied(remoteOpId),
                 );
-              } catch (e) {
-                debugPrint('LegacyLedgerMigration boot: $e');
+                if (purged > 0 ||
+                    recovered.acked +
+                            recovered.requeued +
+                            recovered.forceRequeued >
+                        0) {
+                  debugPrint(
+                    'Outbox Windows: purge=$purged '
+                    'deadAck=${recovered.acked} '
+                    'deadReq=${recovered.requeued} '
+                    'poisonForce=${recovered.forceRequeued}',
+                  );
+                }
+                try {
+                  await LegacyLedgerMigration.instance.seedUntilDone(
+                    batchSize: 400,
+                    maxBatches: 20,
+                  );
+                } catch (e) {
+                  debugPrint('LegacyLedgerMigration boot: $e');
+                }
+              } else {
+                // 1.4.43: NO purge sin prove (reencola y deja "pendientes" eternos).
+                // Solo limpiar fantasmas locales.
               }
               await SyncOutbox.instance.reclaimStaleInflight(
                 olderThan: WindowsSyncPolicy.reclaimStaleInflightAfter,
               );
-              await _migrateLegacyColasToOutbox();
-              await _volcarColasLegacyAOutboxSeguro();
-              await _limpiarColasLegacyPrefs();
+              await _migrateLegacyPrefsColasOnce();
               final orphans = await SyncOutbox.instance.ackOrphanUpserts();
               if (orphans > 0) {
                 debugPrint('Outbox: ACK $orphans huérfanos');
+              }
+              final ghosts =
+                  await SyncOutbox.instance.quietWindowsGhostQueue(
+                aggressive: true,
+              );
+              if (ghosts > 0) {
+                debugPrint('Outbox Windows: quieted $ghosts fantasmas');
               }
 
               final breakdown = await SyncOutbox.instance.pendingBreakdown();
@@ -345,7 +334,7 @@ class FirestoreSyncService {
                 final que = SyncOutbox.formatBreakdown(breakdown);
                 syncStatusLabel = 'Sincronizando…';
                 syncStatusDetail =
-                    '$pending pendientes: $que (arranque seguro)';
+                    '$pending por subir: $que';
               } else {
                 syncStatusLabel = 'En la nube (modo estable PC)';
                 syncStatusDetail = null;
@@ -375,9 +364,6 @@ class FirestoreSyncService {
       }
       await _vaciarColasYSubirPendientes();
       _iniciarOutboxPump();
-      // Stock del .exe → Firestore → APK: hay que seguir tirando stock_ops
-      // (el listener de productos ignora stock absoluto).
-      _iniciarStockOpsPullMobile();
 
       final health = await SyncHealthService.instance.snapshot();
       if (health.dead > 0) {
@@ -425,12 +411,13 @@ class FirestoreSyncService {
   }) {
     if (PlatformCapabilities.isWindowsDesktop) {
       // Interactivo: sin demora artificial — la venta/precio debe verse ya.
+      // Cupos chicos: no tumbar EXE al guardar.
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
           await job();
           await _procesarOutboxDrain(
-            maxBatches: 2,
-            claimLimit: 8,
+            maxBatches: 1,
+            claimLimit: 3,
             entityTypes: const [
               'venta',
               'remito',
@@ -453,7 +440,7 @@ class FirestoreSyncService {
     );
   }
 
-  /// Windows: listeners solo de negocio (colecciones chicas). Arrancar
+  /// Windows: listeners automáticos (estilo 21 jul). Arrancar
   /// DESPUÉS de la cuarentena — no en el login frío.
   void _iniciarListenersNegocioWindows() {
     if (!PlatformCapabilities.isWindowsDesktop) return;
@@ -518,92 +505,171 @@ class FirestoreSyncService {
       },
       onError: (Object e) => debugPrint('Listen compras Windows: $e'),
     );
+
+    if (WindowsSyncPolicy.enableProductosListenerWindows) {
+      _productosSub?.cancel();
+      _productosSnapshotInicial = true;
+      _productosSub = _remote.watchSnapshots(limit: 10000).listen(
+        _onProductosSnapshot,
+        onError: (Object e) => debugPrint('Listen productos Windows: $e'),
+      );
+    }
+
     debugPrint(
-      'Windows: listeners negocio ON '
-      '(${WindowsSyncPolicy.windowsBusinessListenerCollections.join(", ")})',
+      'Windows: listeners automáticos ON '
+      '(${WindowsSyncPolicy.windowsBusinessListenerCollections.join(", ")}'
+      '${WindowsSyncPolicy.enableProductosListenerWindows ? ", productos" : ""})',
     );
   }
 
+  int _unifiedPumpTick = 0;
+  DateTime? _lastSoftPullAt;
+
   void _iniciarOutboxPump() {
     _outboxPump?.cancel();
+    // Un solo timer: inbound stock + drain outbox + soft docs.
     final windows = PlatformCapabilities.isWindowsDesktop;
     final intervalo = windows
         ? WindowsSyncPolicy.outboxPumpInterval
         : const Duration(seconds: 40);
     _outboxPump = Timer.periodic(intervalo, (_) {
       if (!_puedeEscribirRemoto) return;
+      if (windows && !_windowsPumpsActivos) return;
+      if (_actualizarAhoraBusy) return;
       syncInBackground(
         CloudSyncThrottle.enqueue(() async {
-          // Sync Engine 2.0: auto-heal + restore adaptive/turbo.
           await SyncScheduler.instance.ensureRestored();
-          await SyncScheduler.instance.runAutoHeal();
-          // Limpieza barata antes de Firebase.
-          await SyncOutbox.instance.ackOrphanUpserts();
-          await SyncOutbox.instance.ackStockOpsYaHechas(_stockOpsHechas);
-          if (windows) {
-            // Solo reclaim eternos; NUNCA borrar stock pending fresco.
-            await SyncOutbox.instance.purgeStuckStockOps(
-              minAttempts: 8,
-              onlyLastErrorContains: 'reclaimed_stale_inflight',
-              limit: 20,
-              proveCloudApplied: null,
+
+          // Windows 1.4.42: pump = SOLO subir cola local. Sin inbound.
+          if (windows && WindowsSyncPolicy.outboundOnlyPump) {
+            var pending = await SyncOutbox.instance.countByStatus(
+              SyncOutboxStatus.pending,
             );
+            if (pending > 0) {
+              syncStatusDetail = '$pending pendientes…';
+              await _procesarSchedulerTicks(windows: true);
+              pending = await SyncOutbox.instance.countByStatus(
+                SyncOutboxStatus.pending,
+              );
+            }
+            // Reclaim muy raro (sin heal/purge/cloud).
+            if (_unifiedPumpTick % 8 == 0) {
+              try {
+                await SyncOutbox.instance.reclaimStaleInflight(
+                  olderThan: WindowsSyncPolicy.reclaimStaleInflightAfter,
+                );
+              } catch (e) {
+                debugPrint('unifiedPump reclaim: $e');
+              }
+            }
+            _unifiedPumpTick++;
+            final leftInflight = await SyncOutbox.instance.countByStatus(
+              SyncOutboxStatus.inflight,
+            );
+            final prevLabel = syncStatusLabel;
+            final prevDetail = syncStatusDetail;
+            if (pending == 0 && leftInflight == 0) {
+              syncStatusLabel = 'En la nube (modo estable PC)';
+              syncStatusDetail = null;
+            } else {
+              syncStatusLabel = 'Sincronizando…';
+              if (pending > 0) {
+                final breakdown = await SyncOutbox.instance.pendingBreakdown();
+                final que = SyncOutbox.formatBreakdown(breakdown);
+                syncStatusDetail = que.isEmpty
+                    ? '$pending pendientes'
+                    : '$pending pendientes: $que';
+              } else {
+                syncStatusDetail = '$leftInflight en curso';
+              }
+            }
+            if (prevLabel != syncStatusLabel ||
+                prevDetail != syncStatusDetail) {
+              DataRefreshHub.instance.notifyTodo();
+            }
+            return;
           }
 
-          // Tras un crash quedan ops "inflight" huérfanas: recuperarlas.
-          // Si ya pasaron maxAttempts → dead (corta loop reclaim).
-          await SyncOutbox.instance.reclaimStaleInflight(
-            olderThan: windows
-                ? WindowsSyncPolicy.reclaimStaleInflightAfter
-                : const Duration(minutes: 5),
-          );
-
-          // Windows: encolar remitos/ventas locales que nunca subieron
-          // (si no, el APK queda en ventas $0 con stock casi OK).
-          if (windows) {
+          // —— Mobile / Windows legacy (inbound habilitado) ——
+          final healEvery = windows ? WindowsSyncPolicy.healEveryNTicks : 1;
+          final doHeal = healEvery > 0 && _unifiedPumpTick % healEvery == 0;
+          if (doHeal) {
+            await SyncScheduler.instance.runAutoHeal();
+            await SyncOutbox.instance.ackOrphanUpserts();
+            if (windows) {
+              await SyncOutbox.instance.purgeStuckStockOps(
+                minAttempts: 8,
+                onlyLastErrorContains: 'reclaimed_stale_inflight',
+                limit: 4,
+                proveCloudApplied: null,
+              );
+            }
+            await SyncOutbox.instance.reclaimStaleInflight(
+              olderThan: windows
+                  ? WindowsSyncPolicy.reclaimStaleInflightAfter
+                  : const Duration(minutes: 5),
+            );
+          }
+          final catchupEvery = WindowsSyncPolicy.microCatchupEveryNTicks;
+          if (windows &&
+              catchupEvery > 0 &&
+              _unifiedPumpTick % catchupEvery == 0) {
             await _microCatchupDocsWindows();
+          }
+
+          final stockEvery = windows
+              ? WindowsSyncPolicy.stockOpsEveryNTicks
+              : 1;
+          if (stockEvery > 0 &&
+              (stockEvery <= 1 || _unifiedPumpTick % stockEvery == 0)) {
+            try {
+              await _tickInboundStockOps(windows: windows);
+            } catch (e) {
+              debugPrint('unifiedPump stock_ops: $e');
+            }
+          }
+
+          if (windows &&
+              !WindowsSyncPolicy.enableBusinessDocListeners(
+                isWindowsDesktop: true,
+              )) {
+            final remEvery = WindowsSyncPolicy.pollRemitosEveryNTicks;
+            if (remEvery > 0 && _unifiedPumpTick % remEvery == 0) {
+              try {
+                await _pullNegocioRecienteWindows(
+                  limit: WindowsSyncPolicy.pollRemitosLimit,
+                );
+              } catch (e) {
+                debugPrint('unifiedPump poll remitos: $e');
+              }
+            }
           }
 
           var pending = await SyncOutbox.instance.countByStatus(
             SyncOutboxStatus.pending,
           );
-          final inflight = await SyncOutbox.instance.countByStatus(
-            SyncOutboxStatus.inflight,
-          );
 
-          if (pending == 0 && inflight == 0) {
-            // Outbox quieto: NO tirar pull+notifyTodo cada tick (pantallazo UI).
-            // Soft-pull / "Actualizar ahora" / listeners cubren bajada.
-            // Apply methods ya notifican si hubo cambios reales.
-            final nextLabel = windows
-                ? 'En la nube (modo estable PC)'
-                : 'En la nube';
-            if (syncStatusLabel != nextLabel || syncStatusDetail != null) {
-              syncStatusLabel = nextLabel;
-              syncStatusDetail = null;
-              // Solo badge/status — sin reload de todas las páginas.
-              SyncHealthService.instance.recordCycle(durationMs: 0);
-            }
-            return;
+          if (pending > 0) {
+            syncStatusDetail = '$pending pendientes…';
+            await _procesarSchedulerTicks(windows: windows);
+            pending = await SyncOutbox.instance.countByStatus(
+              SyncOutboxStatus.pending,
+            );
           }
 
-          if (pending == 0 && inflight > 0) {
-            // Aún en vuelo o trabadas recientes: no spamear drain.
-            final nextDetail = '$inflight en curso';
-            if (syncStatusLabel != 'Sincronizando…' ||
-                syncStatusDetail != nextDetail) {
-              syncStatusLabel = 'Sincronizando…';
-              syncStatusDetail = nextDetail;
+          try {
+            if (windows &&
+                WindowsSyncPolicy.enablePeriodicSoftPull &&
+                !_softPullBusy) {
+              await _pullSuaveWindows();
+            } else if (!windows && _unifiedPumpTick.isEven) {
+              await _tickInboundDocsMobile();
             }
-            return;
+          } catch (e) {
+            debugPrint('unifiedPump soft: $e');
           }
+          _unifiedPumpTick++;
 
-          syncStatusDetail = '$pending pendientes…';
-          // Scheduler v2: crítico nunca espera detrás de import/masivos.
-          await _procesarSchedulerTicks(windows: windows);
-          pending = await SyncOutbox.instance.countByStatus(
-            SyncOutboxStatus.pending,
-          );
           final leftInflight = await SyncOutbox.instance.countByStatus(
             SyncOutboxStatus.inflight,
           );
@@ -626,7 +692,6 @@ class FirestoreSyncService {
               syncStatusDetail = '$leftInflight en curso';
             }
           }
-          // Notificar UI solo si cambió el estado o hubo drain real.
           if (prevLabel != syncStatusLabel || prevDetail != syncStatusDetail) {
             DataRefreshHub.instance.notifyTodo();
           }
@@ -634,6 +699,53 @@ class FirestoreSyncService {
         tag: 'outboxPump',
       );
     });
+  }
+
+  /// Pull stock_ops acotado (mismo hardCap anti-crash Windows).
+  Future<void> _tickInboundStockOps({required bool windows}) async {
+    if (_softPullBusy) return;
+    await _runStockOpsLane(() async {
+      if (windows) {
+        final breakdown = await SyncOutbox.instance.pendingBreakdown();
+        final pendingProd = breakdown['producto'] ?? 0;
+        final budget = WindowsSyncPolicy.stockOpsPullBudget(
+          pendingProductos: pendingProd,
+        );
+        await _pullStockOpsRemotas(
+          maxPages: budget.maxPages,
+          pageSize: budget.pageSize,
+          maxApply: budget.maxApply,
+          microBatchSize: 2,
+          yieldMs: 150,
+        );
+        if (budget.recentLimit > 0) {
+          await _pullStockOpsRecientes(
+            limit: budget.recentLimit,
+            maxApply: budget.maxApply,
+          );
+        }
+        return;
+      }
+      await _pullStockOpsRemotas(maxPages: 2, pageSize: 40, maxApply: 20);
+      await _pullStockOpsRecientes(limit: 60, maxApply: 20);
+    });
+  }
+
+  Future<void> _tickInboundDocsMobile() async {
+    try {
+      final rem = await _remitosCol
+          .orderBy('actualizadoEn', descending: true)
+          .limit(20)
+          .get();
+      if (rem.docs.isNotEmpty) await _aplicarRemitosRemotos(rem);
+      final ven = await _ventasCol
+          .orderBy('actualizadoEn', descending: true)
+          .limit(20)
+          .get();
+      if (ven.docs.isNotEmpty) await _aplicarVentasRemotas(ven);
+    } catch (e) {
+      debugPrint('unifiedPump docs mobile: $e');
+    }
   }
 
   bool _actualizarAhoraBusy = false;
@@ -670,17 +782,9 @@ class FirestoreSyncService {
     _actualizarAhoraBusy = true;
     final sw = Stopwatch()..start();
     final windows = PlatformCapabilities.isWindowsDesktop;
-    var pullWasPaused = false;
     try {
       syncStatusLabel = 'Sincronizando…';
       syncStatusDetail = 'Actualización manual…';
-
-      // Pausar soft-pull mientras corre el manual (evita doble apply).
-      if (windows && _pullPump != null) {
-        _pullPump?.cancel();
-        _pullPump = null;
-        pullWasPaused = true;
-      }
 
       Map<String, dynamic> result = {'ok': false};
       await CloudSyncThrottle.enqueueBackground(() async {
@@ -693,37 +797,9 @@ class FirestoreSyncService {
       return {'ok': false, 'error': e.toString()};
     } finally {
       _actualizarAhoraBusy = false;
-      // Reanudar soft-pull si lo pausamos (intervalo según cola).
-      if (windows &&
-          _windowsPumpsActivos &&
-          _puedeEscribirRemoto &&
-          _pullPump == null &&
-          pullWasPaused) {
-        unawaited(_restartSoftPullPumpWindows());
-      }
     }
   }
 
-  Future<void> _restartSoftPullPumpWindows() async {
-    if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
-    _pullPump?.cancel();
-    final breakdown = await SyncOutbox.instance.pendingBreakdown();
-    final pendingProd = breakdown['producto'] ?? 0;
-    final interval = WindowsSyncPolicy.softPullIntervalFor(
-      pendingProductos: pendingProd,
-    );
-    _pullPump = Timer.periodic(interval, (_) {
-      if (!_puedeEscribirRemoto || _actualizarAhoraBusy || _softPullBusy) {
-        return;
-      }
-      syncInBackground(
-        CloudSyncThrottle.enqueue(() async {
-          await _pullSuaveWindows();
-        }, tag: 'pullPumpWindows'),
-        tag: 'pullPumpWindows',
-      );
-    });
-  }
 
   Future<Map<String, dynamic>> _actualizarAhoraBody({
     required bool windows,
@@ -731,102 +807,29 @@ class FirestoreSyncService {
   }) async {
     try {
       if (windows) {
-        final breakdown = await SyncOutbox.instance.pendingBreakdown();
-        final pendingProd = breakdown['producto'] ?? 0;
-        final budget = WindowsSyncPolicy.manualRefreshBudgetWindows(
-          pendingProductos: pendingProd,
-        );
-        var stockAppliedHint = 0;
+        // 1.4.47 — sync automática ON; el botón es catch-up opcional liviano.
+        final localOnly = WindowsSyncPolicy.manualRefreshLocalOnly;
+        final pushOnly = WindowsSyncPolicy.manualRefreshPushOnly;
+        syncStatusDetail = localOnly
+            ? 'Limpiando pendientes locales…'
+            : 'Actualizando (automático)…';
+        DataRefreshHub.instance.notifyTodo();
 
-        // Fase 1 — STOCK primero (convergencia EXE↔APK).
+        var quieted = 0;
         try {
-          try {
-            await _remote.reconcilizarStockOpsPendientes(limit: 6);
-          } catch (e) {
-            debugPrint('actualizarAhora reconcilizar: $e');
-          }
-          await _runStockOpsLane(() async {
-            for (var round = 0; round < budget.stockRounds; round++) {
-              await _pullStockOpsRemotas(
-                maxPages: budget.stockMaxPages,
-                pageSize: budget.stockPageSize,
-                maxApply: budget.stockMaxApply,
-                microBatchSize: budget.stockMicroBatch,
-                yieldMs: budget.yieldMs,
-              );
-              await Future<void>.delayed(
-                Duration(milliseconds: budget.yieldMs),
-              );
-              await _pullStockOpsRecientes(
-                limit: budget.stockRecentLimit,
-                maxApply: budget.stockMaxApply,
-                microBatchSize: budget.stockMicroBatch,
-                yieldMs: budget.yieldMs,
-              );
-              await Future<void>.delayed(
-                Duration(milliseconds: budget.yieldMs),
-              );
-              stockAppliedHint += await _sweepStockOpsHolds(limit: 4);
-              await Future<void>.delayed(
-                Duration(milliseconds: budget.yieldMs),
-              );
-            }
-          });
+          quieted = await SyncOutbox.instance.quietWindowsGhostQueue(
+            aggressive: true,
+          );
         } catch (e) {
-          debugPrint('actualizarAhora stock_ops: $e');
+          debugPrint('actualizarAhora quiet ghosts: $e');
         }
 
-        // Fase 1b — proyección local vs ledger (crash mid-apply).
-        try {
-          final repaired = await InventoryLedgerService.instance
-              .repararProyeccionesDivergentes(limit: 60);
-          if (repaired > 0) {
-            debugPrint('actualizarAhora reparación proyección: $repaired');
-          }
-        } catch (e) {
-          debugPrint('actualizarAhora reparación: $e');
-        }
-
-        // Fase 2 — config liviana (opcional).
-        if (budget.pullConfig) {
-          try {
-            await _pullConfigWindowsLane('listas');
-            await Future<void>.delayed(
-              Duration(milliseconds: budget.yieldMs),
-            );
-            await _pullConfigWindowsLane('categorias');
-          } catch (e) {
-            debugPrint('actualizarAhora config: $e');
-          }
-        }
-
-        // Fase 3 — negocio mínimo (no clientes masivos).
-        try {
-          await _pullNegocioRecienteWindows(limit: budget.negocioLimit);
-        } catch (e) {
-          debugPrint('actualizarAhora negocio: $e');
-        }
-
-        if (budget.pullClientes && budget.clientesPage > 0) {
-          try {
-            final page = await _pullPaginaPorDocId(
-              _col('clientes'),
-              watermarkKey: _wmClientesDoc,
-              pageSize: budget.clientesPage,
-            );
-            if (page.docs.isNotEmpty) {
-              await _aplicarClientesRemotos(page);
-            }
-          } catch (e) {
-            debugPrint('actualizarAhora clientes: $e');
-          }
-        }
-
-        // Fase 4 — un tick de outbox (prioriza stock_op / docs).
-        if (_puedeEscribirRemoto) {
+        var drained = 0;
+        var pulled = 0;
+        if (!localOnly && _puedeEscribirRemoto) {
           try {
             await SyncScheduler.instance.ensureRestored();
-            for (var i = 0; i < budget.schedulerTicks; i++) {
+            for (var i = 0; i < 3; i++) {
               final bd = await SyncOutbox.instance.pendingBreakdown();
               if (bd.isEmpty) break;
               final claimed = await SyncScheduler.instance.claimForTick(
@@ -834,20 +837,63 @@ class FirestoreSyncService {
                 isWindows: true,
               );
               if (claimed.isEmpty) break;
+              final slice = claimed.take(2).toList(growable: false);
               await _ejecutarClaimedOps(
-                claimed,
-                yieldMs: budget.yieldMs,
+                slice,
+                yieldMs: 300,
                 allowPreempt: false,
               );
+              drained += slice.length;
+              await Future<void>.delayed(const Duration(milliseconds: 250));
             }
           } catch (e) {
             debugPrint('actualizarAhora drain: $e');
           }
+
+          if (!pushOnly) {
+            try {
+              final budget = WindowsSyncPolicy.manualRefreshBudgetWindows(
+                pendingProductos: 0,
+              );
+              await _pullNegocioRecienteWindows(limit: budget.negocioLimit);
+              await _pullProductosIncrementalWindows(
+                maxPages: 2,
+                pageSize: budget.productosPageSize,
+              );
+              await _tickInboundStockOps(windows: true);
+              pulled = 1;
+            } catch (e) {
+              debugPrint('actualizarAhora inbound: $e');
+            }
+          }
         }
-        debugPrint(
-          'actualizarAhora Windows done stockHint=$stockAppliedHint '
-          'ms=${sw.elapsedMilliseconds}',
+
+        final left = await SyncOutbox.instance.pendingBreakdown();
+        final pending = left.values.fold<int>(0, (a, b) => a + b);
+        syncStatusLabel = 'En la nube';
+        syncStatusDetail = pending == 0
+            ? 'Sync automática activa'
+            : '$pending por subir: ${SyncOutbox.formatBreakdown(left)}';
+        SyncHealthService.instance.recordCycle(
+          durationMs: sw.elapsedMilliseconds,
         );
+        DataRefreshHub.instance.notifyTodo();
+        debugPrint(
+          'actualizarAhora Windows localOnly=$localOnly pushOnly=$pushOnly '
+          'quieted=$quieted drained=$drained pulled=$pulled '
+          'left=$pending ms=${sw.elapsedMilliseconds}',
+        );
+        return {
+          'ok': true,
+          'windows': true,
+          'pushOnly': pushOnly,
+          'localOnly': localOnly,
+          'quieted': quieted,
+          'drained': drained,
+          'pulled': pulled,
+          'pendingLeft': pending,
+          'ms': sw.elapsedMilliseconds,
+        };
       } else {
         try {
           try {
@@ -1014,7 +1060,6 @@ class FirestoreSyncService {
   /// Windows: pumps tras cuarentena corta; reintenta si Auth aún no listo.
   void _iniciarPumpsWindows() {
     _windowsPumpsActivos = true;
-    _pullPump?.cancel();
     syncInBackground(
       _bootWindowsPumpsConRetry(),
       tag: 'bootWindowsPumps',
@@ -1034,10 +1079,9 @@ class FirestoreSyncService {
       syncStatusLabel = 'En la nube (modo estable PC)';
       syncStatusDetail = null;
     } else {
-      syncStatusLabel = 'Sincronizando…';
-      syncStatusDetail =
-          '$pending0 pendientes: ${SyncOutbox.formatBreakdown(breakdown0)} '
-          '(empieza en ${q.inSeconds}s)';
+      // No asustar: son restos de cola, no "cambios nuevos" del usuario.
+      syncStatusLabel = 'Iniciando…';
+      syncStatusDetail = 'Preparando sync (cola local)…';
     }
     DataRefreshHub.instance.notifyTodo();
 
@@ -1057,14 +1101,11 @@ class FirestoreSyncService {
       authOk = _puedeEscribirRemoto;
     }
 
-    // Arrancar pump igual: cada tick chequéa Auth; no dejar cola huérfana.
+    // Arrancar pump + listeners automáticos (estilo 21 jul).
     _iniciarOutboxPump();
-    // Listeners de negocio (remitos/ventas/clientes/compras) — sync en segundos.
-    // Productos siguen por soft-pull (no snapshot de 3k docs).
-    if (authOk) {
+    if (authOk &&
+        WindowsSyncPolicy.enableBusinessDocListeners(isWindowsDesktop: true)) {
       _iniciarListenersNegocioWindows();
-      // Stock_ops dedicado: no depende del round-robin de productos.
-      _iniciarStockOpsPullMobile();
     }
 
     if (!authOk) {
@@ -1078,16 +1119,16 @@ class FirestoreSyncService {
     await CloudSyncThrottle.enqueue(() async {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       await SyncOutbox.instance.ackOrphanUpserts();
-      await _microCatchupDocsWindows();
-      // Productos primero (grueso de la cola del screenshot).
+      await SyncOutbox.instance.quietWindowsGhostQueue(aggressive: true);
+      // Cupos chicos: subir cola local real.
       await _procesarOutboxDrain(
-        maxBatches: 3,
-        claimLimit: 8,
+        maxBatches: 1,
+        claimLimit: 3,
         entityTypes: const ['producto', 'proveedor'],
       );
       await _procesarOutboxDrain(
-        maxBatches: 2,
-        claimLimit: 5,
+        maxBatches: 1,
+        claimLimit: 2,
         entityTypes: const [
           'venta',
           'remito',
@@ -1101,7 +1142,7 @@ class FirestoreSyncService {
       if (pending > 0) {
         syncStatusLabel = 'Sincronizando…';
         syncStatusDetail =
-            '$pending pendientes: ${SyncOutbox.formatBreakdown(breakdown)}';
+            '$pending por subir: ${SyncOutbox.formatBreakdown(breakdown)}';
       } else {
         syncStatusLabel = 'En la nube (modo estable PC)';
         syncStatusDetail = null;
@@ -1109,35 +1150,123 @@ class FirestoreSyncService {
       DataRefreshHub.instance.notifyTodo();
     }, tag: 'primerDrainPostCuarentena');
 
-    syncInBackground(
-      CloudSyncThrottle.enqueue(
-        _publicarConfigLocalSiHaceFalta,
-        tag: 'publicarConfigPostCuarentena',
-      ),
-      tag: 'publicarConfigPostCuarentena',
-    );
-
-    // Soft-pull / pull productos un poco después del primer drain.
-    Future<void>.delayed(const Duration(seconds: 20), () {
+    // Config texto: diferido y liviano (sin Storage).
+    Future<void>.delayed(const Duration(seconds: 60), () {
       if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
       syncInBackground(
-        CloudSyncThrottle.enqueue(() async {
-          try {
-            await _pullProductosIncrementalWindows(maxPages: 2, pageSize: 25);
-            await _pullConfigWindowsLane('listas');
-            await _pullConfigWindowsLane('branding_text');
-          } catch (e) {
-            debugPrint('Primer pull productos/config Windows: $e');
-          }
-        }, tag: 'primerPullProductosWindows'),
-        tag: 'primerPullProductosWindows',
+        CloudSyncThrottle.enqueue(
+          _publicarConfigLocalSiHaceFalta,
+          tag: 'publicarConfigPostCuarentena',
+        ),
+        tag: 'publicarConfigPostCuarentena',
       );
     });
 
-    Future<void>.delayed(const Duration(seconds: 25), () {
-      if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
-      unawaited(_restartSoftPullPumpWindows());
-    });
+    // 1.4.48: primer pull productos (inc + barrido catálogo) para cerrar
+    // diferencias de lista sin el botón manual (que tumba el EXE).
+    if (!WindowsSyncPolicy.skipPrimerPullProductos) {
+      Future<void>.delayed(const Duration(seconds: 25), () {
+        if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+        syncInBackground(
+          CloudSyncThrottle.enqueue(() async {
+            try {
+              final primer = WindowsSyncPolicy.windowsPrimerPullProductos();
+              await _pullProductosIncrementalWindows(
+                maxPages: primer.maxPages,
+                pageSize: primer.pageSize,
+              );
+              await _pullProductosCatalogoWindows(
+                maxPages: 3,
+                pageSize: primer.pageSize,
+                forceRestart: true,
+              );
+              final cleaned = await _reconciliarPapeleraWindows();
+              if (cleaned > 0) {
+                debugPrint('Papelera Windows: reconciliados $cleaned');
+              }
+              await _pullConfigWindowsLane('listas');
+            } catch (e) {
+              debugPrint('Primer pull productos/config Windows: $e');
+            }
+          }, tag: 'primerPullProductosWindows'),
+          tag: 'primerPullProductosWindows',
+        );
+      });
+      // Segunda pasada: papelera + catálogo (cierra 6 fantasmas de campo).
+      Future<void>.delayed(const Duration(seconds: 55), () {
+        if (!_windowsPumpsActivos || !_puedeEscribirRemoto) return;
+        syncInBackground(
+          CloudSyncThrottle.enqueue(() async {
+            try {
+              await _pullProductosCatalogoWindows(
+                maxPages: 2,
+                pageSize: 30,
+                forceRestart: true,
+              );
+              await _reconciliarPapeleraWindows();
+              await _tickInboundStockOps(windows: true);
+            } catch (e) {
+              debugPrint('Reconcile papelera/stock Windows: $e');
+            }
+          }, tag: 'reconcilePapeleraWindows'),
+          tag: 'reconcilePapeleraWindows',
+        );
+      });
+    }
+  }
+
+  /// Papelera EXE vs APK: si en la nube ya no está (tombstone/ausente) o
+  /// volvió a activo, alinear SQLite local. Campo: APK vacía / EXE con 6.
+  Future<int> _reconciliarPapeleraWindows() async {
+    if (!PlatformCapabilities.isWindowsDesktop) return 0;
+    final db = await DatabaseHelper.instance.database;
+    final rows = await db.query(
+      'productos',
+      columns: ['id', 'codigo', 'deleted_at'],
+      where: "deleted_at IS NOT NULL AND deleted_at != ''",
+      limit: WindowsSyncPolicy.papeleraReconcileLimit,
+    );
+    var n = 0;
+    for (final row in rows) {
+      final id = row['id'] as int?;
+      final codigo = (row['codigo']?.toString() ?? '').trim();
+      if (id == null || codigo.isEmpty) continue;
+      try {
+        final remoto = await _remote.buscarPorCodigo(codigo);
+        if (remoto == null || remoto.esTombstoneRemoto) {
+          await db.delete('productos', where: 'id = ?', whereArgs: [id]);
+          try {
+            await SyncOutbox.instance.ack('upsert:producto:$id');
+            await SyncOutbox.instance.ack('delete:producto:$id');
+          } catch (_) {}
+          n++;
+        } else if (!remoto.estaEliminado) {
+          await db.update(
+            'productos',
+            {
+              'deleted_at': null,
+              if ((remoto.actualizadoEn ?? '').isNotEmpty)
+                'actualizadoEn': remoto.actualizadoEn,
+            },
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+          try {
+            await SyncOutbox.instance.ack('upsert:producto:$id');
+          } catch (_) {}
+          n++;
+        }
+      } catch (e) {
+        debugPrint('reconciliarPapelera $codigo: $e');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+    }
+    if (n > 0) {
+      DataRefreshHub.instance.notifyProductos();
+      DataRefreshHub.instance.notifyStock();
+      DataRefreshHub.instance.notifyTodo();
+    }
+    return n;
   }
 
   static const _wmProductosDoc = 'pull_productos_doc';
@@ -1147,40 +1276,17 @@ class FirestoreSyncService {
   static const _wmVentasDoc = 'pull_ventas_doc';
   static const _wmRemitosDoc = 'pull_remitos_doc';
   static const _wmStockOpsDoc = 'pull_stock_ops_doc';
-  static const _prefsStockOpsWmRewindV142 = 'stock_ops_wm_rewind_v142';
-  static const _prefsStockOpsWmRewindV144 = 'stock_ops_wm_rewind_v144';
-  static const _prefsStockOpsWmRewindV151 = 'stock_ops_wm_rewind_v151';
-  static const _prefsStockOpsWmRewindV154 = 'stock_ops_wm_rewind_v154';
-
   /// Rebobina watermark stock_ops (recupera ops perdidas por avance prematuro
   /// o por starvation Windows tras cola de productos / WhatsApp-listas).
   /// v1.4.27: una sola vez — 30 días.
   Future<void> _maybeRewindStockOpsWatermarkForConvergence() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(_prefsStockOpsWmRewindV154) == true) return;
-      final from = DateTime.now()
-          .toUtc()
-          .subtract(const Duration(days: 30))
-          .toIso8601String();
-      await SyncWatermarkStore.instance.saveMap(_wmStockOpsDoc, {
-        'afterDocId': '',
-        'afterAt': from,
-        'v': 'at_v2',
-        'rewoundAt': DateTime.now().toUtc().toIso8601String(),
-        'rewoundReason': 'field_divergence_v154_starvation',
-      });
-      await prefs.setBool(_prefsStockOpsWmRewindV154, true);
-      await prefs.setBool(_prefsStockOpsWmRewindV151, true);
-      await prefs.setBool(_prefsStockOpsWmRewindV144, true);
-      await prefs.setBool(_prefsStockOpsWmRewindV142, true);
-      debugPrint('stock_ops watermark: rewind 30d (convergencia v1.4.27)');
-    } catch (e) {
-      debugPrint('stock_ops watermark rewind: $e');
-    }
+    // Fase 3: NO rebobinar watermark.
+    // El rewind de 30 días re-aplicaba historia y empeoraba stock.
+    // Convergencia = push outbox + pull stock_ops acotado (hardCap).
+    return;
   }
 
-  /// Una página por colección (sin `.get()` completo — A2).
+
   Future<QuerySnapshot<Map<String, dynamic>>> _pullPaginaPorDocId(
     CollectionReference<Map<String, dynamic>> col, {
     required String watermarkKey,
@@ -1212,8 +1318,8 @@ class FirestoreSyncService {
 
   int _softPullTickWindows = 0;
 
-  /// Remitos/ventas más recientes por `actualizadoEn` (no depende del
-  /// watermark lento por documentId). Idempotente por número.
+  /// Remitos más recientes por `actualizadoEn` (poll liviano Windows).
+  /// No depende de listeners ni watermark lento.
   Future<void> _pullNegocioRecienteWindows({int limit = 25}) async {
     try {
       final rem = await _remitosCol
@@ -1226,17 +1332,8 @@ class FirestoreSyncService {
     } catch (e) {
       debugPrint('pull remitos recientes Windows: $e');
     }
-    try {
-      final ven = await _ventasCol
-          .orderBy('actualizadoEn', descending: true)
-          .limit(limit)
-          .get();
-      if (ven.docs.isNotEmpty) {
-        await _aplicarVentasRemotas(ven);
-      }
-    } catch (e) {
-      debugPrint('pull ventas recientes Windows: $e');
-    }
+    // 1.4.41: no tirar ventas en el poll automático (menos trabajo EXE).
+    // Ventas legacy llegan con "Actualizar ahora" si hace falta.
   }
 
   /// Una sola colección por tick. Con outbox quieto prioriza negocio + stock.
@@ -1251,19 +1348,34 @@ class FirestoreSyncService {
   }
 
   Future<void> _pullSuaveWindowsBody() async {
-    const page = 15;
+    final page = WindowsSyncPolicy.softPullProductosPageSize;
     final tick = _softPullTickWindows;
-    _softPullTickWindows++;
     final breakdown = await SyncOutbox.instance.pendingBreakdown();
     final pendingProd = breakdown['producto'] ?? 0;
+
+    // Si hay mucha cola de subida, drenar primero (no sumar pull).
+    if (pendingProd >= WindowsSyncPolicy.softPullSkipIfPendingProductos) {
+      return;
+    }
+
+    final minGap = WindowsSyncPolicy.softPullIntervalFor(
+      pendingProductos: pendingProd,
+    );
+    final last = _lastSoftPullAt;
+    if (last != null && DateTime.now().difference(last) < minGap) {
+      return;
+    }
+    _lastSoftPullAt = DateTime.now();
+    _softPullTickWindows++;
+
     final prioritize = WindowsSyncPolicy.prioritizeBusinessConvergence(
       pendingProductos: pendingProd,
     );
-    // Siempre (si quieto): tirón de remitos/ventas recientes antes del lane.
+    // Negocio reciente solo 1 de cada 3 soft-pulls (anti-crash).
     final recentLimit = WindowsSyncPolicy.recentBusinessDocsLimit(
       pendingProductos: pendingProd,
     );
-    if (recentLimit > 0 && tick % 2 == 0) {
+    if (recentLimit > 0 && tick % 3 == 0) {
       await _pullNegocioRecienteWindows(limit: recentLimit);
     }
     final lane = WindowsSyncPolicy.softPullLane(
@@ -1276,6 +1388,9 @@ class FirestoreSyncService {
           await _pullProductosIncrementalWindows(maxPages: 1, pageSize: page);
         case 'productos_cat':
           await _pullProductosCatalogoWindows(maxPages: 1, pageSize: page);
+          await _reconciliarPapeleraWindows();
+        case 'papelera':
+          await _reconciliarPapeleraWindows();
         case 'clientes':
           final snap = await _pullPaginaPorDocId(
             _clientesCol,
@@ -1306,27 +1421,9 @@ class FirestoreSyncService {
             await _aplicarRemitosRemotos(snap);
           }
         case 'stock_ops':
-          final budget = WindowsSyncPolicy.stockOpsPullBudget(
-            pendingProductos: pendingProd,
-          );
-          await _runStockOpsLane(() async {
-            await _pullStockOpsRemotas(
-              maxPages: budget.maxPages,
-              pageSize: budget.pageSize,
-              maxApply: budget.maxApply,
-              microBatchSize: 3,
-              yieldMs: 120,
-            );
-            if (budget.recentLimit > 0) {
-              await _pullStockOpsRecientes(
-                limit: budget.recentLimit,
-                maxApply: budget.maxApply,
-                microBatchSize: 3,
-                yieldMs: 120,
-              );
-            }
-            await _sweepStockOpsHolds(limit: 8);
-          });
+          // Stock lo trae _tickInboundStockOps; acá alineamos papelera
+          // (fantasmas locales alteran el KPI “sin stock”).
+          await _reconciliarPapeleraWindows();
         case 'compras':
           final snap = await _pullPaginaPorDocId(
             _comprasCol,
@@ -1411,7 +1508,7 @@ class FirestoreSyncService {
       final lastDone = DateTime.tryParse(meta['completedAt']?.toString() ?? '');
       final stale = lastDone == null ||
           DateTime.now().toUtc().difference(lastDone) >
-              const Duration(minutes: 30);
+              WindowsSyncPolicy.catalogSweepRestartAfter;
       if (!stale) return;
       afterId = null;
     }
@@ -1576,69 +1673,6 @@ class FirestoreSyncService {
   /// Windows tenía solo soft-pull round-robin: con cola de productos
   /// (WhatsApp/listas) stock_ops caía a ~1/30 ticks → diverge horas.
   /// Pump dedicado con [WindowsSyncPolicy.stockOpsHardCap] (anti-crash).
-  void _iniciarStockOpsPullMobile() {
-    _stockOpsPullPump?.cancel();
-    final windows = PlatformCapabilities.isWindowsDesktop;
-    final interval = windows
-        ? WindowsSyncPolicy.windowsStockOpsPumpInterval
-        : const Duration(seconds: 45);
-    _stockOpsPullPump = Timer.periodic(interval, (_) {
-      if (!_puedeEscribirRemoto) return;
-      if (windows) {
-        if (!_windowsPumpsActivos) return;
-        if (_softPullBusy || _actualizarAhoraBusy) return;
-      }
-      syncInBackground(
-        () async {
-          try {
-            if (windows) {
-              final breakdown = await SyncOutbox.instance.pendingBreakdown();
-              final pendingProd = breakdown['producto'] ?? 0;
-              final budget = WindowsSyncPolicy.stockOpsPullBudget(
-                pendingProductos: pendingProd,
-              );
-              await _runStockOpsLane(() async {
-                await _pullStockOpsRemotas(
-                  maxPages: budget.maxPages,
-                  pageSize: budget.pageSize,
-                  maxApply: budget.maxApply,
-                  microBatchSize: 2,
-                  yieldMs: 150,
-                );
-                if (budget.recentLimit > 0) {
-                  await _pullStockOpsRecientes(
-                    limit: budget.recentLimit,
-                    maxApply: budget.maxApply,
-                  );
-                }
-              });
-              return;
-            }
-            await _pullStockOpsRemotas(maxPages: 3, pageSize: 50);
-            await _pullStockOpsRecientes(limit: 80);
-            // Red de seguridad docs: venta rápida del EXE debe verse acá.
-            try {
-              final rem = await _remitosCol
-                  .orderBy('actualizadoEn', descending: true)
-                  .limit(30)
-                  .get();
-              if (rem.docs.isNotEmpty) await _aplicarRemitosRemotos(rem);
-              final ven = await _ventasCol
-                  .orderBy('actualizadoEn', descending: true)
-                  .limit(30)
-                  .get();
-              if (ven.docs.isNotEmpty) await _aplicarVentasRemotas(ven);
-            } catch (e) {
-              debugPrint('Pull docs recientes mobile: $e');
-            }
-          } catch (e) {
-            debugPrint('Pull stock_ops pump: $e');
-          }
-        }(),
-        tag: windows ? 'stockOpsPullWindows' : 'stockOpsPullMobile',
-      );
-    });
-  }
 
   /// Aplica una lista de docs stock_ops al ledger (sin re-upload).
   Future<
@@ -1713,8 +1747,7 @@ class FirestoreSyncService {
       }
       consideredValid++;
       // Dedupe durable (local-origin o remote ya aplicado).
-      if (_stockOpsHechas.contains(opId) ||
-          await StockOpsAppliedStore.instance.contains(opId)) {
+      if (await StockOpsAppliedStore.instance.contains(opId)) {
         // Ya aplicada: si estaba en holds, liberar.
         await StockOpsPullHoldStore.instance.remove(opId);
         continue;
@@ -1763,14 +1796,12 @@ class FirestoreSyncService {
       yieldMs: yieldMs,
     );
     for (final op in batch) {
-      _stockOpsHechas.add(op.opId);
       await StockOpsPullHoldStore.instance.remove(op.opId);
     }
     if (n > 0) {
       debugPrint('stock_ops inbound: $n aplicadas');
       DataRefreshHub.instance.notifyStock();
       DataRefreshHub.instance.notifyProductos();
-      await _persistirStockOpsHechas();
     }
     return (
       applied: n,
@@ -2085,11 +2116,8 @@ class FirestoreSyncService {
     final sw = Stopwatch()..start();
     String? cycleError;
     try {
-      await _cargarColasPersistidas();
       await SyncOutbox.instance.reclaimStaleInflight();
-      await _migrateLegacyColasToOutbox();
-      await _volcarColasLegacyAOutboxSeguro();
-      await _limpiarColasLegacyPrefs();
+      await _migrateLegacyPrefsColasOnce();
 
       if (!_puedeEscribirRemoto) {
         SyncHealthService.instance.canWrite = false;
@@ -2170,7 +2198,7 @@ class FirestoreSyncService {
     await _ejecutarClaimedOps(batch);
   }
 
-  /// Scheduler 2.0: ticks con Turbo + preemption mid-batch.
+  /// Drain outbox por prioridad (claim fijo).
   Future<void> _procesarSchedulerTicks({required bool windows}) async {
     final ticks = windows ? 3 : 8;
     for (var i = 0; i < ticks; i++) {
@@ -2181,10 +2209,7 @@ class FirestoreSyncService {
         isWindows: windows,
       );
       if (claimed.isEmpty) break;
-      final turbo = SyncScheduler.instance.turbo.active;
-      final yieldMs = windows
-          ? (turbo ? 40 : 80)
-          : (turbo ? 0 : 20);
+      final yieldMs = windows ? 80 : 20;
       final preempted = await _ejecutarClaimedOps(
         claimed,
         yieldMs: yieldMs,
@@ -2207,7 +2232,7 @@ class FirestoreSyncService {
     }
   }
 
-  /// Ejecuta ops con entity-lock y preemption si aparece L1 durante fondo.
+  /// Ejecuta ops claimed; preempt si aparece L1 durante fondo.
   /// Retorna true si preemptó.
   Future<bool> _ejecutarClaimedOps(
     List<Map<String, dynamic>> batch, {
@@ -2220,8 +2245,6 @@ class FirestoreSyncService {
       final opId = op['op_id']?.toString() ?? '';
       if (opId.isEmpty) continue;
       final entityType = op['entity_type']?.toString() ?? '';
-      final localId = op['entity_local_id']?.toString() ??
-          op['entity_remote_id']?.toString();
       final isBg = !SyncPriority.isCriticalEntity(entityType);
 
       // Preemption: si estamos en fondo y llegó venta/stock, abortar lote.
@@ -2251,15 +2274,6 @@ class FirestoreSyncService {
         break;
       }
 
-      final lockOk = EntityLockRegistry.instance.tryAcquire(
-        entityType,
-        localId,
-      );
-      if (!lockOk) {
-        await SyncOutbox.instance.fail(opId, 'entity_locked');
-        continue;
-      }
-
       final sw = Stopwatch()..start();
       var error = false;
       try {
@@ -2276,7 +2290,6 @@ class FirestoreSyncService {
             error: false,
           );
         } catch (_) {}
-        _syncMemoryColaTrasAck(op);
         final waitCb = SyncCircuitBreaker.instance.extraWaitMs;
         final totalYield = yieldMs + waitCb;
         if (totalYield > 0) {
@@ -2295,7 +2308,6 @@ class FirestoreSyncService {
         } catch (_) {}
         debugPrint('Outbox fail $opId: $e');
       } finally {
-        EntityLockRegistry.instance.release(entityType, localId);
         await SyncScheduler.instance.recordOpResult(
           entityType: entityType,
           latencyMs: sw.elapsedMilliseconds,
@@ -2338,31 +2350,6 @@ class FirestoreSyncService {
     }
   }
 
-  void _syncMemoryColaTrasAck(Map<String, dynamic> op) {
-    final type = op['entity_type']?.toString() ?? '';
-    final localId = (op['entity_local_id'] as num?)?.toInt();
-    if (localId == null) return;
-    switch (type) {
-      case 'cliente':
-        _colaClientes.remove(localId);
-        unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
-      case 'proveedor':
-        _colaProveedores.remove(localId);
-        unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
-      case 'producto':
-        _colaProductos.remove(localId);
-        unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
-      case 'venta':
-        _colaVentas.remove(localId);
-        unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
-      case 'remito':
-        _colaRemitos.remove(localId);
-        unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
-      case 'compra':
-        _colaCompras.remove(localId);
-        unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
-    }
-  }
 
   Future<void> _ejecutarOutboxOp(Map<String, dynamic> op) async {
     final type = op['entity_type']?.toString() ?? '';
@@ -2395,7 +2382,21 @@ class FirestoreSyncService {
       case 'proveedor':
         await subirProveedor(localId, forzar: true, desdeOutbox: true);
       case 'producto':
-        await subirProductoPorId(localId, desdeOutbox: true);
+        var clearDeletedAt = false;
+        try {
+          final raw = op['payload']?.toString();
+          if (raw != null && raw.isNotEmpty) {
+            final decoded = jsonDecode(raw);
+            if (decoded is Map && decoded['clearDeletedAt'] == true) {
+              clearDeletedAt = true;
+            }
+          }
+        } catch (_) {}
+        await subirProductoPorId(
+          localId,
+          desdeOutbox: true,
+          clearDeletedAt: clearDeletedAt,
+        );
       case 'venta':
         await subirVenta(localId, desdeOutbox: true);
       case 'remito':
@@ -2457,10 +2458,7 @@ class FirestoreSyncService {
         codigo: codigo,
         delta: delta,
       );
-      if (!_stockOpsHechas.contains(opId)) {
-        _stockOpsHechas.add(opId);
-        await _persistirStockOpsHechas();
-      }
+
     } on TimeoutException {
       throw StateError('stock_op timeout Windows ($opId)');
     }
@@ -2498,7 +2496,11 @@ class FirestoreSyncService {
         }, SetOptions(merge: true));
       case 'producto':
         await _col('productos').doc(remoteId).set({
-          ...tombstone,
+          ...buildTombstonePayload(
+            opId: opId,
+            deletedBy: uid,
+            clearDescripcion: true,
+          ),
           'codigo': remoteId,
         }, SetOptions(merge: true));
       default:
@@ -2593,22 +2595,74 @@ class FirestoreSyncService {
     return (rows.first['id'] as num?)?.toInt();
   }
 
-  Future<void> _migrateLegacyColasToOutbox() async {
+  /// One-shot: prefs legacy → SyncOutbox, luego borra las keys.
+  /// Outbox SQLite es la única cola en runtime.
+  Future<void> _migrateLegacyPrefsColasOnce() async {
     final prefs = await SharedPreferences.getInstance();
-    const flag = 'sync_outbox_migrated_v1';
+    const flag = 'sync_outbox_migrated_v2';
     if (prefs.getBool(flag) == true) return;
-    await SyncOutbox.instance
-        .migrateLegacyIdSet(entityType: 'cliente', ids: _colaClientes);
-    await SyncOutbox.instance
-        .migrateLegacyIdSet(entityType: 'proveedor', ids: _colaProveedores);
-    await SyncOutbox.instance
-        .migrateLegacyIdSet(entityType: 'producto', ids: _colaProductos);
-    await SyncOutbox.instance
-        .migrateLegacyIdSet(entityType: 'venta', ids: _colaVentas);
-    await SyncOutbox.instance
-        .migrateLegacyIdSet(entityType: 'remito', ids: _colaRemitos);
-    await SyncOutbox.instance
-        .migrateLegacyIdSet(entityType: 'compra', ids: _colaCompras);
+
+    Set<int> readIds(String key) {
+      final out = <int>{};
+      for (final s in prefs.getStringList(key) ?? const []) {
+        final id = int.tryParse(s);
+        if (id != null) out.add(id);
+      }
+      return out;
+    }
+
+    await SyncOutbox.instance.migrateLegacyIdSet(
+      entityType: 'cliente',
+      ids: readIds(_prefsColaClientes),
+    );
+    await SyncOutbox.instance.migrateLegacyIdSet(
+      entityType: 'proveedor',
+      ids: readIds(_prefsColaProveedores),
+    );
+    await SyncOutbox.instance.migrateLegacyIdSet(
+      entityType: 'producto',
+      ids: readIds(_prefsColaProductos),
+    );
+    await SyncOutbox.instance.migrateLegacyIdSet(
+      entityType: 'venta',
+      ids: readIds(_prefsColaVentas),
+    );
+    await SyncOutbox.instance.migrateLegacyIdSet(
+      entityType: 'remito',
+      ids: readIds(_prefsColaRemitos),
+    );
+    await SyncOutbox.instance.migrateLegacyIdSet(
+      entityType: 'compra',
+      ids: readIds(_prefsColaCompras),
+    );
+
+    for (final token in prefs.getStringList(_prefsColaStockOps) ?? const []) {
+      final parts = token.split('|');
+      if (parts.length < 3) continue;
+      final opId = parts[0];
+      final codigo = parts[1];
+      final delta = int.tryParse(parts[2]) ?? 0;
+      if (opId.isEmpty || codigo.isEmpty || delta == 0) continue;
+      await SyncOutbox.instance.enqueueStockOp(
+        opId: opId,
+        codigo: codigo,
+        delta: delta,
+      );
+    }
+
+    for (final key in [
+      _prefsColaClientes,
+      _prefsColaProveedores,
+      _prefsColaProductos,
+      _prefsColaVentas,
+      _prefsColaRemitos,
+      _prefsColaCompras,
+      _prefsColaStockOps,
+      'sync_stock_ops_hechas_v2',
+      'sync_outbox_migrated_v1',
+    ]) {
+      await prefs.remove(key);
+    }
     await prefs.setBool(flag, true);
   }
 
@@ -2660,10 +2714,6 @@ class FirestoreSyncService {
     _outboxDrainTickWindows = 0;
     _outboxPump?.cancel();
     _outboxPump = null;
-    _pullPump?.cancel();
-    _pullPump = null;
-    _stockOpsPullPump?.cancel();
-    _stockOpsPullPump = null;
     await _productosSub?.cancel();
     await _usuariosSub?.cancel();
     await _brandingSub?.cancel();
@@ -2964,6 +3014,7 @@ class FirestoreSyncService {
         FirebaseAuthUsuarioService.instance.uidActual != null;
   }
 
+  // Prefs legacy (solo lectura one-shot → outbox).
   static const _prefsColaClientes = 'sync_cola_clientes_ids';
   static const _prefsColaProveedores = 'sync_cola_proveedores_ids';
   static const _prefsColaProductos = 'sync_cola_productos_ids';
@@ -2990,8 +3041,6 @@ class FirestoreSyncService {
       return false;
     }
   }
-  static const _prefsStockOpsHechas = 'sync_stock_ops_hechas_v2';
-  final Set<String> _stockOpsHechas = {};
   bool _productosSnapshotInicial = true;
 
   static const _colsCliente = {
@@ -3127,114 +3176,9 @@ class FirestoreSyncService {
     return out;
   }
 
-  Future<void> _persistirCola(String key, Set<int> ids) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(
-        key,
-        ids.map((e) => e.toString()).toList(),
-      );
-    } catch (_) {}
-  }
 
-  Future<void> _cargarColasPersistidas() async {
-    try {
-      // Siempre resetear memoria: si no, acumula IDs fantasma entre start().
-      _colaClientes.clear();
-      _colaProveedores.clear();
-      _colaProductos.clear();
-      _colaVentas.clear();
-      _colaRemitos.clear();
-      _colaCompras.clear();
-      final prefs = await SharedPreferences.getInstance();
-      for (final s in prefs.getStringList(_prefsColaClientes) ?? const []) {
-        final id = int.tryParse(s);
-        if (id != null) _colaClientes.add(id);
-      }
-      for (final s in prefs.getStringList(_prefsColaProveedores) ?? const []) {
-        final id = int.tryParse(s);
-        if (id != null) _colaProveedores.add(id);
-      }
-      for (final s in prefs.getStringList(_prefsColaProductos) ?? const []) {
-        final id = int.tryParse(s);
-        if (id != null) _colaProductos.add(id);
-      }
-      for (final s in prefs.getStringList(_prefsColaVentas) ?? const []) {
-        final id = int.tryParse(s);
-        if (id != null) _colaVentas.add(id);
-      }
-      for (final s in prefs.getStringList(_prefsColaRemitos) ?? const []) {
-        final id = int.tryParse(s);
-        if (id != null) _colaRemitos.add(id);
-      }
-      for (final s in prefs.getStringList(_prefsColaCompras) ?? const []) {
-        final id = int.tryParse(s);
-        if (id != null) _colaCompras.add(id);
-      }
-      _colaStockOps
-        ..clear()
-        ..addAll(prefs.getStringList(_prefsColaStockOps) ?? const []);
-      _stockOpsHechas
-        ..clear()
-        ..addAll(prefs.getStringList(_prefsStockOpsHechas) ?? const []);
-    } catch (_) {}
-  }
 
-  /// Absorbe prefs/colas → outbox sin reabrir ops ya `acked`.
-  Future<void> _volcarColasLegacyAOutboxSeguro() async {
-    Future<void> dump(String type, Set<int> ids) async {
-      for (final id in ids) {
-        await SyncOutbox.instance.enqueueUpsert(
-          entityType: type,
-          localId: id,
-          reopenAcked: false,
-        );
-      }
-    }
 
-    await dump('cliente', _colaClientes);
-    await dump('proveedor', _colaProveedores);
-    await dump('producto', _colaProductos);
-    await dump('venta', _colaVentas);
-    await dump('remito', _colaRemitos);
-    await dump('compra', _colaCompras);
-  }
-
-  /// Outbox es la fuente de verdad; limpia prefs legacy para no reabrir fantasmas.
-  Future<void> _limpiarColasLegacyPrefs() async {
-    _colaClientes.clear();
-    _colaProveedores.clear();
-    _colaProductos.clear();
-    _colaVentas.clear();
-    _colaRemitos.clear();
-    _colaCompras.clear();
-    await _persistirCola(_prefsColaClientes, _colaClientes);
-    await _persistirCola(_prefsColaProveedores, _colaProveedores);
-    await _persistirCola(_prefsColaProductos, _colaProductos);
-    await _persistirCola(_prefsColaVentas, _colaVentas);
-    await _persistirCola(_prefsColaRemitos, _colaRemitos);
-    await _persistirCola(_prefsColaCompras, _colaCompras);
-  }
-
-  Future<void> _persistirColaStockOps() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(_prefsColaStockOps, List<String>.from(_colaStockOps));
-    } catch (_) {}
-  }
-
-  Future<void> _persistirStockOpsHechas() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      // Conservar las últimas N para no crecer sin límite.
-      final list = _stockOpsHechas.toList();
-      final trimmed = list.length > 500 ? list.sublist(list.length - 500) : list;
-      _stockOpsHechas
-        ..clear()
-        ..addAll(trimmed);
-      await prefs.setStringList(_prefsStockOpsHechas, trimmed);
-    } catch (_) {}
-  }
 
   Future<String> asegurarSyncIdCliente(int clienteId) async {
     final db = await DatabaseHelper.instance.database;
@@ -3451,7 +3395,6 @@ class FirestoreSyncService {
     final codigo = rows.first['codigo']?.toString().trim() ?? '';
     if (codigo.isEmpty) return;
 
-    final token = '$idOp|$codigo|$delta';
     // Dedupe inbound durable (NO es prueba de ACK en nube).
     await StockOpsAppliedStore.instance.mark(
       opId: idOp,
@@ -3459,10 +3402,6 @@ class FirestoreSyncService {
       codigo: codigo,
       delta: delta,
     );
-    if (!_stockOpsHechas.contains(idOp)) {
-      _stockOpsHechas.add(idOp);
-      await _persistirStockOpsHechas();
-    }
     if (!alreadyEnqueuedInTxn) {
       await SyncOutbox.instance.enqueueStockOp(
         opId: idOp,
@@ -3472,11 +3411,6 @@ class FirestoreSyncService {
         documentId: documentId,
       );
     }
-    if (!_colaStockOps.contains(token)) {
-      _colaStockOps.add(token);
-      await _persistirColaStockOps();
-    }
-
     // Windows: disparo safe (sin txn). ACK solo si cloud applied.
     if (PlatformCapabilities.isWindowsDesktop) {
       syncInBackground(
@@ -3496,8 +3430,6 @@ class FirestoreSyncService {
               throw StateError('stock_op $idOp sin prueba applied en nube');
             }
             await SyncOutbox.instance.ack('stock_op:$idOp');
-            _colaStockOps.remove(token);
-            await _persistirColaStockOps();
             debugPrint('Windows stock_op OK $idOp Δ$delta $codigo');
           } catch (e) {
             debugPrint('Windows stock_op fail (reintento pump): $e');
@@ -3518,48 +3450,37 @@ class FirestoreSyncService {
   Future<void> flushStockOpsPendientes() => _flushColaStockOps();
 
   Future<void> _flushColaStockOps() async {
-    // Migrar tokens legacy prefs → outbox (idempotente).
-    for (final token in List<String>.from(_colaStockOps)) {
-      final parts = token.split('|');
-      if (parts.length < 3) {
-        _colaStockOps.remove(token);
-        continue;
-      }
-      final opId = parts[0];
-      final codigo = parts[1];
-      final delta = int.tryParse(parts[2]) ?? 0;
-      if (opId.isEmpty || codigo.isEmpty || delta == 0) {
-        _colaStockOps.remove(token);
-        continue;
-      }
-      await SyncOutbox.instance.enqueueStockOp(
-        opId: opId,
-        codigo: codigo,
-        delta: delta,
-      );
-      _colaStockOps.remove(token);
-    }
-    await _persistirColaStockOps();
-
-    if (!_puedeEscribirRemoto) return;
-    try {
-      final windows = PlatformCapabilities.isWindowsDesktop;
-      await _procesarOutboxBatch(limit: windows ? 6 : 40);
-      if (windows) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        await _remote.reconcilizarStockOpsPendientes(limit: 5);
-      } else {
-        await _remote.reconcilizarStockOpsPendientes(limit: 30);
-      }
-    } catch (e) {
-      debugPrint('Flush stock ops: $e');
-    }
+    // Solo outbox (colas prefs legacy ya no se escriben).
+    await _procesarOutboxDrain(
+      maxBatches: 3,
+      claimLimit: 8,
+      entityTypes: const ['stock_op'],
+    );
   }
+
 
   void _onProductosSnapshot(QuerySnapshot<Map<String, dynamic>> snap) {
     try {
       final List<Producto> lote;
-      if (_productosSnapshotInicial || snap.docChanges.isEmpty) {
+      final windows = PlatformCapabilities.isWindowsDesktop;
+      // Windows 1.4.49: NUNCA aplicar snapshot inicial de miles de docs
+      // (tumbaba el EXE / dejaba lista a medias). Solo docChanges;
+      // el catálogo lo cierra soft-pull + primer pull.
+      if (windows &&
+          WindowsSyncPolicy.skipProductosInitialSnapshotApply &&
+          _productosSnapshotInicial) {
+        _productosSnapshotInicial = false;
+        if (snap.docChanges.isEmpty) return;
+        lote = snap.docChanges
+            .where((c) => c.type != DocumentChangeType.removed)
+            .map((c) {
+              final data = c.doc.data();
+              if (data == null) return null;
+              return Producto.fromFirestore(data, docId: c.doc.id);
+            })
+            .whereType<Producto>()
+            .toList();
+      } else if (_productosSnapshotInicial || snap.docChanges.isEmpty) {
         _productosSnapshotInicial = false;
         lote = snap.docs
             .map((d) => Producto.fromFirestore(d.data(), docId: d.id))
@@ -3575,14 +3496,15 @@ class FirestoreSyncService {
             .whereType<Producto>()
             .toList();
       }
+      // Removed remoto: si es tombstone ya viene en data; si type==removed
+      // y no hay data, no recreamos. Soft-pull/catálogo limpia papelera.
       if (lote.isEmpty) return;
-      // Windows: el snapshot inicial (miles de productos) no debe pelear
-      // con el resto del arranque de sync en el mismo instante.
-      if (PlatformCapabilities.isWindowsDesktop) {
+      if (windows) {
         syncInBackground(
           CloudSyncThrottle.enqueue(
             () => _aplicarProductosRemotos(lote),
             tag: 'productosSnapshot',
+            interactive: true,
           ),
           tag: 'productosSnapshot',
         );
@@ -3604,8 +3526,6 @@ class FirestoreSyncService {
           .enqueueUpsert(entityType: 'cliente', localId: clienteId);
     }
     if (!_puedeEscribirRemoto) {
-      _colaClientes.add(clienteId);
-      unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
       syncStatusDetail =
           'Cliente guardado acá. Falta sesión de nube para enviarlo a la PC.';
       debugPrint('subirCliente: sin sesión, en cola id=$clienteId');
@@ -3651,8 +3571,6 @@ class FirestoreSyncService {
             if (!desdeOutbox) {
               await SyncOutbox.instance.ack('upsert:cliente:$clienteId');
             }
-            _colaClientes.remove(clienteId);
-            unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
             return;
           }
         }
@@ -3667,11 +3585,7 @@ class FirestoreSyncService {
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:cliente:$clienteId');
       }
-      _colaClientes.remove(clienteId);
-      unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
     } catch (e) {
-      _colaClientes.add(clienteId);
-      unawaited(_persistirCola(_prefsColaClientes, _colaClientes));
       if (!desdeOutbox) {
         await SyncOutbox.instance.fail('upsert:cliente:$clienteId', e);
       }
@@ -3713,8 +3627,6 @@ class FirestoreSyncService {
           .enqueueUpsert(entityType: 'proveedor', localId: proveedorId);
     }
     if (!_puedeEscribirRemoto) {
-      _colaProveedores.add(proveedorId);
-      unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
       syncStatusDetail =
           'Proveedor guardado acá. Falta sesión de nube para enviarlo.';
       debugPrint('subirProveedor: sin sesión, en cola id=$proveedorId');
@@ -3767,8 +3679,6 @@ class FirestoreSyncService {
             if (!desdeOutbox) {
               await SyncOutbox.instance.ack('upsert:proveedor:$proveedorId');
             }
-            _colaProveedores.remove(proveedorId);
-            unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
             return;
           }
         }
@@ -3777,11 +3687,7 @@ class FirestoreSyncService {
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:proveedor:$proveedorId');
       }
-      _colaProveedores.remove(proveedorId);
-      unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
     } catch (e) {
-      _colaProveedores.add(proveedorId);
-      unawaited(_persistirCola(_prefsColaProveedores, _colaProveedores));
       if (!desdeOutbox) {
         await SyncOutbox.instance.fail('upsert:proveedor:$proveedorId', e);
       }
@@ -3819,8 +3725,6 @@ class FirestoreSyncService {
           .enqueueUpsert(entityType: 'compra', localId: compraId);
     }
     if (!_puedeEscribirRemoto) {
-      _colaCompras.add(compraId);
-      unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
       syncStatusDetail =
           'Compra guardada acá. Falta sesión de nube para enviarla.';
       if (desdeOutbox) {
@@ -3880,11 +3784,7 @@ class FirestoreSyncService {
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:compra:$compraId');
       }
-      _colaCompras.remove(compraId);
-      unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
     } catch (e) {
-      _colaCompras.add(compraId);
-      unawaited(_persistirCola(_prefsColaCompras, _colaCompras));
       if (!desdeOutbox) {
         await SyncOutbox.instance.fail('upsert:compra:$compraId', e);
       }
@@ -3911,8 +3811,6 @@ class FirestoreSyncService {
           .enqueueUpsert(entityType: 'venta', localId: ventaId);
     }
     if (!_puedeEscribirRemoto) {
-      _colaVentas.add(ventaId);
-      unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
       syncStatusDetail =
           'Venta guardada acá. Falta sesión de nube para enviarla.';
       if (desdeOutbox) {
@@ -3979,11 +3877,7 @@ class FirestoreSyncService {
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:venta:$ventaId');
       }
-      _colaVentas.remove(ventaId);
-      unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
     } catch (e) {
-      _colaVentas.add(ventaId);
-      unawaited(_persistirCola(_prefsColaVentas, _colaVentas));
       if (!desdeOutbox) {
         await SyncOutbox.instance.fail('upsert:venta:$ventaId', e);
       }
@@ -4113,10 +4007,8 @@ class FirestoreSyncService {
           .enqueueUpsert(entityType: 'remito', localId: remitoId);
     }
     if (!_puedeEscribirRemoto) {
-      _colaRemitos.add(remitoId);
-      unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
       syncStatusDetail =
-          'Remito guardado acá. Falta sesión de nube para enviarlo.';
+          'Comprobante guardado acá. Falta sesión de nube para enviarlo.';
       if (desdeOutbox) {
         throw StateError('Sin sesión de nube para subir remito $remitoId');
       }
@@ -4171,11 +4063,7 @@ class FirestoreSyncService {
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:remito:$remitoId');
       }
-      _colaRemitos.remove(remitoId);
-      unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
     } catch (e) {
-      _colaRemitos.add(remitoId);
-      unawaited(_persistirCola(_prefsColaRemitos, _colaRemitos));
       if (!desdeOutbox) {
         await SyncOutbox.instance.fail('upsert:remito:$remitoId', e);
       }
@@ -4190,17 +4078,18 @@ class FirestoreSyncService {
     bool forzar = false,
     bool desdeOutbox = false,
     bool forceBackground = false,
+    bool clearDeletedAt = false,
+    Map<String, dynamic>? outboxPayload,
   }) async {
     if (!desdeOutbox) {
       await SyncOutbox.instance.enqueueUpsert(
         entityType: 'producto',
         localId: productoId,
         forceBackground: forceBackground,
+        payload: clearDeletedAt ? {'clearDeletedAt': true} : outboxPayload,
       );
     }
     if (!_puedeEscribirRemoto) {
-      _colaProductos.add(productoId);
-      unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
       return;
     }
     try {
@@ -4274,8 +4163,6 @@ class FirestoreSyncService {
               if (!desdeOutbox) {
                 await SyncOutbox.instance.ack('upsert:producto:$productoId');
               }
-              _colaProductos.remove(productoId);
-              unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
               return;
             }
           }
@@ -4283,15 +4170,17 @@ class FirestoreSyncService {
       }
 
       // Hardening: jamás stock absoluto en upload de producto.
-      await _remote.actualizarSinStock(producto);
+      // clearDeletedAt solo al restaurar (evita revivir papelera ajena).
+      final clearTrash = clearDeletedAt ||
+          (outboxPayload?['clearDeletedAt'] == true);
+      await _remote.actualizarSinStock(
+        producto,
+        clearDeletedAt: clearTrash && !producto.estaEliminado,
+      );
       if (!desdeOutbox) {
         await SyncOutbox.instance.ack('upsert:producto:$productoId');
       }
-      _colaProductos.remove(productoId);
-      unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
     } catch (e) {
-      _colaProductos.add(productoId);
-      unawaited(_persistirCola(_prefsColaProductos, _colaProductos));
       if (!desdeOutbox) {
         await SyncOutbox.instance.fail('upsert:producto:$productoId', e);
       }
@@ -4368,7 +4257,6 @@ class FirestoreSyncService {
               if (existentes.isNotEmpty) {
                 final id = (existentes.first['id'] as num?)?.toInt();
                 if (id != null &&
-                    !_colaClientes.contains(id) &&
                     !await SyncOutbox.instance
                         .hasPendingLocalId('cliente', id)) {
                   await db.delete('clientes', where: 'id = ?', whereArgs: [id]);
@@ -4484,7 +4372,6 @@ class FirestoreSyncService {
               if (existentes.isNotEmpty) {
                 final id = (existentes.first['id'] as num?)?.toInt();
                 if (id != null &&
-                    !_colaProveedores.contains(id) &&
                     !await SyncOutbox.instance
                         .hasPendingLocalId('proveedor', id)) {
                   await db.delete(
@@ -4584,7 +4471,6 @@ class FirestoreSyncService {
           if (existentes.isNotEmpty) {
             final id = (existentes.first['id'] as num?)?.toInt();
             if (id != null &&
-                !_colaCompras.contains(id) &&
                 !await SyncOutbox.instance.hasPendingLocalId('compra', id)) {
               await _reversoLocalAntesDeTombstone(
                 documentType: 'compra',
@@ -4867,7 +4753,6 @@ class FirestoreSyncService {
           if (rows.isNotEmpty) {
             final id = (rows.first['id'] as num?)?.toInt();
             if (id != null &&
-                !_colaRemitos.contains(id) &&
                 !await SyncOutbox.instance.hasPendingLocalId('remito', id)) {
               await _reversoLocalAntesDeTombstone(
                 documentType: 'remito',
@@ -5142,7 +5027,6 @@ class FirestoreSyncService {
             if (existentes.isNotEmpty) {
               final id = (existentes.first['id'] as num?)?.toInt();
               if (id != null &&
-                  !_colaVentas.contains(id) &&
                   !await SyncOutbox.instance.hasPendingLocalId('venta', id)) {
                 await _reversoLocalAntesDeTombstone(
                   documentType: 'venta',
@@ -5378,8 +5262,27 @@ class FirestoreSyncService {
   }
 
   Future<void> _aplicarProductosRemotos(List<Producto> remotos) async {
+    // Windows: lotes chicos — un batch enorme falla entero por un FK/tombstone.
+    if (PlatformCapabilities.isWindowsDesktop && remotos.length > 35) {
+      for (var i = 0; i < remotos.length; i += 35) {
+        final end = (i + 35 < remotos.length) ? i + 35 : remotos.length;
+        await _aplicarProductosRemotos(remotos.sublist(i, end));
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+      }
+      return;
+    }
     if (_sincronizando) {
-      _productosPendientes = remotos;
+      // Merge by codigo — no descartar soft-deletes de un batch anterior.
+      final byCode = <String, Producto>{
+        for (final p in _productosPendientes ?? const <Producto>[])
+          if (p.codigo.trim().isNotEmpty) p.codigo.trim(): p,
+      };
+      for (final p in remotos) {
+        final c = p.codigo.trim();
+        if (c.isEmpty) continue;
+        byCode[c] = p;
+      }
+      _productosPendientes = byCode.values.toList(growable: false);
       return;
     }
     _sincronizando = true;
@@ -5395,18 +5298,36 @@ class FirestoreSyncService {
               await _cache.buscarPorCodigoIncluyendoEliminados(producto.codigo);
 
           // Hard-delete remoto (tombstone): borrar fila local, no soft-delete.
+          // Comercio chico: tombstone remoto gana — si hay upsert fantasma
+          // pendiente, lo ACK y borramos (si no, la papelera del EXE nunca
+          // se vacía tras borrar definitivo en el celular).
           if (producto.esTombstoneRemoto) {
-            if (local?.id != null &&
-                !_colaProductos.contains(local!.id) &&
-                !await SyncOutbox.instance
-                    .hasPendingLocalId('producto', local.id!)) {
+            final localId = local?.id;
+            if (localId != null) {
+              if (await SyncOutbox.instance
+                  .hasPendingLocalId('producto', localId)) {
+                try {
+                  await SyncOutbox.instance.ack('upsert:producto:$localId');
+                } catch (_) {}
+              }
               huboCambios = true;
               batch.delete(
                 'productos',
                 where: 'id = ?',
-                whereArgs: [local.id],
+                whereArgs: [localId],
               );
             }
+            continue;
+          }
+
+          // Usuario borró definitivo acá: no recrear en papelera desde un
+          // soft-delete viejo de la nube (carrera Windows tombstone async).
+          if (local == null &&
+              producto.estaEliminado &&
+              await SyncOutbox.instance.hasDeleteIntent(
+                entityType: 'producto',
+                remoteId: producto.codigo.trim(),
+              )) {
             continue;
           }
 
@@ -5424,6 +5345,9 @@ class FirestoreSyncService {
               {
                 'deleted_at':
                     producto.estaEliminado ? producto.deletedAt : null,
+                // Alinear reloj local para no re-subir como “más nuevo”.
+                if ((producto.actualizadoEn ?? '').isNotEmpty)
+                  'actualizadoEn': producto.actualizadoEn,
               },
               where: 'id = ?',
               whereArgs: [local.id],
@@ -5458,11 +5382,19 @@ class FirestoreSyncService {
           if (local != null && _productoSinCambiosRelevantes(local, merged)) {
             continue;
           }
-          // Si hay ops/outbox pendientes del producto, no pisar metadata stock.
+          // Si hay ops/outbox pendientes del producto, no pisar metadata stock
+          // salvo que el remoto sea más nuevo (precio/papelera del celular).
           if (local?.id != null &&
               await SyncOutbox.instance
                   .hasPendingLocalId('producto', local!.id!)) {
-            continue;
+            if (remTs != null &&
+                (locTs == null || remTs.isAfter(locTs))) {
+              try {
+                await SyncOutbox.instance.ack('upsert:producto:${local.id}');
+              } catch (_) {}
+            } else {
+              continue;
+            }
           }
           huboCambios = true;
           codigosTocados.add(producto.codigo.trim());

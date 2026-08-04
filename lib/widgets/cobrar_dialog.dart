@@ -180,14 +180,14 @@ Future<bool> mostrarDialogoCobrarRemito({
               double.tryParse(montoCtrl.text.replaceAll(',', '.')) ?? 0;
           final nuevoSaldo = (saldo - monto).clamp(0, saldo);
           return AlertDialog(
-            title: const Text('Cobrar remito'),
+            title: const Text('Cobrar comprobante'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Remito $numero',
+                    'Comprobante $numero',
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 4),

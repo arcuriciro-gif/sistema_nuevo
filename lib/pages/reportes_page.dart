@@ -739,7 +739,7 @@ class _ReportesPageState extends State<ReportesPage> {
                 onPdf: () async {
                   final filas = await _filasRemitos();
                   await _exportarListaPdf(
-                    titulo: 'LISTA DE REMITOS',
+                    titulo: 'LISTA DE COMPROBANTES',
                     archivo: 'remitos.pdf',
                     headers: const [
                       'Número',
@@ -770,7 +770,7 @@ class _ReportesPageState extends State<ReportesPage> {
                 onExcel: () async {
                   final filas = await _filasRemitos();
                   await _exportarListaExcel(
-                    hoja: 'Remitos',
+                    hoja: 'Comprobantes',
                     archivo: 'remitos.xlsx',
                     headers: const [
                       'Número',

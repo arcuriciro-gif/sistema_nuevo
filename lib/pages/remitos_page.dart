@@ -115,7 +115,7 @@ class _RemitosPageState extends State<RemitosPage> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    'Remito ${remito['numero']}',
+                    'Comprobante ${remito['numero']}',
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -238,8 +238,8 @@ class _RemitosPageState extends State<RemitosPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Anular remito'),
-        content: Text('¿Anular el remito ${remito['numero']}?'),
+        title: const Text('Anular comprobante'),
+        content: Text('¿Anular el comprobante ${remito['numero']}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -271,9 +271,9 @@ class _RemitosPageState extends State<RemitosPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Eliminar remito'),
+        title: const Text('Eliminar comprobante'),
         content: Text(
-          '¿Eliminar definitivamente el remito ${remito['numero']}?\n\n'
+          '¿Eliminar definitivamente el comprobante ${remito['numero']}?\n\n'
           'Se anula el stock si hacía falta y se borra de este equipo y de la nube.',
         ),
         actions: [
@@ -333,7 +333,7 @@ class _RemitosPageState extends State<RemitosPage> {
       await service.actualizarEstadoPago(remito['id'], 'cobrado');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Remito marcado como cobrado')),
+        const SnackBar(content: Text('Comprobante marcado como cobrado')),
       );
       await cargar();
     }
@@ -418,7 +418,7 @@ class _RemitosPageState extends State<RemitosPage> {
     return Scaffold(
       appBar: buildModuleAppBar(
         context,
-        title: 'Remitos',
+        title: 'Comprobantes',
         actions: [
           IconButton(
             tooltip: 'Actualizar',
@@ -449,7 +449,7 @@ class _RemitosPageState extends State<RemitosPage> {
               controller: buscarController,
               onChanged: _filtrarRemitos,
               decoration: InputDecoration(
-                hintText: 'Buscar remito o cliente...',
+                hintText: 'Buscar comprobante o cliente...',
                 prefixIcon: const Icon(Icons.search),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
@@ -464,7 +464,7 @@ class _RemitosPageState extends State<RemitosPage> {
                 : remitos.isEmpty
                     ? const Center(
                         child: Text(
-                          'No hay remitos.',
+                          'No hay comprobantes.',
                           style: TextStyle(fontSize: 18),
                         ),
                       )
@@ -619,7 +619,7 @@ class _RemitosPageState extends State<RemitosPage> {
                                             entidadTipo: 'remito',
                                             entidadId: '${remito['id']}',
                                             titulo:
-                                                'Remito ${remito['numero'] ?? ''}',
+                                                'Comprobante ${remito['numero'] ?? ''}',
                                           ),
                                           icon: const Icon(
                                             Icons.chat_bubble_outline_rounded,
@@ -647,7 +647,7 @@ class _RemitosPageState extends State<RemitosPage> {
                                               tipo: 'remito',
                                               idRef: '${remito['id']}',
                                               titulo:
-                                                  'Remito ${remito['numero'] ?? ''}',
+                                                  'Comprobante ${remito['numero'] ?? ''}',
                                               subtitulo:
                                                   '${remito['clienteNombre'] ?? 'Sin cliente'} · '
                                                   '\$${((remito['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)} · '

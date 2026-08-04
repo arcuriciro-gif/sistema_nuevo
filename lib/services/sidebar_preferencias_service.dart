@@ -18,14 +18,19 @@ class SidebarPreferenciasService extends ChangeNotifier {
   static const _keyHidden = 'sidebar_hidden_ids_v1';
   static const _keyModo = 'ui_modo_menu_v1';
 
-  /// Menú básico: vender y ver productos (sync sigue completa en background).
+  /// Menú básico del local: vender, productos/fotos/precios, cobros, stock.
+  /// Sin lab (panel técnico) ni módulos de oficina.
   static const Set<String> idsModoBasico = {
     'dashboard|Inicio',
     'remitos|Venta Rápida',
     'productos|Productos',
-    'remitos|Ventas / Facturas',
+    'remitos|Comprobantes',
+    'compras|Compras',
     'stock|Stock',
+    'listas_precios|Listas de Precios',
     'clientes|Clientes',
+    'clientes|Cuenta corriente',
+    'proveedores|Proveedores',
     'dashboard|Mi perfil',
     'configuracion|Configuración',
   };

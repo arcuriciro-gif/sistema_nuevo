@@ -82,7 +82,7 @@ class _ClienteHistorialPageState extends State<ClienteHistorialPage> {
                   const Icon(Icons.receipt_long, color: Colors.orange),
                   const SizedBox(width: 8),
                   Text(
-                    'Remito ${remito['numero']}',
+                    'Comprobante ${remito['numero']}',
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,

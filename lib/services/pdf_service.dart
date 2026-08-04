@@ -118,7 +118,7 @@ class PdfService {
     String clienteNombre, {
     String? clienteDireccion,
     String? clienteTelefono,
-    String tipoDocumento = 'REMITO',
+    String tipoDocumento = 'COMPROBANTE',
   }) async {
     if (items.isEmpty) return _bytesVacios();
 

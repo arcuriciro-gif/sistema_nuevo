@@ -13,6 +13,7 @@ import '../core/sync/cloud_sync_throttle.dart';
 import '../core/sync/firestore_sync_service.dart';
 import '../core/sync/media_sync_service.dart';
 import '../core/sync/sync_background.dart';
+import '../core/sync/sync_outbox.dart';
 import '../core/utils/media_path.dart';
 import '../database/database_helper.dart';
 import '../models/producto.dart';
@@ -599,9 +600,19 @@ class ProductoService {
       whereArgs: [id],
     );
     try {
-      await _repo.actualizar(restaurado);
+      await SyncOutbox.instance.enqueueUpsert(
+        entityType: 'producto',
+        localId: id,
+        payload: const {'clearDeletedAt': true},
+      );
+      await FirestoreSyncService.instance.subirProductoPorId(
+        id,
+        forzar: true,
+        clearDeletedAt: true,
+        desdeOutbox: true,
+      );
     } catch (_) {}
-    _asegurarSyncProducto(id);
+    // No _asegurarSyncProducto genérico: ya encolamos con clearDeletedAt.
     await AuthService.instance.registrarCambio(
       'RESTAURAR_PRODUCTO',
       'productos',

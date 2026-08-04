@@ -17,11 +17,14 @@ import '../navigation/shell_menu_catalog.dart';
 import '../services/app_log.dart';
 import '../services/auth_service.dart';
 import '../services/branding_service.dart';
+import '../services/data_wipe_service.dart';
 import '../services/permisos_service.dart';
 import '../services/producto_service.dart';
 import '../services/sidebar_preferencias_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/app_visuals.dart';
 import '../theme/theme_provider.dart';
+import '../widgets/password_confirm_dialog.dart';
 import 'listas_precio_page.dart';
 import 'plantilla_impresion_page.dart';
 import 'documentos_config_page.dart';
@@ -42,6 +45,9 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   bool _modoSeguro = false;
   bool _guardandoTenant = false;
   bool _barraLateralAbierta = false;
+  bool _reiniciando = false;
+  bool _vaciando = false;
+  bool _zonaPeligroDesbloqueada = false;
   final _tenantCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
 
@@ -624,6 +630,297 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     });
   }
 
+  Future<void> _desbloquearZonaPeligro() async {
+    if (!_esAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Solo el administrador puede abrir esta zona.'),
+        ),
+      );
+      return;
+    }
+    final ctrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Zona de borrado'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Esta zona puede borrar productos, clientes y comprobantes '
+              '(también en la nube).\n\n'
+              'Para continuar escribí exactamente: BORRAR',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Escribí BORRAR',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (ctrl.text.trim().toUpperCase() != 'BORRAR') return;
+              Navigator.pop(ctx, true);
+            },
+            child: const Text('Abrir zona'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (ok == true && mounted) {
+      setState(() => _zonaPeligroDesbloqueada = true);
+    }
+  }
+
+  Future<void> _reiniciarSistema() async {
+    if (!_esAdmin || !_zonaPeligroDesbloqueada) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Solo el administrador puede reiniciar el sistema.'),
+        ),
+      );
+      return;
+    }
+    final cs = Theme.of(context).colorScheme;
+    final ok = await confirmarConClave(
+      context,
+      titulo: 'Reiniciar sistema',
+      mensaje:
+          'Se reinician sync y servicios internos.\n'
+          'NO se borran productos, ventas ni clientes.\n\n'
+          'Ingresá tu contraseña de administrador.',
+      confirmarLabel: 'Reiniciar servicios',
+    );
+    if (!ok || !mounted) return;
+    setState(() => _reiniciando = true);
+    final r = await DataWipeService.instance.reiniciarServicios();
+    if (!mounted) return;
+    setState(() => _reiniciando = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(r.mensaje),
+        backgroundColor: r.ok ? null : cs.error,
+      ),
+    );
+  }
+
+  Future<void> _accionWipe({
+    required String titulo,
+    required String mensaje,
+    required Future<({bool ok, String mensaje})> Function() accion,
+  }) async {
+    if (!_esAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Solo el administrador puede hacerlo.')),
+      );
+      return;
+    }
+    final ok = await confirmarConClave(
+      context,
+      titulo: titulo,
+      mensaje: mensaje,
+      confirmarLabel: 'Confirmar borrado',
+    );
+    if (!ok || !mounted) return;
+    setState(() => _vaciando = true);
+    final r = await accion();
+    if (!mounted) return;
+    setState(() => _vaciando = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(r.mensaje),
+        backgroundColor: r.ok ? null : Theme.of(context).colorScheme.error,
+      ),
+    );
+  }
+
+  /// Solo aparece tras long-press en la versión + escribir BORRAR.
+  Widget _zonaPeligroDatos(ThemeData theme, ColorScheme colorScheme) {
+    if (!_zonaPeligroDesbloqueada || !_esAdmin) {
+      return const SizedBox.shrink();
+    }
+    return Card(
+      elevation: 2,
+      color: colorScheme.errorContainer.withValues(alpha: 0.22),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'ZONA OCULTA — DATOS',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.4,
+                      color: AppVisuals.danger(colorScheme),
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () =>
+                      setState(() => _zonaPeligroDesbloqueada = false),
+                  child: const Text('Ocultar'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Reiniciar no borra datos (pide contraseña). '
+              'Vaciar / sistema virgen son irreversibles y también piden contraseña. '
+              'Se conservan usuarios, permisos y branding.',
+              style: TextStyle(
+                fontSize: 13,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _reiniciando || _vaciando ? null : _reiniciarSistema,
+              icon: _reiniciando
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.restart_alt_rounded),
+              label: Text(
+                _reiniciando
+                    ? 'Reiniciando…'
+                    : 'Reiniciar sistema (sin borrar datos)',
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text(
+              'DATOS (IRREVERSIBLE)',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: AppVisuals.danger(colorScheme),
+              ),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _vaciando
+                  ? null
+                  : () => _accionWipe(
+                        titulo: 'Vaciar productos',
+                        mensaje:
+                            'Se eliminarán TODOS los productos y movimientos '
+                            'relacionados (local y nube).\n\nIngresá tu contraseña.',
+                        accion: () =>
+                            DataWipeService.instance.vaciarProductos(),
+                      ),
+              icon: const Icon(Icons.inventory_2_outlined),
+              label: const Text('Vaciar productos'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _vaciando
+                  ? null
+                  : () => _accionWipe(
+                        titulo: 'Vaciar clientes',
+                        mensaje:
+                            'Se eliminarán TODOS los clientes y cuentas '
+                            'relacionadas (local y nube).\n\nIngresá tu contraseña.',
+                        accion: () =>
+                            DataWipeService.instance.vaciarClientes(),
+                      ),
+              icon: const Icon(Icons.people_outline_rounded),
+              label: const Text('Vaciar clientes'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _vaciando
+                  ? null
+                  : () => _accionWipe(
+                        titulo: 'Vaciar comprobantes',
+                        mensaje:
+                            'Se eliminarán TODOS los comprobantes/remitos '
+                            '(local y nube).\n\nIngresá tu contraseña.',
+                        accion: () =>
+                            DataWipeService.instance.vaciarComprobantes(),
+                      ),
+              icon: const Icon(Icons.receipt_long_outlined),
+              label: const Text('Vaciar comprobantes'),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.tonalIcon(
+              style: FilledButton.styleFrom(
+                foregroundColor: AppVisuals.danger(colorScheme),
+              ),
+              onPressed: _vaciando
+                  ? null
+                  : () => _accionWipe(
+                        titulo: 'Sistema virgen',
+                        mensaje:
+                            'Se borrarán productos, clientes, ventas, comprobantes, '
+                            'compras y demás datos operativos (local y nube).\n\n'
+                            'Se CONSERVAN usuarios, permisos y branding.\n\n'
+                            'Ingresá tu contraseña de administrador.',
+                        accion: () =>
+                            DataWipeService.instance.sistemaVirgen(),
+                      ),
+              icon: _vaciando
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_forever_rounded),
+              label: Text(
+                _vaciando ? 'Borrando…' : 'Dejar sistema virgen',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Pie inocuo: long-press (admin) abre el diálogo BORRAR → zona oculta.
+  Widget _anilloDesbloqueoAdmin(ColorScheme colorScheme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _zonaPeligroDatos(Theme.of(context), colorScheme),
+        if (_zonaPeligroDesbloqueada) const SizedBox(height: 12),
+        Center(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onLongPress: _esAdmin ? _desbloquearZonaPeligro : null,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
+              child: Text(
+                'Tata.Manager v1.4.52',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -637,7 +934,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
         child: Column(
           children: [
             // Branding primero; sync va colapsada más abajo (evitar desactivar por error).
-            // ── Branding placeholder marker — sync se inserta después del branding ──
+            // Reinicio/wipe: NO visibles — long-press en versión al final.
             // ── Sincronización / nube (colapsada) ─────────────────
             Card(
               elevation: 3,
@@ -1206,7 +1503,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                           );
                         },
                         icon: const Icon(Icons.numbers_rounded),
-                        label: const Text('Numeración y AFIP/ARCA'),
+                        label: const Text('Numeración de documentos'),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -1606,6 +1903,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
               ),
             ),
             const SizedBox(height: 16),
+            _anilloDesbloqueoAdmin(colorScheme),
           ],
         ),
       ),

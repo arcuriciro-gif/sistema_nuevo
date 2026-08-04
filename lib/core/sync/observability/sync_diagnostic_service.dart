@@ -1,5 +1,3 @@
-import '../scheduler/entity_lock_registry.dart';
-import '../scheduler/scheduler_state_store.dart';
 import '../scheduler/sync_auto_healer.dart';
 import '../scheduler/sync_scheduler.dart';
 import '../sync_health.dart';
@@ -67,11 +65,9 @@ class SyncDiagnosticService {
     final engine = SyncScheduler.instance.engineSnapshot();
     final circuit = SyncCircuitBreaker.instance.snapshot();
     final sla = SyncSlaMonitor.instance.snapshot();
-    final state = await SchedulerStateStore.instance.load();
     final heal = await SyncAutoHealer.instance.heal(
       staleInflight: const Duration(minutes: 3),
     );
-    final locks = EntityLockRegistry.instance.heldCount;
     final flight = SyncFlightRecorder.instance.dumpJson(n: 30);
     final dash = await SyncObservabilityHub.instance.dashboardSnapshot();
 
@@ -85,7 +81,7 @@ class SyncDiagnosticService {
     }
     if (health.pendingL1 > 0) {
       findings.add('Cola L1 crítica con ${health.pendingL1} pendientes.');
-      actions.add('Priorizar red; Turbo debería estar OFF (focused).');
+      actions.add('Priorizar red; el pump drena críticos primero.');
     }
     if (health.dead > 0) {
       findings.add('${health.dead} ops en estado dead.');
@@ -94,10 +90,6 @@ class SyncDiagnosticService {
     if (circuit['state'] == 'open') {
       findings.add('Circuit breaker ABIERTO — Firestore lento/errores.');
       actions.add('Esperar cool-down; no forzar reintentos masivos.');
-    }
-    if (locks > 20) {
-      findings.add('Muchos entity locks activos ($locks) — posible trabado.');
-      actions.add('Reiniciar app si locks no bajan en 1 minuto.');
     }
     if ((heal['inflightReclaimed'] ?? 0) > 0) {
       findings.add(
@@ -131,9 +123,7 @@ class SyncDiagnosticService {
         'engine': engine,
         'circuit': circuit,
         'sla': sla,
-        'schedulerState': state?.mode,
         'heal': heal,
-        'locks': locks,
         'flightTail': flight,
         'dashboard': dash,
       },

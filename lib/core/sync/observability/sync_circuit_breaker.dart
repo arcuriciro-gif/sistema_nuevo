@@ -1,13 +1,9 @@
-import '../scheduler/adaptive_sync_controller.dart';
 import 'sync_flight_recorder.dart';
 
 /// Estados del circuit breaker de Firestore.
 enum CircuitState { closed, open, halfOpen }
 
 /// Protege contra tormentas de reintentos cuando Firebase está lento/caído.
-///
-/// No llama a AdaptiveSyncController.recordSample (el scheduler ya lo hace);
-/// solo decide open/close y reduce batch/concurrencia al abrir.
 class SyncCircuitBreaker {
   SyncCircuitBreaker._();
   static final SyncCircuitBreaker instance = SyncCircuitBreaker._();
@@ -19,14 +15,13 @@ class SyncCircuitBreaker {
   DateTime? openedAt;
   DateTime? lastProbeAt;
   int extraWaitMs = 0;
+  double emaLatencyMs = 0;
 
-  /// Umbrales (evidencia: latencia adaptativa ya existe; breaker evita storms).
   static const openAfterFailures = 5;
   static const openLatencyMs = 4000;
   static const coolDown = Duration(seconds: 20);
   static const halfOpenSuccessesToClose = 3;
 
-  /// ¿Se puede enviar un lote ahora?
   bool allowRequest() {
     switch (state) {
       case CircuitState.closed:
@@ -41,11 +36,10 @@ class SyncCircuitBreaker {
             kind: 'circuit',
             message: 'half_open_probe',
           );
-          return true; // un probe
+          return true;
         }
         return false;
       case CircuitState.halfOpen:
-        // Solo probes espaciados.
         final last = lastProbeAt;
         if (last != null &&
             DateTime.now().toUtc().difference(last) <
@@ -58,6 +52,7 @@ class SyncCircuitBreaker {
   }
 
   void recordSuccess({required int latencyMs}) {
+    _updateEma(latencyMs);
     failureStreak = 0;
     if (state == CircuitState.halfOpen) {
       successStreak++;
@@ -78,23 +73,26 @@ class SyncCircuitBreaker {
   }
 
   void recordFailure({required int latencyMs}) {
+    _updateEma(latencyMs);
     failureStreak++;
     successStreak = 0;
     _maybeOpen(reason: 'error_${latencyMs}ms');
   }
 
+  void _updateEma(int latencyMs) {
+    if (emaLatencyMs <= 0) {
+      emaLatencyMs = latencyMs.toDouble();
+    } else {
+      emaLatencyMs = emaLatencyMs * 0.7 + latencyMs * 0.3;
+    }
+  }
+
   void _maybeOpen({required String reason}) {
     if (state == CircuitState.open) return;
-    final ema = AdaptiveSyncController.instance.emaLatencyMs;
-    if (failureStreak >= openAfterFailures || ema > openLatencyMs) {
+    if (failureStreak >= openAfterFailures || emaLatencyMs > openLatencyMs) {
       state = CircuitState.open;
       openedAt = DateTime.now().toUtc();
       tripCount++;
-      // Encoger agresivo + aumentar espera (evita retry storms).
-      final a = AdaptiveSyncController.instance;
-      a.batchL1 = 4;
-      a.batchBackground = 4;
-      a.workerSlotsBackground = 1;
       extraWaitMs = (extraWaitMs + 250).clamp(0, 2000);
       SyncFlightRecorder.instance.record(
         kind: 'circuit',
@@ -115,6 +113,7 @@ class SyncCircuitBreaker {
         'successStreak': successStreak,
         'tripCount': tripCount,
         'extraWaitMs': extraWaitMs,
+        'emaLatencyMs': emaLatencyMs,
         'openedAt': openedAt?.toIso8601String(),
         'coolDownSec': coolDown.inSeconds,
       };
@@ -127,5 +126,6 @@ class SyncCircuitBreaker {
     openedAt = null;
     lastProbeAt = null;
     extraWaitMs = 0;
+    emaLatencyMs = 0;
   }
 }

@@ -196,6 +196,32 @@ class SyncOutbox {
     );
   }
 
+  /// ¿Hay intención de hard-delete (pending/inflight/acked) para este remoteId?
+  /// Evita que un soft-pull recree en papelera lo que el usuario ya borró definitivo.
+  Future<bool> hasDeleteIntent({
+    required String entityType,
+    required String remoteId,
+  }) async {
+    if (remoteId.isEmpty) return false;
+    final db = await _db;
+    final rows = await db.query(
+      'sync_outbox',
+      columns: ['id'],
+      where:
+          "entity_type = ? AND entity_remote_id = ? AND operation = ? AND status IN (?, ?, ?)",
+      whereArgs: [
+        entityType,
+        remoteId,
+        'delete',
+        SyncOutboxStatus.pending,
+        SyncOutboxStatus.inflight,
+        SyncOutboxStatus.acked,
+      ],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
   /// ¿Hay delete pendiente/inflight para este remoteId?
   Future<bool> hasPendingDelete({
     required String entityType,
@@ -485,7 +511,7 @@ class SyncOutbox {
     );
   }
 
-  /// Reencola inmediato sin backoff (preemption Turbo → L1).
+  /// Reencola inmediato sin backoff (preemption L1).
   /// Decrementa attempts para no castigar ops interrumpidas.
   Future<void> requeueImmediate(String opId, {String reason = 'preempted'}) async {
     final db = await _db;
@@ -664,6 +690,92 @@ GROUP BY l
       if (exists.isNotEmpty) continue;
       await ack(opId);
       n++;
+    }
+    return n;
+  }
+
+  /// Windows: limpia cola fantasma al abrir / al botón (sin cambios del usuario).
+  ///
+  /// [aggressive]: ACK casi toda la cola vieja de docs; stock_op en loop → dead.
+  Future<int> quietWindowsGhostQueue({
+    int minAttemptsDocs = 3,
+    Duration staleAfter = const Duration(hours: 36),
+    int limit = 400,
+    bool aggressive = false,
+  }) async {
+    final db = await _db;
+    final staleDur =
+        aggressive ? const Duration(minutes: 10) : staleAfter;
+    final minAttempts = aggressive ? 1 : minAttemptsDocs;
+    final cutoff =
+        DateTime.now().toUtc().subtract(staleDur).toIso8601String();
+    final ahora = DateTime.now().toUtc().toIso8601String();
+    final rows = await db.query(
+      'sync_outbox',
+      columns: [
+        'op_id',
+        'entity_type',
+        'attempts',
+        'last_error',
+        'updated_at',
+        'status',
+      ],
+      where: 'status IN (?, ?)',
+      whereArgs: [SyncOutboxStatus.pending, SyncOutboxStatus.inflight],
+      orderBy: 'id ASC',
+      limit: limit,
+    );
+    var n = 0;
+    for (final r in rows) {
+      final opId = r['op_id']?.toString() ?? '';
+      if (opId.isEmpty) continue;
+      final type = r['entity_type']?.toString() ?? '';
+      final attempts = (r['attempts'] as num?)?.toInt() ?? 0;
+      final updatedAt = r['updated_at']?.toString() ?? '';
+      final err = (r['last_error']?.toString() ?? '').toLowerCase();
+      final stale = updatedAt.isNotEmpty && updatedAt.compareTo(cutoff) < 0;
+      final loopErr = err.contains('reclaimed_stale_inflight') ||
+          err.contains('requeued_awaiting_cloud_proof') ||
+          err.contains('circuit_open') ||
+          err.contains('sin sesión') ||
+          err.contains('permission-denied') ||
+          err.contains('windows_ghost');
+
+      if (type == 'stock_op') {
+        final kill = aggressive
+            ? (attempts >= 3 || loopErr || stale)
+            : (attempts >= 8 && (loopErr || stale));
+        if (kill) {
+          n += await db.update(
+            'sync_outbox',
+            {
+              'status': SyncOutboxStatus.dead,
+              'updated_at': ahora,
+              'last_error': 'windows_ghost_quieted',
+              'next_attempt_at': null,
+            },
+            where: 'op_id = ? AND status IN (?, ?)',
+            whereArgs: [
+              opId,
+              SyncOutboxStatus.pending,
+              SyncOutboxStatus.inflight,
+            ],
+          );
+        }
+        continue;
+      }
+
+      // Docs: en agresivo, ACK todo lo que no sea fresco (<10 min y 0 attempts).
+      final freshUntouched = !stale && attempts == 0 && err.isEmpty;
+      if (aggressive && !freshUntouched) {
+        await ack(opId);
+        n++;
+        continue;
+      }
+      if (attempts >= minAttempts || stale || (attempts >= 1 && loopErr)) {
+        await ack(opId);
+        n++;
+      }
     }
     return n;
   }

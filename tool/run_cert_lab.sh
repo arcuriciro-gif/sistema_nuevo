@@ -1,9 +1,23 @@
 #!/usr/bin/env bash
-# Gate local del Cert Lab. No toca el Sync Engine.
+# Gate local de comprobación del sistema pyme (reemplaza Cert Lab legacy).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-echo "== Cert Lab protocolo (GREEN obligatorio) =="
-flutter test test/cert/lab/cert_lab_protocol_test.dart test/cert/lab/cert_lab_oracle_test.dart
-echo "== Cert Lab full (informe; P0-99 puede ser ROJO) =="
-flutter test test/cert/lab/cert_lab_battery_test.dart
-echo "OK — laboratorio ejecutado."
+echo "== Windows sync / anti-crash =="
+flutter test \
+  test/windows_sync_fast_safe_test.dart \
+  test/windows_anti_crash_invariants_test.dart
+echo "== Sync outbox + stock =="
+flutter test \
+  test/sync_outbox_pending_breakdown_test.dart \
+  test/sync_outbox_reclaim_dead_test.dart \
+  test/sync_stock_convergence_p0_test.dart \
+  test/soft_delete_stock_lww_test.dart \
+  test/garantias_g1_g6_secuencia_adversa_test.dart
+echo "== Dominio local =="
+flutter test \
+  test/pagos_parciales_remito_test.dart \
+  test/ui_modo_menu_test.dart \
+  test/capacidad3_dominio_test.dart
+echo "== Suite completa =="
+flutter test --exclude-tags cert-lab
+echo "OK — comprobación del sistema ejecutada."

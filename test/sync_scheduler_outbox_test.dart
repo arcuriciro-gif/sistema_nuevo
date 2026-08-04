@@ -87,12 +87,18 @@ void main() {
         isWindows: false,
       );
       expect(claimed, isNotEmpty);
-      final types = claimed.map((e) => e['entity_type']).toSet();
-      expect(types.contains('remito') || types.contains('stock_op'), isTrue);
-      // Con críticos, el fondo es residual (0–2).
-      final productos =
-          claimed.where((e) => e['entity_type'] == 'producto').length;
-      expect(productos, lessThanOrEqualTo(2));
+      // Claim fijo por prioridad: críticos primero, luego fondo.
+      expect(
+        claimed.first['entity_type'],
+        anyOf('remito', 'stock_op'),
+      );
+      final firstProd = claimed.indexWhere((e) => e['entity_type'] == 'producto');
+      final lastCrit = claimed.lastIndexWhere(
+        (e) => e['entity_type'] == 'remito' || e['entity_type'] == 'stock_op',
+      );
+      if (firstProd >= 0 && lastCrit >= 0) {
+        expect(lastCrit, lessThan(firstProd));
+      }
     });
 
     test('coalesce: N upserts mismo producto = 1 pending', () async {
