@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sistema_nuevo/core/security/authorization_service.dart';
-import 'package:sistema_nuevo/models/permiso.dart';
-import 'package:sistema_nuevo/models/usuario.dart';
-import 'package:sistema_nuevo/services/auth_service.dart';
-import 'package:sistema_nuevo/services/permisos_service.dart';
+import 'package:sistema_nuevo/shared/models/permiso.dart';
+import 'package:sistema_nuevo/shared/models/usuario.dart';
+import 'package:sistema_nuevo/core/services/auth_service.dart';
+import 'package:sistema_nuevo/core/services/permisos_service.dart';
 
 void main() {
   tearDown(() {

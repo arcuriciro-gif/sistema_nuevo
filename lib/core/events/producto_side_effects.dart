@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import '../../models/producto.dart';
+import '../../shared/models/producto.dart';
 
 /// Callbacks post-guardar de productos (plugins se registran aquí).
 /// El core NO importa plugins; solo dispara estos hooks.

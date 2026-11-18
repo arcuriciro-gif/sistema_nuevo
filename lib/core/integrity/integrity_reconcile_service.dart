@@ -1,6 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
-import '../../database/database_helper.dart';
+import '../database/database_helper.dart';
 import '../sync/sync_outbox.dart';
 import 'integrity_policy.dart';
 import 'legacy_ledger_migration.dart';

@@ -10,7 +10,7 @@ import 'package:sistema_nuevo/core/sync/scheduler/sync_priority.dart';
 import 'package:sistema_nuevo/core/sync/scheduler/sync_scheduler.dart';
 import 'package:sistema_nuevo/core/sync/scheduler/sync_scheduler_metrics.dart';
 import 'package:sistema_nuevo/core/sync/sync_outbox.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

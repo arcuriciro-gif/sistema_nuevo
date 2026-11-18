@@ -6,11 +6,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sistema_nuevo/core/domain/domain_bootstrap.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
-import 'package:sistema_nuevo/models/lista_precio.dart';
-import 'package:sistema_nuevo/models/usuario.dart';
-import 'package:sistema_nuevo/services/auth_service.dart';
-import 'package:sistema_nuevo/services/lista_precio_service.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
+import 'package:sistema_nuevo/shared/models/lista_precio.dart';
+import 'package:sistema_nuevo/shared/models/usuario.dart';
+import 'package:sistema_nuevo/core/services/auth_service.dart';
+import 'package:sistema_nuevo/core/services/lista_precio_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

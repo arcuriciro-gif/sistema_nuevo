@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sistema_nuevo/navigation/shell_menu_catalog.dart';
-import 'package:sistema_nuevo/services/sidebar_preferencias_service.dart';
+import 'package:sistema_nuevo/app/shell_menu_catalog.dart';
+import 'package:sistema_nuevo/core/services/sidebar_preferencias_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

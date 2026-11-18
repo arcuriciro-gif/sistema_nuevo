@@ -6,7 +6,7 @@ import 'package:uuid/uuid.dart';
 import 'observability/sync_observability_hub.dart';
 import 'scheduler/sync_priority.dart';
 import 'scheduler/sync_scheduler_metrics.dart';
-import '../../database/database_helper.dart';
+import '../database/database_helper.dart';
 
 /// Estados del outbox (Capacidad 2).
 class SyncOutboxStatus {

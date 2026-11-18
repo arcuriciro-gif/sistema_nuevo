@@ -7,12 +7,12 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sistema_nuevo/core/domain/domain_bootstrap.dart';
 import 'package:sistema_nuevo/core/integrity/integrity_policy.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
-import 'package:sistema_nuevo/models/cliente.dart';
-import 'package:sistema_nuevo/models/usuario.dart';
-import 'package:sistema_nuevo/services/auth_service.dart';
-import 'package:sistema_nuevo/services/cliente_service.dart';
-import 'package:sistema_nuevo/services/cuenta_corriente_service.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
+import 'package:sistema_nuevo/shared/models/cliente.dart';
+import 'package:sistema_nuevo/shared/models/usuario.dart';
+import 'package:sistema_nuevo/core/services/auth_service.dart';
+import 'package:sistema_nuevo/core/services/cliente_service.dart';
+import 'package:sistema_nuevo/core/services/cuenta_corriente_service.dart';
 
 /// Evidencia C7: CC se alinea con saldos de docs (como tras apply remoto).
 void main() {

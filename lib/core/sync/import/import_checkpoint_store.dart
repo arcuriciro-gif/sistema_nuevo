@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../../database/database_helper.dart';
+import '../../database/database_helper.dart';
 
 /// Checkpoint durable de importaciones masivas (reanudable tras kill).
 class ImportCheckpoint {

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:sistema_nuevo/models/producto.dart';
+import 'package:sistema_nuevo/shared/models/producto.dart';
 
 /// Soft-delete no debe quedar bloqueado por actualizadoEn de stock.
 ///

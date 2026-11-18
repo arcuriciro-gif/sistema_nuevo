@@ -1,6 +1,6 @@
 import '../auth/rol_util.dart';
-import '../../services/auth_service.dart';
-import '../../services/permisos_service.dart';
+import '../services/auth_service.dart';
+import '../services/permisos_service.dart';
 
 /// Acciones de autorización (Capacidad 1/4 — niveles 2/3).
 enum AuthzAction { ver, crear, editar, eliminar, anular, administrar }

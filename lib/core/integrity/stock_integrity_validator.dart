@@ -1,6 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
-import '../../database/database_helper.dart';
+import '../database/database_helper.dart';
 
 /// Fila de divergencia stock proyección vs ledger.
 class StockValidationIssue {

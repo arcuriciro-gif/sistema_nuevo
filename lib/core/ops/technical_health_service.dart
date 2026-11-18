@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
-import '../../database/database_helper.dart';
-import '../../services/auto_backup_service.dart';
+import '../database/database_helper.dart';
+import '../services/auto_backup_service.dart';
 import '../config/backend_config_service.dart';
 import '../sync/sync_health.dart';
 

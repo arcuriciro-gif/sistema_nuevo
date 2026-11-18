@@ -38,21 +38,21 @@ import 'stable_document_id.dart';
 import 'sync_watermark_store.dart';
 import 'windows_sync_policy.dart';
 import '../integrity/legacy_ledger_migration.dart';
-import '../../services/cuenta_corriente_service.dart';
-import '../../database/database_helper.dart';
-import '../../models/cliente.dart';
-import '../../models/documento_cliente.dart';
-import '../../models/producto.dart';
-import '../../models/proveedor.dart';
-import '../../models/usuario.dart';
-import '../../models/venta.dart';
-import '../../repositories/firestore_producto_repository.dart';
-import '../../repositories/firestore_usuario_repository.dart';
-import '../../repositories/producto_repository.dart';
-import '../../repositories/sqlite_producto_repository.dart';
-import '../../repositories/sqlite_usuario_repository.dart';
-import '../../services/branding_service.dart';
-import '../../services/permisos_service.dart';
+import '../services/cuenta_corriente_service.dart';
+import '../database/database_helper.dart';
+import '../../shared/models/cliente.dart';
+import '../../shared/models/documento_cliente.dart';
+import '../../shared/models/producto.dart';
+import '../../shared/models/proveedor.dart';
+import '../../shared/models/usuario.dart';
+import '../../shared/models/venta.dart';
+import '../../shared/repositories/firestore_producto_repository.dart';
+import '../../shared/repositories/firestore_usuario_repository.dart';
+import '../../shared/repositories/producto_repository.dart';
+import '../../shared/repositories/sqlite_producto_repository.dart';
+import '../../shared/repositories/sqlite_usuario_repository.dart';
+import '../services/branding_service.dart';
+import '../services/permisos_service.dart';
 
 /// Mantiene SQLite sincronizado con Firestore en tiempo real.
 class FirestoreSyncService {

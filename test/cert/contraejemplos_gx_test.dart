@@ -13,7 +13,7 @@ import 'package:sistema_nuevo/core/sync/stock_ops_ack_policy.dart';
 import 'package:sistema_nuevo/core/sync/stock_ops_pull_policy.dart';
 import 'package:sistema_nuevo/core/sync/stock_ops_windows_apply_protocol.dart';
 import 'package:sistema_nuevo/core/sync/sync_outbox.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
 import 'package:path/path.dart' as p;
 
 /// Fase 3: intentos deliberados de romper cada Gx.

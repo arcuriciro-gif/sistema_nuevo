@@ -6,13 +6,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sistema_nuevo/core/domain/domain_bootstrap.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
-import 'package:sistema_nuevo/models/remito.dart';
-import 'package:sistema_nuevo/models/remito_detalle.dart';
-import 'package:sistema_nuevo/models/usuario.dart';
-import 'package:sistema_nuevo/services/auth_service.dart';
-import 'package:sistema_nuevo/services/cuenta_corriente_service.dart';
-import 'package:sistema_nuevo/services/remito_service.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
+import 'package:sistema_nuevo/shared/models/remito.dart';
+import 'package:sistema_nuevo/shared/models/remito_detalle.dart';
+import 'package:sistema_nuevo/shared/models/usuario.dart';
+import 'package:sistema_nuevo/core/services/auth_service.dart';
+import 'package:sistema_nuevo/core/services/cuenta_corriente_service.dart';
+import 'package:sistema_nuevo/core/services/remito_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

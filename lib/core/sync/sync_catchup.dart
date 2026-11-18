@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
-import '../../database/database_helper.dart';
+import '../database/database_helper.dart';
 import 'sync_outbox.dart';
 
 /// Catch-up paginado de documentos locales → outbox (Capacidad 9 / roadmap B6).

@@ -7,15 +7,15 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sistema_nuevo/core/domain/domain_bootstrap.dart';
 import 'package:sistema_nuevo/core/sync/sync_outbox.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
-import 'package:sistema_nuevo/models/producto.dart';
-import 'package:sistema_nuevo/models/remito.dart';
-import 'package:sistema_nuevo/models/remito_detalle.dart';
-import 'package:sistema_nuevo/models/usuario.dart';
-import 'package:sistema_nuevo/services/auth_service.dart';
-import 'package:sistema_nuevo/services/cliente_service.dart';
-import 'package:sistema_nuevo/services/producto_service.dart';
-import 'package:sistema_nuevo/services/remito_service.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
+import 'package:sistema_nuevo/shared/models/producto.dart';
+import 'package:sistema_nuevo/shared/models/remito.dart';
+import 'package:sistema_nuevo/shared/models/remito_detalle.dart';
+import 'package:sistema_nuevo/shared/models/usuario.dart';
+import 'package:sistema_nuevo/core/services/auth_service.dart';
+import 'package:sistema_nuevo/core/services/cliente_service.dart';
+import 'package:sistema_nuevo/core/services/producto_service.dart';
+import 'package:sistema_nuevo/core/services/remito_service.dart';
 
 /// Regresión: alta local (producto / venta rápida) no debe colgarse
 /// esperando Firestore cuando no hay red (modo avión con sesión nube).

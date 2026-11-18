@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
-import '../../../database/database_helper.dart';
+import '../../database/database_helper.dart';
 
 /// Estado durable del scheduler (sobrevive kill / corte de luz).
 class SchedulerPersistentState {

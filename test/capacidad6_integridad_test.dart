@@ -9,7 +9,7 @@ import 'package:sistema_nuevo/core/domain/domain_bootstrap.dart';
 import 'package:sistema_nuevo/core/domain/domain_event.dart';
 import 'package:sistema_nuevo/core/domain/event_bus.dart';
 import 'package:sistema_nuevo/core/domain/money_ledger_service.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

@@ -5,13 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'pages/login_page.dart';
-import 'services/afip_service.dart';
-import 'services/app_log.dart';
-import 'services/branding_service.dart';
-import 'services/document_numbering_service.dart';
-import 'services/permisos_service.dart';
-import 'services/sidebar_preferencias_service.dart';
+import 'app/el_tata_app.dart';
+import 'core/services/afip_service.dart';
+import 'core/services/app_log.dart';
+import 'core/services/branding_service.dart';
+import 'core/services/document_numbering_service.dart';
+import 'core/services/permisos_service.dart';
+import 'core/services/sidebar_preferencias_service.dart';
 import 'core/comms/local_notification_service.dart';
 import 'core/comms/fcm_push_service.dart';
 import 'core/config/backend_config_service.dart';
@@ -21,8 +21,8 @@ import 'core/events/producto_side_effects.dart';
 import 'core/firebase/firebase_bootstrap.dart';
 import 'core/firebase/firebase_safe_mode.dart';
 import 'core/integrity/integrity_policy.dart';
-import 'plugins/whatsapp/whatsapp_catalog_service.dart';
-import 'theme/theme_provider.dart';
+import 'features/comunicaciones/whatsapp/whatsapp_catalog_service.dart';
+import 'core/theme/theme_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -112,50 +112,4 @@ void main() async {
   }, (error, stack) {
     unawaited(appendAppLog('ZoneError: $error\n$stack'));
   });
-}
-
-class ElTataApp extends StatefulWidget {
-  const ElTataApp({super.key});
-
-  @override
-  State<ElTataApp> createState() => _ElTataAppState();
-}
-
-class _ElTataAppState extends State<ElTataApp> {
-  void _onThemeChanged() {
-    if (mounted) setState(() {});
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    themeProvider.addListener(_onThemeChanged);
-  }
-
-  @override
-  void dispose() {
-    themeProvider.removeListener(_onThemeChanged);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Tata.Manager',
-      theme: themeProvider.lightTheme,
-      darkTheme: themeProvider.darkTheme,
-      themeMode: themeProvider.mode,
-      builder: (context, child) {
-        final mq = MediaQuery.of(context);
-        return MediaQuery(
-          data: mq.copyWith(
-            textScaler: TextScaler.linear(themeProvider.textScale),
-          ),
-          child: child ?? const SizedBox.shrink(),
-        );
-      },
-      home: const LoginPage(),
-    );
-  }
 }

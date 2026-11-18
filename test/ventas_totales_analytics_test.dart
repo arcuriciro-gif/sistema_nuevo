@@ -5,8 +5,8 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:sistema_nuevo/database/database_helper.dart';
-import 'package:sistema_nuevo/services/analytics_service.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
+import 'package:sistema_nuevo/core/services/analytics_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

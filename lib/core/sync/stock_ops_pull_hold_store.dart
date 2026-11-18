@@ -1,6 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
-import '../../database/database_helper.dart';
+import '../database/database_helper.dart';
 
 /// Hold-set para stock_ops que no se pueden aplicar aún.
 ///

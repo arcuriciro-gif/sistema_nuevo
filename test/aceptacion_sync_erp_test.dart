@@ -11,7 +11,7 @@ import 'package:sistema_nuevo/core/domain/inventory_ledger_service.dart';
 import 'package:sistema_nuevo/core/sync/remote_line_product_resolve.dart';
 import 'package:sistema_nuevo/core/sync/stock_ops_pull_hold_store.dart';
 import 'package:sistema_nuevo/core/sync/stock_ops_pull_policy.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
 
 /// Aceptación Tata.Manager — sync ERP Windows ↔ APK (sin Firebase).
 ///
