@@ -316,6 +316,7 @@ class AuthService {
                 'Primera vez en esta PC: admin / admin123.';
         return null;
       }
+      Usuario? hidratado;
       try {
         await FirebaseSafeMode.marcarInicioLoginFirebase();
         final cred = await firebase.iniciarSesionFlexible(entrada, password);
@@ -355,7 +356,7 @@ class AuthService {
           return null;
         }
 
-        final hidratado = await sqlite.upsertDesdeRemoto(
+        hidratado = await sqlite.upsertDesdeRemoto(
           remoto.copyWith(
             firebaseUid: uid,
             password: _hash(password),
@@ -364,7 +365,6 @@ class AuthService {
           ),
         );
         await FirebaseSafeMode.marcarFinLoginFirebase();
-        return _finalizarLoginLocal(hidratado, password, sqlite);
       } catch (e) {
         await FirebaseSafeMode.marcarFinLoginFirebase();
         debugPrint('Login remoto Firebase falló: $e');
@@ -374,12 +374,15 @@ class AuthService {
             'Sin nube en esta PC: admin / admin123.';
         return null;
       }
+      // Fuera del try: un fallo al cerrar la sesión local no se disfraza de clave incorrecta.
+      return _finalizarLoginLocal(hidratado, password, sqlite);
     }
 
     // Usuario local: validar hash y entrar sin tocar Firebase todavía.
     if (!verifyPassword(password, localUser.password)) {
       // Si la clave local no coincide, probar Firebase (clave del mail).
       if (puedeFirebase) {
+        Usuario? actualizado;
         try {
           await FirebaseSafeMode.marcarInicioLoginFirebase();
           final cred = await firebase.iniciarSesionFlexible(
@@ -389,19 +392,22 @@ class AuthService {
           );
           final uid = cred.user?.uid;
           if (uid != null) {
-            final actualizado = localUser.copyWith(
+            final pendiente = localUser.copyWith(
               firebaseUid: uid,
               password: _hash(password),
               debeCambiarPassword: false,
             );
-            await sqlite.actualizar(actualizado);
+            await sqlite.actualizar(pendiente);
             await FirebaseSafeMode.marcarFinLoginFirebase();
-            return _finalizarLoginLocal(actualizado, password, sqlite);
+            actualizado = pendiente;
           }
         } catch (e) {
           debugPrint('Firebase login (clave distinta a local): $e');
         } finally {
           await FirebaseSafeMode.marcarFinLoginFirebase();
+        }
+        if (actualizado != null) {
+          return _finalizarLoginLocal(actualizado, password, sqlite);
         }
       }
       lastLoginError =
