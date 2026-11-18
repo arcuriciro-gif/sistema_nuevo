@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sistema_nuevo/models/notificacion_interna.dart';
+import 'package:sistema_nuevo/shared/models/notificacion_interna.dart';
 
 void main() {
   test('fromMap usa fallbacks si titulo/cuerpo vienen vacíos', () {

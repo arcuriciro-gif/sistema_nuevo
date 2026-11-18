@@ -1,6 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
-import '../../../database/database_helper.dart';
+import '../../database/database_helper.dart';
 
 /// Muestra puntual para historial 24h del panel.
 class SyncMetricsSample {

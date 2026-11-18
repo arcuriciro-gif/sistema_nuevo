@@ -1,5 +1,5 @@
-import '../../../models/producto.dart';
-import '../../../services/producto_service.dart';
+import '../../../shared/models/producto.dart';
+import '../../services/producto_service.dart';
 import 'cert_lab_auth.dart';
 import 'cert_lab_models.dart';
 import 'cert_lab_world.dart';

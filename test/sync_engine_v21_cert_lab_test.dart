@@ -13,7 +13,7 @@ import 'package:sistema_nuevo/core/sync/observability/sync_observability_hub.dar
 import 'package:sistema_nuevo/core/sync/observability/sync_report_pdf.dart';
 import 'package:sistema_nuevo/core/sync/observability/sync_stress_runner.dart';
 import 'package:sistema_nuevo/core/sync/scheduler/sync_scheduler.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
 
 /// Certificación lab Sync Engine 2.1 (observabilidad / SLA / breaker).
 void main() {

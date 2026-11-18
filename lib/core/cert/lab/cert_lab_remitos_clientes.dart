@@ -1,8 +1,8 @@
-import '../../../models/remito.dart';
-import '../../../models/remito_detalle.dart';
-import '../../../services/cliente_service.dart';
-import '../../../services/producto_service.dart';
-import '../../../services/remito_service.dart';
+import '../../../shared/models/remito.dart';
+import '../../../shared/models/remito_detalle.dart';
+import '../../services/cliente_service.dart';
+import '../../services/producto_service.dart';
+import '../../services/remito_service.dart';
 import 'cert_lab_auth.dart';
 import 'cert_lab_models.dart';
 import 'cert_lab_world.dart';

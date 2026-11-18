@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sistema_nuevo/theme/layout_constants.dart';
+import 'package:sistema_nuevo/core/theme/layout_constants.dart';
 
 void main() {
   group('isDesktopShellLayout', () {

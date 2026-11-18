@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
-import '../../database/database_helper.dart';
+import '../database/database_helper.dart';
 import '../domain/domain_event.dart';
 
 /// Migración: productos históricos sin filas en `inventory_ledger`.

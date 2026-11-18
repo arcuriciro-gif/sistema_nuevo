@@ -14,7 +14,7 @@ import 'package:sistema_nuevo/core/integrity/legacy_ledger_migration.dart';
 import 'package:sistema_nuevo/core/sync/stock_ops_pull_hold_store.dart';
 import 'package:sistema_nuevo/core/sync/stock_ops_pull_policy.dart';
 import 'package:sistema_nuevo/core/sync/sync_outbox.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
 
 /// Cierre de residuales: poison, legacy ledger, G6 formal, watermark HOL.
 void main() {

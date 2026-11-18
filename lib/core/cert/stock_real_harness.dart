@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import '../../database/database_helper.dart';
+import '../database/database_helper.dart';
 import '../domain/domain_event.dart';
 import '../domain/inventory_ledger_service.dart';
 import '../sync/cloud_sync_throttle.dart';

@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
-import '../../database/database_helper.dart';
+import '../database/database_helper.dart';
 import '../events/data_refresh_hub.dart';
 import 'domain_event.dart';
 import 'event_bus.dart';

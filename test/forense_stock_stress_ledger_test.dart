@@ -8,7 +8,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sistema_nuevo/core/domain/domain_event.dart';
 import 'package:sistema_nuevo/core/domain/inventory_ledger_service.dart';
 import 'package:sistema_nuevo/core/integrity/stock_integrity_validator.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
 
 /// Estrés de ledger local: miles de movimientos + validador forense.
 /// Escala CI: 200 productos × 50 ops = 10_000 movimientos.

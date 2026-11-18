@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
-import '../../database/database_helper.dart';
+import '../database/database_helper.dart';
 
 /// Watermarks persistentes + registro de conflictos (Capacidad 2).
 class SyncWatermarkStore {

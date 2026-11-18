@@ -1,6 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
-import '../../database/database_helper.dart';
+import '../database/database_helper.dart';
 
 /// Registro durable de stock_ops ya vistas (local-origin o remote-applied).
 ///

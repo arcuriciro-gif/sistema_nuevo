@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
-import '../../database/database_helper.dart';
-import '../../models/movimiento_stock.dart';
-import '../../services/auth_service.dart';
+import '../database/database_helper.dart';
+import '../../shared/models/movimiento_stock.dart';
+import '../services/auth_service.dart';
 import '../events/data_refresh_hub.dart';
 import '../integrity/integrity_policy.dart';
 import '../config/platform_capabilities.dart';

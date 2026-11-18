@@ -11,9 +11,9 @@ import 'package:sistema_nuevo/core/domain/event_bus.dart';
 import 'package:sistema_nuevo/core/domain/inventory_ledger_service.dart';
 import 'package:sistema_nuevo/core/integrity/integrity_policy.dart';
 import 'package:sistema_nuevo/core/integrity/integrity_reconcile_service.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
-import 'package:sistema_nuevo/models/usuario.dart';
-import 'package:sistema_nuevo/services/auth_service.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
+import 'package:sistema_nuevo/shared/models/usuario.dart';
+import 'package:sistema_nuevo/core/services/auth_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

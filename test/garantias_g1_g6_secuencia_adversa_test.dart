@@ -10,7 +10,7 @@ import 'package:sistema_nuevo/core/domain/domain_event.dart';
 import 'package:sistema_nuevo/core/domain/inventory_ledger_service.dart';
 import 'package:sistema_nuevo/core/integrity/stock_integrity_validator.dart';
 import 'package:sistema_nuevo/core/sync/sync_outbox.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
 
 /// Demostración G1–G6 sobre ledger local + outbox atómico.
 ///

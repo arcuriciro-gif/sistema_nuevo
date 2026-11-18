@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import '../../../models/producto.dart';
-import '../../../services/producto_service.dart';
+import '../../../shared/models/producto.dart';
+import '../../services/producto_service.dart';
 import 'import_checkpoint_store.dart';
 
 /// Resultado parcial / final de un lote de importación.

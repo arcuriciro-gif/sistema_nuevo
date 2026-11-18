@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sistema_nuevo/services/proveedor_pdf_service.dart';
+import 'package:sistema_nuevo/core/services/proveedor_pdf_service.dart';
 
 void main() {
   final pdfPath = 'test/fixtures/cuero_sur_presupuesto.pdf';

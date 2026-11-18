@@ -12,7 +12,7 @@ import '../config/backend_config_service.dart';
 import '../config/platform_capabilities.dart';
 import '../firebase/firebase_bootstrap.dart';
 import '../../firebase_options.dart';
-import '../../services/auth_service.dart';
+import '../services/auth_service.dart';
 import 'local_notification_service.dart';
 
 /// Push FCM para alertas de comunicaciones con la app cerrada/background.

@@ -8,7 +8,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sistema_nuevo/core/domain/domain_event.dart';
 import 'package:sistema_nuevo/core/domain/inventory_ledger_service.dart';
 import 'package:sistema_nuevo/core/sync/windows_sync_policy.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
 
 /// Campo: crash .exe en "Actualizar ahora" + stock divergente residual.
 void main() {

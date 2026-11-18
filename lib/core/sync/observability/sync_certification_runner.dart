@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:package_info_plus/package_info_plus.dart';
 
-import '../../../database/database_helper.dart';
+import '../../database/database_helper.dart';
 import '../scheduler/sync_scheduler.dart';
 import 'sync_benchmark_runner.dart';
 import 'sync_diagnostic_service.dart';

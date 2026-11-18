@@ -7,19 +7,19 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sistema_nuevo/core/domain/domain_bootstrap.dart';
 import 'package:sistema_nuevo/core/integrity/integrity_policy.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
-import 'package:sistema_nuevo/models/cliente.dart';
-import 'package:sistema_nuevo/models/producto.dart';
-import 'package:sistema_nuevo/models/remito.dart';
-import 'package:sistema_nuevo/models/remito_detalle.dart';
-import 'package:sistema_nuevo/models/usuario.dart';
-import 'package:sistema_nuevo/models/venta.dart';
-import 'package:sistema_nuevo/models/venta_item.dart';
-import 'package:sistema_nuevo/services/auth_service.dart';
-import 'package:sistema_nuevo/services/cliente_service.dart';
-import 'package:sistema_nuevo/services/cuenta_corriente_service.dart';
-import 'package:sistema_nuevo/services/producto_service.dart';
-import 'package:sistema_nuevo/services/remito_service.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
+import 'package:sistema_nuevo/shared/models/cliente.dart';
+import 'package:sistema_nuevo/shared/models/producto.dart';
+import 'package:sistema_nuevo/shared/models/remito.dart';
+import 'package:sistema_nuevo/shared/models/remito_detalle.dart';
+import 'package:sistema_nuevo/shared/models/usuario.dart';
+import 'package:sistema_nuevo/shared/models/venta.dart';
+import 'package:sistema_nuevo/shared/models/venta_item.dart';
+import 'package:sistema_nuevo/core/services/auth_service.dart';
+import 'package:sistema_nuevo/core/services/cliente_service.dart';
+import 'package:sistema_nuevo/core/services/cuenta_corriente_service.dart';
+import 'package:sistema_nuevo/core/services/producto_service.dart';
+import 'package:sistema_nuevo/core/services/remito_service.dart';
 
 /// Pruebas adversariales de COMPORTAMIENTO (servicios + SQLite).
 /// Tras fixes P0 1.2.34: demuestran correcciones; no asumen “compila ⇒ funciona”.

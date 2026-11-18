@@ -7,7 +7,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sistema_nuevo/core/sync/import/import_checkpoint_store.dart';
 import 'package:sistema_nuevo/core/sync/scheduler/sync_scheduler_policy.dart';
-import 'package:sistema_nuevo/database/database_helper.dart';
+import 'package:sistema_nuevo/core/database/database_helper.dart';
 
 /// Simula cola de 100k ops de fondo + críticos intercalados.
 void main() {

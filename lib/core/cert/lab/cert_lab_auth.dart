@@ -1,5 +1,5 @@
-import '../../../models/usuario.dart';
-import '../../../services/auth_service.dart';
+import '../../../shared/models/usuario.dart';
+import '../../services/auth_service.dart';
 import '../../domain/domain_bootstrap.dart';
 import '../../sync/cloud_sync_throttle.dart';
 

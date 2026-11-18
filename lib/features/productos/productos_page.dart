@@ -1,0 +1,935 @@
+import 'package:flutter/material.dart';
+
+import '../../core/events/data_refresh_hub.dart';
+import '../../core/inventory/stock_kpi.dart';
+import '../../core/security/authorization_service.dart';
+import '../../core/utils/busqueda_texto.dart';
+import '../../shared/models/lista_precio.dart';
+import '../../shared/models/producto.dart';
+import '../../core/services/lista_precio_service.dart';
+import '../../core/services/producto_service.dart';
+import '../../core/theme/app_visuals.dart';
+import '../../shared/widgets/media_avatar.dart';
+import '../../shared/widgets/foto_ampliada.dart';
+import 'papelera_productos_page.dart';
+import 'producto_detalle_page.dart';
+import 'producto_form_page.dart';
+import '../scanner/scanner_page.dart';
+import '../../core/theme/module_app_bar.dart';
+
+class ProductosPage extends StatefulWidget {
+  /// Si es true, abre la lista ya filtrada a productos sin stock.
+  final bool soloSinStockInicial;
+
+  /// Si es true, abre filtrado a stock bajo / critico (incluye sin stock).
+  final bool soloStockBajoInicial;
+
+  /// Si es true, abre solo productos con stock > 0.
+  final bool soloConStockInicial;
+
+  /// Si es true, muestra productos con stock ordenados por aporte al valor
+  /// (precio × cantidad), de mayor a menor.
+  final bool ordenarPorValorStockInicial;
+
+  const ProductosPage({
+    super.key,
+    this.soloSinStockInicial = false,
+    this.soloStockBajoInicial = false,
+    this.soloConStockInicial = false,
+    this.ordenarPorValorStockInicial = false,
+  });
+
+  @override
+  State<ProductosPage> createState() => _ProductosPageState();
+}
+
+class _ProductosPageState extends State<ProductosPage> {
+  static const int _stockNivelAlto = 10;
+
+  final ProductoService service = ProductoService();
+  final ListaPrecioService listaPrecioService = ListaPrecioService();
+  final TextEditingController buscarController = TextEditingController();
+
+  List<Producto> productos = [];
+  List<Producto> filtrados = [];
+  List<ListaPrecio> listasActivas = [];
+  bool cargando = true;
+
+  String _filtroBusqueda = '';
+  String? _filtroMarca;
+  String? _filtroProveedor;
+  bool _soloFavoritos = false;
+  bool _soloSinStock = false;
+  bool _soloStockBajo = false;
+  bool _soloConStock = false;
+  bool _ordenarPorValorStock = false;
+
+  List<String> _marcas = [];
+  List<String> _proveedores = [];
+
+  int get _totalProductos => productos.length;
+  double get _valorStock => productos.fold(0, (s, p) => s + p.precio * p.stock);
+  int get _sinStock => productos.where((p) => StockKpi.sinStock(p.stock)).length;
+  int get _conStock => productos.where((p) => StockKpi.conStock(p.stock)).length;
+  int get _stockNegativo =>
+      productos.where((p) => StockKpi.negativo(p.stock)).length;
+
+  @override
+  void initState() {
+    super.initState();
+    _soloSinStock = widget.soloSinStockInicial;
+    _soloStockBajo = widget.soloStockBajoInicial;
+    _soloConStock =
+        widget.soloConStockInicial || widget.ordenarPorValorStockInicial;
+    _ordenarPorValorStock = widget.ordenarPorValorStockInicial;
+    DataRefreshHub.instance.addListener(_onDatosActualizados);
+    cargarProductos();
+  }
+
+  void _onDatosActualizados() {
+    if (!mounted) return;
+    cargarProductos();
+  }
+
+  @override
+  void dispose() {
+    DataRefreshHub.instance.removeListener(_onDatosActualizados);
+    buscarController.dispose();
+    super.dispose();
+  }
+
+  Future<void> cargarProductos() async {
+    setState(() => cargando = true);
+    productos = await service.obtenerTodos();
+    listasActivas = await listaPrecioService.obtenerActivas();
+    _marcas = productos.map((p) => p.marca).where((m) => m.isNotEmpty).toSet().toList()
+      ..sort();
+    _proveedores = productos
+        .map((p) => p.proveedor)
+        .where((v) => v.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+
+    _aplicarFiltros();
+
+    if (!mounted) return;
+    setState(() => cargando = false);
+  }
+
+  void _aplicarFiltros() {
+    filtrados = productos.where((p) {
+      final matchBusqueda = BusquedaTexto.coincide(_filtroBusqueda, [
+        p.descripcion,
+        p.codigo,
+        p.codigoBarras,
+        p.marca,
+        p.categoria,
+        p.proveedor,
+        p.modelo,
+        p.colorProducto,
+        p.talle,
+      ]);
+
+      final matchMarca = _filtroMarca == null || p.marca == _filtroMarca;
+      final matchProveedor =
+          _filtroProveedor == null || p.proveedor == _filtroProveedor;
+      final matchFavorito = !_soloFavoritos || p.favorito;
+      final matchSinStock = !_soloSinStock || StockKpi.sinStock(p.stock);
+      final matchConStock = !_soloConStock || StockKpi.conStock(p.stock);
+      final matchStockBajo = !_soloStockBajo ||
+          StockKpi.sinStock(p.stock) ||
+          (p.stockMinimo > 0 ? p.stock <= p.stockMinimo : p.stock <= 5);
+
+      return matchBusqueda &&
+          matchMarca &&
+          matchProveedor &&
+          matchFavorito &&
+          matchSinStock &&
+          matchConStock &&
+          matchStockBajo;
+    }).toList();
+
+    if (_ordenarPorValorStock) {
+      filtrados.sort((a, b) {
+        final va = a.precio * a.stock;
+        final vb = b.precio * b.stock;
+        final cmp = vb.compareTo(va);
+        if (cmp != 0) return cmp;
+        return a.descripcion.compareTo(b.descripcion);
+      });
+    } else {
+      // Favoritos primero
+      filtrados.sort((a, b) {
+        if (a.favorito == b.favorito) {
+          return a.descripcion.compareTo(b.descripcion);
+        }
+        return a.favorito ? -1 : 1;
+      });
+    }
+
+    if (mounted) setState(() {});
+  }
+
+  void _mostrarSoloSinStock() {
+    setState(() {
+      _soloSinStock = true;
+      _soloConStock = false;
+      _ordenarPorValorStock = false;
+      _soloStockBajo = false;
+      _soloFavoritos = false;
+    });
+    _aplicarFiltros();
+  }
+
+  void _mostrarSoloConStock({bool porValor = false}) {
+    setState(() {
+      _soloConStock = true;
+      _ordenarPorValorStock = porValor;
+      _soloSinStock = false;
+      _soloStockBajo = false;
+      _soloFavoritos = false;
+    });
+    _aplicarFiltros();
+  }
+
+  void _limpiarFiltros() {
+    setState(() {
+      _filtroBusqueda = '';
+      _filtroMarca = null;
+      _filtroProveedor = null;
+      _soloFavoritos = false;
+      _soloSinStock = false;
+      _soloConStock = false;
+      _ordenarPorValorStock = false;
+      _soloStockBajo = false;
+      buscarController.clear();
+    });
+    _aplicarFiltros();
+  }
+
+  Future<void> _escanearCodigo() async {
+    final codigo = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const ScannerPage()),
+    );
+    if (codigo == null || codigo.trim().isEmpty || !mounted) return;
+    buscarController.text = codigo;
+    setState(() => _filtroBusqueda = codigo);
+    _aplicarFiltros();
+  }
+
+  Future<void> eliminar(Producto producto) async {
+    if (producto.id == null) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Enviar a papelera'),
+        content: Text(
+          '¿Mover "${producto.descripcion}" a la papelera? Podés recuperarlo después.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Mover', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    await service.eliminar(producto.id!);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Producto enviado a la papelera')),
+      );
+    }
+    await cargarProductos();
+  }
+
+  Future<void> _toggleFavorito(Producto producto) async {
+    await service.toggleFavorito(producto);
+    await cargarProductos();
+  }
+
+  Color _stockColor(int stock) {
+    final cs = Theme.of(context).colorScheme;
+    if (stock > _stockNivelAlto) return AppVisuals.success(cs);
+    if (stock > 0) return AppVisuals.warning(cs);
+    return AppVisuals.danger(cs);
+  }
+
+  Future<void> _nuevoProducto() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ProductoFormPage()),
+    );
+    await cargarProductos();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final dangerColor = AppVisuals.danger(colorScheme);
+
+    return Scaffold(
+      appBar: buildModuleAppBar(
+        context,
+        title: 'Productos',
+        actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: cargarProductos,
+          ),
+          IconButton(
+            tooltip: _soloFavoritos ? 'Ver todos' : 'Solo favoritos',
+            icon: Icon(
+              _soloFavoritos ? Icons.star_rounded : Icons.star_outline_rounded,
+            ),
+            onPressed: () {
+              setState(() => _soloFavoritos = !_soloFavoritos);
+              _aplicarFiltros();
+            },
+          ),
+          if (AuthorizationService.instance.puedeEliminarProductos)
+            IconButton(
+              tooltip: 'Papelera',
+              icon: const Icon(Icons.delete_outline_rounded),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PapeleraProductosPage(),
+                  ),
+                );
+                await cargarProductos();
+              },
+            ),
+        ],
+      ),
+      floatingActionButton: AuthorizationService.instance.puedeCrearProductos
+          ? FloatingActionButton.extended(
+              heroTag: 'fab_productos',
+              onPressed: _nuevoProducto,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Nuevo'),
+            )
+          : null,
+      body: cargando
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final narrow = constraints.maxWidth < 500;
+                      final cards = [
+                        _KpiCard(
+                          title: 'Productos',
+                          value: '$_totalProductos',
+                          icon: Icons.inventory_2_rounded,
+                          color: AppVisuals.primaryAccent(
+                            Theme.of(context).colorScheme,
+                          ),
+                          selected: !_soloConStock &&
+                              !_soloSinStock &&
+                              !_ordenarPorValorStock,
+                          onTap: () {
+                            setState(() {
+                              _soloConStock = false;
+                              _soloSinStock = false;
+                              _ordenarPorValorStock = false;
+                              _soloStockBajo = false;
+                            });
+                            _aplicarFiltros();
+                          },
+                        ),
+                        _KpiCard(
+                          title: 'Con stock',
+                          value: '$_conStock',
+                          icon: Icons.layers_rounded,
+                          color: AppVisuals.success(
+                            Theme.of(context).colorScheme,
+                          ),
+                          selected: _soloConStock && !_ordenarPorValorStock,
+                          onTap: () {
+                            if (_soloConStock && !_ordenarPorValorStock) {
+                              setState(() {
+                                _soloConStock = false;
+                                _ordenarPorValorStock = false;
+                              });
+                              _aplicarFiltros();
+                            } else {
+                              _mostrarSoloConStock();
+                            }
+                          },
+                        ),
+                        _KpiCard(
+                          title: _stockNegativo > 0
+                              ? 'Sin stock ($_stockNegativo neg.)'
+                              : 'Sin stock',
+                          value: '$_sinStock',
+                          icon: Icons.warning_amber_rounded,
+                          color: dangerColor,
+                          selected: _soloSinStock,
+                          onTap: () {
+                            if (_soloSinStock) {
+                              setState(() => _soloSinStock = false);
+                              _aplicarFiltros();
+                            } else {
+                              _mostrarSoloSinStock();
+                            }
+                          },
+                        ),
+                      ];
+                      return narrow
+                          ? GridView.count(
+                              crossAxisCount: 2,
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              mainAxisSpacing: 8,
+                              crossAxisSpacing: 8,
+                              childAspectRatio: 2.3,
+                              children: cards,
+                            )
+                          : Row(
+                              children: cards
+                                  .map(
+                                    (c) => Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(right: 8),
+                                        child: c,
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                            );
+                    },
+                  ),
+                ),
+                if (_soloSinStock ||
+                    _soloStockBajo ||
+                    _soloConStock ||
+                    _ordenarPorValorStock)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                    child: Material(
+                      color: (_soloSinStock || _soloStockBajo
+                              ? dangerColor
+                              : AppVisuals.info(Theme.of(context).colorScheme))
+                          .withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(
+                          _soloSinStock || _soloStockBajo
+                              ? Icons.warning_amber_rounded
+                              : (_ordenarPorValorStock
+                                  ? Icons.attach_money_rounded
+                                  : Icons.layers_rounded),
+                          color: _soloSinStock || _soloStockBajo
+                              ? dangerColor
+                              : AppVisuals.info(Theme.of(context).colorScheme),
+                        ),
+                        title: Text(
+                          _soloSinStock
+                              ? (_stockNegativo > 0
+                                  ? 'Mostrando $_sinStock sin stock '
+                                      '($_stockNegativo con stock negativo)'
+                                  : 'Mostrando $_sinStock producto(s) sin stock')
+                              : _soloStockBajo
+                                  ? 'Mostrando productos con stock bajo'
+                                  : _ordenarPorValorStock
+                                      ? 'Productos que forman el valor de stock (\$${_fmtNum(_valorStock)})'
+                                      : 'Mostrando $_conStock producto(s) con stock',
+                          style: TextStyle(
+                            color: _soloSinStock || _soloStockBajo
+                                ? dangerColor
+                                : AppVisuals.info(
+                                    Theme.of(context).colorScheme,
+                                  ),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        trailing: TextButton(
+                          onPressed: _limpiarFiltros,
+                          child: const Text('Ver todos'),
+                        ),
+                      ),
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: buscarController,
+                          onChanged: (v) {
+                            _filtroBusqueda = v;
+                            _aplicarFiltros();
+                          },
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.search_rounded),
+                            hintText: 'Código, barras, nombre, marca...',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            isDense: true,
+                            suffixIcon: (_filtroBusqueda.isNotEmpty ||
+                                    _filtroMarca != null ||
+                                    _filtroProveedor != null ||
+                                    _soloSinStock ||
+                                    _soloStockBajo)
+                                ? IconButton(
+                                    icon: const Icon(Icons.close_rounded),
+                                    tooltip: 'Limpiar filtros',
+                                    onPressed: _limpiarFiltros,
+                                  )
+                                : IconButton(
+                                    icon: const Icon(Icons.qr_code_scanner_rounded),
+                                    tooltip: 'Escanear código',
+                                    onPressed: _escanearCodigo,
+                                  ),
+                          ),
+                        ),
+                      ),
+                      if (_marcas.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        _FilterChipButton(
+                          label: _filtroMarca ?? 'Marca',
+                          icon: Icons.label_outline_rounded,
+                          active: _filtroMarca != null,
+                          onTap: () => _showFilterSheet(
+                            title: 'Filtrar por marca',
+                            items: _marcas,
+                            selected: _filtroMarca,
+                            onSelect: (v) {
+                              setState(() => _filtroMarca = v);
+                              _aplicarFiltros();
+                            },
+                          ),
+                        ),
+                      ],
+                      if (_proveedores.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        _FilterChipButton(
+                          label: _filtroProveedor ?? 'Proveedor',
+                          icon: Icons.local_shipping_outlined,
+                          active: _filtroProveedor != null,
+                          onTap: () => _showFilterSheet(
+                            title: 'Filtrar por proveedor',
+                            items: _proveedores,
+                            selected: _filtroProveedor,
+                            onSelect: (v) {
+                              setState(() => _filtroProveedor = v);
+                              _aplicarFiltros();
+                            },
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                  child: Text(
+                    '${filtrados.length} producto${filtrados.length != 1 ? 's' : ''}',
+                    style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+                  ),
+                ),
+                Expanded(
+                  child: filtrados.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.inventory_2_outlined,
+                                size: 64,
+                                color: colorScheme.outlineVariant,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Sin resultados',
+                                style: TextStyle(color: colorScheme.onSurfaceVariant),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: EdgeInsets.fromLTRB(
+                            10,
+                            0,
+                            10,
+                            80 + MediaQuery.viewPaddingOf(context).bottom,
+                          ),
+                          itemCount: filtrados.length,
+                          itemBuilder: (context, index) {
+                            final p = filtrados[index];
+                            final stockColor = _stockColor(p.stock);
+                            return _ProductoCard(
+                              producto: p,
+                              stockColor: stockColor,
+                              colorScheme: colorScheme,
+                              onOpen: () async {
+                                final changed = await Navigator.push<bool>(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => ProductoDetallePage(
+                                      producto: p,
+                                      listasActivas: listasActivas,
+                                      onEdit: AuthorizationService
+                                              .instance.puedeEditarProductos
+                                          ? () async {
+                                              await Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      ProductoFormPage(
+                                                    producto: p,
+                                                  ),
+                                                ),
+                                              );
+                                              if (context.mounted) {
+                                                Navigator.pop(context, true);
+                                              }
+                                            }
+                                          : null,
+                                      onDelete: AuthorizationService
+                                              .instance.puedeEliminarProductos
+                                          ? () async {
+                                              Navigator.pop(context);
+                                              await eliminar(p);
+                                            }
+                                          : null,
+                                      onToggleFavorito: () async {
+                                        await _toggleFavorito(p);
+                                        if (context.mounted) {
+                                          Navigator.pop(context, true);
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                );
+                                if (changed == true) await cargarProductos();
+                              },
+                              onToggleFavorito: () => _toggleFavorito(p),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  void _showFilterSheet({
+    required String title,
+    required List<String> items,
+    required String? selected,
+    required ValueChanged<String?> onSelect,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ),
+          ListTile(
+            title: const Text('Todos'),
+            leading: const Icon(Icons.clear_all_rounded),
+            selected: selected == null,
+            onTap: () {
+              onSelect(null);
+              Navigator.pop(context);
+            },
+          ),
+          const Divider(height: 1),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              children: items
+                  .map(
+                    (item) => ListTile(
+                      title: Text(item),
+                      selected: selected == item,
+                      trailing: selected == item ? const Icon(Icons.check_rounded) : null,
+                      onTap: () {
+                        onSelect(item);
+                        Navigator.pop(context);
+                      },
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  String _fmtNum(double v) {
+    if (v >= 1000000) return '${(v / 1000000).toStringAsFixed(1)}M';
+    if (v >= 1000) return '${(v / 1000).toStringAsFixed(0)}K';
+    return v.toStringAsFixed(0);
+  }
+}
+
+class _KpiCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onTap;
+  final bool selected;
+
+  const _KpiCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+    this.onTap,
+    this.selected = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: selected ? 4 : 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: selected
+            ? BorderSide(color: color, width: 1.5)
+            : BorderSide.none,
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: color.withValues(alpha: 0.15),
+                child: Icon(icon, color: color, size: 16),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      value,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterChipButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _FilterChipButton({
+    required this.label,
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? cs.primaryContainer : cs.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: active ? cs.primary : cs.outlineVariant),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: active ? cs.primary : cs.onSurfaceVariant,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: active ? cs.primary : cs.onSurfaceVariant,
+                fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProductoCard extends StatelessWidget {
+  final Producto producto;
+  final Color stockColor;
+  final ColorScheme colorScheme;
+  final VoidCallback onOpen;
+  final VoidCallback onToggleFavorito;
+
+  const _ProductoCard({
+    required this.producto,
+    required this.stockColor,
+    required this.colorScheme,
+    required this.onOpen,
+    required this.onToggleFavorito,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = producto;
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: p.fotoPrincipal.trim().isEmpty
+                    ? null
+                    : () => showFotoAmpliada(
+                          context,
+                          path: p.fotoPrincipal,
+                          titulo: p.descripcion,
+                        ),
+                child: MediaAvatar(
+                  path: p.fotoPrincipal,
+                  radius: 34,
+                  fallbackLetter: (p.descripcion.isNotEmpty
+                          ? p.descripcion
+                          : p.codigo)
+                      .substring(0, 1),
+                  backgroundColor: colorScheme.primaryContainer,
+                  foregroundColor: colorScheme.onPrimaryContainer,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      p.descripcion,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 17,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      [
+                        if (p.codigo.isNotEmpty) p.codigo,
+                        if (p.marca.isNotEmpty) p.marca,
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: stockColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        'Stock ${p.stock}',
+                        style: TextStyle(
+                          color: stockColor,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: p.favorito ? 'Quitar favorito' : 'Favorito',
+                icon: Icon(
+                  p.favorito ? Icons.star_rounded : Icons.star_outline_rounded,
+                  color: p.favorito
+                      ? const Color(0xFFFFB020)
+                      : colorScheme.onSurfaceVariant,
+                ),
+                onPressed: onToggleFavorito,
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

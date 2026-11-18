@@ -3,7 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
-import '../../../database/database_helper.dart';
+import '../../database/database_helper.dart';
 import '../scheduler/sync_metrics_history_store.dart';
 import '../scheduler/sync_scheduler.dart';
 import '../sync_health.dart';
